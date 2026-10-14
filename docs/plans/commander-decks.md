@@ -3,7 +3,7 @@
 Goal: play real 100-card Commander decks of any colours, with partner commanders and
 every card type, and add the user's own deck to the menu.
 
-**Status: sessions 1-6 and 7a done. Don't start the next session until the user says so.**
+**Status: sessions 1-7 done. Don't start the next session until the user says so.**
 
 ## What "every card type" means here
 
@@ -124,7 +124,7 @@ Order matters: each one builds on the ones before it.
 - Done. The user asked for "you may draw" on Rhystic Study and Mystic Remora to be asked
   each time, not assumed. Card wording rules are now in `docs/card-scripting.md`.
 
-#### 7b. The rest of the deck
+#### 7b. The rest of the deck (done)
 
 - Graveyard and odd cards: Underworld Breach (escape), Mnemonic Betrayal, Necropotence,
   Ad Nauseam, Intuition, Mockingbird, Deflecting Swat, Chain of Vapor, Wishclaw Talisman,
@@ -135,6 +135,12 @@ Order matters: each one builds on the ones before it.
 - Bots that look for the deck's combos (Thassa's Oracle with Consultation or Tainted Pact),
   and use rituals, Simian Spirit Guide and Final Fortune.
 - The deck goes on the menu.
+- Done, every card exactly as worded; no simplification needed. New engine pieces:
+  control (110.2), casting from exile and graveyards (escape, permissions, 608.2g), copies
+  of permanents (707), replacement effects with choices as a permanent enters (614.12a),
+  the legend rule, ward, new targets (115.7d), gift, bargain, dash, surveil, restricted
+  mana (106.6), opening-hand actions (103.6). The simulation test timeout went up to 120
+  seconds: one starter-deck game was already near the old 60.
 
 ### 8. (Optional) Rebuild the four starter decks to 100 cards
 

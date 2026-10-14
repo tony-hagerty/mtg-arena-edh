@@ -93,4 +93,17 @@ for (const ch of chapters) {
 }
 writeFileSync(join(outDir, 'glossary.txt'), lines.slice(glossaryStart, creditsStart).join('\n').trimEnd() + '\n');
 writeFileSync(join(outDir, 'INDEX.md'), index.join('\n') + '\n');
+
+// Every creature type (205.3m), for choosing one (Cavern of Souls).
+const typesLine = lines.find((l) => l.startsWith('205.3m'));
+if (!typesLine) throw new Error('Rule 205.3m (creature types) not found');
+const creatureTypes = creatureTypesOf(typesLine);
+writeFileSync(join(root, 'src/cards/creature-types.json'), JSON.stringify(creatureTypes, null, 1) + '\n');
 console.log(`Wrote ${count} rules (effective ${effective}) to ${outDir}`);
+
+/** The creature types listed in rule 205.3m: "... one word long: Advisor, ..., and Zubera." plus any two-word ones before it. */
+function creatureTypesOf(line) {
+  const twoWord = [...line.matchAll(/two words long: ([^.]+)\./g)].flatMap((m) => m[1].split(/, | and /));
+  const oneWord = line.split('one word long: ')[1].replace(/\.$/, '').split(/, (?:and )?/);
+  return [...new Set([...twoWord, ...oneWord].map((t) => t.trim()).filter(Boolean))].sort();
+}

@@ -63,8 +63,19 @@ npm run build    # type-check and production build
   opens the cast panel with a **Face** row: pick the half, the Adventure, or the face to
   play. A modal card's land face says "(land)"; pressing Continue on it plays the land.
 - **Classes:** click yours to see its level bars; pick the next one and pay for it.
-- **Graveyard and exile:** a pile glows when something in it can be cast (flashback, or
-  an adventurer card whose Adventure you cast). Open it and click the glowing card.
+- **Graveyard and exile:** a pile glows when something in it can be cast (flashback,
+  escape, an adventurer card whose Adventure you cast, or a card an effect lets you cast or
+  play, in anyone's exile). Open it and click the glowing card. With escape (Underworld
+  Breach) a window then asks for the three other cards to exile. A card exiled face down
+  shows its back, unless you may look at it.
+- **More cast-panel rows:** **Gift** (promise an opponent a gift, or none), and for a
+  card with an ability that works from the hand, like Otawara's channel, an **Or** chip
+  beside playing it. A bargain sacrifice can be skipped with **No Sacrifice**.
+- **Lion's Eye Diamond** asks for the colour when you click it.
+- **New targets** (Deflecting Swat): click the new target for each slot, or press **Keep
+  Target**. A card in a graveyard (Sevinne's Reclamation) is targeted from a window.
+- When a spell lets you cast a card as it resolves (Beseech the Mirror), a window offers
+  **Cast** or **Don't Cast**; casting goes through the usual targets and costs.
 - **Blocking:** when you are attacked, click your creature. If it could block more than
   one attacker, click the attacker next.
 - **Piles:** identical lands, and identical creature tokens, pile up with a count (`x7`) on
@@ -238,17 +249,39 @@ Rule numbers below are from the Comprehensive Rules in `docs/rules/`.
   had on the stack goes with them.
 - Keywords: flying, reach, first strike, double strike, deathtouch, lifelink, trample,
   vigilance, haste, defender, hexproof, indestructible, menace, flash, storm, cumulative
-  upkeep, mobilize.
+  upkeep, mobilize, ward, dash, bargain, gift.
 - 123 real cards across four mono-coloured decks, every one fully working. The decks
   shown on the menu are old 60-card "legacy" decks (see below); the menu shows each
   deck's colour pips.
   `npm test` fails if a card has rules text the engine doesn't implement.
-- The user's Kraum and Tymna deck is in `decklists.json`, marked `"wip": true` so it stays
-  off the menu until all its cards work. 75 of its 100 cards work now (scripts in
-  `src/cards/kraum-tymna.ts`); the other 25 come in session 7b, listed in
-  `tests/cards.test.ts` and `docs/plans/commander-decks.md`. Eight cards were listed by
-  their Universes Within names (Chaos Emerald is Lotus Petal, and so on); the deck uses
-  their Oracle names.
+- Control (110.2): a permanent sits on its controller's side and can change hands
+  (Wishclaw Talisman). A spell is controlled by its caster, and a permanent spell enters
+  under its caster's control, even one owned by someone else. When a player leaves, control
+  they gained ends and what they still control is exiled (800.4a).
+- Casting from other zones: escape (702.138, given by Underworld Breach), and "you may
+  cast / play that card this turn" from any exile (Ragavan, Jeska's Will, Harnfel,
+  Mnemonic Betrayal, whose spells take mana of any type). A land played this way is the
+  turn's land (305.2a). A card may be cast while a spell resolves, without paying its
+  mana cost (608.2g, Beseech the Mirror).
+- Copies of permanents (707): Mockingbird enters as a copy of a creature, with the copy
+  effect's exceptions (707.9b); the copy has the copied card's abilities, enters
+  abilities included, and mana cost.
+- Replacement effects as a permanent enters (614.1c, 614.12a), with a choice: Mox
+  Diamond's discard, Cavern of Souls's creature type (all of 205.3m), Mockingbird's copy.
+  "Enters with counters". Actions from an opening hand (103.6, Gemstone Caverns).
+- The legend rule (704.5j): you choose which to keep; bots keep the untapped, ready one.
+- Ward (702.21), choosing new targets (115.7d), gift (702.174), bargain (702.166), dash
+  (702.109), surveil (701.25), delirium, "attacks each combat if able" (508.1d: one left
+  out attacks the next opponent), "skip your draw step", "whenever you discard".
+- Mana: restricted mana that makes a spell uncounterable (106.6, Cavern of Souls), mana
+  kept until end of turn (Birgi), mana abilities a land gains until end of turn (Rain of
+  Filth), and Lion's Eye Diamond (discard your hand, only with priority). Activated
+  abilities can cost a discard, a counter or life, work from the hand (channel), cost less,
+  or be usable only on your turn. Linked abilities (607, Chrome Mox), cards exiled face
+  down (406.3), and targets in a graveyard.
+- The user's Kraum and Tymna deck is on the menu: all 100 cards work (scripts in
+  `src/cards/kraum-tymna.ts`). Eight cards were listed by their Universes Within names
+  (Chaos Emerald is Lotus Petal, and so on); the deck uses their Oracle names.
 
 ## Known simplifications
 
@@ -262,8 +295,11 @@ These are deliberate cuts for a prototype, roughly in the order I'd tackle them 
   player every time.
 - **No priority in the cleanup step.** An ability that triggers there waits for the next
   upkeep instead (514.3a). No card in the pool can trigger then.
-- **A card keeps its identity when it changes zones.** By the rules it becomes a new
-  object (400.7), so a spell aimed at a creature that left and came back should miss it.
+- **A card mostly keeps its identity when it changes zones.** By the rules it becomes a
+  new object (400.7). Each card counts its zone changes (`Card.moves`), and the cards that
+  remember another card across time check it (Necropotence, dash, Mnemonic Betrayal,
+  Chrome Mox, Beseech the Mirror, Wishclaw Talisman, Underworld Breach), but targets don't:
+  a spell aimed at a creature that left and came back before it resolved still finds it.
 - **The four starter decks are still 60 cards** (commander + 59). They are marked
   `"legacy": true` in `src/cards/decklists.json`, get the shared artifacts added, and are
   checked as 60-card decks. The engine plays 100-card and partner decks, but none is on
@@ -311,21 +347,27 @@ These are deliberate cuts for a prototype, roughly in the order I'd tackle them 
 - In the older scripts, optional "you may" effects always happen when they are free upside
   (a defeated Siege's back face, the starter decks' land searches). The session 7a cards
   ask.
-- **The legend rule (704.5j) isn't implemented**: a player can control two legendary
-  permanents with the same name. Every deck is singleton, so this needs a copy effect
-  (Mockingbird, session 7b) to matter.
+- A copy that enters with the copied creature's own "as this enters" choice doesn't make
+  that choice too (614.12). No creature in the pool has one.
+- Birgi's "creatures you control can boast twice" does nothing: no card in the pool has
+  boast.
 - Naming a card (Demonic Consultation) offers every card the game knows, not every card
   ever printed. Naming any card that isn't in your library does the same thing.
-- Auto-pay never uses a mana ability that costs a card (Simian Spirit Guide): use it by
-  hand. Bots don't use it yet.
+- Auto-pay never uses a mana ability that costs a card (Simian Spirit Guide) or your
+  hand (Lion's Eye Diamond): use them by hand.
 - City of Brass deals its damage only when it is tapped for mana: nothing in the pool taps
   a land any other way.
 - Mana Vault doesn't ask about paying {4} while it is untapped, and Tymna doesn't ask
   with no opponent dealt combat damage: paying would change nothing. Both still trigger.
-- Bots don't look for combos yet (session 7b). They cast tutors in their second main
-  phase with mana to spare, never cast rituals or Final Fortune, cast Pact of Negation only
-  if they could pay for it next upkeep, name the card they want most for Demonic
-  Consultation, and keep a Tainted Pact card they want.
+- Bots: they win with Thassa's Oracle plus Demonic Consultation or Tainted Pact when they
+  can pay for both (Oracle first, holding priority). They cast a ritual, exile Simian
+  Spirit Guide or crack Lion's Eye Diamond (only with an empty hand) when the mana lets
+  them cast something they couldn't, and Final Fortune only with one opponent left whose
+  life their creatures could take. They cast tutors in their second main phase, Pact of
+  Negation only if they could pay next upkeep, use Necropotence in their second main
+  phase above 16 life, never cast Rain of Filth, decline Chain of Vapor's copy, give
+  Wishclaw Talisman to the opponent whose turn comes last and use their own only to find a
+  missing combo piece. They don't try Underworld Breach loops.
 - **Your commander going to your hand or library** lands there first, and you choose
   before anyone gets priority. By the rules (903.9b) that is a replacement effect chosen
   as it moves, but an effect can't stop partway through to ask. Bots get the real
@@ -336,6 +378,7 @@ These are deliberate cuts for a prototype, roughly in the order I'd tackle them 
 ```
 src/cards/      decklists.json        the decks, shared artifacts, tokens
                 db.ts                 card lookup, deck colours, deck legality (deckProblems)
+                creature-types.json   every creature type (205.3m; npm run fetch-rules)
                 cards.generated.json  card data from Scryfall (npm run fetch-cards)
                 scripts.ts            what each card does (starter decks)
                 kraum-tymna.ts        what the Kraum and Tymna deck's cards do
@@ -347,7 +390,8 @@ src/ui/         store.ts              Zustand store (game + what the player is s
                 view.ts               highlights, prompt, buttons, click handlers
                 Card/Board/Hud.tsx    components
                 Picker.tsx            card picker: search, mulligan, bottom, trigger order,
-                                      yes/no questions, naming a card
+                                      yes/no questions, naming, players, legend rule,
+                                      escape, casting while a spell resolves
                 styles.css            all styling
 tests/                                Vitest: card coverage, rules, the UI casting flow,
                                       bot-vs-bot games
@@ -376,8 +420,10 @@ Three ideas hold it together:
 `Game.priority` is always the player the game is waiting on. If `Game.decision` is null
 they have priority and can cast, activate or pass. Otherwise they are making that
 decision: a mulligan, declaring attackers or blockers, discarding, choosing targets for a
-trigger, ordering their triggers, picking cards from a list (`CardChoice`), answering yes
-or no (`AskChoice`), or naming a card (`NameChoice`). A choice in the middle of a spell's
+trigger, ordering their triggers, picking cards from a list (`CardChoice`, the legend rule
+too), answering yes or no (`AskChoice`), naming a card or creature type (`NameChoice`),
+choosing a player (`PlayerChoice`), casting a card while a spell resolves (`CastChoice`)
+or choosing new targets (`RetargetChoice`). A choice in the middle of a spell's
 effect waits in `Game.choices` until the effect so far has run; the spell stays on the
 stack as `Game.resolving` until it is answered. What happens next is the script's
 `then[key]`, which the choice names, so a card can ask several questions in a row.
@@ -427,7 +473,16 @@ stack as `Game.resolving` until it is answered. What happens next is the script'
    (until end of turn), `delay` with `delayed[key]` (603.7), `extraTurn`, `winGame`,
    `loseGame`, `mill`, `discard`. Storm needs no script. A target spec with
    `distinctFrom: i` can't repeat target `i`. An alternative cost can `exile` a card from
-   the hand.
+   the hand or `sacrifice` a permanent, or be `dash`; `additionalCost.optional` is
+   bargain; `gift` promises a token. `replaceEnter` asks a choice as the card enters and
+   calls `finishEnter`; `entersWith` adds counters; `openingHand` acts before the first
+   turn. Activated abilities can be `fromHand`, have a `when`, a `reduction`, and cost
+   `discard`, `discardSelf` or `counters`. Also `ward`, `grantsWard`, `grantsEscape`,
+   `skipDrawStep`, `onDiscard`, `delayedIf`, and helpers `gainControl`, `offerCast`,
+   `offerRetarget`, `choosePlayer`, `surveil`, `copyOf`, `abilitySource` (the source if
+   it is still the same object). Mana abilities can be `discardHand`, `instant` or
+   `chosenType`; `addMana(..., { keep: true })` lasts the turn. Bot hints: `ai: 'ritual'`
+   or `'extraTurn'`, `botActivate`.
 4. Run `npm test`. The card-pool test tells you if anything is still missing.
 
 ### Layout note
