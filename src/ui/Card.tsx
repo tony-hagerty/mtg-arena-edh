@@ -1,7 +1,7 @@
 import { useRef, useState } from 'react';
-import type { RefObject } from 'react';
+import type { CSSProperties, RefObject } from 'react';
 import { motion } from 'motion/react';
-import { data, isCreature, scriptOf, stats } from '../engine';
+import { attachmentsOf, data, isCreature, scriptOf, stats } from '../engine';
 import type { Card, CardData } from '../engine';
 import { useRem } from './rem';
 import { SEATS, cx, hoverProps } from './util';
@@ -107,6 +107,50 @@ function fan(index: number, total: number, maxGap: number, span: number) {
  * The outer tile is the space it takes on screen; the face inside is turned for the side seats.
  * The top card of a pile gets `badge`, the whole pile: its "x7" uses them all at once.
  */
+/** Counters on a permanent (122): "+2" for +1/+1 counters, "-1" for -1/-1, "3 charge" for others. */
+function Counters({ card }: { card: Card }) {
+  const entries = Object.entries(card.counters).filter(([, n]) => n > 0);
+  if (!entries.length) return null;
+  const text = ([kind, n]: [string, number]) => (kind === '+1/+1' ? `+${n}` : kind === '-1/-1' ? `-${n}` : `${n} ${kind}`);
+  return (
+    <div className="tile-counters" title={entries.map(([kind, n]) => `${n} ${kind} counter${n === 1 ? '' : 's'}`).join(', ')}>
+      {entries.map((e) => (
+        <span key={e[0]} className={cx(e[0] === '-1/-1' && 'minus')}>
+          {text(e)}
+        </span>
+      ))}
+    </div>
+  );
+}
+
+/**
+ * Auras and Equipment attached to a permanent, tucked behind it with their tops showing.
+ * Click one to use it (an Equipment's equip ability), hover to read it.
+ */
+function Attachments({ cards }: { cards: Card[] }) {
+  const { glow } = useView();
+  return (
+    <>
+      {cards.map((c, i) => (
+        <div
+          key={c.id}
+          data-card={c.id}
+          className={cx('tile-attached', `frame-${frameOf(data(c))}`, glow.get(c.id) && `glow-${glow.get(c.id)}`)}
+          style={{ '--i': i } as CSSProperties}
+          onClick={(e) => {
+            e.stopPropagation();
+            clickPermanent(c);
+          }}
+          {...hoverProps(c.name)}
+        >
+          <div className="tile-attached-art" style={{ backgroundImage: `url(${data(c).art})` }} />
+          <span>{data(c).name}</span>
+        </div>
+      ))}
+    </>
+  );
+}
+
 export function Permanent({ card, badge }: { card: Card; badge?: Card[] }) {
   const v = useView();
   const g = v.g;
@@ -129,6 +173,7 @@ export function Permanent({ card, badge }: { card: Card; badge?: Card[] }) {
           ? 'hurt'
           : '';
   const sick = creature && card.sick && g.active === card.owner && !s!.keywords.has('haste');
+  const attached = attachmentsOf(g, card);
 
   return (
     <motion.div
@@ -151,6 +196,7 @@ export function Permanent({ card, badge }: { card: Card; badge?: Card[] }) {
       onClick={() => clickPermanent(card)}
       {...hoverProps(card.name)}
     >
+      {attached.length > 0 && <Attachments cards={attached} />}
       <div className="tile-face">
         <div className="tile-art" style={{ backgroundImage: `url(${d.art})` }} />
         <div className="tile-name">
@@ -169,7 +215,7 @@ export function Permanent({ card, badge }: { card: Card; badge?: Card[] }) {
             {s.power}/{s.toughness - card.damage}
           </div>
         )}
-        {card.counters > 0 && <div className="tile-counters">+{card.counters}</div>}
+        <Counters card={card} />
         {sick && <i className="tile-sick ms ms-ability-summoning-sickness" title="Summoning sick" />}
         {scriptOf(card.name).activated && <div className="tile-ability" title={scriptOf(card.name).activated!.text} />}
         {card.tapped && <div className="tile-tapmark" />}

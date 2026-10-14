@@ -15,6 +15,8 @@ import {
   castCost,
   castTargets,
   costText,
+  crewOptions,
+  crewPower,
   data,
   findCard,
   illegalBlocks,
@@ -124,8 +126,16 @@ function isSacrificing(t: Targeting): boolean {
   return !!card && !!scriptOf(card.name).additionalCost;
 }
 
+/** Targets are chosen and a Vehicle's crew still has to be picked (702.122a). Returns the power needed, or 0. */
+function crewNeeded(t: Targeting): number {
+  if (t.mode !== 'activate' || t.crewDone || t.chosen.length < t.specs.length) return 0;
+  const card = findCard(S().game!, t.cardId);
+  return (card && scriptOf(card.name).activated?.cost.crew) || 0;
+}
+
 /** Everything is chosen and the spell or ability is waiting for its cost to be paid (601.2f-h). */
-const isPaying = (t: Targeting) => t.mode !== 'trigger' && !t.announcing && t.chosen.length === t.specs.length && !isSacrificing(t);
+const isPaying = (t: Targeting) =>
+  t.mode !== 'trigger' && !t.announcing && t.chosen.length === t.specs.length && !isSacrificing(t) && !crewNeeded(t);
 
 /** The mana a spell or ability costs, and the same thing written out ("{1}{B}{B}"), with any life to pay. */
 function costOf(g: Game, t: Targeting): { cost: Cost; text: string } {
@@ -241,6 +251,21 @@ export function buildView(): View {
     for (const c of sacrificeOptions(g, me, card)) view.glow.set(c.id, 'target');
     view.glow.set(card.id, 'picked');
     view.prompt = `${label(card)}: choose ${scriptOf(card.name).additionalCost!.sacrifice.label}.`;
+    view.secondary = { label: 'Cancel', tone: 'cancel', onClick: cancel };
+    return view;
+  }
+
+  // --- picking the creatures that crew a Vehicle (702.122a) ---
+  const need = t ? crewNeeded(t) : 0;
+  if (t && need) {
+    const card = findCard(g, t.cardId)!;
+    const picked = (t.crew ?? []).map((id) => permanent(g, id)).filter((c) => c !== undefined);
+    const power = crewPower(g, me, card, picked);
+    for (const c of crewOptions(g, me, card)) view.glow.set(c.id, 'target');
+    for (const c of picked) view.glow.set(c.id, 'picked');
+    view.glow.set(card.id, 'picked');
+    view.prompt = `Crew ${need}: tap creatures with total power ${need} or more (${power} so far).`;
+    view.primary = { label: 'Crew', sub: label(card), tone: 'go', disabled: power < need, onClick: confirmCrew };
     view.secondary = { label: 'Cancel', tone: 'cancel', onClick: cancel };
     return view;
   }
@@ -483,7 +508,8 @@ function pay() {
   if (!t || !isPaying(t) || t.mode === 'trigger') return;
   const hold = S().hold;
   useStore.setState({ hold: false });
-  const action = t.mode === 'cast' ? { type: t.mode, card: t.cardId, targets: t.chosen, hold, ...t.choices } : { type: t.mode, card: t.cardId, targets: t.chosen, hold };
+  const action =
+    t.mode === 'cast' ? { type: t.mode, card: t.cardId, targets: t.chosen, hold, ...t.choices } : { type: t.mode, card: t.cardId, targets: t.chosen, hold, crew: t.crew };
   if (!S().act(action)) cancel();
 }
 
@@ -499,6 +525,25 @@ function payByHand(g: Game, me: PlayerId, t: Targeting, card: Card) {
   }
 }
 
+/** Adds a creature to the crew, or takes it back out. */
+function pickCrew(g: Game, me: PlayerId, t: Targeting, card: Card) {
+  const vehicle = findCard(g, t.cardId)!;
+  if (!crewOptions(g, me, vehicle).some((c) => c.id === card.id)) return;
+  const crew = t.crew ?? [];
+  useStore.setState({ targeting: { ...t, crew: crew.includes(card.id) ? crew.filter((id) => id !== card.id) : [...crew, card.id] } });
+}
+
+/** Done picking the crew: on to paying, which for crew alone costs nothing, so it goes straight on the stack. */
+function confirmCrew() {
+  const t = S().targeting;
+  const g = S().game;
+  const me = S().human;
+  if (!t || !g || me === null) return;
+  const next = { ...t, crewDone: true };
+  useStore.setState({ targeting: next });
+  if (planPayment(g, me, costOf(g, next).cost)?.tap.length === 0) pay();
+}
+
 /** Picks the permanent to sacrifice for the spell's additional cost (118.8). Paying comes next. */
 function chooseSacrifice(g: Game, me: PlayerId, t: Targeting, card: Card) {
   const spell = findCard(g, t.cardId)!;
@@ -510,7 +555,7 @@ function chooseTarget(ref: TargetRef | null) {
   const s = S();
   const { game: g, human: me } = s;
   const t = targetingOf(s);
-  if (!g || me === null || !t || t.announcing || isSacrificing(t)) return;
+  if (!g || me === null || !t || t.announcing || isSacrificing(t) || crewNeeded(t)) return;
   if (ref && !currentTargets(g, me, t).some((x) => x.kind === ref.kind && x.id === ref.id)) return;
   advance({ ...t, chosen: [...t.chosen, ref] });
 }
@@ -546,6 +591,7 @@ export function clickPermanent(card: Card) {
   if (t && t.announcing) return;
   if (t && isPaying(t)) return ctx && payByHand(ctx.g, ctx.me, t, card);
   if (t && isSacrificing(t)) return ctx && chooseSacrifice(ctx.g, ctx.me, t, card);
+  if (t && crewNeeded(t)) return ctx && pickCrew(ctx.g, ctx.me, t, card);
   if (t) return chooseTarget({ kind: 'card', id: card.id });
   if (!ctx) return;
   const { g, me } = ctx;

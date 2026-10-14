@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import type { CSSProperties } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import { cardData } from '../cards/db';
-import { COMMANDER_DAMAGE, creaturesOf, data, isCreature, isLand } from '../engine';
+import { COMMANDER_DAMAGE, attachmentsOf, creaturesOf, data, isCreature, isLand, permanent } from '../engine';
 import type { Card, ManaSym, Player } from '../engine';
 import { HandBack, HandCard, Permanent } from './Card';
 import { useRem } from './rem';
@@ -35,7 +35,8 @@ function CreatureRow({ player, width, max, className, wrap }: { player: Player; 
     const stackable = c.isToken && (choosing || !fighting.has(c.id));
     const attack = g.combat?.attacks.find((a) => a.id === c.id || a.blockers.includes(c.id));
     const choice = choosing ? [attack && (attack.id === c.id ? `attacks ${attack.defender}` : `blocks ${attack.id}`), v.glow.get(c.id)] : [];
-    const key = stackable ? [c.name, c.tapped, floating(player, c), c.sick, c.counters, c.damage, c.mods.length, ...choice].join('|') : c.id;
+    const attached = attachmentsOf(g, c).length > 0;
+    const key = stackable && !attached ? [c.name, c.tapped, floating(player, c), c.sick, JSON.stringify(c.counters), c.damage, c.mods.length, ...choice].join('|') : c.id;
     groups.set(key, [...(groups.get(key) ?? []), c]);
   }
   const units = [...groups.values()].reduce((n, s) => n + 1 + 0.14 * (s.length - 1), 0);
@@ -69,8 +70,10 @@ function CreatureRow({ player, width, max, className, wrap }: { player: Player; 
  * With `split` the two sides sit either side of the avatar and each gets `width` to itself.
  */
 function BackRow({ player, width, max, className, split }: { player: Player; width: number; max: number; className: string; split?: boolean }) {
+  const g = useView().g;
   const lands = player.battlefield.filter(isLand);
-  const others = player.battlefield.filter((c) => !isLand(c) && !isCreature(c));
+  // Auras and Equipment attached to something are drawn under it instead (see `Permanent`).
+  const others = player.battlefield.filter((c) => !isLand(c) && !isCreature(c) && !(c.attachedTo && permanent(g, c.attachedTo)));
   const stacks = new Map<string, Card[]>();
   const order = (c: Card) => Number(floating(player, c)) * 2 + Number(c.tapped);
   for (const c of [...lands].sort((a, b) => a.name.localeCompare(b.name) || order(b) - order(a))) {

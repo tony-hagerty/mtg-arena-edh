@@ -6,6 +6,7 @@ import type {
   BroadcastHook,
   Card,
   CardData,
+  CardScript,
   CastChoices,
   Color,
   Game,
@@ -14,6 +15,7 @@ import type {
   Player,
   PlayerId,
   StackItem,
+  StaticBonus,
   TargetRef,
   TargetSpec,
   Trigger,
@@ -42,9 +44,12 @@ export const SUPPORTED_KEYWORDS = [
   'hexproof',
   'indestructible',
   'flash',
-  // Cost keywords: the card's script gives the cost (702.33).
+  // Keywords the card's script spells out: kicker (702.33), enchant (702.5), equip (702.6), crew (702.122).
   'kicker',
   'multikicker',
+  'enchant',
+  'equip',
+  'crew',
 ];
 
 // ---------- card queries ----------
@@ -53,7 +58,14 @@ export const data = (c: Card): CardData => cardData(c.name);
 /** Display name (token keys like "Beast 3/3" differ from the printed name). */
 export const label = (c: Card) => data(c).name;
 export const hasType = (c: Card, t: string) => data(c).typeLine.includes(t);
-export const isCreature = (c: Card) => hasType(c, 'Creature');
+/** Printed as a creature, or made one until end of turn (a crewed Vehicle, 702.122a). */
+export const isCreature = (c: Card) => hasType(c, 'Creature') || c.mods.some((m) => m.creature);
+export const isAura = (c: Card) => hasType(c, 'Aura');
+export const isEquipment = (c: Card) => hasType(c, 'Equipment');
+/** How many counters of `kind` are on `c` (122). */
+export const counterCount = (c: Card, kind = '+1/+1') => c.counters[kind] ?? 0;
+/** Permanents attached to `c`: its Auras and Equipment. */
+export const attachmentsOf = (g: Game, c: Card) => battlefield(g).filter((x) => x.attachedTo === c.id);
 export const isLand = (c: Card) => hasType(c, 'Land');
 export const isPermanentCard = (c: Card) => !hasType(c, 'Instant') && !hasType(c, 'Sorcery');
 export const isInstantSpeed = (c: Card) => hasType(c, 'Instant') || data(c).keywords.includes('Flash');
@@ -135,8 +147,11 @@ export function stats(g: Game, c: Card, opts: { base?: boolean } = {}): Stats {
   if (basePT) ({ power, toughness } = basePT(g, c));
   if (c.zone !== 'battlefield' || !isCreature(c)) return { power, toughness, keywords };
 
-  power += c.counters;
-  toughness += c.counters;
+  // +1/+1 and -1/-1 counters (122.1a), and keyword counters (122.1b).
+  const net = counterCount(c, '+1/+1') - counterCount(c, '-1/-1');
+  power += net;
+  toughness += net;
+  for (const [kind, n] of Object.entries(c.counters)) if (n > 0 && SUPPORTED_KEYWORDS.includes(kind)) keywords.add(kind);
   if (!opts.base) {
     for (const m of c.mods) {
       power += m.power;
@@ -161,14 +176,23 @@ export function stats(g: Game, c: Card, opts: { base?: boolean } = {}): Stats {
 
 export const has = (g: Game, c: Card, keyword: string) => stats(g, c).keywords.has(keyword);
 
+/**
+ * Restrictions a static effect can give a creature through `StaticBonus.keywords`, e.g.
+ * Pacifism's "Enchanted creature can't attack or block." They aren't keywords, but they
+ * travel the same way.
+ */
+export const CANT_ATTACK = "can't attack";
+export const CANT_BLOCK = "can't block";
+
 export function canAttack(g: Game, c: Card): boolean {
   if (c.zone !== 'battlefield' || !isCreature(c) || c.tapped) return false;
   const kw = stats(g, c).keywords;
-  return !kw.has('defender') && (!c.sick || kw.has('haste'));
+  return !kw.has('defender') && !kw.has(CANT_ATTACK) && (!c.sick || kw.has('haste'));
 }
 
 export function canBlock(g: Game, blocker: Card, attacker: Card): boolean {
   if (blocker.zone !== 'battlefield' || !isCreature(blocker) || blocker.tapped) return false;
+  if (has(g, blocker, CANT_BLOCK)) return false;
   if (has(g, attacker, 'flying')) {
     const kw = stats(g, blocker).keywords;
     return kw.has('flying') || kw.has('reach');
@@ -555,6 +579,8 @@ export const sameRef = (a: TargetRef, b: TargetRef) => a.kind === b.kind && a.id
  */
 export function spellTargets(c: Card, modes: number[] = []): TargetSpec[] {
   const script = scriptOf(c.name);
+  // An Aura spell targets what it will enchant (303.4a).
+  if (script.enchant) return [script.enchant];
   if (isPermanentCard(c)) return [];
   if (script.modal) return modes.flatMap((i) => script.modal!.modes[i]?.targets ?? []);
   return script.targets ?? [];
@@ -680,7 +706,8 @@ export function makeCard(g: Game, name: string, owner: PlayerId, zone: Zone, ext
     sick: false,
     damage: 0,
     deathtouched: false,
-    counters: 0,
+    counters: {},
+    attachedTo: null,
     mods: [],
     cast: null,
     mayReturn: false,
@@ -716,7 +743,8 @@ export function moveCard(g: Game, c: Card, to: Zone) {
   c.sick = false;
   c.damage = 0;
   c.deathtouched = false;
-  c.counters = 0;
+  c.counters = {};
+  c.attachedTo = null; // leaving the battlefield also unattaches it
   c.mods = [];
   // A spell keeps what it was cast with as it becomes a permanent (107.3m), and loses it after.
   if (c.zone !== 'stack' || to !== 'battlefield') c.cast = null;
@@ -769,8 +797,10 @@ function arrive(g: Game, c: Card, opts: { tapped?: boolean }) {
   if (isLand(c)) broadcast(g, 'onLandfall', { land: c });
 }
 
-export function enterBattlefield(g: Game, c: Card, opts: { tapped?: boolean } = {}) {
+/** Puts a card onto the battlefield. An Aura resolving as a spell enters attached to its target (`attachTo`, 303.4). */
+export function enterBattlefield(g: Game, c: Card, opts: { tapped?: boolean; attachTo?: string } = {}) {
   moveCard(g, c, 'battlefield');
+  if (opts.attachTo) c.attachedTo = opts.attachTo;
   arrive(g, c, opts);
 }
 
@@ -896,9 +926,68 @@ export function pump(_g: Game, c: Card | undefined, power: number, toughness: nu
   if (c && c.zone === 'battlefield') c.mods.push({ power, toughness, keywords });
 }
 
-export function addCounters(_g: Game, c: Card | undefined, n = 1) {
-  if (c && c.zone === 'battlefield') c.counters += n;
+/** Puts `n` counters of `kind` on a permanent (122). */
+export function addCounters(_g: Game, c: Card | undefined, n = 1, kind = '+1/+1') {
+  if (c && c.zone === 'battlefield' && n > 0) c.counters[kind] = counterCount(c, kind) + n;
 }
+
+/** Removes up to `n` counters of `kind` from a permanent. */
+export function removeCounters(c: Card, n: number, kind = '+1/+1') {
+  const left = counterCount(c, kind) - n;
+  if (left > 0) c.counters[kind] = left;
+  else delete c.counters[kind];
+}
+
+/**
+ * Can Aura `aura` be attached to `host`? The host must be another permanent on the
+ * battlefield that its enchant ability allows (702.5a, 303.4d). An Aura that is itself
+ * a creature can't enchant anything.
+ */
+export function canEnchant(g: Game, aura: Card, host: Card | undefined): boolean {
+  const spec = scriptOf(aura.name).enchant;
+  if (!spec || !host || host.zone !== 'battlefield' || host.id === aura.id || isCreature(aura)) return false;
+  if (spec.type === 'creature' && !isCreature(host)) return false;
+  if (spec.who === 'you' && host.owner !== aura.owner) return false;
+  if (spec.who === 'opponent' && host.owner === aura.owner) return false;
+  return spec.filter?.(g, host, aura) ?? true;
+}
+
+/** Can Equipment `eq` stay attached to `host`? Only to a creature on the battlefield, and not itself (301.5c). */
+export const canEquip = (eq: Card, host: Card | undefined) =>
+  !!host && host.zone === 'battlefield' && isCreature(host) && host.id !== eq.id && !isCreature(eq);
+
+/** Attaches an Aura or Equipment to a permanent (701.3). Moving it from another permanent unattaches it from that one. */
+export function attach(g: Game, att: Card | undefined, host: Card | undefined) {
+  if (!att || !host || att.zone !== 'battlefield') return;
+  if (isAura(att) ? !canEnchant(g, att, host) : !canEquip(att, host)) return; // an illegal attach does nothing (701.3b)
+  att.attachedTo = host.id;
+  log(g, `${label(att)} is attached to ${label(host)}.`, att.owner, [att, host]);
+}
+
+/** "Equip [cost]": attach to target creature you control, as a sorcery (702.6a). */
+export const equip = (mana: string): CardScript['activated'] => ({
+  cost: { mana },
+  sorcery: true,
+  targets: [{ type: 'creature', who: 'you', label: 'target creature you control', filter: (_g, c, self) => c.id !== self.id && c.id !== self.attachedTo }],
+  text: `Equip ${mana}`,
+  resolve: (g, { self, targets }) => attach(g, permanent(g, self.id), refCard(g, targets[0])),
+});
+
+/** "Crew N": tap other creatures with total power N or more, and this becomes an artifact creature until end of turn (702.122a). */
+export const crew = (n: number): CardScript['activated'] => ({
+  cost: { crew: n },
+  text: `Crew ${n}`,
+  resolve: (g, { self }) => {
+    const v = permanent(g, self.id);
+    if (v) v.mods.push({ power: 0, toughness: 0, keywords: [], creature: true });
+  },
+});
+
+/** A static bonus for the creature this Aura or Equipment is attached to (303.4b, 301.5a). */
+export const attachedBonus =
+  (bonus: StaticBonus) =>
+  (_g: Game, self: Card, c: Card): StaticBonus | null =>
+    self.attachedTo === c.id ? bonus : null;
 
 /**
  * The player searches their library for a basic land (optionally of one subtype), puts it
@@ -987,8 +1076,33 @@ export function checkState(g: Game) {
       const lethal = c.damage >= s.toughness || (c.deathtouched && c.damage > 0);
       if (s.toughness <= 0 || (lethal && !s.keywords.has('indestructible'))) dying.push(c);
     }
+    // An Aura on something it can't enchant, or on nothing, goes to the graveyard (704.5m).
+    // Equipment on something it can't equip falls off and stays (704.5n).
+    const loose: Card[] = [];
+    for (const c of battlefield(g)) {
+      if (isAura(c) && !canEnchant(g, c, c.attachedTo ? permanent(g, c.attachedTo) : undefined)) loose.push(c);
+      else if (c.attachedTo && !isAura(c) && !canEquip(c, permanent(g, c.attachedTo))) {
+        c.attachedTo = null;
+        changed = true;
+      }
+    }
+    // +1/+1 and -1/-1 counters on the same permanent cancel out (704.5q).
+    for (const c of battlefield(g)) {
+      const n = Math.min(counterCount(c, '+1/+1'), counterCount(c, '-1/-1'));
+      if (n > 0) {
+        removeCounters(c, n, '+1/+1');
+        removeCounters(c, n, '-1/-1');
+        changed = true;
+      }
+    }
     if (dying.length) {
       dieMany(g, dying);
+      changed = true;
+    }
+    for (const c of loose) {
+      if (c.zone !== 'battlefield') continue;
+      log(g, `${label(c)} is put into its owner's graveyard (not attached to anything it can enchant).`, c.owner, [c]);
+      moveCard(g, c, 'graveyard');
       changed = true;
     }
     // A commander just put into a graveyard or exile may go to the command zone (903.9a),

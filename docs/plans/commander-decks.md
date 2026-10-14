@@ -3,7 +3,7 @@
 Goal: play real 100-card Commander decks of any colours, with partner commanders and
 every card type, and add the user's own deck to the menu.
 
-**Status: sessions 1-3 done. Don't start the next session until the user says so.**
+**Status: sessions 1-4 done. Don't start the next session until the user says so.**
 
 ## What "every card type" means here
 
@@ -58,7 +58,7 @@ Order matters: each one builds on the ones before it.
 - Modal spells, "choose one/two —" (700.2).
 - Copying spells (707.10) if time allows.
 
-### 4. Counters and attachments: Auras, Equipment, Vehicles
+### 4. Counters and attachments: Auras, Equipment, Vehicles (done)
 
 - `Card.counters` becomes a map of counter kinds (122): +1/+1, -1/-1 (they cancel,
   704.5q), loyalty, charge, and so on.

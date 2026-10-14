@@ -825,6 +825,55 @@ button {
   border-radius: 1em;
 }
 
+.tile-counters {
+  display: flex;
+  flex-direction: column;
+}
+
+/* -1/-1 counters (122.1a) */
+.tile-counters .minus {
+  color: #ffb3a8;
+}
+
+/*
+  An Aura or Equipment attached to this permanent (303.4b, 301.5a): tucked behind it,
+  each one's top strip showing above the last.
+*/
+.tile-attached {
+  position: absolute;
+  left: 0.6em;
+  right: 0.6em;
+  top: calc(-1.6em * (var(--i) + 1));
+  height: 2.6em;
+  z-index: -1;
+  display: flex;
+  align-items: flex-start;
+  gap: 0.4em;
+  padding: 0.25em 0.4em;
+  font: 600 0.95em 'Segoe UI', sans-serif;
+  white-space: nowrap;
+  overflow: hidden;
+  color: #fff;
+  background: #1a1d24;
+  border: 0.12em solid var(--frame);
+  border-radius: 0.45em 0.45em 0 0;
+  cursor: pointer;
+}
+
+.tile-attached-art {
+  flex: none;
+  width: 1.2em;
+  height: 1.2em;
+  border-radius: 50%;
+  background-size: cover;
+  background-position: center;
+}
+
+.tile-attached.glow-play,
+.tile-attached.glow-target {
+  border-color: #ffe45c;
+}
+
 .tile-sick {
   position: absolute;
   left: 0.35em;

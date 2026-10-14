@@ -129,6 +129,19 @@ Rule numbers below are from the Comprehensive Rules in `docs/rules/`.
   "You may choose the same mode more than once" works (700.2d).
 - Copying spells (707.10): the copy keeps the original's modes, X and kicker, and its
   controller may choose new targets. A copy ceases to exist when it leaves the stack.
+- Counters (122): any kind, by name. +1/+1 and -1/-1 counters change power and
+  toughness and cancel each other out (704.5q); a keyword counter like `flying` gives the
+  keyword (122.1b). Tiles show them ("+2", "-1", "3 charge").
+- Auras (303.4, 702.5): the spell targets what it will enchant; one whose target is gone
+  goes to the graveyard. An Aura on something it can't enchant, or on nothing, goes to
+  the graveyard (704.5m). "Can't attack" and "can't block" work (Pacifism).
+- Equipment (301.5, 702.6): equip at sorcery speed to a creature you control; it falls
+  off a permanent that stops being a creature, and stays on the battlefield (704.5n).
+- Vehicles (301.7, 702.122): crew by tapping other untapped creatures with enough total
+  power (summoning-sick ones can crew). The Vehicle is an artifact creature until end
+  of turn. Bots crew before combat with their weakest or summoning-sick creatures.
+- Attached Auras and Equipment are drawn tucked behind the permanent they're on; click
+  an attached Equipment to equip it elsewhere.
 - Triggered abilities (603): they trigger when the event happens, go on the stack the
   next time a player would get priority (active player's first), and choose targets then.
   You choose the order of your own that go on together (603.3b); bots keep the order they
@@ -171,7 +184,12 @@ These are deliberate cuts for a prototype, roughly in the order I'd tackle them 
   the menu yet.
 - Partner variants other than plain partner and "partner with" (Background, Doctor's
   companion, "partner—[text]") aren't recognised. Vehicles can't be commanders yet.
-- No planeswalkers, no equipment/auras.
+- No planeswalkers or battles yet.
+- Auras can only enchant permanents, not players (702.5d). A card can have only one
+  activated ability, so an Equipment's equip is its only one. Proliferate, shield,
+  stun and other counters with their own rules (122.1c-j) do nothing special yet.
+  The test-only cards are in `tests/fixtures.ts` (Pacifism, Holy Strength, Bonesplitter,
+  Loxodon Warhammer, Untethered Express, Black Sun's Zenith).
 - Only spells can be modal: modal triggered and activated abilities (700.2b) aren't
   supported. A copy's controller must pick legal new targets or keep all the old ones
   (707.10c allows keeping some). Copying abilities and "can't be countered" aren't
@@ -253,7 +271,9 @@ has run; the spell stays on the stack as `Game.resolving` until it is answered.
    sacrifice), `alternativeCosts`, and `costModifier` for "spells cost {1} more/less".
    An X or kicked spell reads `self.cast.x` and `self.cast.kicked`. A modal spell uses
    `modal` instead of `targets`/`onResolve`; a counterspell targets `{ type: 'spell' }`
-   and calls `counter`.
+   and calls `counter`. An Aura sets `enchant` and `static: attachedBonus({...})`; an
+   Equipment uses `attachedBonus` with `activated: equip('{2}')`; a Vehicle uses
+   `activated: crew(3)`. Counters: `addCounters(g, card, n, kind)`.
 4. Run `npm test`. The card-pool test tells you if anything is still missing.
 
 ### Layout note
