@@ -2,7 +2,8 @@
 // the only way a game changes: it returns a new Game, or the same object if the action
 // was illegal. Rule numbers in comments refer to docs/rules.
 import { produce } from 'immer';
-import { DECKS, deckLibrary } from '../cards/db';
+import { DECKS, deckColors, deckLibrary } from '../cards/db';
+import type { DeckDef } from '../cards/db';
 import { scriptOf } from './registry';
 import {
   MAX_HAND,
@@ -14,6 +15,7 @@ import {
   canUntapMana,
   castCost,
   checkState,
+  commanderIndex,
   creaturesOf,
   damageCard,
   damagePlayer,
@@ -62,9 +64,11 @@ export interface NewGameOptions {
   humanDeck: number | null;
   /** Players' own stops, as in `ApplyOptions`. */
   stops?: ApplyOptions['stops'];
+  /** The deck in each seat, instead of the menu's decks. For tests; every seat is a bot unless `humanDeck` is set. */
+  decks?: DeckDef[];
 }
 
-export function newGame({ seed, humanDeck, stops }: NewGameOptions): Game {
+export function newGame({ seed, humanDeck, stops, decks }: NewGameOptions): Game {
   const g: Game = {
     players: [],
     active: 0,
@@ -85,16 +89,18 @@ export function newGame({ seed, humanDeck, stops }: NewGameOptions): Game {
     nextId: 1,
     lastSpell: null,
   };
-  const order = humanDeck === null ? [0, 1, 2, 3] : [humanDeck, ...[0, 1, 2, 3].filter((i) => i !== humanDeck)];
-  order.forEach((deckIndex, seat) => {
-    const deck = DECKS[deckIndex];
+  // The human's deck goes in seat 0 and the bots take the next decks on the menu.
+  const others = DECKS.filter((_, i) => i !== humanDeck);
+  const seats = decks ?? (humanDeck === null ? others : [DECKS[humanDeck], ...others]).slice(0, 4);
+  seats.forEach((deck, seat) => {
     const human = humanDeck !== null && seat === 0;
     const p: Player = {
       id: seat,
       name: human ? 'You' : deck.pilot,
       isBot: !human,
       deckId: deck.id,
-      commander: deck.commander,
+      commanders: deck.commanders,
+      colors: deckColors(deck),
       life: STARTING_LIFE,
       library: [],
       hand: [],
@@ -102,19 +108,21 @@ export function newGame({ seed, humanDeck, stops }: NewGameOptions): Game {
       graveyard: [],
       exile: [],
       command: [],
-      commanderCasts: 0,
-      commanderDamage: [0, 0, 0, 0],
+      commanderCasts: deck.commanders.map(() => 0),
+      commanderDamage: [], // filled in below, once every seat's commanders are known
       landsPlayed: 0,
       pool: [],
       lost: false,
       drewFromEmpty: false,
     };
-    p.command.push(makeCard(g, deck.commander, seat, 'command', { isCommander: true }));
+    // Every commander starts in the command zone, both partners included (903.6, 702.124b).
+    for (const name of deck.commanders) p.command.push(makeCard(g, name, seat, 'command', { isCommander: true }));
     p.library = deckLibrary(deck).map((name) => makeCard(g, name, seat, 'library'));
     shuffle(g, p.library); // 103.3
     drawHand(p);
     g.players.push(p);
   });
+  for (const p of g.players) p.commanderDamage = g.players.map((o) => o.commanders.map(() => 0));
   beginMulligans(g, Math.floor(rand(g) * 4));
   settle(g, true, stops);
   return g;
@@ -715,7 +723,7 @@ function act(g: Game, a: Action): boolean {
       if (!targetsOk(g, pid, c, specs, targets)) return false;
       pay(g, pid, castCost(g, c)); // 601.2f-h
       const from = c.zone === 'command' ? p.command : p.hand;
-      if (c.zone === 'command') p.commanderCasts++; // commander tax (903.8)
+      if (c.zone === 'command') p.commanderCasts[commanderIndex(g, c)]++; // commander tax (903.8, 702.124d)
       from.splice(from.findIndex((x) => x.id === c.id), 1);
       c.zone = 'stack'; // 601.2a
       g.stack.push({ id: `s${g.nextId++}`, kind: 'spell', controller: pid, card: c, targets });

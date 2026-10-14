@@ -14,10 +14,13 @@
       "title": "Heaven's Host",
       "blurb": "Angels, lifegain and a go-wide soldier army.",
       "pilot": "Seraphine",
-      "color": "W",
-      "commander": "Lyra Dawnbringer",
-      "basic": "Plains",
-      "basics": 24,
+      "legacy": true,
+      "commanders": [
+        "Lyra Dawnbringer"
+      ],
+      "basics": {
+        "Plains": 24
+      },
       "cards": [
         "Serra Angel",
         "Angel of Mercy",
@@ -54,10 +57,13 @@
       "title": "Whispers of the Pit",
       "blurb": "Drain the table, kill everything, draw cards for life.",
       "pilot": "Mortis",
-      "color": "B",
-      "commander": "Sheoldred, the Apocalypse",
-      "basic": "Swamp",
-      "basics": 24,
+      "legacy": true,
+      "commanders": [
+        "Sheoldred, the Apocalypse"
+      ],
+      "basics": {
+        "Swamp": 24
+      },
       "cards": [
         "Typhoid Rats",
         "Vampire Nighthawk",
@@ -94,10 +100,13 @@
       "title": "Forge of the Thane",
       "blurb": "Burn that hits harder, goblins and dragons.",
       "pilot": "Cinder",
-      "color": "R",
-      "commander": "Torbran, Thane of Red Fell",
-      "basic": "Mountain",
-      "basics": 24,
+      "legacy": true,
+      "commanders": [
+        "Torbran, Thane of Red Fell"
+      ],
+      "basics": {
+        "Mountain": 24
+      },
       "cards": [
         "Goblin Piker",
         "Raging Goblin",
@@ -134,10 +143,13 @@
       "title": "Primal Hunger",
       "blurb": "Ramp into enormous tramplers.",
       "pilot": "Bramble",
-      "color": "G",
-      "commander": "Ghalta, Primal Hunger",
-      "basic": "Forest",
-      "basics": 24,
+      "legacy": true,
+      "commanders": [
+        "Ghalta, Primal Hunger"
+      ],
+      "basics": {
+        "Forest": 24
+      },
       "cards": [
         "Llanowar Elves",
         "Elvish Mystic",

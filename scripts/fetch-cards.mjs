@@ -17,8 +17,8 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 const names = new Set(lists.shared);
 for (const d of lists.decks) {
-  names.add(d.commander);
-  names.add(d.basic);
+  d.commanders.forEach((n) => names.add(n));
+  Object.keys(d.basics).forEach((n) => names.add(n));
   d.cards.forEach((n) => names.add(n));
 }
 
