@@ -16,6 +16,9 @@ const vars = (v: Record<string, string | number>) => v as CSSProperties;
 /** Tile width (rem) that lets `n` tiles share a row, capped at `max`. */
 const fit = (n: number, width: number, max: number, gap = 0.8) => Math.min(max, (width - gap * (n - 1)) / Math.max(n, 1));
 
+/** True while mana this permanent was tapped for is still floating unspent in its owner's pool. */
+const floating = (player: Player, c: Card) => player.pool.some((m) => m.source === c.id);
+
 /**
  * A player's creatures. Identical tokens pile up like lands (except while their owner is
  * picking attackers or blockers). A side-seat board wraps onto two rows once that makes
@@ -29,7 +32,7 @@ function CreatureRow({ player, width, max, className, wrap }: { player: Player; 
   const groups = new Map<string, Card[]>();
   for (const c of creaturesOf(g, player.id)) {
     const stackable = c.isToken && !choosing && !fighting.has(c.id);
-    const key = stackable ? [c.name, c.tapped, c.sick, c.counters, c.damage, c.mods.length].join('|') : c.id;
+    const key = stackable ? [c.name, c.tapped, floating(player, c), c.sick, c.counters, c.damage, c.mods.length].join('|') : c.id;
     groups.set(key, [...(groups.get(key) ?? []), c]);
   }
   const units = [...groups.values()].reduce((n, s) => n + 1 + 0.14 * (s.length - 1), 0);
@@ -57,15 +60,17 @@ function CreatureRow({ player, width, max, className, wrap }: { player: Player; 
 }
 
 /**
- * Lands (stacked by name, tapped ones apart) on one side, artifacts and enchantments on the other.
+ * Lands on one side, artifacts and enchantments on the other. Lands stack by name, with
+ * tapped ones apart, and ones whose mana is still unspent in the pool apart again.
  * With `split` the two sides sit either side of the avatar and each gets `width` to itself.
  */
 function BackRow({ player, width, max, className, split }: { player: Player; width: number; max: number; className: string; split?: boolean }) {
   const lands = player.battlefield.filter(isLand);
   const others = player.battlefield.filter((c) => !isLand(c) && !isCreature(c));
   const stacks = new Map<string, Card[]>();
-  for (const c of [...lands].sort((a, b) => a.name.localeCompare(b.name) || Number(b.tapped) - Number(a.tapped))) {
-    const key = `${c.name}|${c.tapped}`;
+  const order = (c: Card) => Number(floating(player, c)) * 2 + Number(c.tapped);
+  for (const c of [...lands].sort((a, b) => a.name.localeCompare(b.name) || order(b) - order(a))) {
+    const key = `${c.name}|${c.tapped}|${floating(player, c)}`;
     stacks.set(key, [...(stacks.get(key) ?? []), c]);
   }
   const landUnits = [...stacks.values()].reduce((n, s) => n + 1 + 0.14 * (s.length - 1), 0);
@@ -94,9 +99,10 @@ function BackRow({ player, width, max, className, split }: { player: Player; wid
   );
 }
 
-/** Floating "+3" / "-5" numbers whenever a life total changes. */
+/** Floating "+3" / "-5" numbers whenever a life total changes. Each one fades out on its own after a couple of seconds. */
 function useLifeDeltas(life: number) {
   const prev = useRef(life);
+  const timers = useRef<ReturnType<typeof setTimeout>[]>([]);
   const [deltas, setDeltas] = useState<{ id: number; n: number }[]>([]);
   useEffect(() => {
     const n = life - prev.current;
@@ -104,9 +110,10 @@ function useLifeDeltas(life: number) {
     if (n === 0) return;
     const id = Math.random();
     setDeltas((d) => [...d, { id, n }]);
-    const t = setTimeout(() => setDeltas((d) => d.filter((x) => x.id !== id)), 1500);
-    return () => clearTimeout(t);
+    // Not cancelled when life changes again: a second hit right after the first used to leave the first number up for good.
+    timers.current.push(setTimeout(() => setDeltas((d) => d.filter((x) => x.id !== id)), 2000));
   }, [life]);
+  useEffect(() => () => timers.current.forEach(clearTimeout), []);
   return deltas;
 }
 
@@ -156,7 +163,7 @@ function Avatar({ player }: { player: Player }) {
             className={cx('life-delta', d.n > 0 ? 'up' : 'down')}
             initial={{ opacity: 0, y: 0, scale: 0.6 }}
             animate={{ opacity: 1, y: -4 * rem, scale: 1 }}
-            exit={{ opacity: 0 }}
+            exit={{ opacity: 0, transition: { duration: 0.8 } }}
           >
             {d.n > 0 ? `+${d.n}` : d.n}
           </motion.div>

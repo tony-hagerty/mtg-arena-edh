@@ -110,6 +110,7 @@ src/ui/         store.ts              Zustand store (game + what the player is s
                 Card/Board/Hud.tsx    components
                 styles.css            all styling
 tests/                                Vitest: card coverage, rules, bot-vs-bot games
+public/         cursor.png            the mouse cursor (see Credits)
 docs/rules/     INDEX.md              official Comprehensive Rules, one file per rule
                                       (npm run fetch-rules)
 ```
@@ -152,5 +153,7 @@ a fixed spot on a 192 × 108 grid.
 
 Card data and images come from [Scryfall](https://scryfall.com) and are loaded from its
 image server at runtime. Mana and ability icons are from
-[mana-font](https://github.com/andrewgioia/mana). Magic: The Gathering is © Wizards of
+[mana-font](https://github.com/andrewgioia/mana). The mouse cursor (`public/cursor.png`) is
+["MTGA cursor"](https://www.cursor.cc/?action=icon&file_id=114958) by Tales on cursor.cc,
+shared under Creative Commons with no attribution required. Magic: The Gathering is © Wizards of
 the Coast; this is an unofficial fan prototype, not affiliated with or endorsed by them.

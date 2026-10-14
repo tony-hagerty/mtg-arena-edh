@@ -20,6 +20,8 @@ html {
   --cyan: #39e3ff;
   --orange: #ff9a2e;
   --serif: 'Palatino Linotype', 'Book Antiqua', Palatino, Georgia, serif;
+  /* Arena-style arrow (public/cursor.png, see README credits). Its tip is the top-left pixel. */
+  --cursor: url('/cursor.png') 0 0, auto;
   /* How cards are turned and which way rows run. Each opponent's seat overrides these. */
   --face: 0deg;
   --dir: row;
@@ -36,6 +38,7 @@ body {
   color: #eef1f7;
   font-family: 'Segoe UI', system-ui, sans-serif;
   user-select: none;
+  cursor: var(--cursor);
 }
 
 button {
@@ -323,7 +326,7 @@ button {
 .pile.graveyard,
 .pile.exile {
   border-radius: 0.4rem;
-  cursor: pointer;
+  cursor: var(--cursor);
 }
 
 .pile.graveyard img,
@@ -342,7 +345,6 @@ button {
 
 .pile.empty {
   border: 0.15rem dashed rgba(255, 255, 255, 0.3);
-  cursor: default;
 }
 
 .pile.exile.empty {
@@ -508,7 +510,7 @@ button {
 }
 
 .avatar.targetable {
-  cursor: pointer;
+  cursor: var(--cursor);
 }
 
 .avatar.targetable .avatar-art {
@@ -856,7 +858,7 @@ button {
   box-shadow:
     0 0 0 0.25em var(--cyan),
     0 0 1.4em 0.3em rgba(57, 227, 255, 0.7);
-  cursor: pointer;
+  cursor: var(--cursor);
 }
 
 .glow-target {
@@ -871,18 +873,18 @@ button {
   box-shadow:
     0 0 0 0.35em #fff,
     0 0 1.8em 0.5em #fff;
-  cursor: pointer;
+  cursor: var(--cursor);
 }
 
 .glow-discard {
   box-shadow:
     0 0 0 0.25em #ff5a4a,
     0 0 1.4em 0.3em rgba(255, 90, 74, 0.7);
-  cursor: pointer;
+  cursor: var(--cursor);
 }
 
 .tile.mana-source {
-  cursor: pointer;
+  cursor: var(--cursor);
 }
 
 .tile.blocking {
@@ -972,14 +974,6 @@ button {
   gap: 1.4rem;
   --pile-w: 7rem;
   --cmd-w: 12rem;
-}
-
-.me-zones .cmd-card {
-  cursor: default;
-}
-
-.me-zones .cmd-card.glow-play {
-  cursor: pointer;
 }
 
 .hand {
@@ -1102,7 +1096,7 @@ button {
   color: #fff;
   border: none;
   border-radius: 3.2rem;
-  cursor: pointer;
+  cursor: var(--cursor);
   text-shadow: 0 0.15rem 0.25rem rgba(0, 0, 0, 0.7);
   box-shadow:
     inset 0 0.25rem 0.3rem rgba(255, 255, 255, 0.4),
@@ -1156,7 +1150,6 @@ button {
 }
 
 .btn:disabled {
-  cursor: default;
   border-color: #5d6472;
   color: #aab3c5;
 }
@@ -1189,7 +1182,7 @@ button {
   background: rgba(10, 12, 18, 0.75);
   border: 0.1rem solid #5d6472;
   border-radius: 0.5rem;
-  cursor: pointer;
+  cursor: var(--cursor);
 }
 
 .log-bar button:hover {
@@ -1325,6 +1318,19 @@ button {
   display: block;
 }
 
+/* Not on the stack yet: it floats in front of it, glowing like the picked card, until it's paid for or cancelled. */
+.stack-item.paying {
+  animation: appear 0.15s both;
+}
+
+.stack-item.paying img {
+  animation: hover-bob 2.4s ease-in-out infinite;
+  box-shadow:
+    0 0 0 0.3rem #fff,
+    0 0 2.4rem 0.6rem rgba(255, 255, 255, 0.55),
+    0 1.6rem 2.4rem #000;
+}
+
 /* Big enough to read. It covers part of the table for a moment, which is fine: it's gone in under two seconds. */
 .spell-flash {
   position: absolute;
@@ -1434,6 +1440,17 @@ button {
   gap: 2rem;
 }
 
+/* Brings the game-over screen back after "View Board". Top centre, clear of every seat's controls. */
+.results-show {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 2rem;
+  width: fit-content;
+  margin: 0 auto;
+  z-index: 150;
+}
+
 .knocked-out {
   position: absolute;
   left: 0;
@@ -1457,7 +1474,7 @@ button {
   background: #2f3644;
   border: 0.1rem solid #aab3c5;
   border-radius: 0.6rem;
-  cursor: pointer;
+  cursor: var(--cursor);
 }
 
 /* ---------- menu ---------- */
@@ -1496,7 +1513,7 @@ button {
   background: rgba(12, 14, 20, 0.85);
   border: 0.3rem solid;
   border-radius: 2rem;
-  cursor: pointer;
+  cursor: var(--cursor);
   transition: transform 0.15s, box-shadow 0.15s;
 }
 
@@ -1540,7 +1557,7 @@ button {
   text-decoration: underline;
   background: none;
   border: none;
-  cursor: pointer;
+  cursor: var(--cursor);
 }
 
 .watch:hover {
@@ -1565,6 +1582,12 @@ button {
   from {
     opacity: 0;
     transform: scale(0.94);
+  }
+}
+
+@keyframes hover-bob {
+  50% {
+    transform: translateY(-0.8rem);
   }
 }
 
