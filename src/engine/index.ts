@@ -1,4 +1,5 @@
 import '../cards/scripts'; // registers card behaviour
+import '../cards/kraum-tymna';
 
 export * from './types';
 export * from './rules';

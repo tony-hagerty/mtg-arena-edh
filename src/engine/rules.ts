@@ -4,6 +4,11 @@ import { cardData } from '../cards/db';
 import { scriptOf } from './registry';
 import type {
   BroadcastHook,
+  AskChoice,
+  Choice,
+  Find,
+  ManaAbility,
+  NameChoice,
   Card,
   CardData,
   CardScript,
@@ -18,8 +23,10 @@ import type {
   StaticBonus,
   TargetRef,
   TargetSpec,
+  Delayed,
   Trigger,
   TriggerEvents,
+  TurnEffect,
   TriggerHook,
   Zone,
 } from './types';
@@ -56,6 +63,12 @@ export const SUPPORTED_KEYWORDS = [
   'crew',
   'flashback',
   'transform',
+  // Storm (702.40) and cumulative upkeep (702.24) are handled by the engine and scripts;
+  // partner (702.124) by the deck rules; mobilize (702.181) by the card's script.
+  'storm',
+  'cumulative upkeep',
+  'partner',
+  'mobilize',
 ];
 
 // ---------- card queries ----------
@@ -346,7 +359,9 @@ export function altCostsOf(g: Game, c: Card, face = 0): number[] {
   // Flashback is already an alternative cost, and only one can be paid (118.9a, 702.34a).
   if (c.zone === 'graveyard') return [];
   const alts = scriptFor(c, 'stack', face).alternativeCosts ?? [];
-  return alts.map((_, i) => i).filter((i) => alts[i].when?.(g, c) ?? true);
+  // One that exiles a card from the caster's hand needs such a card there (118.9).
+  const canExile = (i: number) => !alts[i].exile || g.players[c.owner].hand.some((x) => x.id !== c.id && alts[i].exile!.filter(g, x, c));
+  return alts.map((_, i) => i).filter((i) => (alts[i].when?.(g, c) ?? true) && canExile(i));
 }
 
 /**
@@ -379,45 +394,119 @@ export function castCost(g: Game, c: Card, choices: CastChoices = {}): Cost {
 }
 
 const BASIC_MANA: Record<string, ManaSym> = { Plains: 'W', Island: 'U', Swamp: 'B', Mountain: 'R', Forest: 'G' };
+const WUBRG: ManaSym[] = ['W', 'U', 'B', 'R', 'G'];
 
-/** What a permanent taps for, or null if it isn't a mana source. */
-export function manaOf(g: Game, c: Card): { amount: number; colors: ManaSym[]; sacrifice?: boolean } | null {
+/** One of a permanent's mana abilities (605) as it is right now: the colours worked out, and its index in the script's list. */
+export interface ManaUse extends Omit<ManaAbility, 'colors'> {
+  index: number;
+  colors: ManaSym[];
+}
+
+/**
+ * Every mana ability `c` has, usable or not right now. A land with basic land types taps
+ * for each of their colours (305.6); its other mana abilities come after.
+ */
+function allManaAbilities(c: Card): ManaAbility[] {
+  const out: ManaAbility[] = [];
   if (isLand(c)) {
-    for (const [type, sym] of Object.entries(BASIC_MANA)) if (hasType(c, type)) return { amount: 1, colors: [sym] };
+    const colors = Object.entries(BASIC_MANA).filter(([type]) => hasType(c, type)).map(([, sym]) => sym);
+    if (colors.length) out.push({ amount: 1, colors });
   }
   const m = scriptFor(c).mana;
-  if (!m) return null;
-  if (m.colors === 'any') return { amount: m.amount, colors: ['W', 'U', 'B', 'R', 'G'], sacrifice: m.sacrifice };
-  if (m.colors === 'identity') {
-    // Both partners' colours count as "your commander's colour identity" (702.124c).
-    const identity = g.players[c.owner].colors;
-    return { amount: m.amount, colors: identity.length ? identity : ['C'] };
-  }
-  return { amount: m.amount, colors: m.colors };
+  return [...out, ...(Array.isArray(m) ? m : m ? [m] : [])];
 }
+
+/**
+ * The types of mana a land could produce (106.7), for Fellwar Stone and Exotic Orchard.
+ * Costs and conditions are ignored. Abilities whose colours depend on other permanents
+ * don't count, so two Orchards can't feed each other.
+ */
+export function landColors(g: Game, c: Card): ManaSym[] {
+  const out = new Set<ManaSym>();
+  for (const ab of allManaAbilities(c)) {
+    if (typeof ab.colors === 'function') continue;
+    const colors = ab.colors === 'any' ? WUBRG : ab.colors === 'identity' ? (g.players[c.owner].colors as ManaSym[]) : ab.colors;
+    colors.forEach((x) => out.add(x));
+  }
+  return [...out];
+}
+
+/** The mana abilities of `c` whose conditions are met now (605.1a), with their colours worked out. */
+export function manaAbilities(g: Game, c: Card): ManaUse[] {
+  return allManaAbilities(c).flatMap((ab, index) => {
+    if (ab.when && !ab.when(g, c)) return [];
+    let colors: ManaSym[];
+    if (typeof ab.colors === 'function') colors = ab.colors(g, c);
+    else if (ab.colors === 'any') colors = WUBRG;
+    // Both partners' colours count as "your commander's colour identity" (702.124c). With a
+    // colourless commander there is no colour to choose, so it makes no mana: colourless isn't a colour (105.1).
+    else if (ab.colors === 'identity') colors = g.players[c.owner].colors;
+    else colors = ab.colors;
+    // "Any colour that a land an opponent controls could produce" may be no colour at all.
+    return colors.length ? [{ ...ab, index, colors }] : [];
+  });
+}
+
+/** What a permanent can tap for, all its mana abilities together (for display and the bots), or null if it isn't a mana source. */
+export function manaOf(g: Game, c: Card): { amount: number; colors: ManaSym[]; sacrifice?: boolean } | null {
+  const all = manaAbilities(g, c).filter((m) => !m.fromHand);
+  if (!all.length) return null;
+  const colors = [...new Set(all.flatMap((m) => m.colors))];
+  return { amount: Math.max(...all.map((m) => m.amount)), colors, sacrifice: all.every((m) => m.sacrifice) };
+}
+
+/** Does something stop `pid` casting `card`, or activating one of its abilities (101.2)? */
+export function forbidden(g: Game, pid: PlayerId, kind: 'cast' | 'activate', card: Card): boolean {
+  if (kind === 'cast' && g.effects.some((e) => e.kind === 'cantCast' && e.player === pid && (!e.noncreature || !isCreature(card)))) return true;
+  return battlefield(g).some((src) => scriptFor(src).forbids?.(g, src, pid, { kind, card }));
+}
+
+/** May `pid` cast `spell` as though it had flash (702.8)? */
+export const flashGranted = (g: Game, pid: PlayerId, spell: Card) =>
+  g.effects.some((e) => e.kind === 'flash' && e.player === pid) || battlefield(g).some((src) => scriptFor(src).grantsFlash?.(g, src, pid, spell));
 
 interface Source {
   id: string;
+  /** Which mana ability. */
+  ability: number;
   amount: number;
   colors: ManaSym[];
   /** Sacrificed to make its mana, like a Treasure: auto-pay uses it last. */
   sacrifice?: boolean;
+  /** Life paid, or damage taken, to use it: auto-pay uses it after the free ones. */
+  pain: number;
+  life: number;
 }
 
-export function manaSources(g: Game, pid: PlayerId): Source[] {
+/** Can `pid` use this mana ability of `c` now? A creature's {T} ability needs it to be free of summoning sickness (302.6). */
+function usable(g: Game, pid: PlayerId, c: Card, ab: ManaUse): boolean {
+  if (c.owner !== pid) return false;
+  if (ab.fromHand ? c.zone !== 'hand' : c.zone !== 'battlefield') return false;
+  if (!ab.noTap && !ab.fromHand && (c.tapped || (isCreature(c) && c.sick && !has(g, c, 'haste')))) return false;
+  if (ab.life && g.players[pid].life < ab.life) return false; // 119.4
+  return !forbidden(g, pid, 'activate', c);
+}
+
+/**
+ * The mana abilities `pid` could use now, one entry per ability. `manual` adds the ones
+ * auto-pay leaves alone: those marked `manual`, and those used from a hand.
+ */
+export function manaSources(g: Game, pid: PlayerId, manual = false): Source[] {
   const out: Source[] = [];
-  for (const c of g.players[pid].battlefield) {
-    if (c.tapped) continue;
-    const m = manaOf(g, c);
-    if (!m) continue;
-    if (isCreature(c) && c.sick && !has(g, c, 'haste')) continue;
-    out.push({ id: c.id, ...m });
+  const p = g.players[pid];
+  for (const c of [...p.battlefield, ...(manual ? p.hand : [])]) {
+    for (const ab of manaAbilities(g, c)) {
+      if ((ab.manual || ab.fromHand) && !manual) continue;
+      if (!usable(g, pid, c, ab)) continue;
+      out.push({ id: c.id, ability: ab.index, amount: ab.amount, colors: ab.colors, sacrifice: ab.sacrifice, pain: (ab.life ?? 0) + (ab.damage ?? 0), life: ab.life ?? 0 });
+    }
   }
   return out;
 }
 
-/** Can the player tap this permanent for mana right now? */
-export const canTapForMana = (g: Game, pid: PlayerId, c: Card) => manaSources(g, pid).some((s) => s.id === c.id);
+/** Can the player use a mana ability of this card right now (by hand, so manual ones count)? */
+export const canTapForMana = (g: Game, pid: PlayerId, c: Card, ability?: number) =>
+  manaSources(g, pid, true).some((s) => s.id === c.id && (ability === undefined || s.ability === ability));
 
 /**
  * The colour a source with a choice of colours makes when tapped by hand. It picks one of
@@ -428,29 +517,80 @@ function pickColor(g: Game, pid: PlayerId, options: ManaSym[]): ManaSym {
   const p = g.players[pid];
   const mine = options.filter((x) => (p.colors as ManaSym[]).includes(x));
   if (mine.length <= 1) return mine[0] ?? options[0];
-  const need = (sym: ManaSym) => {
-    const wanted = [...p.hand, ...p.command].reduce((n, c) => n + parseCost(data(c).manaCost).pips.filter((x) => x === sym).length, 0);
-    const pool = p.pool.filter((x) => x.sym === sym).length;
-    const fixed = manaSources(g, pid).filter((s) => s.colors.length === 1 && s.colors[0] === sym).length;
-    return wanted - pool - fixed;
-  };
-  return mine.reduce((best, x) => (need(x) > need(best) ? x : best));
+  return mine.reduce((best, x) => (colorNeed(g, pid, x) > colorNeed(g, pid, best) ? x : best));
 }
 
-/** Taps a permanent for mana by hand. A Treasure is sacrificed too (111.10a): that can't be undone. */
-export function tapForMana(g: Game, pid: PlayerId, c: Card) {
-  const m = manaOf(g, c)!;
-  const sym = m.colors.length === 1 ? m.colors[0] : pickColor(g, pid, m.colors);
-  c.tapped = true;
-  for (let k = 0; k < m.amount; k++) g.players[pid].pool.push({ sym, source: c.id });
-  if (m.sacrifice) dieMany(g, [c], 'is sacrificed');
+/** How much more of colour `sym` the player's hand and command zone want than their pool and one-colour sources give. */
+function colorNeed(g: Game, pid: PlayerId, sym: ManaSym): number {
+  const p = g.players[pid];
+  const wanted = [...p.hand, ...p.command].reduce((n, c) => n + parseCost(data(c).manaCost).pips.filter((x) => x === sym).length, 0);
+  const pool = p.pool.filter((x) => x.sym === sym).length;
+  const fixed = manaSources(g, pid).filter((s) => s.colors.length === 1 && s.colors[0] === sym).length;
+  return wanted - pool - fixed;
 }
 
-/** Tapping for mana can be undone while every mana it made is still unspent in the pool. */
+/**
+ * Which mana ability of `c` a click by hand uses: the cheapest one that makes a colour the
+ * player needs, or else the cheapest (free before painful, painful before sacrificing).
+ */
+function pickManaAbility(g: Game, pid: PlayerId, c: Card): number | undefined {
+  const options = manaSources(g, pid, true)
+    .filter((s) => s.id === c.id)
+    .sort((a, b) => a.pain + (a.sacrifice ? 100 : 0) - (b.pain + (b.sacrifice ? 100 : 0)));
+  const wanted = options.find((s) => s.colors.some((x) => x !== 'C' && colorNeed(g, pid, x) > 0));
+  return (wanted ?? options[0])?.ability;
+}
+
+/**
+ * Pays the costs of mana ability `ab` of `c` and applies its side effects, without adding
+ * the mana: tapping, life (119.4), sacrificing or exiling it, the damage it deals, and
+ * "whenever this becomes tapped".
+ */
+function useManaAbility(g: Game, pid: PlayerId, c: Card, ab: ManaUse) {
+  const p = g.players[pid];
+  if (ab.life) {
+    p.life -= ab.life;
+    log(g, `${says(p, 'pays')} ${ab.life} life (${label(c)}).`, pid, [c]);
+  }
+  if (ab.fromHand) {
+    log(g, `${says(p, 'exiles')} ${label(c)} from ${p.isBot ? 'their' : 'your'} hand for mana.`, pid, [c]);
+    moveCard(g, c, 'exile');
+    return;
+  }
+  if (!ab.noTap) {
+    c.tapped = true;
+    trigger(g, c, 'onTapped', {});
+  }
+  if (ab.damage) damagePlayer(g, c, pid, ab.damage);
+  if (ab.sacrifice) dieMany(g, [c], 'is sacrificed');
+}
+
+/** Uses a mana ability by hand. A Treasure is sacrificed too (111.10a): that can't be undone. */
+export function tapForMana(g: Game, pid: PlayerId, c: Card, ability = pickManaAbility(g, pid, c)) {
+  const ab = manaAbilities(g, c).find((m) => m.index === ability);
+  if (!ab) return;
+  const sym = ab.colors.length === 1 ? ab.colors[0] : pickColor(g, pid, ab.colors);
+  for (let k = 0; k < ab.amount; k++) g.players[pid].pool.push({ sym, source: c.id, ability: ab.index });
+  useManaAbility(g, pid, c, ab);
+}
+
+/** Adds mana straight to a player's pool, as a ritual does. `source` is the card that made it. */
+export function addMana(g: Game, pid: PlayerId, syms: ManaSym[], source: Card) {
+  if (g.players[pid].lost) return;
+  for (const sym of syms) g.players[pid].pool.push({ sym, source: source.id });
+  if (syms.length) log(g, `${says(g.players[pid], 'adds')} ${syms.map((s) => `{${s}}`).join('')}.`, pid, [source]);
+}
+
+/**
+ * Tapping for mana can be undone while every mana it made is still unspent in the pool,
+ * and it cost nothing but the tap.
+ */
 export function canUntapMana(g: Game, pid: PlayerId, c: Card): boolean {
-  const m = manaOf(g, c);
-  if (!m || c.owner !== pid || c.zone !== 'battlefield' || !c.tapped) return false;
-  return g.players[pid].pool.filter((x) => x.source === c.id).length === m.amount;
+  if (c.owner !== pid || c.zone !== 'battlefield' || !c.tapped) return false;
+  const made = g.players[pid].pool.filter((x) => x.source === c.id);
+  const ab = made.length ? manaAbilities(g, c).find((m) => m.index === made[0].ability) : undefined;
+  if (!ab || ab.life || ab.damage || ab.sacrifice || ab.noTap || scriptFor(c).onTapped) return false;
+  return made.length === ab.amount;
 }
 
 export function untapMana(g: Game, pid: PlayerId, c: Card) {
@@ -460,13 +600,20 @@ export function untapMana(g: Game, pid: PlayerId, c: Card) {
 }
 
 /** Total mana the player could produce right now (for display). */
-export const availableMana = (g: Game, pid: PlayerId) =>
-  manaSources(g, pid).reduce((n, s) => n + s.amount, 0) + g.players[pid].pool.length;
+export function availableMana(g: Game, pid: PlayerId): number {
+  // A permanent with several mana abilities can use only one of them at a time.
+  const most = new Map<string, number>();
+  for (const s of manaSources(g, pid)) most.set(s.id, Math.max(most.get(s.id) ?? 0, s.amount));
+  return [...most.values()].reduce((n, x) => n + x, 0) + g.players[pid].pool.length;
+}
 
 interface Plan {
   pool: Mana[];
   sources: Source[];
-  tap: string[];
+  /** The mana abilities used, in order. */
+  uses: { id: string; ability: number }[];
+  /** Life the mana abilities used cost (119.4). */
+  abilityLife: number;
   /** Generic mana still to pay: the cost's own plus any {2/W} paid the generic way. */
   generic: number;
   life: number;
@@ -474,7 +621,16 @@ interface Plan {
 
 /** Mana a source makes beyond the one it is tapped to pay for. It goes to the pool. */
 const extraMana = (s: Source, paying: ManaSym | null): Mana[] =>
-  Array.from({ length: s.amount - 1 }, () => ({ sym: s.colors.length === 1 ? s.colors[0] : (paying ?? s.colors[0]), source: s.id }));
+  Array.from({ length: s.amount - 1 }, () => ({ sym: s.colors.length === 1 ? s.colors[0] : (paying ?? s.colors[0]), source: s.id, ability: s.ability }));
+
+/** Uses source `s`: the permanent's other mana abilities are gone with it (it is tapped, or sacrificed). */
+const useSource = (plan: Plan, s: Source, paying: ManaSym | null): Plan => ({
+  ...plan,
+  pool: [...plan.pool, ...extraMana(s, paying)],
+  sources: plan.sources.filter((x) => x.id !== s.id),
+  uses: [...plan.uses, { id: s.id, ability: s.ability }],
+  abilityLife: plan.abilityLife + s.life,
+});
 
 /**
  * The ways to pay one mana of `sym`: from the pool if it has one (always the best way),
@@ -483,54 +639,41 @@ const extraMana = (s: Source, paying: ManaSym | null): Mana[] =>
 function payMana(sym: ManaSym, plan: Plan): Plan[] {
   const inPool = plan.pool.findIndex((m) => m.sym === sym);
   if (inPool >= 0) return [{ ...plan, pool: plan.pool.filter((_, i) => i !== inPool) }];
-  const rank = (s: Source) => s.amount * 10 + s.colors.length + (s.sacrifice ? 1000 : 0);
-  const options = plan.sources
-    .map((s, i) => ({ s, i }))
-    .filter(({ s }) => s.colors.includes(sym))
-    .sort((a, b) => rank(a.s) - rank(b.s));
-  const tried = new Set<string>(); // sources that make the same mana are interchangeable
+  const rank = (s: Source) => s.amount * 10 + s.colors.length + s.pain * 300 + (s.sacrifice ? 1000 : 0);
+  const options = plan.sources.filter((s) => s.colors.includes(sym)).sort((a, b) => rank(a) - rank(b));
+  const tried = new Set<string>(); // sources that make the same mana the same way are interchangeable
   const out: Plan[] = [];
-  for (const { s, i } of options) {
-    const kind = `${s.amount}:${s.colors.join('')}`;
+  for (const s of options) {
+    const kind = `${s.amount}:${s.colors.join('')}:${s.pain}:${!!s.sacrifice}`;
     if (tried.has(kind)) continue;
     tried.add(kind);
-    out.push({
-      ...plan,
-      pool: [...plan.pool, ...extraMana(s, sym)],
-      sources: plan.sources.filter((_, j) => j !== i),
-      tap: [...plan.tap, s.id],
-    });
+    out.push(useSource(plan, s, sym));
   }
   return out;
 }
 
 /** Pays the generic part from whatever is left: pool first, then the sources that fit it best. */
 function payGeneric(plan: Plan): Plan | null {
-  const pool = [...plan.pool];
-  const sources = [...plan.sources];
-  const tap = [...plan.tap];
   let remaining = plan.generic;
   while (remaining > 0) {
-    if (pool.length) {
+    if (plan.pool.length) {
+      const pool = [...plan.pool];
       const c = pool.findIndex((m) => m.sym === 'C');
       pool.splice(c >= 0 ? c : 0, 1);
+      plan = { ...plan, pool };
       remaining--;
       continue;
     }
-    if (!sources.length) return null;
-    // Prefer the biggest source that doesn't overpay, colourless before coloured.
+    if (!plan.sources.length) return null;
+    // Prefer the biggest source that doesn't overpay, colourless before coloured, free before painful.
     const score = (s: Source) =>
-      (s.amount <= remaining ? 100 + s.amount * 10 : 50 - s.amount * 10) + (s.colors[0] === 'C' ? 5 : 0) - s.colors.length - (s.sacrifice ? 500 : 0);
-    let best = 0;
-    sources.forEach((s, i) => {
-      if (score(s) > score(sources[best])) best = i;
-    });
-    const s = sources.splice(best, 1)[0];
-    tap.push(s.id);
-    pool.push(...extraMana(s, null));
+      (s.amount <= remaining ? 100 + s.amount * 10 : 50 - s.amount * 10) + (s.colors[0] === 'C' ? 5 : 0) - s.colors.length - s.pain * 30 - (s.sacrifice ? 500 : 0);
+    const best = plan.sources.reduce((a, b) => (score(b) > score(a) ? b : a));
+    // Its first mana pays for this; the rest goes to the pool and is spent next.
+    plan = useSource(plan, best, null);
     remaining--;
   }
-  return { ...plan, pool, sources, tap, generic: 0 };
+  return { ...plan, generic: 0 };
 }
 
 /**
@@ -567,7 +710,11 @@ function payShards(shards: HybridOption[][], plan: Plan, life: number): Plan | n
  * multi-mana source (e.g. Sol Ring) stays in the pool until the step ends. `life` is
  * what Phyrexian symbols and the cost itself take.
  */
-export function planPayment(g: Game, pid: PlayerId, cost: Cost): { tap: string[]; pool: Mana[]; life: number } | null {
+export function planPayment(
+  g: Game,
+  pid: PlayerId,
+  cost: Cost,
+): { tap: string[]; uses: { id: string; ability: number }[]; pool: Mana[]; life: number } | null {
   const p = g.players[pid];
   // A player can pay life only if their life total is at least that much (119.4).
   if (cost.life > p.life) return null;
@@ -577,23 +724,33 @@ export function planPayment(g: Game, pid: PlayerId, cost: Cost): { tap: string[]
   if (most < cost.generic + cost.pips.length + cost.hybrid.filter((h) => !h.includes('life')).length) return null;
   const makers = (sym: HybridOption) => all.filter((s) => s.colors.includes(sym as ManaSym)).length;
   const pips = [...cost.pips].sort((a, b) => makers(a) - makers(b)).map((pip): HybridOption[] => [pip]);
-  const start: Plan = { pool: [...p.pool], sources: all, tap: [], generic: cost.generic, life: cost.life };
+  const start: Plan = { pool: [...p.pool], sources: all, uses: [], abilityLife: 0, generic: cost.generic, life: cost.life };
   const paid = payShards([...pips, ...cost.hybrid], start, p.life);
-  return paid && { tap: paid.tap, pool: paid.pool, life: paid.life };
+  if (!paid || paid.life + paid.abilityLife > p.life) return null;
+  return { tap: paid.uses.map((u) => u.id), uses: paid.uses, pool: paid.pool, life: paid.life };
 }
 
 export function pay(g: Game, pid: PlayerId, cost: Cost): boolean {
   const plan = planPayment(g, pid, cost);
   if (!plan) return false;
-  for (const id of plan.tap) permanent(g, id)!.tapped = true;
   g.players[pid].pool = plan.pool;
-  const spent = plan.tap.map((id) => permanent(g, id)!).filter((c) => manaOf(g, c)?.sacrifice);
+  // Every ability is activated before any of them is sacrificed or deals its damage.
+  const used = plan.uses.map((u) => ({ c: permanent(g, u.id)!, ab: manaAbilities(g, permanent(g, u.id)!).find((m) => m.index === u.ability)! }));
+  for (const { c, ab } of used) useManaAbility(g, pid, c, { ...ab, sacrifice: false });
+  const spent = used.filter((u) => u.ab.sacrifice).map((u) => u.c);
   if (spent.length) dieMany(g, spent, 'is sacrificed');
   if (plan.life) {
     g.players[pid].life -= plan.life; // paying life (119.4)
     log(g, `${says(g.players[pid], 'pays')} ${plan.life} life.`, pid);
   }
   return true;
+}
+
+/** An object's mana value (202.3). On the stack, X counts as the number chosen for it (202.3e). */
+export function manaValue(c: Card): number {
+  const d = data(c);
+  const x = c.zone === 'stack' ? parseCost(d.manaCost).x * (c.cast?.x ?? 0) : 0;
+  return d.cmc + x;
 }
 
 /** Number of `color` pips among mana costs of permanents the player controls. */
@@ -703,17 +860,27 @@ export function refCards(g: Game, refs: (TargetRef | null)[]): Card[] {
   });
 }
 
+/** Can this spell or ability be countered? Not a spell that says it can't (113.6g), or one a permanent protects. */
+export const counterable = (g: Game, item: StackItem) =>
+  item.kind !== 'spell' || (!scriptFor(item.card).uncounterable && !battlefield(g).some((p) => scriptFor(p).protectsSpell?.(g, p, item.card, item.controller)));
+
 /**
  * Counters a spell or ability (701.6a): it leaves the stack without resolving and none of
  * its effects happen. A countered spell goes to its owner's graveyard (a copy just ceases
- * to exist), and nothing paid for it comes back (701.6b).
+ * to exist), or into exile with `exile`, and nothing paid for it comes back (701.6b).
+ * Returns whether it was countered.
  */
-export function counter(g: Game, ref: TargetRef | null | undefined) {
+export function counter(g: Game, ref: TargetRef | null | undefined, opts: { exile?: boolean } = {}): boolean {
   const item = refStack(g, ref);
-  if (!item) return;
+  if (!item) return false;
+  if (!counterable(g, item)) {
+    log(g, `${describeRef(g, ref!)} can't be countered.`, item.controller, [item.card]);
+    return false;
+  }
   log(g, `${describeRef(g, ref!)} is countered.`, item.controller, [item.card]);
-  if (item.kind === 'spell') moveCard(g, item.card, 'graveyard');
+  if (item.kind === 'spell') moveCard(g, item.card, opts.exile ? 'exile' : 'graveyard');
   else g.stack = g.stack.filter((x) => x !== item);
+  return true;
 }
 
 /**
@@ -723,10 +890,14 @@ export function counter(g: Game, ref: TargetRef | null | undefined) {
  */
 export function copySpell(g: Game, ref: TargetRef | null | undefined, controller: PlayerId) {
   const item = refStack(g, ref);
-  if (!item || item.kind !== 'spell') return;
+  if (item?.kind === 'spell') copyItem(g, item, controller);
+}
+
+/** Copies spell `item`, which may already have left the stack: storm copies it as it last was (702.40a). */
+export function copyItem(g: Game, item: StackItem, controller: PlayerId) {
   const card: Card = { ...snapshot(item.card), id: `c${g.nextId++}`, owner: controller, isToken: true, isCommander: false };
   log(g, `${says(g.players[controller], 'copies')} ${label(item.card)}.`, controller, [item.card]);
-  g.triggers.push({ id: `s${g.nextId++}`, kind: 'spell', controller, card, targets: item.targets, copy: true, ordered: true });
+  g.triggers.push({ id: `s${g.nextId++}`, kind: 'spell', controller, card, targets: [...item.targets], copy: true, ordered: true });
 }
 
 // ---------- randomness (seeded, so games can be replayed in tests) ----------
@@ -769,6 +940,21 @@ const SECOND_PERSON: Record<string, string> = {
   loses: 'lose',
   wins: 'win',
   is: 'are',
+  exiles: 'exile',
+  adds: 'add',
+  names: 'name',
+  searches: 'search',
+  mills: 'mill',
+  reveals: 'reveal',
+  takes: 'take',
+  draws: 'draw',
+  chooses: 'choose',
+  untaps: 'untap',
+  creates: 'create',
+  declines: 'decline',
+  has: 'have',
+  looks: 'look',
+  shuffles: 'shuffle',
 };
 
 /** Subject + verb for the log: "Cinder casts" for a bot, "You cast" for the human. */
@@ -791,6 +977,7 @@ export function makeCard(g: Game, name: string, owner: PlayerId, zone: Zone, ext
     isToken: false,
     face: 0,
     level: 1,
+    once: {},
     adventure: false,
     tapped: false,
     sick: false,
@@ -840,6 +1027,7 @@ export function moveCard(g: Game, c: Card, to: Zone) {
   c.loyaltyTurn = 0; // a new object with no memory of its last one (400.7)
   c.protector = null;
   c.level = 1;
+  c.once = {};
   c.adventure = false;
   c.mods = [];
   // A spell cast with flashback is exiled instead of going anywhere else (702.34a).
@@ -932,14 +1120,42 @@ export function enterBattlefield(g: Game, c: Card, opts: { tapped?: boolean; att
   arrive(g, c, opts);
 }
 
-export function createToken(g: Game, pid: PlayerId, key: string, count = 1) {
-  if (g.players[pid].lost) return;
+/** Creates tokens (111.2). Returns them as stored in the game, so callers can change them further. */
+export function createToken(g: Game, pid: PlayerId, key: string, count = 1, opts: { tapped?: boolean } = {}): Card[] {
+  if (g.players[pid].lost) return [];
+  const out: Card[] = [];
   for (let i = 0; i < count; i++) {
     const c = makeCard(g, key, pid, 'battlefield', { isToken: true });
     g.players[pid].battlefield.push(c);
     // Re-read through the draft so later mutations hit the stored object.
-    arrive(g, g.players[pid].battlefield[g.players[pid].battlefield.length - 1], {});
+    const stored = g.players[pid].battlefield[g.players[pid].battlefield.length - 1];
+    arrive(g, stored, { tapped: opts.tapped });
+    out.push(stored);
   }
+  return out;
+}
+
+/**
+ * The cost of an activated ability: its mana, plus any life (119.4). Tapping, sacrificing
+ * and crewing are paid separately.
+ */
+export function abilityCost(ab: { cost: { mana?: string; life?: number } }): Cost {
+  const cost = parseCost(ab.cost.mana ?? '');
+  cost.life += ab.cost.life ?? 0;
+  return cost;
+}
+
+/** Returns a permanent to its owner's hand (Snapback, Chain of Vapor). */
+export function bounce(g: Game, c: Card | undefined) {
+  if (!c || c.zone !== 'battlefield') return;
+  log(g, `${label(c)} returns to its owner's hand.`, c.owner, [c]);
+  moveCard(g, c, 'hand');
+}
+
+/** Does card `c` have this name? A card with several faces has each face's name too (201.2, 709.4b). */
+export function hasName(c: Card, name: string): boolean {
+  const d = cardData(c.name);
+  return d.name === name || !!d.faces?.some((f) => f.name === name);
 }
 
 /**
@@ -1007,6 +1223,7 @@ export function draw(g: Game, pid: PlayerId, n = 1) {
       return;
     }
     moveCard(g, top, 'hand');
+    p.drawn++;
     broadcast(g, 'onDraw', { player: pid });
   }
 }
@@ -1029,6 +1246,7 @@ export function damagePlayer(g: Game, source: Card, pid: PlayerId, n: number, co
   const which = combat ? commanderIndex(g, source) : -1;
   if (which >= 0) p.commanderDamage[source.owner][which] += n;
   if (has(g, source, 'lifelink')) gainLife(g, source.owner, n);
+  if (combat && !g.combatDamaged.includes(pid)) g.combatDamaged.push(pid);
   if (combat) trigger(g, source, 'onCombatDamageToPlayer', { player: pid, amount: n });
   return n;
 }
@@ -1168,11 +1386,36 @@ export const attachedBonus =
   (_g: Game, self: Card, c: Card): StaticBonus | null =>
     self.attachedTo === c.id ? bonus : null;
 
+/** The spell or ability resolving now, if any. Choices made partway through it name it as their source. */
+export const resolvingItem = (g: Game) => g.stack.find((x) => x.id === g.resolving);
+const sourceName = (g: Game) => {
+  const item = resolvingItem(g);
+  return item ? label(item.card) : 'Search';
+};
+
+/** Queues a choice for a player. The engine asks it once the effect so far has been applied (608.2d). */
+function queue(g: Game, choice: Choice) {
+  if (!g.players[choice.player].lost) g.choices.push(choice);
+}
+
+/**
+ * The player searches their library for a card that fits `find` (any card if left out),
+ * and puts it onto the battlefield, into their hand or on top, then shuffles (701.23). The
+ * player chooses the card, so this only queues the choice. `then` runs once it is made.
+ */
+export function search(
+  g: Game,
+  pid: PlayerId,
+  to: 'battlefield' | 'hand' | 'top',
+  find?: Find,
+  opts: { tapped?: boolean; reveal?: boolean; then?: string; data?: Record<string, unknown> } = {},
+) {
+  queue(g, { kind: 'search', player: pid, source: sourceName(g), to, tapped: to === 'battlefield' && !!opts.tapped, find, reveal: opts.reveal, then: opts.then, data: opts.data });
+}
+
 /**
  * The player searches their library for a basic land (optionally of one subtype), puts it
- * onto the battlefield or into their hand, then shuffles. They choose the card, so this
- * only queues the choice: the engine asks for it once the effect has finished, before the
- * spell or ability is done resolving (see `CardChoice`).
+ * onto the battlefield (tapped unless told otherwise) or into their hand, then shuffles.
  */
 export function searchBasic(
   g: Game,
@@ -1180,20 +1423,99 @@ export function searchBasic(
   to: 'battlefield' | 'hand',
   opts: { tapped?: boolean; subtype?: string } = {},
 ) {
-  if (g.players[pid].lost) return;
-  const source = g.stack.find((x) => x.id === g.resolving)?.card;
-  g.choices.push({
-    kind: 'search',
-    player: pid,
-    source: source ? label(source) : 'Search',
-    to,
-    tapped: to === 'battlefield' && (opts.tapped ?? true),
-    subtype: opts.subtype,
-  });
+  const label = opts.subtype ? `a basic ${opts.subtype}` : 'a basic land';
+  search(g, pid, to, { basic: true, subtypes: opts.subtype ? [opts.subtype] : undefined, label }, { tapped: to === 'battlefield' && (opts.tapped ?? true), reveal: true });
 }
 
-/** Cards that a search for a basic land (of `subtype`, if given) can find. */
-export const searchable = (c: Card, subtype?: string) => hasType(c, 'Basic Land') && (!subtype || hasType(c, subtype));
+/** Cards that a search for `find` can find (701.23a). A search for any card finds any card. */
+export function searchable(c: Card, find?: Find): boolean {
+  if (!find) return true;
+  const d = data(c);
+  if (find.basic && !hasType(c, 'Basic Land')) return false;
+  if (find.types && !find.types.some((x) => hasType(c, x))) return false;
+  if (find.subtypes && !find.subtypes.some((x) => d.typeLine.split('—')[1]?.split(' ').includes(x))) return false;
+  return find.maxMv === undefined || d.cmc <= find.maxMv;
+}
+
+/** Asks a player to pick `min` to `max` of `cards`; `then` runs with the ones picked. */
+export function pickCards(g: Game, pid: PlayerId, cards: Card[], opts: { min?: number; max?: number; text: string; button: string; then: string; data?: Record<string, unknown> }) {
+  queue(g, { kind: 'pick', player: pid, source: sourceName(g), cards: cards.map((c) => c.id), min: opts.min ?? 0, max: opts.max ?? 1, text: opts.text, button: opts.button, then: opts.then, data: opts.data });
+}
+
+/** Asks a player yes or no, `then` runs with the answer. `cost` and `life` are paid to say yes (118.12). */
+export function ask(g: Game, pid: PlayerId, q: Omit<AskChoice, 'kind' | 'player' | 'source'>) {
+  queue(g, { kind: 'ask', player: pid, source: sourceName(g), ...q });
+}
+
+/** Asks a player to name a card (201.3); `then` runs with the name. */
+export function nameCard(g: Game, pid: PlayerId, q: Omit<NameChoice, 'kind' | 'player' | 'source'>) {
+  queue(g, { kind: 'name', player: pid, source: sourceName(g), ...q });
+}
+
+/** Puts a card on top of its owner's library. */
+export function putOnTop(g: Game, c: Card) {
+  moveCard(g, c, 'library');
+  const lib = g.players[c.owner].library;
+  lib.unshift(lib.pop()!);
+}
+
+/** Puts cards on the bottom of their owner's library in a random order. */
+export function putOnBottomRandomly(g: Game, cards: Card[]) {
+  const order = [...cards];
+  shuffle(g, order);
+  for (const c of order) moveCard(g, c, 'library');
+}
+
+/** The player mills `n` cards: the top `n` of their library go to their graveyard, or as many as there are (701.17a-b). */
+export function mill(g: Game, pid: PlayerId, n: number): Card[] {
+  const p = g.players[pid];
+  const milled = p.library.slice(0, n);
+  for (const c of milled) moveCard(g, c, 'graveyard');
+  if (milled.length) log(g, `${says(p, 'mills')} ${milled.map(label).join(', ')}.`, pid, milled);
+  return milled;
+}
+
+/** The player discards a card from their hand (701.9a). */
+export function discard(g: Game, c: Card) {
+  if (c.zone !== 'hand') return;
+  log(g, `${says(g.players[c.owner], 'discards')} ${label(c)}.`, c.owner, [c]);
+  moveCard(g, c, 'graveyard');
+}
+
+/** The player discards a card at random (701.9b). */
+export function discardAtRandom(g: Game, pid: PlayerId) {
+  const hand = g.players[pid].hand;
+  if (hand.length) discard(g, hand[Math.floor(rand(g) * hand.length)]);
+}
+
+/** An effect says the player loses the game (104.3e). The next state-based check removes them. */
+export function loseGame(g: Game, pid: PlayerId, reason: string) {
+  const p = g.players[pid];
+  if (!p.lost && !p.loses) p.loses = reason;
+}
+
+/** An effect says the player wins the game (104.2b). The game ends at the next state-based check. */
+export function winGame(g: Game, pid: PlayerId) {
+  if (!g.players[pid].lost) g.players[pid].wins = true;
+}
+
+/** An effect that lasts until end of turn (514.2). */
+export const addEffect = (g: Game, e: TurnEffect) => void g.effects.push(e);
+
+/**
+ * Creates a delayed triggered ability (603.7a): at the beginning of the next `step` that
+ * fits, `self`'s script `delayed[key]` goes on the stack.
+ */
+export function delay(g: Game, self: Card, controller: PlayerId, d: Omit<Delayed, 'id' | 'controller' | 'card'>) {
+  g.delayed.push({ id: `d${g.nextId++}`, controller, card: snapshot(self), ...d });
+}
+
+/** The player takes an extra turn after this one (500.7). */
+export function extraTurn(g: Game, pid: PlayerId, opts: { loseAtEnd?: Card } = {}) {
+  if (g.players[pid].lost) return;
+  g.extraTurns.push({ player: pid, loseAtEnd: opts.loseAtEnd && snapshot(opts.loseAtEnd) });
+  log(g, `${says(g.players[pid], 'takes')} an extra turn after this one.`, pid);
+}
 
 // ---------- state-based actions ----------
 
@@ -1235,8 +1557,9 @@ export function checkState(g: Game) {
     let changed = false;
     for (const p of g.players) {
       if (p.lost) continue;
-      const reason =
-        p.life <= 0
+      const reason = p.loses
+        ? p.loses // 104.3e
+        : p.life <= 0
           ? 'life total 0' // 704.5a
           : p.commanderDamage.some((from) => from.some((d) => d >= COMMANDER_DAMAGE))
             ? `${COMMANDER_DAMAGE} commander damage` // 903.10a
@@ -1326,6 +1649,12 @@ export function checkState(g: Game) {
       }
     }
     if (!changed) break;
+  }
+  // A player an effect says wins the game does, unless they also lost just now (104.2b, 104.3f).
+  const winner = living(g).find((p) => p.wins);
+  if (g.winner === null && winner) {
+    g.winner = winner.id;
+    log(g, `${says(winner, 'wins')} the game!`, winner.id);
   }
   if (g.winner === null) {
     const alive = living(g);

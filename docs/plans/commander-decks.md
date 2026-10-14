@@ -3,7 +3,7 @@
 Goal: play real 100-card Commander decks of any colours, with partner commanders and
 every card type, and add the user's own deck to the menu.
 
-**Status: sessions 1-6 done. Don't start the next session until the user says so.**
+**Status: sessions 1-6 and 7a done. Don't start the next session until the user says so.**
 
 ## What "every card type" means here
 
@@ -16,6 +16,7 @@ automatically is out of scope (projects like Forge spent years on that).
 
 - Do only that session's scope. Leave other gaps to later sessions.
 - Cite rule numbers from `docs/rules/` in comments (see `CLAUDE.md`).
+- Script cards from their exact Oracle text, clause by clause (`docs/card-scripting.md`).
 - Bots must use each new feature (`src/engine/ai.ts`), or at least not break on it.
 - Add tests in `tests/engine.test.ts`. Keep `tests/simulation.test.ts` passing.
 - Finish with `npm test` and `npm run build` passing, and update `README.md`
@@ -98,6 +99,42 @@ Order matters: each one builds on the ones before it.
   feature or a stand-in card). Don't swap cards silently.
 - Play a few bot games with it (`tests/simulation.test.ts`) to catch crashes.
 - If the deck needs more than about 60 new scripts, split it over two sessions.
+- The user's deck: Kraum, Ludevic's Opus and Tymna the Weaver, a four-colour (WUBR) cEDH
+  deck. Eight cards were listed by their Universes Within names (Chaos Emerald, Joshua
+  Rosfield, ...): the deck uses their Oracle names. About 100 scripts, so it is split in two.
+  Any card that can't be done exactly is listed for the user and approved one at a time.
+
+#### 7a. Combo-turn engine features and the cards they cover (done)
+
+- Searching a library for any card, with or without a stated quality, into hand, on top or
+  onto the battlefield (701.23): tutors and fetch lands.
+- Choices partway through resolving: yes/no questions for any player, "unless that player
+  pays" (118.12a), looking at the top cards of a library, naming a card.
+- Per-turn counts: spells cast, cards drawn, players dealt combat damage. Storm (702.40),
+  "second spell each turn" and "first noncreature spell each turn" triggers.
+- Turn-long effects: "can't cast spells", "as though it had flash". "Can't be countered".
+- Mana: several mana abilities on one permanent, mana abilities that cost life or deal
+  damage, conditional and dynamic colours, mana abilities from a hand, rituals, permanents
+  that don't untap. Alternative costs that exile a card from your hand (pitch spells).
+- Delayed triggers (603.7), extra turns (500.7), losing and winning the game (104).
+- Cards: lands, fast mana, rituals, tutors, counterspells, draw engines, the stax
+  creatures, Thassa's Oracle, Demonic Consultation, Tainted Pact, Brain Freeze, Final
+  Fortune, Last Chance, Wheel of Fortune, and the commanders.
+- The deck is added to `decklists.json` but stays off the menu (`wip`) until 7b.
+- Done. The user asked for "you may draw" on Rhystic Study and Mystic Remora to be asked
+  each time, not assumed. Card wording rules are now in `docs/card-scripting.md`.
+
+#### 7b. The rest of the deck
+
+- Graveyard and odd cards: Underworld Breach (escape), Mnemonic Betrayal, Necropotence,
+  Ad Nauseam, Intuition, Mockingbird, Deflecting Swat, Chain of Vapor, Wishclaw Talisman,
+  Gemstone Caverns, Cavern of Souls, Chrome Mox, Mox Diamond, Lion's Eye Diamond, Ragavan,
+  Into the Flood Maw, Beseech the Mirror, Dragon's Rage Channeler, Birgi, Jeska's Will,
+  Otawara, Sevinne's Reclamation, Flare of Duplication, Hexing Squelcher, Rain of Filth.
+- The legend rule (704.5j), which a Mockingbird copy of a legend needs.
+- Bots that look for the deck's combos (Thassa's Oracle with Consultation or Tainted Pact),
+  and use rituals, Simian Spirit Guide and Final Fortune.
+- The deck goes on the menu.
 
 ### 8. (Optional) Rebuild the four starter decks to 100 cards
 

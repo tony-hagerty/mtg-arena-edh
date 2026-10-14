@@ -199,7 +199,36 @@ Rule numbers below are from the Comprehensive Rules in `docs/rules/`.
   everyone who chose to mulligan does so at once and puts cards on the bottom. The first
   mulligan is free in multiplayer (103.5c). Bots keep a hand with 2 to 5 lands.
 - Searching a library (701.23): the player looks at every card and picks a valid one, or
-  may find nothing (701.23b). The spell stays on the stack until the choice is made.
+  may find nothing (701.23b). The spell stays on the stack until the choice is made. A
+  search can be for any card, which must find one if it can (701.23d), or for a type,
+  subtype or mana value, and puts the card into a hand, on top after shuffling, or onto
+  the battlefield (tutors, fetch lands). A bot's card that isn't revealed isn't named in
+  the log (701.23e).
+- Choices partway through resolving (608.2d): any player can be asked yes or no ("you
+  may ...", or "... unless that player pays {1}", where that player chooses first,
+  118.12a), to pick from a few cards (Thassa's Oracle), or to name a card (201.3).
+- Mana abilities (605): a permanent can have several, and they can cost life (119.4),
+  deal damage, need a condition ("activate only if"), make colours worked out as they are
+  used (Fellwar Stone and Exotic Orchard check what opponents' lands could produce, 106.7),
+  or work from a hand (Simian Spirit Guide: click it in your hand, or pick "Exile it for
+  mana" in the cast panel). Auto-pay uses free sources first, then painful ones, then
+  ones that are sacrificed. Rituals add mana as they resolve. A permanent can skip its
+  untap (502.3), and "whenever this becomes tapped" triggers.
+- Pitch costs (118.9): an alternative cost can exile a card from your hand, like Force
+  of Will's blue card. You pick the card after the targets; bots give up the card they
+  want least.
+- Per-turn counts: spells cast (and noncreature spells) by each player, cards drawn,
+  and players dealt combat damage. Storm (702.40) copies a spell for each spell cast
+  before it this turn; "second spell each turn" and "first noncreature spell each turn"
+  trigger.
+- Turn-long effects: "can't cast spells this turn" (Silence), "as though it had flash"
+  (Borne Upon a Wind, Valley Floodcaller), and permanents that stop opponents casting or
+  activating (Grand Abolisher, which also stops their artifacts' mana abilities). "Can't
+  be countered" works (113.6g).
+- Delayed triggers (603.7), extra turns (500.7, the newest first), and effects that make
+  a player win (104.2b) or lose (104.3e) the game. Mill (701.17), discarding at random,
+  cumulative upkeep (702.24), mobilize (702.181), and "two target players" that must be
+  different (115.3).
 - State-based actions (704) are checked every time a player would get priority.
 - Timing: instants, flash and abilities any time you have priority; everything else, and
   lands, only in your own main phase with the stack empty.
@@ -208,11 +237,18 @@ Rule numbers below are from the Comprehensive Rules in `docs/rules/`.
   player declares blocks in turn order; players are eliminated mid-game, and what they
   had on the stack goes with them.
 - Keywords: flying, reach, first strike, double strike, deathtouch, lifelink, trample,
-  vigilance, haste, defender, hexproof, indestructible, menace, flash.
+  vigilance, haste, defender, hexproof, indestructible, menace, flash, storm, cumulative
+  upkeep, mobilize.
 - 123 real cards across four mono-coloured decks, every one fully working. The decks
   shown on the menu are old 60-card "legacy" decks (see below); the menu shows each
   deck's colour pips.
   `npm test` fails if a card has rules text the engine doesn't implement.
+- The user's Kraum and Tymna deck is in `decklists.json`, marked `"wip": true` so it stays
+  off the menu until all its cards work. 75 of its 100 cards work now (scripts in
+  `src/cards/kraum-tymna.ts`); the other 25 come in session 7b, listed in
+  `tests/cards.test.ts` and `docs/plans/commander-decks.md`. Eight cards were listed by
+  their Universes Within names (Chaos Emerald is Lotus Petal, and so on); the deck uses
+  their Oracle names.
 
 ## Known simplifications
 
@@ -258,8 +294,7 @@ These are deliberate cuts for a prototype, roughly in the order I'd tackle them 
   Loxodon Warhammer, Untethered Express, Black Sun's Zenith).
 - Only spells can be modal: modal triggered and activated abilities (700.2b) aren't
   supported. A copy's controller must pick legal new targets or keep all the old ones
-  (707.10c allows keeping some). Copying abilities and "can't be countered" aren't
-  supported yet. The test-only cards for this are in `tests/fixtures.ts` too
+  (707.10c allows keeping some). Copying abilities isn't supported yet. The test-only cards for this are in `tests/fixtures.ts` too
   (Counterspell, Negate, Essence Scatter, Stifle, Cryptic Command, Boros Charm, Fiery
   Confluence, Reverberate).
 - **No card on the menu uses the new costs yet.** The engine supports them, and the tests
@@ -268,12 +303,29 @@ These are deliberate cuts for a prototype, roughly in the order I'd tackle them 
 - Phyrexian mana is always paid with mana when the mana is there; you can't choose to pay
   life instead. Tapping lands by hand first lets you steer it.
 - Not supported yet: X in activated abilities, targets that exist only when kicked
-  (702.33g), snow mana {S}, and a spell's mana value counting X while on the stack
-  (202.3e).
+  (702.33g) and snow mana {S}. A spell's mana value counts X on the stack (202.3e) only
+  where a card checks it (`manaValue`; Mental Misstep).
 - Cultivate asks for its two lands one at a time (battlefield, then hand), not as one pick
   of two. It is still one search with one shuffle (701.23h).
 - Combat damage is assigned automatically (lethal to each blocker in order).
-- Optional "you may" effects always happen when they are free upside.
+- In the older scripts, optional "you may" effects always happen when they are free upside
+  (a defeated Siege's back face, the starter decks' land searches). The session 7a cards
+  ask.
+- **The legend rule (704.5j) isn't implemented**: a player can control two legendary
+  permanents with the same name. Every deck is singleton, so this needs a copy effect
+  (Mockingbird, session 7b) to matter.
+- Naming a card (Demonic Consultation) offers every card the game knows, not every card
+  ever printed. Naming any card that isn't in your library does the same thing.
+- Auto-pay never uses a mana ability that costs a card (Simian Spirit Guide): use it by
+  hand. Bots don't use it yet.
+- City of Brass deals its damage only when it is tapped for mana: nothing in the pool taps
+  a land any other way.
+- Mana Vault doesn't ask about paying {4} while it is untapped, and Tymna doesn't ask
+  with no opponent dealt combat damage: paying would change nothing. Both still trigger.
+- Bots don't look for combos yet (session 7b). They cast tutors in their second main
+  phase with mana to spare, never cast rituals or Final Fortune, cast Pact of Negation only
+  if they could pay for it next upkeep, name the card they want most for Demonic
+  Consultation, and keep a Tainted Pact card they want.
 - **Your commander going to your hand or library** lands there first, and you choose
   before anyone gets priority. By the rules (903.9b) that is a replacement effect chosen
   as it moves, but an effect can't stop partway through to ask. Bots get the real
@@ -285,7 +337,8 @@ These are deliberate cuts for a prototype, roughly in the order I'd tackle them 
 src/cards/      decklists.json        the decks, shared artifacts, tokens
                 db.ts                 card lookup, deck colours, deck legality (deckProblems)
                 cards.generated.json  card data from Scryfall (npm run fetch-cards)
-                scripts.ts            what each card does
+                scripts.ts            what each card does (starter decks)
+                kraum-tymna.ts        what the Kraum and Tymna deck's cards do
 src/engine/     types.ts              game state, actions, card-script types
                 rules.ts              queries (stats, mana, targets) + effect primitives
                 engine.ts             setup, turn structure, priority, the stack, applyAction()
@@ -293,7 +346,8 @@ src/engine/     types.ts              game state, actions, card-script types
 src/ui/         store.ts              Zustand store (game + what the player is selecting)
                 view.ts               highlights, prompt, buttons, click handlers
                 Card/Board/Hud.tsx    components
-                Picker.tsx            card picker: search, mulligan, bottom, trigger order
+                Picker.tsx            card picker: search, mulligan, bottom, trigger order,
+                                      yes/no questions, naming a card
                 styles.css            all styling
 tests/                                Vitest: card coverage, rules, the UI casting flow,
                                       bot-vs-bot games
@@ -304,6 +358,7 @@ public/         cursor.png            the mouse cursor, and cursor-down.png whil
                                       button is held (see Credits)
 docs/rules/     INDEX.md              official Comprehensive Rules, one file per rule
                                       (npm run fetch-rules)
+docs/           card-scripting.md     how to script a card from its exact wording
 ```
 
 Three ideas hold it together:
@@ -321,9 +376,11 @@ Three ideas hold it together:
 `Game.priority` is always the player the game is waiting on. If `Game.decision` is null
 they have priority and can cast, activate or pass. Otherwise they are making that
 decision: a mulligan, declaring attackers or blockers, discarding, choosing targets for a
-trigger, ordering their triggers, or picking cards from a list (`CardChoice`). A choice in
-the middle of a spell's effect, like a search, waits in `Game.choices` until the effect
-has run; the spell stays on the stack as `Game.resolving` until it is answered.
+trigger, ordering their triggers, picking cards from a list (`CardChoice`), answering yes
+or no (`AskChoice`), or naming a card (`NameChoice`). A choice in the middle of a spell's
+effect waits in `Game.choices` until the effect so far has run; the spell stays on the
+stack as `Game.resolving` until it is answered. What happens next is the script's
+`then[key]`, which the choice names, so a card can ask several questions in a row.
 
 ### Adding a card
 
@@ -333,7 +390,9 @@ has run; the spell stays on the stack as `Game.resolving` until it is answered.
 2. Run `npm run fetch-cards` to pull its data and art from Scryfall. Behind an HTTPS
    proxy (as in a Claude Code cloud session) run `NODE_USE_ENV_PROXY=1 npm run fetch-cards`:
    Node's `fetch` ignores the proxy otherwise.
-3. If it does more than its printed keywords, add an entry to `src/cards/scripts.ts`.
+3. Read `docs/card-scripting.md` first: the script must follow the card's exact Oracle
+   text, clause by clause. If it does more than its printed keywords, add an entry to
+   `src/cards/scripts.ts` (or the deck's own file, like `kraum-tymna.ts`).
    A trigger that only fires on some events ("whenever *another* creature enters") needs
    `{ when, resolve }`, so it doesn't go on the stack for the events it ignores.
    Costs printed in rules text go in the script too: `kicker`, `additionalCost` (a
@@ -354,6 +413,21 @@ has run; the spell stays on the stack as `Game.resolving` until it is answered.
    becomes level N". `flashback: '{2}{U}'` lets it be cast from a graveyard.
    `createToken(g, pid, 'Treasure')` (or `'Food'`, `'Clue'`) makes the predefined tokens.
    A `{ when, resolve }` trigger can take `targets`.
+   Mana: `mana` can be a list of abilities, each with `colors` (a list, `'any'`,
+   `'identity'` or a function), and optionally `life`, `damage`, `sacrifice`, `when`,
+   `fromHand` or `manual`. `addMana(g, pid, ['B', 'B', 'B'], self)` for rituals;
+   `noUntap: true` for "doesn't untap".
+   Choices while resolving: `search(g, pid, to, find, { then })`, `ask(g, pid, { text,
+   cost, yes, no, then })`, `pickCards(...)` and `nameCard(...)` queue a question; the
+   answer runs the script's `then[key]` with `picked`, `yes` or `name`. `botChoice[key]`
+   says how a bot answers, and `botCast` stops a bot casting it when the look-ahead can't
+   see the cost (Pact of Negation).
+   Other hooks: `forbids` ("can't cast"/"can't activate"), `grantsFlash`, `uncounterable`,
+   `protectsSpell`, `onPostcombatMain`, `onDrawStep`, `onTapped`; effects `addEffect`
+   (until end of turn), `delay` with `delayed[key]` (603.7), `extraTurn`, `winGame`,
+   `loseGame`, `mill`, `discard`. Storm needs no script. A target spec with
+   `distinctFrom: i` can't repeat target `i`. An alternative cost can `exile` a card from
+   the hand.
 4. Run `npm test`. The card-pool test tells you if anything is still missing.
 
 ### Layout note
