@@ -97,8 +97,12 @@ Three ideas hold it together:
 
 ### Layout note
 
-The screen is a fixed 192 × 108 grid of `rem` units and the root font-size scales it to
-the window, so `1rem` = 10px at 1920×1080. Size everything in `rem` and it scales.
+The root font-size scales with the window so the screen is always at least 192 × 108
+`rem` (16:9), and `1rem` = 10px at 1920×1080. Size everything in `rem` and it scales.
+
+A wider or taller window gets extra `rem` on that side instead of empty bars. So place
+things from an edge or the middle (`right: 2rem`, `top: calc(100% - 12rem)`), not from
+a fixed spot on a 192 × 108 grid.
 
 ## Credits
 
