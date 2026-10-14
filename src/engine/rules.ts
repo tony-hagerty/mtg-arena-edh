@@ -205,10 +205,23 @@ export function parseCost(cost: string): Cost {
   return out;
 }
 
+/** Which of its owner's commanders `c` is: its index in `commanderCasts` and `commanderDamage`, or -1. */
+export const commanderIndex = (g: Game, c: Card) => (c.isCommander ? g.players[c.owner].commanders.indexOf(c.name) : -1);
+
+/**
+ * Commander tax: {2} more for each earlier cast of this commander from the command zone
+ * (903.8). Partners count only their own casts (702.124d).
+ */
+export const commanderTax = (g: Game, c: Card) => 2 * (g.players[c.owner].commanderCasts[commanderIndex(g, c)] ?? 0);
+
+/** Combat damage `victim` has taken so far from `commander` (903.10a). */
+export const commanderDamageFrom = (g: Game, victim: Player, commander: Card) =>
+  victim.commanderDamage[commander.owner]?.[commanderIndex(g, commander)] ?? 0;
+
 /** What it costs `c` to be cast right now: printed cost + commander tax - cost reductions. */
 export function castCost(g: Game, c: Card): Cost {
   const cost = parseCost(data(c).manaCost);
-  if (c.zone === 'command') cost.generic += 2 * g.players[c.owner].commanderCasts;
+  if (c.zone === 'command') cost.generic += commanderTax(g, c);
   const reduction = scriptOf(c.name).costReduction?.(g, c) ?? 0;
   cost.generic = Math.max(0, cost.generic - reduction);
   return cost;
@@ -225,7 +238,8 @@ export function manaOf(g: Game, c: Card): { amount: number; colors: ManaSym[] } 
   if (!m) return null;
   if (m.colors === 'any') return { amount: m.amount, colors: ['W', 'U', 'B', 'R', 'G'] };
   if (m.colors === 'identity') {
-    const identity = cardData(g.players[c.owner].commander).colorIdentity;
+    // Both partners' colours count as "your commander's colour identity" (702.124c).
+    const identity = g.players[c.owner].colors;
     return { amount: m.amount, colors: identity.length ? identity : ['C'] };
   }
   return { amount: m.amount, colors: m.colors };
@@ -253,13 +267,27 @@ export function manaSources(g: Game, pid: PlayerId): Source[] {
 export const canTapForMana = (g: Game, pid: PlayerId, c: Card) => manaSources(g, pid).some((s) => s.id === c.id);
 
 /**
- * Taps a permanent for mana by hand. A source with a choice of colours makes its owner's
- * commander colour when it can (the decks are mono-coloured, so that is the one they want).
+ * The colour a source with a choice of colours makes when tapped by hand. It picks one of
+ * the player's commander colours (that is all their deck needs), and among those the one
+ * their hand and command zone want most and their other mana covers least.
  */
+function pickColor(g: Game, pid: PlayerId, options: ManaSym[]): ManaSym {
+  const p = g.players[pid];
+  const mine = options.filter((x) => (p.colors as ManaSym[]).includes(x));
+  if (mine.length <= 1) return mine[0] ?? options[0];
+  const need = (sym: ManaSym) => {
+    const wanted = [...p.hand, ...p.command].reduce((n, c) => n + parseCost(data(c).manaCost).pips.filter((x) => x === sym).length, 0);
+    const pool = p.pool.filter((x) => x.sym === sym).length;
+    const fixed = manaSources(g, pid).filter((s) => s.colors.length === 1 && s.colors[0] === sym).length;
+    return wanted - pool - fixed;
+  };
+  return mine.reduce((best, x) => (need(x) > need(best) ? x : best));
+}
+
+/** Taps a permanent for mana by hand. */
 export function tapForMana(g: Game, pid: PlayerId, c: Card) {
   const m = manaOf(g, c)!;
-  const identity: ManaSym[] = cardData(g.players[pid].commander).colorIdentity;
-  const sym = m.colors.find((x) => identity.includes(x)) ?? m.colors[0];
+  const sym = m.colors.length === 1 ? m.colors[0] : pickColor(g, pid, m.colors);
   c.tapped = true;
   for (let k = 0; k < m.amount; k++) g.players[pid].pool.push({ sym, source: c.id });
 }
@@ -281,38 +309,66 @@ export function untapMana(g: Game, pid: PlayerId, c: Card) {
 export const availableMana = (g: Game, pid: PlayerId) =>
   manaSources(g, pid).reduce((n, s) => n + s.amount, 0) + g.players[pid].pool.length;
 
+interface PipPlan {
+  pool: Mana[];
+  sources: Source[];
+  tap: string[];
+}
+
+/** Mana a source makes beyond the one it is tapped to pay for. It goes to the pool. */
+const extraMana = (s: Source, paying: ManaSym | null): Mana[] =>
+  Array.from({ length: s.amount - 1 }, () => ({ sym: s.colors.length === 1 ? s.colors[0] : (paying ?? s.colors[0]), source: s.id }));
+
+/**
+ * Pays coloured pips, or returns null if they can't all be paid. Each pip comes from the
+ * pool if it can, otherwise from a source that makes that colour, least flexible first. A
+ * multicolour deck can paint itself into a corner (a W/U land spent on {W} leaves nothing
+ * for {U}), so when a choice fails the next kind of source is tried instead.
+ */
+function payPips(pips: ManaSym[], plan: PipPlan): PipPlan | null {
+  if (!pips.length) return plan;
+  const [pip, ...rest] = pips;
+  const inPool = plan.pool.findIndex((m) => m.sym === pip);
+  if (inPool >= 0) return payPips(rest, { ...plan, pool: plan.pool.filter((_, i) => i !== inPool) });
+  const rank = (s: Source) => s.amount * 10 + s.colors.length;
+  const options = plan.sources
+    .map((s, i) => ({ s, i }))
+    .filter(({ s }) => s.colors.includes(pip))
+    .sort((a, b) => rank(a.s) - rank(b.s));
+  const tried = new Set<string>(); // sources that make the same mana are interchangeable
+  for (const { s, i } of options) {
+    const kind = `${s.amount}:${s.colors.join('')}`;
+    if (tried.has(kind)) continue;
+    tried.add(kind);
+    const next = payPips(rest, {
+      pool: [...plan.pool, ...extraMana(s, pip)],
+      sources: plan.sources.filter((_, j) => j !== i),
+      tap: [...plan.tap, s.id],
+    });
+    if (next) return next;
+  }
+  return null;
+}
+
 /**
  * Works out how to pay `cost`, or null if it can't be paid. Mana already in the pool is
  * spent first; permanents are tapped (Arena-style auto-pay) only for what the pool can't
- * cover. Coloured pips are paid first from the least flexible source; mana left over from
- * a multi-mana source (e.g. Sol Ring) stays in the pool until the step ends.
+ * cover. Coloured pips are paid first, scarcest colour first; mana left over from a
+ * multi-mana source (e.g. Sol Ring) stays in the pool until the step ends.
  */
 export function planPayment(g: Game, pid: PlayerId, cost: Cost): { tap: string[]; pool: Mana[] } | null {
-  const pool = [...g.players[pid].pool];
-  const sources = manaSources(g, pid);
-  const tap: string[] = [];
+  const all = manaSources(g, pid);
+  const makers = (pip: ManaSym) => all.filter((s) => s.colors.includes(pip)).length;
+  const pips = [...cost.pips].sort((a, b) => makers(a) - makers(b));
+  const paid = payPips(pips, { pool: [...g.players[pid].pool], sources: all, tap: [] });
+  if (!paid) return null;
+  const { pool, sources, tap } = paid;
 
-  const use = (i: number, paying: ManaSym | null) => {
+  const use = (i: number) => {
     const s = sources.splice(i, 1)[0];
     tap.push(s.id);
-    const extra = s.colors.length === 1 ? s.colors[0] : (paying ?? s.colors[0]);
-    for (let k = 1; k < s.amount; k++) pool.push({ sym: extra, source: s.id });
+    pool.push(...extraMana(s, null));
   };
-
-  for (const pip of cost.pips) {
-    const inPool = pool.findIndex((m) => m.sym === pip);
-    if (inPool >= 0) {
-      pool.splice(inPool, 1);
-      continue;
-    }
-    let best = -1;
-    const rank = (s: Source) => s.amount * 10 + s.colors.length;
-    sources.forEach((s, i) => {
-      if (s.colors.includes(pip) && (best < 0 || rank(s) < rank(sources[best]))) best = i;
-    });
-    if (best < 0) return null;
-    use(best, pip);
-  }
 
   let remaining = cost.generic;
   while (remaining > 0) {
@@ -330,7 +386,7 @@ export function planPayment(g: Game, pid: PlayerId, cost: Cost): { tap: string[]
     sources.forEach((s, i) => {
       if (score(s) > score(sources[best])) best = i;
     });
-    use(best, null);
+    use(best);
     remaining--;
   }
   return { tap, pool };
@@ -640,7 +696,9 @@ export function damagePlayer(g: Game, source: Card, pid: PlayerId, n: number, co
   n += damageBonus(g, source, pid);
   p.life -= n;
   log(g, `${label(source)} deals ${n} damage to ${p.name}.`, source.owner, [source]);
-  if (combat && source.isCommander) p.commanderDamage[source.owner] += n;
+  // Combat damage from a commander counts toward 21, separately for each partner (903.10a, 702.124d).
+  const which = combat ? commanderIndex(g, source) : -1;
+  if (which >= 0) p.commanderDamage[source.owner][which] += n;
   if (has(g, source, 'lifelink')) gainLife(g, source.owner, n);
   if (combat) trigger(g, source, 'onCombatDamageToPlayer', { player: pid, amount: n });
   return n;
@@ -741,7 +799,7 @@ export function checkState(g: Game) {
       const reason =
         p.life <= 0
           ? 'life total 0' // 704.5a
-          : p.commanderDamage.some((d) => d >= COMMANDER_DAMAGE)
+          : p.commanderDamage.some((from) => from.some((d) => d >= COMMANDER_DAMAGE))
             ? `${COMMANDER_DAMAGE} commander damage` // 903.10a
             : p.drewFromEmpty
               ? 'drew from an empty library' // 704.5b

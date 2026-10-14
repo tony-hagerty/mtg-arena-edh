@@ -7,7 +7,7 @@ import type { Game, LogEntry, PlayerId, Step, StopKind } from '../engine';
 import { ManaCost } from './Card';
 import { useRem } from './rem';
 import { useStore } from './store';
-import { SEATS, cx, hoverProps } from './util';
+import { SEATS, cx, deckColor, hoverProps } from './util';
 import { STEP_NAMES, cancel, useView } from './view';
 import type { Btn } from './view';
 
@@ -92,7 +92,7 @@ function PhaseTracker() {
     return () => window.removeEventListener('mousedown', onDown);
   }, [open]);
 
-  const deckVar = (pid: PlayerId) => `var(--f-${DECKS.find((d) => d.id === g.players[pid].deckId)!.color})`;
+  const deckVar = (pid: PlayerId) => deckColor(g.players[pid].colors);
   // Your turn is orange and everyone else's blue; a picked arrow shows that player's deck colour.
   const tone = editing !== null ? { '--phase': deckVar(editing), '--phase-glow': deckVar(editing) } : g.active === 0 ? {} : { '--phase': '#8ccbff', '--phase-glow': '#2f8fff' };
   const strongest = (steps: Step[]) =>
@@ -288,7 +288,7 @@ export function LogPanel() {
           >
             <div className="log-lines" ref={lines}>
               {g.log.slice(start).map((l, i) => {
-                const color = l.player === undefined ? '#fff' : `var(--f-${DECKS.find((d) => d.id === g.players[l.player!].deckId)!.color})`;
+                const color = l.player === undefined ? '#fff' : deckColor(g.players[l.player].colors);
                 return (
                   <div key={start + i} className={cx('log-line', l.text.startsWith('Turn ') && 'turn')} style={{ '--deck': color } as CSSProperties}>
                     <LogText entry={l} />
@@ -583,7 +583,7 @@ function Results() {
         <h1>{title}</h1>
         {winner && (
           <p>
-            {winner.name === 'You' ? 'You win' : `${winner.name} wins`} with {winner.commander} on turn {g.turn}.
+            {winner.name === 'You' ? 'You win' : `${winner.name} wins`} with {winner.commanders.join(' and ')} on turn {g.turn}.
           </p>
         )}
         <div className="game-over-buttons">

@@ -1,4 +1,6 @@
 import { produce } from 'immer';
+import { DECKS, SHARED } from '../src/cards/db';
+import type { DeckDef } from '../src/cards/db';
 import { applyAction, makeCard, newGame, permanent } from '../src/engine';
 import type { Action, ApplyOptions, Card, Game, PlayerId, Zone } from '../src/engine';
 
@@ -52,3 +54,21 @@ export function runWith(opts: ApplyOptions, g: Game, ...actions: Action[]): Game
 }
 
 export const onBattlefield = (g: Game, id: string) => !!permanent(g, id);
+
+/**
+ * A 100-card white-red deck with two commanders, built from cards in the pool. Lyra and
+ * Torbran don't really have partner, so `deckProblems` rejects it, but the engine plays any
+ * deck it is given: this tests two commanders and multicolour mana without new cards.
+ */
+export function twoCommanderDeck(): DeckDef {
+  const [white, , red] = DECKS;
+  return {
+    id: 'boros',
+    title: 'Test Boros',
+    blurb: '',
+    pilot: 'Tester',
+    commanders: ['Lyra Dawnbringer', 'Torbran, Thane of Red Fell'],
+    basics: { Plains: 18, Mountain: 17 },
+    cards: [...white.cards, ...red.cards, ...SHARED],
+  };
+}

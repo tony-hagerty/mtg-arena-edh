@@ -403,6 +403,22 @@ button {
   transition: box-shadow 0.2s;
 }
 
+/* Partners split the portrait down the middle, one commander's art per half. */
+.avatar-art {
+  display: flex;
+  overflow: hidden;
+}
+
+.avatar-art > div {
+  flex: 1;
+  background-size: cover;
+  background-position: center 20%;
+}
+
+.avatar-art.split > div + div {
+  border-left: 0.15rem solid #232832;
+}
+
 .avatar-rays {
   position: absolute;
   left: 50%;
@@ -510,6 +526,17 @@ button {
   border-style: dashed;
   border-color: rgba(210, 170, 66, 0.45);
   background: rgba(14, 16, 22, 0.85);
+}
+
+/* Partners (702.124): the second commander's crown sits at 9 o'clock and its tax at 3. */
+.avatar-crown.second {
+  left: calc(var(--badge) / -2);
+  top: calc(var(--av) * 0.5 - var(--badge) / 2);
+}
+
+.avatar-tax.second {
+  right: calc(var(--badge) / -2);
+  top: calc(var(--av) * 0.5 - var(--badge) / 2);
 }
 
 .avatar-tax {
@@ -1971,9 +1998,15 @@ button {
   box-shadow: 0 2rem 5rem rgba(0, 0, 0, 0.8), 0 0 3rem rgba(255, 223, 154, 0.25);
 }
 
-.deck img {
+.deck-art {
+  display: flex;
+  gap: 0.6rem;
+}
+
+.deck-art img {
   display: block;
-  width: 100%;
+  flex: 1;
+  min-width: 0;
   border-radius: 1.35rem;
 }
 
@@ -1985,6 +2018,10 @@ button {
 .deck-title .ms {
   font-size: 2rem;
   vertical-align: 0.2rem;
+}
+
+.deck-title .ms + .ms {
+  margin-left: 0.2rem;
 }
 
 .deck-commander {

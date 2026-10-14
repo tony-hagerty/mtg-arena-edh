@@ -45,10 +45,12 @@ npm run build    # type-check and production build
   blockers are declared. On other turns, if you can act, after attackers (only once
   something attacks) and blockers are declared, and in the end step. Stops are saved in
   the browser.
-- Every portrait is that player's commander; hover it to read the card. To cast yours,
-  click the **crown** on the top left of your portrait. It glows when you can cast it and
-  is dimmed while your commander is anywhere but the command zone. The badge on the top
-  right of a portrait is that player's commander tax: each recast costs 2 more (`+2`, `+4`, …).
+- Every portrait is that player's commander; hover it to read the card. A player with two
+  partner commanders has a portrait split in two. To cast yours, click the **crown** on
+  the top left of your portrait (a second commander's crown sits below it, at 9 o'clock).
+  It glows when you can cast it and is dimmed while that commander is anywhere but the
+  command zone. The badge on the top right of a portrait is that commander's tax: each
+  recast costs 2 more (`+2`, `+4`, …). Partners each have their own tax badge.
 - **Attacking:** press Next → To Combat, click an opponent's portrait to choose who to
   attack, then click your creatures. Different creatures can attack different players.
 - **Blocking:** when you are attacked, click your creature. If it could block more than
@@ -82,6 +84,17 @@ npm run build    # type-check and production build
 Rule numbers below are from the Comprehensive Rules in `docs/rules/`.
 
 - Commander rules: 40 life, command zone, commander tax, 21 commander damage.
+- Deck format: 100-card decks with one commander or two partners (702.124), in any
+  colours. A deck's colours are its commanders' combined colour identity (903.4,
+  702.124c). Partners both start in the command zone and keep separate commander tax and
+  commander damage (702.124d). `deckProblems` in `src/cards/db.ts` checks a deck: 100
+  cards, singleton except basics (903.5b), every card inside the colour identity
+  (903.5c), legendary creature commanders (903.3), and a valid partner pair (plain
+  partner or "partner with").
+- Multicolour mana: auto-pay pays the scarcest colour first and backs up to try another
+  source when a choice would leave a later pip unpayable. A multicolour source tapped by
+  hand makes the colour your hand needs most. Bots play the land for the colour they are
+  shortest of.
   A commander that dies or is exiled really goes there (so "dies" abilities see it),
   then its owner may move it to the command zone (903.9a). One headed for a hand or
   library may go to the command zone instead (903.9b). You're asked; bots always do.
@@ -110,7 +123,9 @@ Rule numbers below are from the Comprehensive Rules in `docs/rules/`.
   had on the stack goes with them.
 - Keywords: flying, reach, first strike, double strike, deathtouch, lifelink, trample,
   vigilance, haste, defender, hexproof, indestructible, menace, flash.
-- 123 real cards across four mono-coloured decks, every one fully working.
+- 123 real cards across four mono-coloured decks, every one fully working. The decks
+  shown on the menu are old 60-card "legacy" decks (see below); the menu shows each
+  deck's colour pips.
   `npm test` fails if a card has rules text the engine doesn't implement.
 
 ## Known simplifications
@@ -127,8 +142,12 @@ These are deliberate cuts for a prototype, roughly in the order I'd tackle them 
   upkeep instead (514.3a). No card in the pool can trigger then.
 - **A card keeps its identity when it changes zones.** By the rules it becomes a new
   object (400.7), so a spell aimed at a creature that left and came back should miss it.
-- **Decks are 60 cards, not 100** (commander + 59, singleton apart from basics).
-  Lists live in `src/cards/decklists.json`.
+- **The four starter decks are still 60 cards** (commander + 59). They are marked
+  `"legacy": true` in `src/cards/decklists.json`, get the shared artifacts added, and are
+  checked as 60-card decks. The engine plays 100-card and partner decks, but none is on
+  the menu yet.
+- Partner variants other than plain partner and "partner with" (Background, Doctor's
+  companion, "partner—[text]") aren't recognised. Vehicles can't be commanders yet.
 - No planeswalkers, no equipment/auras, no X spells, no counterspells.
 - Cultivate asks for its two lands one at a time (battlefield, then hand), not as one pick
   of two. It is still one search with one shuffle (701.23h).
@@ -142,7 +161,8 @@ These are deliberate cuts for a prototype, roughly in the order I'd tackle them 
 ## Project layout
 
 ```
-src/cards/      decklists.json        the four decks, shared artifacts, tokens
+src/cards/      decklists.json        the decks, shared artifacts, tokens
+                db.ts                 card lookup, deck colours, deck legality (deckProblems)
                 cards.generated.json  card data from Scryfall (npm run fetch-cards)
                 scripts.ts            what each card does
 src/engine/     types.ts              game state, actions, card-script types
@@ -182,7 +202,9 @@ has run; the spell stays on the stack as `Game.resolving` until it is answered.
 
 ### Adding a card
 
-1. Add its name to a deck in `src/cards/decklists.json`.
+1. Add its name to a deck in `src/cards/decklists.json`. A deck lists `commanders` (one,
+   or two partners), `basics` as a map like `{ "Forest": 18, "Island": 17 }`, and
+   `cards`, one of each.
 2. Run `npm run fetch-cards` to pull its data and art from Scryfall.
 3. If it does more than its printed keywords, add an entry to `src/cards/scripts.ts`.
    A trigger that only fires on some events ("whenever *another* creature enters") needs
