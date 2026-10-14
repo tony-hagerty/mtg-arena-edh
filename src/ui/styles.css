@@ -20,7 +20,8 @@ html {
   --cyan: #39e3ff;
   --orange: #ff9a2e;
   --serif: 'Palatino Linotype', 'Book Antiqua', Palatino, Georgia, serif;
-  /* Arena-style arrow (public/cursor.png, see README credits). Its tip is the top-left pixel. */
+  /* Arena-style arrow (public/cursor.png, see README credits). Its tip is the top-left pixel.
+     Clickable things use the system hand (`pointer`) instead. */
   --cursor: url('/cursor.png') 0 0, auto;
   /* How cards are turned and which way rows run. Each opponent's seat overrides these. */
   --face: 0deg;
@@ -325,7 +326,7 @@ button {
 .pile.graveyard,
 .pile.exile {
   border-radius: 0.4rem;
-  cursor: var(--cursor);
+  cursor: pointer;
 }
 
 .pile.graveyard img,
@@ -344,6 +345,7 @@ button {
 
 .pile.empty {
   border: 0.15rem dashed rgba(255, 255, 255, 0.3);
+  cursor: var(--cursor);
 }
 
 .pile.exile.empty {
@@ -443,7 +445,7 @@ button {
 }
 
 .avatar.targetable {
-  cursor: var(--cursor);
+  cursor: pointer;
 }
 
 .avatar.targetable .avatar-art {
@@ -503,7 +505,7 @@ button {
 .avatar-crown.glow-play,
 .avatar-crown.glow-picked {
   color: #ffe08a;
-  cursor: var(--cursor);
+  cursor: pointer;
 }
 
 .avatar-crown.away {
@@ -847,7 +849,7 @@ button {
   box-shadow:
     0 0 0 0.25em var(--cyan),
     0 0 1.4em 0.3em rgba(57, 227, 255, 0.7);
-  cursor: var(--cursor);
+  cursor: pointer;
 }
 
 .glow-target {
@@ -862,18 +864,18 @@ button {
   box-shadow:
     0 0 0 0.35em #fff,
     0 0 1.8em 0.5em #fff;
-  cursor: var(--cursor);
+  cursor: pointer;
 }
 
 .glow-discard {
   box-shadow:
     0 0 0 0.25em #ff5a4a,
     0 0 1.4em 0.3em rgba(255, 90, 74, 0.7);
-  cursor: var(--cursor);
+  cursor: pointer;
 }
 
 .tile.mana-source {
-  cursor: var(--cursor);
+  cursor: pointer;
 }
 
 .tile.blocking {
@@ -1084,7 +1086,7 @@ button {
 }
 
 .phases.editable .pip-btn {
-  cursor: var(--cursor);
+  cursor: pointer;
 }
 
 .phases.editable .pip-btn:hover,
@@ -1164,7 +1166,7 @@ button {
   background: rgba(255, 255, 255, 0.06);
   border: 0.1rem solid transparent;
   border-radius: 0.6rem;
-  cursor: var(--cursor);
+  cursor: pointer;
 }
 
 .step-btn:hover:not(:disabled) {
@@ -1193,7 +1195,7 @@ button {
   padding: 0;
   background: none;
   border: none;
-  cursor: var(--cursor);
+  cursor: pointer;
 }
 
 .seat-arrow svg {
@@ -1232,7 +1234,7 @@ button {
   color: #fff;
   border: none;
   border-radius: 3.2rem;
-  cursor: var(--cursor);
+  cursor: pointer;
   text-shadow: 0 0.15rem 0.25rem rgba(0, 0, 0, 0.7);
   box-shadow:
     inset 0 0.25rem 0.3rem rgba(255, 255, 255, 0.4),
@@ -1286,6 +1288,7 @@ button {
 }
 
 .btn:disabled {
+  cursor: var(--cursor);
   border-color: #5d6472;
   color: #aab3c5;
 }
@@ -1331,7 +1334,7 @@ button {
   background: rgba(10, 12, 18, 0.75);
   border: 0.1rem solid #5d6472;
   border-radius: 0.5rem;
-  cursor: var(--cursor);
+  cursor: pointer;
 }
 
 .log-bar button:hover {
@@ -1599,7 +1602,7 @@ button {
   background: rgba(255, 255, 255, 0.06);
   border: 0.1rem solid #5d6472;
   border-radius: 2rem;
-  cursor: var(--cursor);
+  cursor: pointer;
 }
 
 .picker-fold:hover {
@@ -1634,7 +1637,7 @@ button {
 }
 
 .picker-card.can {
-  cursor: var(--cursor);
+  cursor: pointer;
   box-shadow: 0 0 0 0.25rem var(--cyan), 0 0 1.6rem rgba(57, 227, 255, 0.55);
 }
 
@@ -1701,7 +1704,7 @@ button {
   background: rgba(255, 255, 255, 0.08);
   border: 0.15rem solid #8a93a5;
   border-radius: 1.8rem;
-  cursor: var(--cursor);
+  cursor: pointer;
 }
 
 .picker-move button:disabled {
@@ -1729,7 +1732,7 @@ button {
   border: 0.2rem solid var(--cyan);
   border-radius: 3rem;
   box-shadow: 0 0 2rem rgba(57, 227, 255, 0.5);
-  cursor: var(--cursor);
+  cursor: pointer;
 }
 
 .game-over {
@@ -1827,7 +1830,7 @@ button {
   background: #2f3644;
   border: 0.1rem solid #aab3c5;
   border-radius: 0.6rem;
-  cursor: var(--cursor);
+  cursor: pointer;
 }
 
 /* ---------- menu ---------- */
@@ -1866,7 +1869,7 @@ button {
   background: rgba(12, 14, 20, 0.85);
   border: 0.3rem solid;
   border-radius: 2rem;
-  cursor: var(--cursor);
+  cursor: pointer;
   transition: transform 0.15s, box-shadow 0.15s;
 }
 
@@ -1910,7 +1913,7 @@ button {
   text-decoration: underline;
   background: none;
   border: none;
-  cursor: var(--cursor);
+  cursor: pointer;
 }
 
 .watch:hover {
