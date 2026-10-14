@@ -11,6 +11,7 @@ import {
   choiceOptions,
   data,
   defaultStops,
+  moveCard,
   newGame,
   stats,
   turnOrder,
@@ -82,6 +83,47 @@ describe('commander rules', () => {
     g = run(g, pass);
     expect(g.decision?.type).not.toBe('commanderZone');
     expect(g.players[0].exile.map((c) => c.id)).toEqual([lyra.id]);
+  });
+
+  // No card in the pool bounces or tucks a permanent yet, so these call moveCard as one would.
+  it('sends a bot commander headed for a hand or library to the command zone instead (903.9b)', () => {
+    const g = emptyGame((d) => {
+      moveCard(d, d.players[0].command[0], 'hand');
+      moveCard(d, d.players[1].command[0], 'library');
+    });
+    expect(g.players.map((p) => p.command.length)).toEqual([1, 1, 1, 1]);
+    expect(g.players[0].hand).toEqual([]);
+    expect(g.players[1].library.some((c) => c.isCommander)).toBe(false);
+  });
+
+  it('asks a human whose commander goes to their hand, and lets them keep it there (903.9b)', () => {
+    let g = emptyGame((d) => {
+      d.players[0].isBot = false;
+      d.players[0].commanderCasts = 1;
+      put(d, 0, 'Plains', 'battlefield', 5);
+      moveCard(d, d.players[0].command[0], 'hand');
+    });
+    // Any action lets the game check state, and the owner is asked.
+    g = run(g, { type: 'tapMana', card: byName(g, 0, 'Plains')!.id });
+    const lyra = byName(g, 0, 'Lyra Dawnbringer', 'hand')!;
+    expect(g.decision).toEqual({ type: 'commanderZone', card: lyra.id, resume: 0 });
+    g = run(g, { type: 'commanderZone', toCommand: false });
+    expect(byName(g, 0, 'Lyra Dawnbringer', 'hand')?.id).toBe(lyra.id);
+    // Cast from the hand, it costs its printed {3}{W}{W} with no tax (903.8).
+    expect(canCast(g, 0, byName(g, 0, 'Lyra Dawnbringer', 'hand')!)).toBe(true);
+  });
+
+  it('lets a human send their commander from the library to the command zone (903.9b)', () => {
+    let g = emptyGame((d) => {
+      d.players[0].isBot = false;
+      put(d, 0, 'Plains');
+      moveCard(d, d.players[0].command[0], 'library');
+    });
+    g = run(g, { type: 'tapMana', card: byName(g, 0, 'Plains')!.id });
+    expect(g.decision?.type).toBe('commanderZone');
+    g = run(g, { type: 'commanderZone', toCommand: true });
+    expect(g.players[0].command.map((c) => c.name)).toEqual(['Lyra Dawnbringer']);
+    expect(g.players[0].library.some((c) => c.isCommander)).toBe(false);
   });
 
   it('eliminates a player at 21 combat damage from one commander', () => {

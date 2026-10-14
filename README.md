@@ -58,8 +58,8 @@ npm run build    # type-check and production build
   only as many as the cost needs), or untap together to take the mana back, and tokens
   attack or block together. Clicking a card in the pile still uses just that one, and it
   moves out to its own pile.
-- When your commander dies or is exiled, a window asks whether it goes to the
-  **Command Zone** (castable again, with tax) or stays where it went.
+- When your commander dies, is exiled, or would go to your hand or library, a window asks
+  whether it goes to the **Command Zone** (castable again, with tax) or stays where it went.
 - "When this enters" abilities that need a target ask for it once the creature is on the
   battlefield. That choice can't be cancelled: the ability has already triggered.
 - **Searching your library** (Rampant Growth, Cultivate, Path to Exile, ...) opens your whole
@@ -83,8 +83,8 @@ Rule numbers below are from the Comprehensive Rules in `docs/rules/`.
 
 - Commander rules: 40 life, command zone, commander tax, 21 commander damage.
   A commander that dies or is exiled really goes there (so "dies" abilities see it),
-  then its owner may move it to the command zone (903.9a). You're asked; bots always do.
-  No card in the pool can put a commander into a hand or library (903.9b).
+  then its owner may move it to the command zone (903.9a). One headed for a hand or
+  library may go to the command zone instead (903.9b). You're asked; bots always do.
 - Turn structure (500-514): untap, upkeep, draw, main, beginning of combat, declare
   attackers, declare blockers, combat damage (twice with first strike), end of combat,
   second main, end step, cleanup. Mana empties as each step ends.
@@ -134,6 +134,10 @@ These are deliberate cuts for a prototype, roughly in the order I'd tackle them 
   of two. It is still one search with one shuffle (701.23h).
 - Combat damage is assigned automatically (lethal to each blocker in order).
 - Optional "you may" effects always happen when they are free upside.
+- **Your commander going to your hand or library** lands there first, and you choose
+  before anyone gets priority. By the rules (903.9b) that is a replacement effect chosen
+  as it moves, but an effect can't stop partway through to ask. Bots get the real
+  replacement. No card in the pool puts a permanent into a hand or library yet.
 
 ## Project layout
 

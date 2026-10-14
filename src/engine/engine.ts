@@ -873,15 +873,16 @@ function act(g: Game, a: Action): boolean {
     case 'commanderZone': {
       if (g.decision?.type !== 'commanderZone') return false;
       const { card, resume } = g.decision;
-      const c = [...p.graveyard, ...p.exile].find((x) => x.id === card);
+      const c = [...p.graveyard, ...p.exile, ...p.hand, ...p.library].find((x) => x.id === card);
       g.priority = resume;
       g.decision = null;
       if (!c) return true;
       if (a.toCommand) {
         returnCommander(g, c);
       } else {
-        c.mayReturn = false; // not asked again until it changes zones (903.9a)
-        log(g, `${says(p, 'leaves')} ${label(c)} in ${c.zone === 'exile' ? 'exile' : 'the graveyard'}.`, pid, [c]);
+        c.mayReturn = false; // not asked again until it changes zones
+        const where: Record<string, string> = { graveyard: 'the graveyard', exile: 'exile', hand: 'hand', library: 'the library' };
+        log(g, `${says(p, 'leaves')} ${label(c)} in ${where[c.zone]}.`, pid, [c]);
       }
       return true;
     }
