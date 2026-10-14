@@ -4,7 +4,8 @@ import { produce } from 'immer';
 import { describe, expect, it } from 'vitest';
 import './fixtures';
 import { useStore } from '../src/ui/store';
-import { buildView, clickPermanent, clickPlayer, clickStackItem, pickAbility, pickFace, pickMode, playHandCard, setChoices } from '../src/ui/view';
+import { buildView, clickPermanent, clickPlayer, clickStackItem, exileForMana, pickAbility, pickFace, pickMode, playHandCard, setChoices } from '../src/ui/view';
+import { applyAction, canCast } from '../src/engine';
 import type { Game } from '../src/engine';
 import { byName, emptyGame, put } from './helpers';
 
@@ -294,5 +295,80 @@ describe('card faces, Classes and graveyard casting in the UI (709, 712, 715, 71
     expect(buildView().prompt).toContain('Pay the cost');
     press();
     expect(byName(game(), 0, 'Wizard Class')!.level).toBe(2);
+  });
+});
+
+describe('session 7a in the UI: pitch costs, mana from the hand, questions', () => {
+  /** Player 1 has cast Lightning Bolt at the human, who now has priority. */
+  const boltAtMe = (setup: (g: Game) => void) =>
+    play((d) => {
+      put(d, 1, 'Mountain');
+      put(d, 1, 'Lightning Bolt', 'hand');
+      setup(d);
+      d.active = 1;
+      d.priority = 1;
+      const bolt = byName(d, 1, 'Lightning Bolt', 'hand')!;
+      Object.assign(d, applyAction(d, { type: 'cast', card: bolt.id, targets: [{ kind: 'player', id: 0 }] }));
+    });
+
+  it('Force of Will: choose the free cost, the target, then the blue card to exile (118.9)', () => {
+    boltAtMe((d) => {
+      put(d, 0, 'Force of Will', 'hand');
+      put(d, 0, 'Snapback', 'hand');
+    });
+    expect([game().priority, game().stack.length]).toEqual([0, 1]);
+    playHandCard(byName(game(), 0, 'Force of Will', 'hand')!);
+    expect(buildView().announce?.choices.alt).toBe(0); // the mana cost can't be paid
+    press(); // Continue
+    clickStackItem(game().stack[0].id);
+    const snapback = byName(game(), 0, 'Snapback', 'hand')!;
+    let v = buildView();
+    expect(v.prompt).toContain('a blue card');
+    expect(v.glow.get(snapback.id)).toBe('target');
+    playHandCard(snapback); // nothing left to pay: it is cast
+    v = buildView();
+    expect(byName(game(), 0, 'Snapback', 'exile')).toBeDefined();
+    expect(game().players[0].life).toBe(39);
+    expect(byName(game(), 1, 'Lightning Bolt', 'graveyard')).toBeDefined();
+  });
+
+  it('exiles Simian Spirit Guide from the hand for {R}', () => {
+    play((d) => {
+      put(d, 0, 'Simian Spirit Guide', 'hand');
+      put(d, 0, 'Lightning Bolt', 'hand');
+    });
+    const ssg = byName(game(), 0, 'Simian Spirit Guide', 'hand')!;
+    expect(buildView().glow.get(ssg.id)).toBe('play');
+    playHandCard(ssg); // it can't be cast, so it makes mana
+    expect(game().players[0].pool.map((m) => m.sym)).toEqual(['R']);
+    expect(canCast(game(), 0, byName(game(), 0, 'Lightning Bolt', 'hand')!)).toBe(true);
+  });
+
+  it('offers "exile it for mana" beside casting it when both are possible', () => {
+    play((d) => {
+      put(d, 0, 'Mountain', 'battlefield', 3);
+      put(d, 0, 'Simian Spirit Guide', 'hand');
+    });
+    playHandCard(byName(game(), 0, 'Simian Spirit Guide', 'hand')!);
+    expect(buildView().announce?.handMana).toBe(true);
+    exileForMana();
+    expect(game().players[0].pool).toHaveLength(1);
+    expect(useStore.getState().targeting).toBeNull();
+  });
+
+  it('asks the human a yes/no question and waits for the answer', () => {
+    play((d) => {
+      put(d, 1, 'Rhystic Study');
+      put(d, 0, 'Mountain', 'battlefield', 2);
+      put(d, 0, 'Lightning Bolt', 'hand');
+    });
+    playHandCard(byName(game(), 0, 'Lightning Bolt', 'hand')!);
+    clickPlayer(2);
+    press(); // Pay
+    expect(game().decision?.type).toBe('ask');
+    expect(buildView().mine).toBe(true);
+    useStore.getState().act({ type: 'answer', yes: true });
+    // The human's seat keeps the bot's name in tests; "pay" is the human's form of the verb.
+    expect(game().log.some((l) => l.text.endsWith(' pay {1} for Rhystic Study.'))).toBe(true);
   });
 });
