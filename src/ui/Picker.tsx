@@ -3,7 +3,7 @@
 // sending their commander to the command zone.
 // `CardPicker` is the reusable part; `Decisions` chooses which one the game is asking for.
 import { useState } from 'react';
-import { canMulligan, choiceOptions, data, label, nextMulliganBottom } from '../engine';
+import { canMulligan, choiceOptions, commanderTax, data, label, nextMulliganBottom } from '../engine';
 import type { Action, Card, CardChoice, Game, PlayerId } from '../engine';
 import { useStore } from './store';
 import { cx, hoverProps } from './util';
@@ -251,10 +251,10 @@ const COMMANDER_ZONE: Record<string, { went: string; left: string; leave: string
  * Your commander was put into your graveyard or exile (903.9a), or is going to your hand or
  * library (903.9b): send it to the command zone, or leave it.
  */
-function CommanderZone({ g, me, card }: { g: Game; me: PlayerId; card: Card }) {
+function CommanderZone({ g, card }: { g: Game; card: Card }) {
   const text = COMMANDER_ZONE[card.zone];
   const instead = card.zone === 'hand' || card.zone === 'library' ? ' instead' : '';
-  const tax = 2 * g.players[me].commanderCasts; // commander tax (903.8)
+  const tax = commanderTax(g, card); // commander tax (903.8)
   const choose = (toCommand: boolean) => act({ type: 'commanderZone', toCommand });
   return (
     <CardPicker
@@ -285,7 +285,7 @@ export function Decisions() {
     case 'commanderZone': {
       const p = g.players[me];
       const card = [...p.graveyard, ...p.exile, ...p.hand, ...p.library].find((c) => c.id === d.card);
-      return card ? <CommanderZone key={card.id} g={g} me={me} card={card} /> : null;
+      return card ? <CommanderZone key={card.id} g={g} card={card} /> : null;
     }
     default:
       return null;

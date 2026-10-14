@@ -7,14 +7,20 @@ export interface DeckDef {
   title: string;
   blurb: string;
   pilot: string; // name of the bot that plays this deck
-  color: Color;
-  commander: string;
-  basic: string;
-  basics: number;
+  /** One commander, or two that both have partner (702.124). */
+  commanders: string[];
+  /** Basic lands by name, e.g. { "Forest": 18, "Island": 17 }. */
+  basics: Record<string, number>;
+  /** Every other card, once each (903.5b). */
   cards: string[];
+  /**
+   * An old 60-card deck. It gets the `SHARED` cards on top of its own, and is checked as
+   * 60 cards instead of 100. Kept until the starter decks are rebuilt as 100-card decks.
+   */
+  legacy?: boolean;
 }
 
-export const DECKS = lists.decks as DeckDef[];
+export const DECKS = lists.decks as unknown as DeckDef[];
 export const SHARED: string[] = lists.shared;
 
 const cards = generated.cards as Record<string, CardData>;
@@ -47,7 +53,64 @@ export function cardData(name: string): CardData {
 
 export const ALL_CARD_NAMES = Object.keys(cards);
 
-/** Every card name in a deck's library (commander excluded). */
+const WUBRG: Color[] = ['W', 'U', 'B', 'R', 'G'];
+
+/**
+ * A deck's colours: its commanders' combined colour identity (903.4, 702.124c), in WUBRG
+ * order. Empty for a colourless commander.
+ */
+export function deckColors(deck: DeckDef, lookup = cardData): Color[] {
+  const all = new Set(deck.commanders.flatMap((n) => lookup(n).colorIdentity));
+  return WUBRG.filter((c) => all.has(c));
+}
+
+/** Every card name in a deck's library (commanders excluded). */
 export function deckLibrary(deck: DeckDef): string[] {
-  return [...Array<string>(deck.basics).fill(deck.basic), ...deck.cards, ...SHARED];
+  const basics = Object.entries(deck.basics).flatMap(([name, n]) => Array<string>(n).fill(name));
+  return [...basics, ...deck.cards, ...(deck.legacy ? SHARED : [])];
+}
+
+/** Can these two cards be commanders together? Plain partner (702.124h) or partner with (702.124j). */
+function partners(a: CardData, b: CardData): boolean {
+  const partnerWith = (x: CardData, y: CardData) => x.oracleText.includes(`Partner with ${y.name}`);
+  if (partnerWith(a, b) || partnerWith(b, a)) return partnerWith(a, b) && partnerWith(b, a);
+  // "Partner with" is a different partner ability, so it can't pair with plain partner (702.124f).
+  const plain = (x: CardData) => x.keywords.includes('Partner') && !x.oracleText.includes('Partner with');
+  return plain(a) && plain(b);
+}
+
+/**
+ * Why a deck isn't a legal Commander deck, or an empty list if it is (903.3, 903.5).
+ * `lookup` finds a card's data; tests pass their own to try out cards outside the pool.
+ */
+export function deckProblems(deck: DeckDef, lookup = cardData): string[] {
+  const out: string[] = [];
+  const commanders = deck.commanders.map(lookup);
+  if (commanders.length < 1 || commanders.length > 2) out.push(`has ${commanders.length} commanders`);
+  // 903.3: a commander is a legendary creature (Vehicles and Spacecraft aren't supported yet).
+  for (const c of commanders) if (!c.typeLine.includes('Legendary Creature')) out.push(`${c.name} isn't a legendary creature`);
+  if (commanders.length === 2 && !partners(commanders[0], commanders[1])) {
+    out.push(`${commanders[0].name} and ${commanders[1].name} aren't partners`);
+  }
+  // 903.5a, 702.124b: 100 cards, commanders included.
+  const library = deckLibrary(deck);
+  const size = library.length + commanders.length;
+  const want = deck.legacy ? 60 : 100;
+  if (size !== want) out.push(`has ${size} cards, not ${want}`);
+  // 903.5b: one of each card except basic lands.
+  const seen = new Set<string>();
+  for (const name of [...deck.commanders, ...library]) {
+    if (lookup(name).typeLine.startsWith('Basic Land')) continue;
+    if (seen.has(name)) out.push(`has more than one ${name}`);
+    seen.add(name);
+  }
+  for (const name of Object.keys(deck.basics)) {
+    if (!lookup(name).typeLine.startsWith('Basic Land')) out.push(`${name} is listed as a basic land but isn't one`);
+  }
+  // 903.5c: every card's colour identity is inside the commanders'.
+  const colors = deckColors(deck, lookup);
+  for (const name of new Set(library)) {
+    if (!lookup(name).colorIdentity.every((c) => colors.includes(c))) out.push(`${name} is outside the commanders' colour identity`);
+  }
+  return out;
 }

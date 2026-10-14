@@ -59,7 +59,10 @@ export interface Player {
   name: string;
   isBot: boolean;
   deckId: string;
-  commander: string; // card name
+  /** Commander card names: one, or two partners (702.124). Indexes into `commanderCasts` and `commanderDamage`. */
+  commanders: string[];
+  /** The commanders' combined colour identity (903.4, 702.124c), in WUBRG order. */
+  colors: Color[];
   life: number;
   library: Card[];
   hand: Card[];
@@ -67,8 +70,13 @@ export interface Player {
   graveyard: Card[];
   exile: Card[];
   command: Card[];
-  commanderCasts: number; // times cast from the command zone (commander tax = 2 per cast)
-  commanderDamage: number[]; // combat damage taken from each player's commander, by owner id
+  /** Times each commander was cast from the command zone. Each has its own tax (903.8, 702.124d). */
+  commanderCasts: number[];
+  /**
+   * Combat damage taken from each commander: `[owner id][commander index]`. Each partner
+   * counts separately toward 21 (903.10a, 702.124d).
+   */
+  commanderDamage: number[][];
   landsPlayed: number;
   pool: Mana[]; // unspent mana, emptied as each step and phase ends (500.5)
   lost: boolean;

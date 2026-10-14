@@ -1,16 +1,15 @@
 import { useEffect, useRef, useState } from 'react';
 import type { CSSProperties } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
-import { DECKS, cardData } from '../cards/db';
+import { cardData } from '../cards/db';
 import { COMMANDER_DAMAGE, creaturesOf, data, isCreature, isLand } from '../engine';
 import type { Card, ManaSym, Player } from '../engine';
 import { HandBack, HandCard, Permanent } from './Card';
 import { useRem } from './rem';
 import { useStore } from './store';
-import { SEATS, cx, hoverProps } from './util';
+import { SEATS, cx, deckColor, hoverProps } from './util';
 import { clickCrown, clickPlayer, useView } from './view';
 
-const deckColor = (p: Player) => DECKS.find((d) => d.id === p.deckId)!.color;
 const vars = (v: Record<string, string | number>) => v as CSSProperties;
 
 /** Tile width (rem) that lets `n` tiles share a row, capped at `max`. */
@@ -128,7 +127,6 @@ function Avatar({ player }: { player: Player }) {
   const deltas = useLifeDeltas(player.life);
   const rem = useRem();
   const thinking = g.priority === player.id && player.isBot && g.step !== 'gameOver';
-  const tax = player.commanderCasts * 2; // commander tax (903.8)
   return (
     <div
       className={cx(
@@ -138,36 +136,41 @@ function Avatar({ player }: { player: Player }) {
         v.attackTarget === player.id && 'attack-target',
         player.lost && 'lost',
       )}
-      style={vars({ '--deck': `var(--f-${deckColor(player)})` })}
+      style={vars({ '--deck': deckColor(player.colors) })}
       data-avatar={player.id}
       onClick={() => clickPlayer(player.id)}
     >
       <div className="avatar-rays" />
-      {/* The portrait is the player's commander: hover it to read the card. */}
-      <div className="avatar-art" style={{ backgroundImage: `url(${cardData(player.commander).art})` }} {...hoverProps(player.commander)} />
-      {player.id === v.me && <CastCrown player={player} />}
-      {tax > 0 && (
-        <div className="avatar-tax" title={`Commander tax: casting ${player.commander} again costs ${tax} more`}>
-          +{tax}
-        </div>
-      )}
+      {/* The portrait is the player's commander, split in two for partners: hover a half to read the card. */}
+      <div className={cx('avatar-art', player.commanders.length > 1 && 'split')}>
+        {player.commanders.map((name) => (
+          <div key={name} style={{ backgroundImage: `url(${cardData(name).art})` }} {...hoverProps(name)} />
+        ))}
+      </div>
+      {player.commanders.map((name, i) => (
+        <CommanderBadges key={name} player={player} name={name} index={i} />
+      ))}
       <div className="avatar-life">{player.lost ? '✕' : player.life}</div>
       <div className="avatar-name">
         {player.name}
         {thinking && <span className="dots" />}
       </div>
       <div className="cmd-dmg">
-        {g.players
-          .filter((o) => player.commanderDamage[o.id] > 0)
-          .map((o) => (
-            <span
-              key={o.id}
-              title={`Commander damage from ${o.name}: ${player.commanderDamage[o.id]} of ${COMMANDER_DAMAGE}`}
-              style={{ backgroundImage: `url(${cardData(o.commander).art})` }}
-            >
-              <b>{player.commanderDamage[o.id]}</b>
-            </span>
-          ))}
+        {/* One badge per commander that has hit this player: partners count separately (702.124d). */}
+        {g.players.flatMap((o) =>
+          o.commanders
+            .map((name, i) => ({ name, n: player.commanderDamage[o.id][i] }))
+            .filter(({ n }) => n > 0)
+            .map(({ name, n }) => (
+              <span
+                key={`${o.id}:${name}`}
+                title={`Commander damage from ${o.name}'s ${name}: ${n} of ${COMMANDER_DAMAGE}`}
+                style={{ backgroundImage: `url(${cardData(name).art})` }}
+              >
+                <b>{n}</b>
+              </span>
+            )),
+        )}
       </div>
       <AnimatePresence>
         {deltas.map((d) => (
@@ -187,22 +190,43 @@ function Avatar({ player }: { player: Player }) {
 }
 
 /**
- * The human's crown on their avatar (top left): click it to cast the commander from the
- * command zone. While the commander is anywhere else the crown is dimmed and does nothing.
+ * The badges on the portrait's rim for one commander: the human's crown to cast it from
+ * the command zone, and its commander tax (903.8). A second commander's badges sit just
+ * below the first's.
  */
-function CastCrown({ player }: { player: Player }) {
+function CommanderBadges({ player, name, index }: { player: Player; name: string; index: number }) {
   const v = useView();
-  const c = player.command[0];
+  const c = player.command.find((x) => x.name === name);
+  // Tax is tracked per commander (702.124d), so it can be read off the card wherever it is.
+  const tax = 2 * player.commanderCasts[index];
+  return (
+    <>
+      {player.id === v.me && <CastCrown player={player} c={c} name={name} index={index} />}
+      {tax > 0 && (
+        <div className={cx('avatar-tax', index > 0 && 'second')} title={`Commander tax: casting ${name} again costs ${tax} more`}>
+          +{tax}
+        </div>
+      )}
+    </>
+  );
+}
+
+/**
+ * The human's crown for one commander: click it to cast that commander from the command
+ * zone. While the commander is anywhere else the crown is dimmed and does nothing.
+ */
+function CastCrown({ player, c, name, index }: { player: Player; c: Card | undefined; name: string; index: number }) {
+  const v = useView();
   const glow = c && v.glow.get(c.id);
   return (
     <motion.button
-      key={c?.id ?? 'away'}
+      key={c?.id ?? `away:${name}`}
       layoutId={c?.id}
       data-card={c?.id}
-      className={cx('avatar-crown', glow && `glow-${glow}`, !c && 'away')}
+      className={cx('avatar-crown', index > 0 && 'second', glow && `glow-${glow}`, !c && 'away')}
       aria-disabled={!c}
-      aria-label={c ? `Cast ${c.name}` : 'Commander is not in the command zone'}
-      title={c ? undefined : 'Your commander is not in the command zone'}
+      aria-label={c ? `Cast ${c.name}` : `${name} is not in the command zone`}
+      title={c ? undefined : `${name} is not in the command zone`}
       onClick={(e) => {
         e.stopPropagation();
         clickCrown(player.id, c);
@@ -292,7 +316,7 @@ export function OpponentPanel({ player }: { player: Player }) {
   return (
     <section
       className={cx('opp', `seat-${seat}`, g.active === player.id && 'active', player.lost && 'lost')}
-      style={vars({ '--deck': `var(--f-${deckColor(player)})` })}
+      style={vars({ '--deck': deckColor(player.colors) })}
     >
       <header className="opp-head">
         <Avatar player={player} />

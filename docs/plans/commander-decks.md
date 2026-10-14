@@ -3,7 +3,7 @@
 Goal: play real 100-card Commander decks of any colours, with partner commanders and
 every card type, and add the user's own deck to the menu.
 
-**Status: planned, not started. Don't start a session until the user says so.**
+**Status: session 1 done. Don't start the next session until the user says so.**
 
 ## What "every card type" means here
 
@@ -26,7 +26,7 @@ automatically is out of scope (projects like Forge spent years on that).
 
 Order matters: each one builds on the ones before it.
 
-### 1. Deck format: 100 cards, any colours, partners
+### 1. Deck format: 100 cards, any colours, partners (done)
 
 - `DeckDef` (`src/cards/db.ts`): `commanders: string[]` (1 or 2), `basics` becomes a map
   like `{ "Forest": 18, "Island": 17 }`, drop the single `color` in favour of colours from
