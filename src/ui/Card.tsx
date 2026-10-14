@@ -170,7 +170,7 @@ export function Permanent({ card, badge }: { card: Card; badge?: Card[] }) {
   const blocking = g.combat?.attacks.some((a) => a.blockers.includes(card.id)) ?? false;
   const glow = v.glow.get(card.id);
   const rem = useRem();
-  const [dx, dy] = INWARD[SEATS[card.owner]];
+  const [dx, dy] = INWARD[SEATS[card.controller]];
   const lift = (attacking ? 2 : blocking ? 1 : 0) * rem;
   const printed = { power: parseInt(d.power ?? '0', 10) || 0, toughness: parseInt(d.toughness ?? '0', 10) || 0 };
   const ptClass =
@@ -181,7 +181,7 @@ export function Permanent({ card, badge }: { card: Card; badge?: Card[] }) {
         : s && (s.power < printed.power || s.toughness < printed.toughness)
           ? 'hurt'
           : '';
-  const sick = creature && card.sick && g.active === card.owner && !s!.keywords.has('haste');
+  const sick = creature && card.sick && g.active === card.controller && !s!.keywords.has('haste');
   const attached = attachmentsOf(g, card);
 
   return (
@@ -208,9 +208,10 @@ export function Permanent({ card, badge }: { card: Card; badge?: Card[] }) {
       {attached.length > 0 && <Attachments cards={attached} />}
       <div className="tile-face">
         <div className="tile-art" style={{ backgroundImage: `url(${d.art})` }} />
-        <div className="tile-name">
+        <div className="tile-name" title={card.chosen ? `Chosen: ${card.chosen}` : undefined}>
           {card.isCommander && <span className="crown">♛</span>}
           {d.name}
+          {card.chosen && ` (${card.chosen})`}
         </div>
         {s && (
           <div className="tile-keywords">

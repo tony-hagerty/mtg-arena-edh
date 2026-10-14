@@ -186,7 +186,6 @@
       "title": "Opus and Weaver",
       "blurb": "cEDH: fast mana, tutors and a Thassa's Oracle win.",
       "pilot": "Ludevic",
-      "wip": true,
       "commanders": [
         "Kraum, Ludevic's Opus",
         "Tymna the Weaver"
@@ -384,6 +383,17 @@
       "oracleText": "{2}, Sacrifice this token: Draw a card.",
       "keywords": [],
       "query": "t:token !\"Clue\""
+    },
+    "Fish": {
+      "name": "Fish",
+      "power": "1",
+      "toughness": "1",
+      "colors": [
+        "U"
+      ],
+      "typeLine": "Token Creature — Fish",
+      "keywords": [],
+      "query": "t:token !\"Fish\" c=u pow=1 tou=1"
     },
     "Knight 2/2 vigilance": {
       "name": "Knight",

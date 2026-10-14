@@ -4,7 +4,7 @@ import { produce } from 'immer';
 import { describe, expect, it } from 'vitest';
 import './fixtures';
 import { useStore } from '../src/ui/store';
-import { buildView, clickPermanent, clickPlayer, clickStackItem, exileForMana, pickAbility, pickFace, pickMode, playHandCard, setChoices } from '../src/ui/view';
+import { activateFromHand, buildView, chooseEscape, chooseGraveyardTarget, clickPermanent, clickPlayer, clickStackItem, exileForMana, pickAbility, pickColor, pickFace, pickMode, playHandCard, setChoices } from '../src/ui/view';
 import { applyAction, canCast } from '../src/engine';
 import type { Game } from '../src/engine';
 import { byName, emptyGame, put } from './helpers';
@@ -370,5 +370,108 @@ describe('session 7a in the UI: pitch costs, mana from the hand, questions', () 
     useStore.getState().act({ type: 'answer', yes: true });
     // The human's seat keeps the bot's name in tests; "pay" is the human's form of the verb.
     expect(game().log.some((l) => l.text.endsWith(' pay {1} for Rhystic Study.'))).toBe(true);
+  });
+});
+
+describe('the Kraum and Tymna deck in the UI (session 7b)', () => {
+  it('escapes a card with Underworld Breach: pick the cost, then the three cards to exile (702.138a)', () => {
+    play((d) => {
+      put(d, 0, 'Underworld Breach');
+      put(d, 0, 'Mountain');
+      for (const n of ['Lightning Bolt', 'Plains', 'Island', 'Swamp']) put(d, 0, n, 'graveyard');
+    });
+    const bolt = byName(game(), 0, 'Lightning Bolt', 'graveyard')!;
+    expect(buildView().glow.get(bolt.id)).toBe('play');
+    playHandCard(bolt);
+    clickPlayer(1);
+    const v = buildView();
+    expect(v.escape?.options.map((c) => c.name).sort()).toEqual(['Island', 'Plains', 'Swamp']);
+    chooseEscape(v.escape!.options.map((c) => c.id));
+    expect(buildView().prompt).toContain('Pay {R}');
+    press(); // Pay
+    expect(game().players[1].life).toBe(37);
+    expect(game().players[0].exile).toHaveLength(3);
+  });
+
+  it('keeps or changes the targets of a spell for Deflecting Swat (115.7d)', () => {
+    play((d) => {
+      d.players[0].command[0].zone = 'battlefield';
+      d.players[0].battlefield.push(d.players[0].command.pop()!);
+      put(d, 0, 'Mountain');
+      put(d, 0, 'Lightning Bolt', 'hand');
+      put(d, 0, 'Deflecting Swat', 'hand');
+    });
+    useStore.setState({ hold: true });
+    playHandCard(byName(game(), 0, 'Lightning Bolt', 'hand')!);
+    clickPlayer(2);
+    press(); // Pay, holding priority
+    const bolt = game().stack[0].id;
+    playHandCard(byName(game(), 0, 'Deflecting Swat', 'hand')!);
+    setChoices({ alt: 0 });
+    press(); // Continue
+    clickStackItem(bolt);
+    press(); // Pay: it's free
+    expect(game().decision?.type).toBe('retarget');
+    expect(buildView().primary?.label).toBe('Keep Target');
+    clickPlayer(3);
+    expect(game().players[3].life).toBe(37);
+  });
+
+  it("asks for the colour before Lion's Eye Diamond is used", () => {
+    play((d) => {
+      put(d, 0, "Lion's Eye Diamond");
+    });
+    clickPermanent(byName(game(), 0, "Lion's Eye Diamond")!);
+    expect(useStore.getState().colorPick?.colors).toHaveLength(5);
+    pickColor('U');
+    expect(game().players[0].pool.map((m) => m.sym)).toEqual(['U', 'U', 'U']);
+  });
+
+  it('offers channel beside playing Otawara as a land', () => {
+    play((d) => {
+      put(d, 0, 'Island', 'battlefield', 4);
+      put(d, 0, 'Otawara, Soaring City', 'hand');
+      put(d, 1, 'Sol Ring');
+    });
+    playHandCard(byName(game(), 0, 'Otawara, Soaring City', 'hand')!);
+    expect(buildView().announce?.handAbility).toContain('Channel');
+    activateFromHand();
+    clickPermanent(byName(game(), 1, 'Sol Ring')!);
+    press(); // Pay
+    expect(byName(game(), 1, 'Sol Ring', 'hand')).toBeDefined();
+    expect(byName(game(), 0, 'Otawara, Soaring City', 'graveyard')).toBeDefined();
+  });
+
+  it("targets a card in a graveyard from a window (Sevinne's Reclamation)", () => {
+    play((d) => {
+      put(d, 0, 'Plains', 'battlefield', 3);
+      put(d, 0, "Sevinne's Reclamation", 'hand');
+      put(d, 0, 'Sol Ring', 'graveyard');
+    });
+    playHandCard(byName(game(), 0, "Sevinne's Reclamation", 'hand')!);
+    const v = buildView();
+    expect(v.graveTargets?.options.map((c) => c.name)).toEqual(['Sol Ring']);
+    chooseGraveyardTarget(v.graveTargets!.options[0].id);
+    press(); // Pay
+    expect(byName(game(), 0, 'Sol Ring')).toBeDefined();
+  });
+
+  it('casts the card Beseech the Mirror found, without paying for it (608.2g)', () => {
+    play((d) => {
+      put(d, 0, 'Swamp', 'battlefield', 4);
+      put(d, 0, 'Beseech the Mirror', 'hand');
+      put(d, 0, 'Sol Ring');
+      d.players[0].library = [];
+      put(d, 0, 'Chrome Mox', 'library');
+    });
+    playHandCard(byName(game(), 0, 'Beseech the Mirror', 'hand')!);
+    // Bargain: sacrifice Sol Ring.
+    clickPermanent(byName(game(), 0, 'Sol Ring')!);
+    press(); // Pay
+    useStore.getState().act({ type: 'chooseCards', cards: [byName(game(), 0, 'Chrome Mox', 'library')!.id] });
+    expect(game().decision?.type).toBe('cast');
+    playHandCard(byName(game(), 0, 'Chrome Mox', 'exile')!);
+    press(); // Pay: nothing to pay
+    expect(game().stack.length + game().players[0].battlefield.filter((c) => c.name === 'Chrome Mox').length).toBeGreaterThan(0);
   });
 });

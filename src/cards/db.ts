@@ -1,6 +1,7 @@
 import type { CardData, Color } from '../engine/types';
 import generated from './cards.generated.json';
 import lists from './decklists.json';
+import creatureTypes from './creature-types.json';
 
 export interface DeckDef {
   id: string;
@@ -85,6 +86,9 @@ export const ALL_CARD_NAMES = Object.keys(cards);
 
 /** Is this the name of a card (not a token)? Any face's name counts. */
 export const isCardName = (name: string) => name in cards || faceNames.has(name);
+
+/** Every creature type (205.3m), from the rules by `npm run fetch-rules`. */
+export const CREATURE_TYPES: string[] = creatureTypes;
 
 /** Every card name the game knows, faces included, for naming a card (201.3). */
 export const cardNames = () => [...new Set([...Object.keys(cards), ...faceNames.keys()])].sort();

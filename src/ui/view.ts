@@ -41,8 +41,18 @@ import {
   scriptFor,
   targetSpecs,
   maxHandSize,
+  MUST_ATTACK,
+  abilityCost,
+  castableCards,
+  describeRef,
+  discardOptions,
+  escapeOptions,
+  graveyardWays,
+  has,
+  manaAbilities,
+  maxModes,
 } from '../engine';
-import type { AttackOption, Card, CastChoices, Cost, Game, PlayerId, Step, TargetRef } from '../engine';
+import type { Action, AttackOption, Card, CastChoices, Cost, Game, ManaSym, PlayerId, StackItem, Step, TargetRef, TargetSpec } from '../engine';
 import { useStore } from './store';
 import type { Targeting } from './store';
 
@@ -75,6 +85,10 @@ export interface View {
   paying: { card: Card; kind: 'spell' | 'ability' } | null;
   /** A spell whose X, kicker or alternative cost the human is announcing (601.2b), for the options panel. */
   announce: Announce | null;
+  /** Escape (702.138a): the other cards in the graveyard the human picks three of to exile. */
+  escape: { card: Card; options: Card[] } | null;
+  /** Cards in a graveyard the human can target now (Sevinne's Reclamation), for a picker. */
+  graveTargets: { card: Card; spec: TargetSpec; options: Card[] } | null;
   prompt: string | null;
   primary: Btn | null;
   secondary: Btn | null;
@@ -88,8 +102,15 @@ export interface Announce {
   maxX: number | null;
   /** The kicker cost, and how many times it can be paid (more than once only for multikicker). */
   kicker: { text: string; most: number } | null;
-  /** The mana cost (alt undefined) and each available alternative cost, and whether each can be paid now. */
-  costs: { alt: number | undefined; label: string; payable: boolean }[];
+  /**
+   * The mana cost (alt undefined) and each available alternative cost, and whether each can
+   * be paid now. From a graveyard: flashback, and escape (`escape`).
+   */
+  costs: { alt: number | undefined; escape?: boolean; label: string; payable: boolean }[];
+  /** A spell with gift (702.174): the opponents a gift can be promised to. */
+  gifts: { id: PlayerId; name: string }[] | null;
+  /** An ability of the card that works from the hand, like channel: offered instead of playing it. */
+  handAbility: string | null;
   /** A modal spell's modes (700.2): how many to choose, and each mode's text, times picked and whether it can be picked. */
   modal: { min: number; max: number; repeat: boolean; modes: { text: string; picked: number; ok: boolean }[]; valid: boolean } | null;
   /** A Siege's possible protectors: the caster's opponents (310.12a). Null for any other spell. */
@@ -156,14 +177,54 @@ function targetingOf(s: StoreState): Targeting | null {
     const chosen = s.targeting?.mode === 'trigger' ? s.targeting.chosen : [];
     return { mode: 'trigger', cardId: item.card.id, specs: targetSpecs(item), chosen, tapped: [], choices: {}, announcing: false };
   }
-  return s.targeting?.mode === 'trigger' ? null : s.targeting;
+  // New targets for a spell or ability (115.7d), like Deflecting Swat's.
+  const item = g && g.priority === s.human ? retargetItem(g) : undefined;
+  if (item) {
+    const chosen = s.targeting?.mode === 'retarget' ? s.targeting.chosen : [];
+    return { mode: 'retarget', cardId: item.card.id, specs: targetSpecs(item), chosen, tapped: [], choices: {}, announcing: false };
+  }
+  return s.targeting?.mode === 'trigger' || s.targeting?.mode === 'retarget' ? null : s.targeting;
 }
 
-/** Targets are chosen and the spell still needs a permanent to sacrifice for its additional cost (118.8). */
-function isSacrificing(t: Targeting): boolean {
-  if (t.mode !== 'cast' || t.announcing || t.chosen.length < t.specs.length || t.choices.sacrifice?.length) return false;
+/** The spell or ability the game is waiting on new targets for, if any. */
+function retargetItem(g: Game): StackItem | undefined {
+  const d = g.decision;
+  return d?.type === 'retarget' ? g.stack.find((x) => x.id === d.choice.item) : undefined;
+}
+
+/**
+ * The sacrifices the spell's costs ask for, in order: one for an alternative cost that
+ * sacrifices (Flare of Duplication), then one for an additional cost (118.8), which bargain
+ * makes optional (702.166a).
+ */
+function sacrificeNeeds(t: Targeting): { spec: TargetSpec; alt: number | undefined; optional: boolean }[] {
   const card = findCard(S().game!, t.cardId);
-  return !!card && !!scriptFor(asSpell(card, t.choices.face)).additionalCost;
+  if (!card || t.mode !== 'cast') return [];
+  const script = scriptFor(asSpell(card, t.choices.face));
+  const alt = t.choices.alt === undefined ? undefined : script.alternativeCosts?.[t.choices.alt];
+  return [
+    ...(alt?.sacrifice ? [{ spec: alt.sacrifice, alt: t.choices.alt, optional: false }] : []),
+    ...(script.additionalCost ? [{ spec: script.additionalCost.sacrifice, alt: undefined, optional: !!script.additionalCost.optional }] : []),
+  ];
+}
+
+/** Targets are chosen and the spell still needs a permanent to sacrifice for a cost (118.8, 118.9). */
+function isSacrificing(t: Targeting): boolean {
+  if (t.mode !== 'cast' || t.announcing || t.chosen.length < t.specs.length || t.sacrificeDone) return false;
+  return (t.choices.sacrifice?.length ?? 0) < sacrificeNeeds(t).length;
+}
+
+/** The spell is cast with escape, and the three cards to exile from the graveyard are still to be picked (702.138a). */
+function isEscaping(t: Targeting): boolean {
+  if (t.mode !== 'cast' || t.announcing || t.chosen.length < t.specs.length || isSacrificing(t)) return false;
+  return !!t.choices.escape && t.choices.escape.length < 3;
+}
+
+/** The ability's targets are chosen and its "Discard a card" cost still needs its cards. */
+function isDiscarding(t: Targeting): boolean {
+  if (t.mode !== 'activate' || t.ability !== undefined || t.pickingAbility || t.chosen.length < t.specs.length) return false;
+  const card = findCard(S().game!, t.cardId);
+  return !!card && (scriptFor(card).activated?.cost.discard ?? 0) > (t.discard?.length ?? 0);
 }
 
 /**
@@ -186,15 +247,29 @@ function crewNeeded(t: Targeting): number {
 
 /** Everything is chosen and the spell or ability is waiting for its cost to be paid (601.2f-h). */
 const isPaying = (t: Targeting) =>
-  t.mode !== 'trigger' && !t.announcing && !t.pickingAbility && t.chosen.length === t.specs.length && !isSacrificing(t) && !isExiling(t) && !crewNeeded(t);
+  t.mode !== 'trigger' &&
+  t.mode !== 'retarget' &&
+  !t.announcing &&
+  !t.pickingAbility &&
+  t.chosen.length === t.specs.length &&
+  !isSacrificing(t) &&
+  !isExiling(t) &&
+  !isEscaping(t) &&
+  !isDiscarding(t) &&
+  !crewNeeded(t);
 
 /** The mana a spell or ability costs, and the same thing written out ("{1}{B}{B}"), with any life to pay. */
 function costOf(g: Game, t: Targeting): { cost: Cost; text: string } {
   const card = findCard(g, t.cardId)!;
   // A loyalty ability costs loyalty, not mana (606.4). A Class level bar costs mana (716.2a).
   const script = scriptFor(card);
-  const mana = t.ability === undefined ? (script.activated?.cost.mana ?? '') : (script.levels?.[t.ability].cost ?? '');
-  const cost = t.mode === 'cast' ? castCost(g, card, t.choices) : parseCost(mana);
+  const me = S().human ?? card.controller;
+  const cost =
+    t.mode === 'cast'
+      ? castCost(g, card, t.choices, me)
+      : t.ability === undefined && script.activated
+        ? abilityCost(script.activated, g, card)
+        : parseCost(t.ability === undefined ? '' : (script.levels?.[t.ability].cost ?? ''));
   return { cost, text: costText(cost) + (cost.life ? ` and ${cost.life} life` : '') };
 }
 
@@ -204,9 +279,12 @@ function announceOf(g: Game, me: PlayerId, card: Card, choices: CastChoices): An
   const spell = asSpell(card, face);
   const script = scriptFor(spell);
   const land = landFaces(card).includes(face) && !castFaces(card).includes(face);
-  const hasX = !land && card.zone !== 'graveyard' && parseCost(choices.alt === undefined ? data(spell).manaCost : script.alternativeCosts![choices.alt].mana).x > 0;
+  const hasX = !land && (card.zone !== 'graveyard' || !!choices.escape) && parseCost(choices.alt === undefined ? data(spell).manaCost : script.alternativeCosts![choices.alt].mana).x > 0;
+  const payable = (ch: CastChoices) => !!planPayment(g, me, castCost(g, card, ch, me), asSpell(card, face, me));
   let most = 0;
-  if (script.kicker) while (most < (script.kicker.multi ? 20 : 1) && planPayment(g, me, castCost(g, card, { ...choices, x: 0, kicked: most + 1 }))) most++;
+  if (script.kicker) while (most < (script.kicker.multi ? 20 : 1) && payable({ ...choices, x: 0, kicked: most + 1 })) most++;
+  const ways = card.zone === 'graveyard' ? graveyardWays(g, card, face) : null;
+  const handAb = scriptFor(card).activated;
   const modal = land ? undefined : script.modal;
   const sets = modal ? modeChoices(g, me, card, face) : [];
   const options = playOptions(g, me, card);
@@ -217,7 +295,7 @@ function announceOf(g: Game, me: PlayerId, card: Card, choices: CastChoices): An
     modal: modal
       ? {
           min: modal.min,
-          max: modal.max,
+          max: maxModes(g, me, spell),
           repeat: !!modal.repeat,
           modes: modal.modes.map((m, i) => ({ text: m.text, picked: modes.filter((x) => x === i).length, ok: sets.some((set) => set.includes(i)) })),
           valid: sets.some((set) => set.join() === modes.join()),
@@ -231,11 +309,20 @@ function announceOf(g: Game, me: PlayerId, card: Card, choices: CastChoices): An
         : null,
     kicker: script.kicker && !land ? { text: costText(parseCost(script.kicker.mana)), most } : null,
     handMana: card.zone === 'hand' && canTapForMana(g, me, card),
-    costs: (land ? [] : [undefined, ...altCostsOf(g, card, face)]).map((alt) => ({
-      alt,
-      label: alt === undefined ? costText(castCost(g, card, { ...choices, alt, kicked: 0, x: 0 })) : script.alternativeCosts![alt].label,
-      payable: !!planPayment(g, me, castCost(g, card, { ...choices, alt, kicked: 0, x: 0 })),
-    })),
+    handAbility: card.zone === 'hand' && handAb?.fromHand && activatable(g, me, card).includes(undefined) ? handAb.text : null,
+    gifts: script.gift && !land ? opponentsOf(g, me).map((o) => ({ id: o.id, name: o.name })) : null,
+    costs: ways
+      ? [
+          ...(ways.flashback ? [{ alt: undefined, label: `Flashback ${scriptFor(card).flashback}`, payable: payable({ ...choices, escape: undefined, x: 0 }) }] : []),
+          ...(ways.escape
+            ? [{ alt: undefined, escape: true, label: `Escape: ${costText(parseCost(data(spell).manaCost))} + exile 3`, payable: payable({ ...choices, escape: [], x: 0 }) }]
+            : []),
+        ]
+      : (land ? [] : [undefined, ...altCostsOf(g, card, face, me)]).map((alt) => ({
+          alt,
+          label: alt === undefined ? costText(castCost(g, card, { ...choices, alt, kicked: 0, x: 0 }, me)) : script.alternativeCosts![alt].label,
+          payable: payable({ ...choices, alt, kicked: 0, x: 0 }),
+        })),
   };
 }
 
@@ -244,9 +331,9 @@ function announceOf(g: Game, me: PlayerId, card: Card, choices: CastChoices): An
  * face it can be played as (712.12). `ok` says whether that way is possible right now.
  */
 function playOptions(g: Game, me: PlayerId, card: Card): { face: number; land: boolean; ok: boolean }[] {
-  const lands = card.zone === 'hand' ? landFaces(card) : [];
+  const lands = card.zone === 'hand' || card.zone === 'exile' ? landFaces(card) : [];
   return [
-    ...castFaces(card).filter((f) => !lands.includes(f)).map((face) => ({ face, land: false, ok: card.owner === me && canCastAs(g, me, card, face) })),
+    ...castFaces(card).filter((f) => !lands.includes(f)).map((face) => ({ face, land: false, ok: canCastAs(g, me, card, face) })),
     ...lands.map((face) => ({ face, land: true, ok: canPlayLand(g, me, card, face) })),
   ];
 }
@@ -262,7 +349,8 @@ function markMana(view: View, g: Game, me: PlayerId) {
   for (const c of g.players[me].hand) if (canTapForMana(g, me, c)) view.mana.add(c.id);
 }
 
-const sourceOf = (g: Game, t: Targeting) => (g.decision?.type === 'targets' ? g.decision.item.card : findCard(g, t.cardId));
+const sourceOf = (g: Game, t: Targeting) =>
+  g.decision?.type === 'targets' ? g.decision.item.card : t.mode === 'retarget' ? retargetItem(g)?.card : findCard(g, t.cardId);
 
 function currentTargets(g: Game, me: PlayerId, t: Targeting): TargetRef[] {
   const source = sourceOf(g, t);
@@ -270,7 +358,9 @@ function currentTargets(g: Game, me: PlayerId, t: Targeting): TargetRef[] {
   if (!source || !spec) return [];
   // "Two target players": the second can't be the first again (115.3).
   const other = spec.distinctFrom === undefined ? null : t.chosen[spec.distinctFrom];
-  return legalTargets(g, me, spec, source).filter((x) => !other || x.kind !== other.kind || x.id !== other.id);
+  // New targets are legal for the spell or ability's controller (115.7d).
+  const who = t.mode === 'retarget' ? (retargetItem(g)?.controller ?? me) : me;
+  return legalTargets(g, who, spec, source).filter((x) => !other || x.kind !== other.kind || x.id !== other.id);
 }
 
 export function buildView(): View {
@@ -290,6 +380,8 @@ export function buildView(): View {
     loyalty: null,
     paying: null,
     announce: null,
+    escape: null,
+    graveTargets: null,
     prompt: null,
     primary: null,
     secondary: null,
@@ -309,7 +401,13 @@ export function buildView(): View {
             : deciding === 'ask'
               ? `${who} is deciding`
               : deciding === 'name'
-                ? `${who} is naming a card`
+                ? `${who} is naming ${g.decision?.type === 'name' && g.decision.choice.of ? 'a creature type' : 'a card'}`
+                : deciding === 'player'
+                  ? `${who} is choosing a player`
+                  : deciding === 'cast'
+                    ? `${who} may cast a spell`
+                    : deciding === 'retarget'
+                      ? `${who} is choosing new targets`
             : g.priority === g.active
               ? `${who}'s turn`
               : `${who} may respond`;
@@ -357,12 +455,34 @@ export function buildView(): View {
     return view;
   }
 
-  // --- choosing what to sacrifice for an additional cost (118.8) ---
+  // --- choosing what to sacrifice for an additional or alternative cost (118.8, 118.9) ---
   if (t && isSacrificing(t)) {
     const card = findCard(g, t.cardId)!;
-    for (const c of sacrificeOptions(g, me, card)) view.glow.set(c.id, 'target');
+    const need = sacrificeNeeds(t)[t.choices.sacrifice?.length ?? 0];
+    for (const c of sacrificeOptions(g, me, card, t.choices.face ?? 0, need.alt)) if (!t.choices.sacrifice?.includes(c.id)) view.glow.set(c.id, 'target');
     view.glow.set(card.id, 'picked');
-    view.prompt = `${label(card)}: choose ${scriptFor(card).additionalCost!.sacrifice.label}.`;
+    view.prompt = `${label(card)}: choose ${need.spec.label}${need.optional ? ', or none' : ''}.`;
+    if (need.optional) view.primary = { label: 'No Sacrifice', tone: 'plain', onClick: skipSacrifice };
+    view.secondary = { label: 'Cancel', tone: 'cancel', onClick: cancel };
+    return view;
+  }
+
+  // --- choosing the three cards to exile for escape (702.138a) ---
+  if (t && isEscaping(t)) {
+    const card = findCard(g, t.cardId)!;
+    view.glow.set(card.id, 'picked');
+    view.escape = { card, options: escapeOptions(g, card) };
+    view.prompt = `${label(card)}: choose three other cards in your graveyard to exile.`;
+    view.secondary = { label: 'Cancel', tone: 'cancel', onClick: cancel };
+    return view;
+  }
+
+  // --- choosing the cards to discard for an ability's cost ---
+  if (t && isDiscarding(t)) {
+    const card = findCard(g, t.cardId)!;
+    for (const c of discardOptions(g, me, card)) if (!t.discard?.includes(c.id)) view.glow.set(c.id, 'target');
+    view.glow.set(card.id, 'picked');
+    view.prompt = `${label(card)}: choose a card in your hand to discard.`;
     view.secondary = { label: 'Cancel', tone: 'cancel', onClick: cancel };
     return view;
   }
@@ -420,25 +540,37 @@ export function buildView(): View {
   // --- choosing targets ---
   if (t) {
     const spec = t.specs[t.chosen.length];
-    for (const ref of currentTargets(g, me, t)) {
+    const options = currentTargets(g, me, t);
+    for (const ref of options) {
       if (ref.kind === 'card') view.glow.set(ref.id, 'target');
       else if (ref.kind === 'stack') view.targetStack.add(ref.id);
       else view.targetPlayers.add(ref.id);
     }
     const source = sourceOf(g, t);
+    // A card in a graveyard isn't on the table: it is picked from a window.
+    if (spec?.type === 'graveyard card' && source) {
+      view.graveTargets = { card: source, spec, options: options.map((r) => findCard(g, r.id as string)!).filter(Boolean) };
+    }
     view.prompt = `${source ? label(source) : ''}: choose ${spec?.label ?? 'a target'}.`;
-    if (t.mode !== 'trigger') view.secondary = { label: 'Cancel', tone: 'cancel', onClick: cancel };
+    if (t.mode !== 'trigger' && t.mode !== 'retarget') view.secondary = { label: 'Cancel', tone: 'cancel', onClick: cancel };
     if (spec?.optional) view.primary = { label: 'No Target', tone: 'plain', onClick: () => chooseTarget(null) };
+    if (t.mode === 'retarget') {
+      // Any target may be left as it is (115.7d).
+      const now = retargetItem(g)?.targets[t.chosen.length];
+      view.prompt = `${source ? label(source) : ''}: choose a new target (${spec?.label ?? 'target'}), or keep ${now ? describeRef(g, now) : 'it'}.`;
+      view.primary = { label: 'Keep Target', tone: 'plain', onClick: keepTarget };
+    }
     return view;
   }
 
   // --- things you can play (only with priority: the engine says no while a declaration is going on) ---
-  // A graveyard card with flashback, or an exiled adventurer card, can be cast too (702.34a, 715.3d).
-  for (const c of [...p.hand, ...p.command, ...p.graveyard, ...p.exile]) {
-    if (canPlayLand(g, me, c) || canCast(g, me, c)) view.glow.set(c.id, 'play');
-  }
-  // A card that makes mana from the hand (Simian Spirit Guide).
+  // A graveyard card with flashback or escape, or an exiled card that may be cast or played,
+  // can be cast too (702.34a, 702.138a, 715.3d).
+  for (const c of castableCards(g, me)) if (canCast(g, me, c)) view.glow.set(c.id, 'play');
+  for (const c of [...p.hand, ...g.players.flatMap((o) => o.exile)]) if (canPlayLand(g, me, c)) view.glow.set(c.id, 'play');
+  // A card that makes mana from the hand (Simian Spirit Guide), or has an ability that works from there (channel).
   if (!deciding) for (const c of p.hand) if (canTapForMana(g, me, c)) view.glow.set(c.id, 'play');
+  for (const c of p.hand) if (activatable(g, me, c).length) view.glow.set(c.id, 'play');
   for (const c of p.battlefield) if (activatable(g, me, c).length) view.glow.set(c.id, 'play');
   if (!deciding) markMana(view, g, me);
 
@@ -458,7 +590,11 @@ export function buildView(): View {
         else view.glow.set(o.target, target?.target === o.target ? 'picked' : 'target');
       }
       const walkers = attackOptions(g, me).some((o) => o.target);
-      view.prompt = `Choose attackers — sending them at ${target ? attackName(g, target) : '?'}. Click an opponent${walkers ? ', planeswalker or battle' : ''} to switch.`;
+      // A creature that attacks each combat if able goes in anyway if left out (508.1d).
+      const must = candidates.filter((c) => has(g, c, MUST_ATTACK) && !attacks.some((a) => a.id === c.id));
+      view.prompt =
+        `Choose attackers — sending them at ${target ? attackName(g, target) : '?'}. Click an opponent${walkers ? ', planeswalker or battle' : ''} to switch.` +
+        (must.length ? ` ${must.map(label).join(' and ')} must attack.` : '');
       if (attacks.length) {
         view.primary = { label: plural(attacks.length, 'Attacker'), sub: 'Attack', tone: 'attack', onClick: pass };
         view.secondary = {
@@ -575,12 +711,23 @@ function propose(mode: 'cast' | 'activate', card: Card) {
   const choices = mode === 'cast' ? defaultChoices(g, me, card, face) : {};
   const specs = mode === 'cast' ? castTargets(card, undefined, face) : (scriptFor(card).activated?.targets ?? []);
   const script = scriptFor(asSpell(card, face));
-  const hasX = mode === 'cast' && card.zone !== 'graveyard' && parseCost(data(asSpell(card, face)).manaCost).x > 0;
+  const hasX = mode === 'cast' && (card.zone !== 'graveyard' || !!choices.escape) && parseCost(data(asSpell(card, face)).manaCost).x > 0;
   const siege = mode === 'cast' && isSiege(asSpell(card, face));
   const handMana = mode === 'cast' && card.zone === 'hand' && canTapForMana(g, me, card);
+  const handAbility = mode === 'cast' && card.zone === 'hand' && !!scriptFor(card).activated?.fromHand && activatable(g, me, card).includes(undefined);
+  const ways = mode === 'cast' && card.zone === 'graveyard' ? graveyardWays(g, card, face) : null;
   const announcing =
     mode === 'cast' &&
-    (options.length > 1 || hasX || !!script.kicker || altCostsOf(g, card, face).length > 0 || !!script.modal || handMana || (siege && opponentsOf(g, me).length > 1));
+    (options.length > 1 ||
+      hasX ||
+      !!script.kicker ||
+      altCostsOf(g, card, face, me).length > 0 ||
+      !!script.modal ||
+      !!script.gift ||
+      handMana ||
+      handAbility ||
+      (!!ways && ways.flashback && ways.escape) ||
+      (siege && opponentsOf(g, me).length > 1));
   advance({ mode, cardId: card.id, specs, chosen: [], tapped: [], choices, announcing });
 }
 
@@ -590,12 +737,15 @@ function propose(mode: 'cast' | 'activate', card: Card) {
  * the protector the engine would pick (310.12a).
  */
 function defaultChoices(g: Game, me: PlayerId, card: Card, face: number): CastChoices {
-  const alts = altCostsOf(g, card, face);
-  const alt = planPayment(g, me, castCost(g, card, { face })) ? undefined : alts.find((i) => planPayment(g, me, castCost(g, card, { alt: i, face })));
-  const hasX = card.zone !== 'graveyard' && parseCost(data(asSpell(card, face)).manaCost).x > 0;
-  const choices: CastChoices = { alt, x: hasX && alt === undefined ? Math.max(0, maxX(g, me, card, { alt, face })) : 0, kicked: 0 };
+  // From a graveyard: flashback if it can, else escape (702.34a, 702.138a).
+  const ways = card.zone === 'graveyard' ? graveyardWays(g, card, face) : null;
+  const escape = ways && ways.escape && !ways.flashback ? [] : undefined;
+  const spell = asSpell(card, face, me);
+  const alts = ways ? [] : altCostsOf(g, card, face, me);
+  const alt = planPayment(g, me, castCost(g, card, { face, escape }, me), spell) ? undefined : alts.find((i) => planPayment(g, me, castCost(g, card, { alt: i, face }, me), spell));
+  const hasX = (card.zone !== 'graveyard' || !!escape) && parseCost(data(asSpell(card, face)).manaCost).x > 0;
+  const choices: CastChoices = { alt, x: hasX && alt === undefined ? Math.max(0, maxX(g, me, card, { alt, face, escape })) : 0, kicked: 0, ...(escape ? { escape } : {}) };
   if (face) choices.face = face;
-  const spell = asSpell(card, face);
   if (isSiege(spell)) choices.protector = defaultProtector(g, spell) ?? undefined;
   return choices;
 }
@@ -635,7 +785,7 @@ export function pickMode(i: number, delta: 1 | -1 = 1) {
   if (delta < 0) modes.splice(modes.indexOf(i), 1);
   else if (!modal.repeat && modes.includes(i)) modes = modes.filter((x) => x !== i);
   else {
-    if (modes.length >= modal.max) modes.shift();
+    if (modes.length >= maxModes(g, S().human ?? 0, findCard(g, t.cardId)!)) modes.shift();
     modes.push(i);
   }
   setChoices({ modes: [...modes].sort((a, b) => a - b) });
@@ -664,7 +814,17 @@ function confirmAnnounce() {
     S().act({ type: 'playLand', card: card.id, face });
     return;
   }
-  advance({ ...t, announcing: false, specs: castTargets(card, t.choices.modes, face) });
+  advance({ ...t, announcing: false, specs: castTargets(card, t.choices.modes, face, t.choices.gift) });
+}
+
+/** From the cast panel: use the card's ability that works from the hand (channel) instead of playing it. */
+export function activateFromHand() {
+  const t = S().targeting;
+  const g = S().game;
+  if (!t || !t.announcing || !g) return;
+  const card = findCard(g, t.cardId);
+  useStore.setState({ targeting: null });
+  if (card) propose('activate', card);
 }
 
 /**
@@ -679,8 +839,10 @@ function advance(t: Targeting) {
     return;
   }
   let chosen = t.chosen;
-  while (chosen.length < t.specs.length && currentTargets(g, me, { ...t, chosen }).length === 0) chosen = [...chosen, null];
-  if (t.mode !== 'trigger' || chosen.length < t.specs.length) {
+  // A slot with nothing legal is left empty, or for new targets, left as it was (115.7d).
+  const keep = (i: number) => (t.mode === 'retarget' ? (retargetItem(g)?.targets[i] ?? null) : null);
+  while (chosen.length < t.specs.length && currentTargets(g, me, { ...t, chosen }).length === 0) chosen = [...chosen, keep(chosen.length)];
+  if ((t.mode !== 'trigger' && t.mode !== 'retarget') || chosen.length < t.specs.length) {
     useStore.setState({ targeting: { ...t, chosen }, hover: null });
     // A loyalty ability has nothing to pay in mana: it is activated as soon as its targets are chosen.
     if (t.ability !== undefined && chosen.length === t.specs.length && costOf(g, t).text === '{0}') pay();
@@ -696,17 +858,18 @@ function pay() {
   if (!t || !isPaying(t) || t.mode === 'trigger') return;
   const hold = S().hold;
   useStore.setState({ hold: false });
-  const action =
+  const action: Action =
     t.mode === 'cast'
-      ? { type: t.mode, card: t.cardId, targets: t.chosen, hold, ...t.choices }
-      : { type: t.mode, card: t.cardId, ability: t.ability, targets: t.chosen, hold, crew: t.crew };
+      ? { type: 'cast', card: t.cardId, targets: t.chosen, hold, ...t.choices }
+      : { type: 'activate', card: t.cardId, ability: t.ability, targets: t.chosen, hold, crew: t.crew, discard: t.discard };
   if (!S().act(action)) cancel();
 }
 
 /** Taps or untaps a mana source while paying. Once the pool covers the whole cost, the spell is paid for. */
 function payByHand(g: Game, me: PlayerId, t: Targeting, card: Card) {
-  if (card.owner !== me) return;
+  if ((card.zone === 'battlefield' ? card.controller : card.owner) !== me) return;
   if (canTapForMana(g, me, card)) {
+    if (pickColorFirst(g, me, card)) return;
     if (!S().act({ type: 'tapMana', card: card.id })) return;
     useStore.setState({ targeting: { ...t, tapped: [...t.tapped, card.id] } });
     if (planPayment(S().game!, me, costOf(S().game!, t).cost)?.tap.length === 0) pay();
@@ -744,18 +907,84 @@ function chooseExile(g: Game, me: PlayerId, t: Targeting, card: Card) {
   if (planPayment(g, me, costOf(g, next).cost)?.tap.length === 0) pay();
 }
 
-/** Picks the permanent to sacrifice for the spell's additional cost (118.8). Paying comes next. */
+/** Picks the permanent to sacrifice for the spell's next sacrifice cost (118.8, 118.9). Paying comes next. */
 function chooseSacrifice(g: Game, me: PlayerId, t: Targeting, card: Card) {
   const spell = findCard(g, t.cardId)!;
-  if (!sacrificeOptions(g, me, spell).some((c) => c.id === card.id)) return;
-  useStore.setState({ targeting: { ...t, choices: { ...t.choices, sacrifice: [card.id] } } });
+  const picked = t.choices.sacrifice ?? [];
+  const need = sacrificeNeeds(t)[picked.length];
+  if (!need || picked.includes(card.id) || !sacrificeOptions(g, me, spell, t.choices.face ?? 0, need.alt).some((c) => c.id === card.id)) return;
+  const next = { ...t, choices: { ...t.choices, sacrifice: [...picked, card.id] } };
+  useStore.setState({ targeting: next });
+  // A cost that is only a sacrifice, like Flare of Duplication's, is paid as soon as it is picked.
+  if (isPaying(next) && planPayment(g, me, costOf(g, next).cost)?.tap.length === 0) pay();
+}
+
+/** Doesn't pay an optional sacrifice, like bargain (702.166a). */
+function skipSacrifice() {
+  const t = S().targeting;
+  if (t) useStore.setState({ targeting: { ...t, sacrificeDone: true } });
+}
+
+/** Picks the three cards to exile for escape (702.138a). Paying comes next. */
+export function chooseEscape(ids: string[]) {
+  const t = S().targeting;
+  const { game: g, human: me } = S();
+  if (!t || !g || me === null || !isEscaping(t) || ids.length !== 3) return;
+  const next = { ...t, choices: { ...t.choices, escape: ids } };
+  useStore.setState({ targeting: next });
+  if (planPayment(g, me, costOf(g, next).cost)?.tap.length === 0) pay();
+}
+
+/** Picks a card in the hand to discard for an ability's cost. Paying comes next. */
+function chooseDiscard(g: Game, me: PlayerId, t: Targeting, card: Card) {
+  const source = findCard(g, t.cardId)!;
+  if (!discardOptions(g, me, source).some((c) => c.id === card.id) || t.discard?.includes(card.id)) return;
+  const next = { ...t, discard: [...(t.discard ?? []), card.id] };
+  useStore.setState({ targeting: next });
+  if (isPaying(next) && planPayment(g, me, costOf(g, next).cost)?.tap.length === 0) pay();
+}
+
+/** For new targets (115.7d): leaves the current one as it is. */
+function keepTarget() {
+  const s = S();
+  const t = targetingOf(s);
+  const g = s.game;
+  if (!t || t.mode !== 'retarget' || !g) return;
+  advance({ ...t, chosen: [...t.chosen, retargetItem(g)?.targets[t.chosen.length] ?? null] });
+}
+
+/** Picks a card in a graveyard as the target (Sevinne's Reclamation). */
+export function chooseGraveyardTarget(id: string) {
+  chooseTarget({ kind: 'card', id });
+}
+
+/**
+ * A mana ability with a choice of colour that auto-pay never uses (Lion's Eye Diamond): the
+ * human picks the colour first. Returns true if the colour picker was opened.
+ */
+function pickColorFirst(g: Game, me: PlayerId, card: Card): boolean {
+  const usable = manaAbilities(g, card).filter((ab) => canTapForMana(g, me, card, ab.index));
+  const ab = usable.length === 1 ? usable[0] : undefined;
+  if (!ab || !ab.manual || ab.colors.length < 2) return false;
+  useStore.setState({ colorPick: { cardId: card.id, ability: ab.index, colors: ab.colors } });
+  return true;
+}
+
+/** Uses the mana ability the colour picker is open for, making `color`. While paying, the spell is paid for once the pool covers it. */
+export function pickColor(color: ManaSym | null) {
+  const { colorPick, game: g, human: me } = S();
+  useStore.setState({ colorPick: null });
+  if (!colorPick || !color || !g || me === null) return;
+  if (!S().act({ type: 'tapMana', card: colorPick.cardId, ability: colorPick.ability, color })) return;
+  const t = targetingOf(S());
+  if (t && isPaying(t) && planPayment(S().game!, me, costOf(S().game!, t).cost)?.tap.length === 0) pay();
 }
 
 function chooseTarget(ref: TargetRef | null) {
   const s = S();
   const { game: g, human: me } = s;
   const t = targetingOf(s);
-  if (!g || me === null || !t || t.announcing || isSacrificing(t) || isExiling(t) || crewNeeded(t)) return;
+  if (!g || me === null || !t || t.announcing || isSacrificing(t) || isExiling(t) || isEscaping(t) || isDiscarding(t) || crewNeeded(t)) return;
   if (ref && !currentTargets(g, me, t).some((x) => x.kind === ref.kind && x.id === ref.id)) return;
   advance({ ...t, chosen: [...t.chosen, ref] });
 }
@@ -784,15 +1013,19 @@ export function playHandCard(card: Card) {
   const ctx = myTurnToAct();
   const t = targetingOf(S());
   if (ctx && t && isExiling(t)) return chooseExile(ctx.g, ctx.me, t, card);
+  if (ctx && t && isDiscarding(t)) return chooseDiscard(ctx.g, ctx.me, t, card);
   if (ctx && t && isPaying(t) && canTapForMana(ctx.g, ctx.me, card)) return payByHand(ctx.g, ctx.me, t, card);
   if (!ctx || t) return;
   const { g, me } = ctx;
   if (g.decision?.type === 'discard') return S().act({ type: 'discard', card: card.id });
   const options = playOptions(g, me, card);
+  // An ability that works from the hand, like channel.
+  const handAbility = card.zone === 'hand' && !!scriptFor(card).activated?.fromHand && activatable(g, me, card).includes(undefined);
   // A plain land is played; anything with a choice of faces, or a spell, is proposed. A card
   // that can't be cast but makes mana from the hand (Simian Spirit Guide) does that.
-  if (options.length === 1 && options[0].land) S().act({ type: 'playLand', card: card.id, face: options[0].face });
+  if (options.length === 1 && options[0].land && !handAbility) S().act({ type: 'playLand', card: card.id, face: options[0].face });
   else if (options.some((o) => o.ok)) propose('cast', card);
+  else if (handAbility) propose('activate', card);
   else if (!g.decision && canTapForMana(g, me, card)) S().act({ type: 'tapMana', card: card.id });
 }
 
@@ -823,7 +1056,7 @@ export function clickPermanent(card: Card) {
     const option = attackOptions(g, me).find((o) => o.target === card.id);
     if (option) return useStore.setState({ attackTarget: option });
     const target = attackTargetOf(g, me);
-    if (card.owner !== me || !canAttack(g, card) || !target) return;
+    if (card.controller !== me || !canAttack(g, card) || !target) return;
     const existing = g.combat?.attacks.find((a) => a.id === card.id);
     if (sameOption(existing, target)) s.act({ type: 'undeclareAttack', card: card.id });
     else declare(card.id, target);
@@ -832,7 +1065,7 @@ export function clickPermanent(card: Card) {
 
   if (deciding === 'blockers') {
     const attacksOnMe = (g.combat?.attacks ?? []).filter((a) => a.defender === me);
-    if (card.owner !== me) {
+    if (card.controller !== me) {
       const declared = s.pickedBlockers.filter((b) => S().act({ type: 'declareBlock', blocker: b, attacker: card.id }));
       if (declared.length) useStore.setState({ pickedBlockers: [] });
     } else if (attacksOnMe.some((a) => a.blockers.includes(card.id))) {
@@ -843,8 +1076,10 @@ export function clickPermanent(card: Card) {
     return;
   }
 
-  if (deciding || card.owner !== me) return;
-  if (canTapForMana(g, me, card)) s.act({ type: 'tapMana', card: card.id });
+  if (deciding || card.controller !== me) return;
+  if (canTapForMana(g, me, card)) {
+    if (!pickColorFirst(g, me, card)) s.act({ type: 'tapMana', card: card.id });
+  }
   else if (canUntapMana(g, me, card)) s.act({ type: 'untapMana', card: card.id });
   else if (activatable(g, me, card).length) propose('activate', card);
 }
@@ -875,7 +1110,7 @@ export function clickGroup(cards: Card[]) {
   const top = cards[cards.length - 1];
   const t = targetingOf(S());
   const ctx = myTurnToAct();
-  if (!ctx || top.owner !== ctx.me || (t && !isPaying(t))) return clickPermanent(top);
+  if (!ctx || top.controller !== ctx.me || (t && !isPaying(t))) return clickPermanent(top);
   const { me } = ctx;
   // Every action makes a new game, so each card is looked up again in the latest one.
   const now = () => cards.map((c) => permanent(S().game!, c.id)).filter((c) => c !== undefined);

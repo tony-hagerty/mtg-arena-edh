@@ -1,8 +1,8 @@
 import { useEffect, useMemo } from 'react';
 import { botAction } from '../engine';
 import { OpponentPanel, PlayerField } from './Board';
-import { ActionBar, ArrowLayer, CastOptions, ExitConfirm, GameOver, LogPanel, Preview, Prompt, SpellFlash, StackPanel, ZoneViewer } from './Hud';
-import { Decisions } from './Picker';
+import { ActionBar, ArrowLayer, CastOptions, ColorPicker, ExitConfirm, GameOver, LogPanel, Preview, Prompt, SpellFlash, StackPanel, ZoneViewer } from './Hud';
+import { Decisions, EscapePicker, GraveyardTargets } from './Picker';
 import { useStore } from './store';
 import { ViewContext, buildView } from './view';
 
@@ -37,6 +37,7 @@ export function GameScreen() {
         <PlayerField player={bottom} />
         <Prompt />
         <CastOptions />
+        <ColorPicker />
         <LogPanel />
         <ActionBar />
         <StackPanel />
@@ -44,6 +45,8 @@ export function GameScreen() {
         <SpellFlash />
         <ZoneViewer />
         <Decisions />
+        <EscapePicker />
+        <GraveyardTargets />
         <GameOver />
         <ExitConfirm />
       </div>

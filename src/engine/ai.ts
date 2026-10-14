@@ -9,6 +9,9 @@ import {
   attackOptions,
   canCast,
   castFaces,
+  castableCards,
+  discardOptions,
+  escapeOptions,
   canMulligan,
   canSayYes,
   canPlayLand,
@@ -49,6 +52,11 @@ import {
   stats,
   targetSpecs,
   scriptFor,
+  addCosts,
+  castCost,
+  findCard,
+  manaAbilities as manaAbilitiesOf,
+  opponentsOf,
 } from './rules';
 import type { ApplyOptions, AttackOption } from './engine';
 import { produce } from 'immer';
@@ -121,8 +129,10 @@ function boardValue(g: Game, p: Player): number {
  * Cards in hand, counting an adventurer card waiting in exile as one (715.3d), and a
  * flashback card in the graveyard as half of one (702.34a).
  */
-const handValue = (p: Player) => {
-  const n = p.hand.length + p.exile.filter((c) => c.adventure).length + p.graveyard.filter((c) => scriptFor(c).flashback).length * 0.5;
+const handValue = (g: Game, p: Player) => {
+  // Cards in any exile that an effect lets them cast this turn count too (Ragavan, Jeska's Will).
+  const allowed = g.effects.filter((e) => e.kind === 'mayCast' && e.player === p.id).length;
+  const n = p.hand.length + p.exile.filter((c) => c.adventure).length + allowed + p.graveyard.filter((c) => scriptFor(c).flashback).length * 0.5;
   return Math.min(n, 5) + Math.max(0, n - 5) * 0.4;
 };
 
@@ -140,11 +150,11 @@ export function evaluate(g: Game, pid: PlayerId): number {
   const me = g.players[pid];
   if (me.lost) return -1000;
   if (g.winner === pid) return 1000;
-  let v = lifeValue(me.life) + boardValue(g, me) + handValue(me) - Math.max(...me.commanderDamage.flat()) * 0.3;
+  let v = lifeValue(me.life) + boardValue(g, me) + handValue(g, me) - Math.max(...me.commanderDamage.flat()) * 0.3;
   for (const o of g.players) {
     if (o.id === pid) continue;
     if (o.lost) v += 25;
-    else v -= 0.5 * (lifeValue(o.life) + boardValue(g, o) + handValue(o) * 0.5);
+    else v -= 0.5 * (lifeValue(o.life) + boardValue(g, o) + handValue(g, o) * 0.5);
   }
   return v;
 }
@@ -169,41 +179,62 @@ function targetChoices(g: Game, pid: PlayerId, specs: TargetSpec[], source: Card
   return combos;
 }
 
+/** What a permanent is worth to sacrifice: less is a better sacrifice. */
+const sacrificeWorth = (g: Game, c: Card) => (isCreature(c) ? threat(g, c) : c.isToken ? 0.5 : 1 + data(c).cmc * 0.5);
+
 /**
  * A few sensible ways to cast `c` (601.2b), for the look-ahead to compare: every set of
- * modes it allows (700.2), each available cost (mana cost or alternative), X as high as
- * it can pay and about half that, kicked as many times as it can pay or not at all, and
- * the two least valuable permanents to sacrifice.
+ * modes it allows (700.2), each available cost (mana cost, alternative cost, flashback or
+ * escape), X as high as it can pay and about half that, kicked as many times as it can pay
+ * or not at all, the least valuable permanents to sacrifice (or none, for bargain), and a
+ * gift promised to each opponent or to none.
  */
 function castChoices(g: Game, pid: PlayerId, c: Card): CastChoices[] {
   const out: CastChoices[] = [];
   // Each face it can be cast as: a split card's halves, an Adventure, a modal card's faces.
   for (const face of castFaces(c)) {
     const script = scriptFor(asSpell(c, face));
-    const sacrifices = script.additionalCost
-      ? [...sacrificeOptions(g, pid, c, face)]
-          .sort((a, b) => (isCreature(a) ? threat(g, a) : 0) - (isCreature(b) ? threat(g, b) : 0))
-          .slice(0, 2)
-          .map((x) => [x.id])
-      : [undefined];
-    const modeSets = script.modal ? modeChoices(g, pid, c, face) : [undefined];
-    for (const modes of modeSets) {
-      for (const alt of [undefined, ...altCostsOf(g, c, face)]) {
+    const cheapest = (cards: Card[]) => [...cards].sort((a, b) => sacrificeWorth(g, a) - sacrificeWorth(g, b));
+    // How the cost is paid: the mana cost or an alternative cost, with what it exiles or sacrifices.
+    const ways: CastChoices[] = [];
+    if (c.zone === 'graveyard') {
+      ways.push({}); // flashback
+      // Escape exiles the three other cards the bot wants least (702.138a).
+      const others = escapeOptions(g, c).sort((a, b) => cardWant(g, pid, a) - cardWant(g, pid, b));
+      if (others.length >= 3) ways.push({ escape: others.slice(0, 3).map((x) => x.id) });
+    } else {
+      for (const alt of [undefined, ...altCostsOf(g, c, face, pid)]) {
         // An alternative cost that exiles a card from the hand gives up the one the bot wants least.
         const pitch = alt === undefined ? [] : exileOptions(g, pid, c, face, alt).sort((a, b) => cardWant(g, pid, a) - cardWant(g, pid, b));
-        const exile = pitch.length ? [pitch[0].id] : undefined;
-        for (const sacrifice of sacrifices) {
-          const kicks = [0];
-          if (script.kicker) {
-            let k = 0;
-            while (k < (script.kicker.multi ? 10 : 1) && canCast(g, pid, c, { face, alt, sacrifice, exile, modes, kicked: k + 1 })) k++;
-            if (k) kicks.push(k);
-          }
-          for (const kicked of kicks) {
-            const most = maxX(g, pid, c, { face, alt, sacrifice, exile, modes, kicked });
-            for (const x of new Set([most, Math.floor(most / 2)])) {
-              const choices: CastChoices = { x, kicked, alt, sacrifice, modes, ...(exile ? { exile } : {}), ...(face ? { face } : {}) };
-              if (x >= 0 && canCast(g, pid, c, choices)) out.push(choices);
+        const altSac = alt === undefined ? [] : cheapest(sacrificeOptions(g, pid, c, face, alt));
+        ways.push({ alt, ...(pitch.length ? { exile: [pitch[0].id] } : {}), ...(altSac.length ? { sacrifice: [altSac[0].id] } : {}) });
+      }
+    }
+    // The additional cost's sacrifice: the two least valuable, or none if it is optional (bargain).
+    const extra = script.additionalCost
+      ? [...(script.additionalCost.optional ? [undefined] : []), ...cheapest(sacrificeOptions(g, pid, c, face)).slice(0, 2).map((x) => x.id)]
+      : [undefined];
+    const gifts = script.gift ? [undefined, ...opponentsOf(g, pid).map((o) => o.id)] : [undefined];
+    const modeSets = script.modal ? modeChoices(g, pid, c, face) : [undefined];
+    for (const modes of modeSets) {
+      for (const way of ways) {
+        for (const add of extra) {
+          if (add && way.sacrifice?.includes(add)) continue;
+          const sacrifice = [...(way.sacrifice ?? []), ...(add ? [add] : [])];
+          const base: CastChoices = { ...way, sacrifice: sacrifice.length ? sacrifice : undefined, modes, ...(face ? { face } : {}) };
+          for (const gift of gifts) {
+            const kicks = [0];
+            if (script.kicker) {
+              let k = 0;
+              while (k < (script.kicker.multi ? 10 : 1) && canCast(g, pid, c, { ...base, gift, kicked: k + 1 })) k++;
+              if (k) kicks.push(k);
+            }
+            for (const kicked of kicks) {
+              const most = maxX(g, pid, c, { ...base, gift, kicked });
+              for (const x of new Set([most, Math.floor(most / 2)])) {
+                const choices: CastChoices = { ...base, x, kicked, ...(gift !== undefined ? { gift } : {}) };
+                if (x >= 0 && canCast(g, pid, c, choices)) out.push(choices);
+              }
             }
           }
         }
@@ -216,28 +247,39 @@ function castChoices(g: Game, pid: PlayerId, c: Card): CastChoices[] {
 function candidateActions(g: Game, pid: PlayerId): { action: Action; spendsCard: boolean }[] {
   const p = g.players[pid];
   const out: { action: Action; spendsCard: boolean }[] = [];
-  // Cards in a graveyard (flashback) or exile (after an Adventure) can be cast too.
-  for (const c of [...p.hand, ...p.command, ...p.graveyard, ...p.exile]) {
-    if (!canCast(g, pid, c) || scriptFor(c).botCast?.(g, pid, c) === false) continue;
+  // Cards in a graveyard (flashback, escape) or exile (an Adventure, or an effect's permission) can be cast too.
+  for (const c of castableCards(g, pid)) {
+    const script = scriptFor(c);
+    // Cards with their own rule for when to cast them are left to it.
+    if (!canCast(g, pid, c) || script.botCast?.(g, pid, c) === false || script.ai === 'extraTurn' || script.ai === 'ritual') continue;
     for (const choices of castChoices(g, pid, c)) {
-      for (const targets of targetChoices(g, pid, castTargets(c, choices.modes, choices.face), c)) {
-        out.push({ action: { type: 'cast', card: c.id, targets, ...choices }, spendsCard: true });
+      for (const targets of targetChoices(g, pid, castTargets(c, choices.modes, choices.face, choices.gift), c)) {
+        out.push({ action: { type: 'cast', card: c.id, targets, ...choices }, spendsCard: c.zone === 'hand' || c.zone === 'command' });
       }
     }
   }
-  for (const c of p.battlefield) {
+  // Abilities of permanents, and of cards in the hand that work from there (channel).
+  for (const c of [...p.battlefield, ...p.hand]) {
     for (const ability of activatable(g, pid, c)) {
       const script = scriptFor(c);
-      // The `activated` ability, a loyalty ability, or a Class level bar (which has no targets).
-      const specs = (ability === undefined ? script.activated!.targets : script.loyalty?.[ability].targets) ?? [];
-      const crew = ability === undefined && script.activated!.cost.crew ? crewChoice(g, pid, c) : undefined;
-      if (crew === null) continue;
-      for (const targets of targetChoices(g, pid, specs, c)) {
-        out.push({ action: { type: 'activate', card: c.id, ability, targets, crew }, spendsCard: false });
-      }
+      // An ability with its own rule for when to use it is left to that rule.
+      if (ability === undefined && script.botActivate) continue;
+      out.push(...activations(g, pid, c, ability).map((action) => ({ action, spendsCard: c.zone === 'hand' })));
     }
   }
   return out;
+}
+
+/** The ways the bot considers activating ability `ability` of `c`: each set of targets, discarding the card it wants least. */
+function activations(g: Game, pid: PlayerId, c: Card, ability: number | undefined): Action[] {
+  const script = scriptFor(c);
+  // The `activated` ability, a loyalty ability, or a Class level bar (which has no targets).
+  const specs = (ability === undefined ? script.activated!.targets : script.loyalty?.[ability].targets) ?? [];
+  const crew = ability === undefined && script.activated!.cost.crew ? crewChoice(g, pid, c) : undefined;
+  if (crew === null) return [];
+  const n = ability === undefined ? (script.activated!.cost.discard ?? 0) : 0;
+  const discard = n ? [...discardOptions(g, pid, c)].sort((a, b) => cardWant(g, pid, a) - cardWant(g, pid, b)).slice(0, n).map((x) => x.id) : undefined;
+  return targetChoices(g, pid, specs, c).map((targets) => ({ type: 'activate', card: c.id, ability, targets, crew, ...(discard ? { discard } : {}) }));
 }
 
 // Look-ahead turns auto-pass off, so that passing only ever resolves the stack or ends one
@@ -250,7 +292,9 @@ const STEP_BY_STEP = { autoPass: false } as const;
  */
 function anyTargets(g: Game): Action {
   if (g.decision?.type === 'chooseCards') return cardChoice(g, g.priority);
-  if (g.decision?.type === 'ask' || g.decision?.type === 'name') return choiceAnswer(g, g.priority);
+  if (g.decision?.type === 'ask' || g.decision?.type === 'name' || g.decision?.type === 'player') return choiceAnswer(g, g.priority);
+  if (g.decision?.type === 'cast') return castNow(g, g.priority, true);
+  if (g.decision?.type === 'retarget') return { type: 'chooseTargets', targets: g.stack.find((x) => x.id === (g.decision as { choice: { item: string } }).choice.item)?.targets ?? [] };
   if (g.decision?.type === 'orderTriggers') return defaultOrder(g, g.priority);
   if (g.decision?.type === 'commanderZone') return { type: 'commanderZone', toCommand: true };
   if (g.decision?.type !== 'targets') return PASS;
@@ -259,13 +303,20 @@ function anyTargets(g: Game): Action {
   return { type: 'chooseTargets', targets };
 }
 
-/** The targets for a waiting triggered ability that leave `pid` best off. */
+/**
+ * The targets for a waiting triggered ability that leave `pid` best off, or the new targets
+ * for a spell or ability they may retarget (115.7d): its own targets are one of the options.
+ */
 function bestTargets(g: Game, pid: PlayerId, depth = 0): Action {
-  if (g.decision?.type !== 'targets') return PASS;
-  const { item } = g.decision;
+  const d = g.decision;
+  const item = d?.type === 'targets' ? d.item : d?.type === 'retarget' ? g.stack.find((x) => x.id === d.choice.item) : undefined;
+  if (!item) return anyTargets(g);
   let best = anyTargets(g);
   let bestScore = -Infinity;
-  for (const targets of targetChoices(g, pid, targetSpecs(item), item.card)) {
+  // New targets are legal for the item's controller (115.7d).
+  const options = targetChoices(g, d?.type === 'retarget' ? item.controller : pid, targetSpecs(item), item.card);
+  if (d?.type === 'retarget') options.push(item.targets);
+  for (const targets of options) {
     const action: Action = { type: 'chooseTargets', targets };
     const after = applyAction(g, action, STEP_BY_STEP);
     if (after === g) continue;
@@ -286,8 +337,9 @@ function resolveStack(g: Game, pid: PlayerId, depth = 0): Game {
   for (let i = 0; i < 200 && g.step !== 'gameOver'; i++) {
     let action: Action;
     const deciding = g.decision?.type;
-    if (deciding === 'chooseCards' || deciding === 'orderTriggers' || deciding === 'commanderZone' || deciding === 'ask' || deciding === 'name') action = anyTargets(g);
-    else if (g.decision?.type === 'targets') action = g.priority === pid && depth < 2 ? bestTargets(g, pid, depth) : anyTargets(g);
+    if (deciding === 'chooseCards' || deciding === 'orderTriggers' || deciding === 'commanderZone' || deciding === 'ask' || deciding === 'name' || deciding === 'player' || deciding === 'cast' || deciding === 'retarget') {
+      action = anyTargets(g);
+    } else if (g.decision?.type === 'targets') action = g.priority === pid && depth < 2 ? bestTargets(g, pid, depth) : anyTargets(g);
     else if (g.stack.length && !g.decision) action = PASS;
     else break;
     const next = applyAction(g, action, STEP_BY_STEP);
@@ -506,11 +558,21 @@ function bestLand(g: Game, pid: PlayerId, lands: Card[]): Action | null {
 
 function mainAction(g: Game, pid: PlayerId): Action {
   const p = g.players[pid];
-  const lands = p.hand.filter((c) => canPlayLand(g, pid, c));
+  // Lands in the hand, or in exile with an effect that lets the bot play them (Jeska's Will).
+  const lands = [...p.hand, ...p.exile].filter((c) => canPlayLand(g, pid, c));
   const land = lands.length ? bestLand(g, pid, lands) : null;
   if (land) return land;
+  const combo = comboAction(g, pid);
+  if (combo) return combo;
+  const ruled = activateByRule(g, pid);
+  if (ruled) return ruled;
   const play = bestPlay(g, pid);
   if (play) return play;
+  // Mana from a ritual, a card in hand or Lion's Eye Diamond, if it lets the bot cast something it couldn't.
+  const mana = enablerPlay(g, pid);
+  if (mana) return mana;
+  const extra = extraTurnPlay(g, pid);
+  if (extra) return extra;
   // Team pumps look worthless to `evaluate` (they wear off), so cast them by rule.
   if (g.step === 'main1' && attackCandidates(g, pid).length >= 3) {
     const alpha = p.hand.find((c) => scriptFor(c).ai === 'alpha' && canCast(g, pid, c));
@@ -521,6 +583,84 @@ function mainAction(g: Game, pid: PlayerId): Action {
     if (tutor) return { type: 'cast', card: tutor.id, ...castChoices(g, pid, tutor)[0] };
   }
   return { type: 'pass' };
+}
+
+// ---------- rules for plays the look-ahead can't value ----------
+
+const ORACLE = "Thassa's Oracle";
+/** Cards that empty the library for Thassa's Oracle. */
+const ENABLERS = ['Demonic Consultation', 'Tainted Pact'];
+
+/** Is the bot's own Thassa's Oracle on the stack, waiting for its library to be emptied? */
+export const oracleOnStack = (g: Game, pid: PlayerId) => g.stack.some((x) => x.kind === 'spell' && x.controller === pid && x.card.name === ORACLE);
+
+/**
+ * The deck's win: cast Thassa's Oracle holding priority, then, with it on the stack, Demonic
+ * Consultation (naming a card that isn't in the library) or Tainted Pact (taking nothing)
+ * to exile the whole library. The Oracle resolves with no cards left and wins. Only when
+ * both can be paid for.
+ */
+function comboAction(g: Game, pid: PlayerId): Action | null {
+  const p = g.players[pid];
+  const enabler = p.hand.find((c) => ENABLERS.includes(c.name) && canCast(g, pid, c));
+  if (!enabler) return null;
+  if (oracleOnStack(g, pid)) return { type: 'cast', card: enabler.id };
+  const oracle = p.hand.find((c) => c.name === ORACLE && canCast(g, pid, c));
+  if (!oracle || g.stack.length) return null;
+  const both = addCosts(castCost(g, oracle, {}, pid), castCost(g, enabler, {}, pid));
+  return planPayment(g, pid, both) ? { type: 'cast', card: oracle.id, hold: true } : null;
+}
+
+/** A permanent's ability with its own rule for when a bot uses it (`CardScript.botActivate`). */
+function activateByRule(g: Game, pid: PlayerId): Action | null {
+  for (const c of g.players[pid].battlefield) {
+    const rule = scriptFor(c).botActivate;
+    if (!rule || !activatable(g, pid, c).includes(undefined) || !rule(g, pid, c)) continue;
+    const [action] = activations(g, pid, c, undefined);
+    if (action) return action;
+  }
+  return null;
+}
+
+/**
+ * Mana the look-ahead doesn't value on its own: a ritual (`ai: 'ritual'`), a card that makes
+ * mana from the hand (Simian Spirit Guide), or Lion's Eye Diamond with an empty hand. One is
+ * used only if afterwards the bot would cast something it can't cast now.
+ */
+function enablerPlay(g: Game, pid: PlayerId): Action | null {
+  const p = g.players[pid];
+  const tries: Action[] = [];
+  for (const c of p.hand) {
+    if (scriptFor(c).ai === 'ritual' && canCast(g, pid, c)) {
+      const choices = castChoices(g, pid, c)[0];
+      if (choices) tries.push({ type: 'cast', card: c.id, targets: targetChoices(g, pid, castTargets(c, choices.modes, choices.face), c)[0], ...choices });
+    }
+  }
+  for (const s of [...p.hand, ...p.battlefield]) {
+    const ab = manaAbilitiesOf(g, s).find((m) => m.fromHand || (m.discardHand && !p.hand.length));
+    if (ab) tries.push({ type: 'tapMana', card: s.id, ability: ab.index });
+  }
+  const before = new Set(castableCards(g, pid).filter((c) => canCast(g, pid, c)).map((c) => c.id));
+  for (const action of tries) {
+    const after = resolveStack(applyAction(g, action, STEP_BY_STEP), pid, 1);
+    if (after === g || after.stack.length) continue;
+    const next = bestPlay(after, pid);
+    if (next?.type === 'cast' && !before.has(next.card)) return action;
+  }
+  return null;
+}
+
+/**
+ * An extra turn that loses the game at its end (Final Fortune): only with one opponent left
+ * whose life the bot's creatures could take in one attack.
+ */
+function extraTurnPlay(g: Game, pid: PlayerId): Action | null {
+  const opponents = opponentsOf(g, pid);
+  if (opponents.length !== 1 || g.step !== 'main2') return null;
+  const power = creaturesOf(g, pid).reduce((n, c) => n + Math.max(0, stats(g, c).power), 0);
+  if (power < opponents[0].life) return null;
+  const card = g.players[pid].hand.find((c) => scriptFor(c).ai === 'extraTurn' && canCast(g, pid, c));
+  return card ? { type: 'cast', card: card.id } : null;
 }
 
 function discardChoice(g: Game, pid: PlayerId): Action {
@@ -575,9 +715,13 @@ function cardChoice(g: Game, pid: PlayerId): Action {
       .sort((a, b) => cardWant(g, pid, b) - cardWant(g, pid, a))
       .slice(0, n)
       .map((c) => c.id);
-  if (choice.kind === 'search') return { type: 'chooseCards', cards: best(1) };
+  if (choice.kind === 'search') return { type: 'chooseCards', cards: best(Math.max(min, Math.min(max, choice.count ?? 1))) };
+  // Surveil (701.25a): cards it doesn't want go to the graveyard.
+  if (choice.kind === 'pick' && choice.then === '@surveil') return { type: 'chooseCards', cards: cards.filter((c) => cardWant(g, pid, c) < 3).map((c) => c.id) };
   if (choice.kind === 'pick') return { type: 'chooseCards', cards: best(Math.max(min, Math.min(max, 1))) };
   const hand = g.players[pid].hand;
+  // The legend rule: keep the first.
+  if (choice.kind === 'legend') return { type: 'chooseCards', cards: [choice.cards[0]] };
   if (choice.kind !== 'bottom') return PASS;
   const keepCount = hand.length - choice.count;
   const lands = hand.filter(isLand);
@@ -595,9 +739,12 @@ function cardChoice(g: Game, pid: PlayerId): Action {
  */
 function choiceAnswer(g: Game, pid: PlayerId): Action {
   const d = g.decision;
-  if (d?.type !== 'ask' && d?.type !== 'name') return PASS;
+  if (d?.type !== 'ask' && d?.type !== 'name' && d?.type !== 'player') return PASS;
   const scripted = scriptedChoice(g, pid, d.choice);
   if (scripted) return scripted;
+  // A player: the first one offered.
+  if (d.type === 'player') return { type: 'choosePlayer', player: d.choice.options[0] };
+  if (d.type === 'name' && d.choice.of === 'creature type') return { type: 'name', name: 'Human' };
   if (d.type === 'name') {
     const lib = [...g.players[pid].library].sort((a, b) => cardWant(g, pid, b) - cardWant(g, pid, a));
     return { type: 'name', name: lib.length ? cardData(lib[0].name).name : 'Island' };
@@ -611,6 +758,33 @@ function choiceAnswer(g: Game, pid: PlayerId): Action {
     return { type: 'answer', yes: g.active !== pid || availableMana(g, pid) - mv >= 3 };
   }
   return { type: 'answer', yes: true };
+}
+
+/**
+ * May cast a card while a spell resolves (608.2g): the way of casting it that leaves the bot
+ * best off, if that beats not casting it. `quick`: the first way, for the look-ahead.
+ */
+function castNow(g: Game, pid: PlayerId, quick = false): Action {
+  if (g.decision?.type !== 'cast') return PASS;
+  const c = findCard(g, g.decision.choice.card);
+  const decline: Action = { type: 'answer', yes: false };
+  if (!c || !canCast(g, pid, c)) return decline;
+  const options = castChoices(g, pid, c).flatMap((choices) =>
+    targetChoices(g, pid, castTargets(c, choices.modes, choices.face, choices.gift), c).map((targets): Action => ({ type: 'cast', card: c.id, targets, ...choices })),
+  );
+  if (quick) return options[0] ?? decline;
+  let best: Action = decline;
+  let bestScore = evaluate(resolveStack(applyAction(g, decline, STEP_BY_STEP), pid, 1), pid);
+  for (const action of options) {
+    const after = applyAction(g, action, STEP_BY_STEP);
+    if (after === g) continue;
+    const score = evaluate(resolveStack(after, pid, 1), pid);
+    if (score > bestScore) {
+      bestScore = score;
+      best = action;
+    }
+  }
+  return best;
 }
 
 /** Triggers go on the stack in the order they triggered. */
@@ -636,11 +810,17 @@ export function botAction(g: Game, pid: PlayerId): Action {
       return bestTargets(g, pid);
     case 'ask':
     case 'name':
+    case 'player':
       return choiceAnswer(g, pid);
+    case 'cast':
+      return castNow(g, pid);
+    case 'retarget':
+      return bestTargets(g, pid);
   }
   // With priority: sorcery-speed plays in the bot's own main phase, otherwise responses and tricks.
   const myMain = pid === g.active && !g.stack.length && (g.step === 'main1' || g.step === 'main2');
-  return myMain ? mainAction(g, pid) : (bestPlay(g, pid) ?? PASS);
+  if (myMain) return mainAction(g, pid);
+  return comboAction(g, pid) ?? bestPlay(g, pid) ?? PASS;
 }
 
 /** Applies a bot action, falling back to a legal default so a bad plan can never stall the game. */
@@ -651,7 +831,10 @@ export function applyBotAction(g: Game, a: Action, opts?: ApplyOptions): Game {
   if (next === g && g.decision?.type === 'targets') next = applyAction(g, anyTargets(g), opts);
   if (next === g && g.decision?.type === 'chooseCards') next = applyAction(g, cardChoice(g, g.priority), opts);
   if (next === g && g.decision?.type === 'ask') next = applyAction(g, { type: 'answer', yes: false }, opts);
-  if (next === g && g.decision?.type === 'name') next = applyAction(g, { type: 'name', name: 'Island' }, opts);
+  if (next === g && g.decision?.type === 'name') next = applyAction(g, { type: 'name', name: g.decision.choice.of ? 'Human' : 'Island' }, opts);
+  if (next === g && g.decision?.type === 'player') next = applyAction(g, { type: 'choosePlayer', player: g.decision.choice.options[0] }, opts);
+  if (next === g && g.decision?.type === 'cast') next = applyAction(g, { type: 'answer', yes: false }, opts);
+  if (next === g && g.decision?.type === 'retarget') next = applyAction(g, anyTargets(g), opts);
   if (next === g && g.decision?.type === 'mulligan') next = applyAction(g, { type: 'keep' }, opts);
   return next;
 }

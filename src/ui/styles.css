@@ -1886,6 +1886,12 @@ button {
   border-radius: 0.9rem;
 }
 
+/* A card exiled face down (406.3). */
+.viewer-cards .viewer-back {
+  width: 19rem;
+  border-radius: 0.9rem;
+}
+
 /* A card that can be cast from the graveyard or exile (flashback, an Adventure). */
 .viewer-cards img.glow-play {
   cursor: pointer;
