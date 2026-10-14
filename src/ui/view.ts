@@ -50,6 +50,8 @@ export interface View {
   mana: Set<string>;
   targetPlayers: Set<PlayerId>;
   attackTarget: PlayerId | null;
+  /** The spell or ability the human is deciding whether to pay for (shown by the stack). */
+  paying: { card: Card; kind: 'spell' | 'ability' } | null;
   prompt: string | null;
   primary: Btn | null;
   secondary: Btn | null;
@@ -130,6 +132,7 @@ export function buildView(): View {
     mana: new Set(),
     targetPlayers: new Set(),
     attackTarget: null,
+    paying: null,
     prompt: null,
     primary: null,
     secondary: null,
@@ -154,6 +157,7 @@ export function buildView(): View {
     const plan = planPayment(g, me, cost);
     const ability = t.mode === 'activate' ? scriptOf(card.name).activated : undefined;
     view.glow.set(card.id, 'picked');
+    view.paying = { card, kind: ability ? 'ability' : 'spell' };
     // The sources auto-pay would tap. Tapping others by hand first changes the plan.
     for (const id of plan?.tap ?? []) view.glow.set(id, 'play');
     markMana(view, g, me);

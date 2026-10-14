@@ -201,20 +201,21 @@ export function Preview() {
 /**
  * The stack: spells and abilities waiting to resolve, oldest at the back. It only shows
  * while the game is waiting on someone; a spell nobody responds to resolves at once.
+ * A spell or ability the human is paying for hovers in front, where it goes once paid.
  */
 export function StackPanel() {
-  const { g, me } = useView();
-  if (!g.stack.length || g.step === 'gameOver') return null;
+  const { g, me, paying } = useView();
+  if ((!g.stack.length && !paying) || g.step === 'gameOver') return null;
   return (
     <div className="stack-panel">
-      <div className="stack-title">Stack</div>
+      {g.stack.length > 0 && <div className="stack-title">Stack</div>}
       {g.stack.map((item, i) => {
         const who = item.controller === me ? 'Your' : `${g.players[item.controller].name}'s`;
         return (
           <div
             key={item.id}
             data-stack={item.id}
-            className={cx('stack-item', i === g.stack.length - 1 && 'top')}
+            className={cx('stack-item', i === g.stack.length - 1 && !paying && 'top')}
             {...hoverProps(item.card.name)}
           >
             <img src={data(item.card).image} alt={label(item.card)} draggable={false} />
@@ -224,6 +225,12 @@ export function StackPanel() {
           </div>
         );
       })}
+      {paying && (
+        <div key={`paying-${paying.card.id}`} className="stack-item top paying" {...hoverProps(paying.card.name)}>
+          <img src={data(paying.card).image} alt={label(paying.card)} draggable={false} />
+          <span className="stack-tag">Pay to {paying.kind === 'spell' ? 'cast' : 'activate'}</span>
+        </div>
+      )}
     </div>
   );
 }
@@ -347,7 +354,7 @@ export function ZoneViewer() {
 
 export function GameOver() {
   const { g, me } = useView();
-  const { start, quit } = useStore.getState();
+  const { quit } = useStore.getState();
   if (g.step !== 'gameOver') {
     // Knocked out while the others play on.
     return me !== null && g.players[me].lost ? (
@@ -356,6 +363,21 @@ export function GameOver() {
         <button onClick={quit}>Leave game</button>
       </div>
     ) : null;
+  }
+  return <Results />;
+}
+
+/** The end-of-game screen. It can be hidden to look over the final board. Mounted only once the game is over, so each game starts with it showing. */
+function Results() {
+  const { g, me } = useView();
+  const { start, quit } = useStore.getState();
+  const [hidden, setHidden] = useState(false);
+  if (hidden) {
+    return (
+      <button className="btn btn-go small results-show" onClick={() => setHidden(false)}>
+        <span className="btn-label">Show Results</span>
+      </button>
+    );
   }
   const winner = g.winner === 'draw' || g.winner === null ? null : g.players[g.winner];
   const title = !winner ? 'Draw' : me === null ? `${winner.name} wins` : winner.id === me ? 'Victory' : 'Defeat';
@@ -372,6 +394,9 @@ export function GameOver() {
         <div className="game-over-buttons">
           <button className="btn btn-go small" onClick={() => start(deck)}>
             <span className="btn-label">Play Again</span>
+          </button>
+          <button className="btn btn-plain small" onClick={() => setHidden(true)}>
+            <span className="btn-label">View Board</span>
           </button>
           <button className="btn btn-plain small" onClick={quit}>
             <span className="btn-label">Menu</span>
