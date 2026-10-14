@@ -115,4 +115,12 @@ describe('Commander deck rules (903.5)', () => {
     const deck = { ...naya(), commanders: ['Red-White Partner', 'Llanowar Elves'] };
     expect(deckProblems(deck, lookup)).toContain("Llanowar Elves isn't a legendary creature");
   });
+
+  it('allows a planeswalker that says it can be your commander (903.3a)', () => {
+    const teferi = { ...FIXTURES['Green Loner'], name: 'Teferi', typeLine: 'Legendary Planeswalker — Teferi', oracleText: 'Teferi can be your commander.' };
+    const look = (name: string) => (name === 'Teferi' ? teferi : lookup(name));
+    expect(deckProblems({ ...naya(), commanders: ['Teferi'], basics: { Plains: 3, Mountain: 2, Forest: 3 } }, look)).not.toContain("Teferi isn't a legendary creature");
+    const plain = { ...teferi, oracleText: '' };
+    expect(deckProblems({ ...naya(), commanders: ['Teferi'] }, (n) => (n === 'Teferi' ? plain : lookup(n)))).toContain("Teferi isn't a legendary creature");
+  });
 });

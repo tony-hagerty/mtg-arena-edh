@@ -20,6 +20,10 @@ export interface CardData {
   oracleText: string;
   power?: string;
   toughness?: string;
+  /** A planeswalker's printed loyalty (306.5a). */
+  loyalty?: string;
+  /** A battle's printed defense (310.4a). */
+  defense?: string;
   keywords: string[];
   image: string; // full card image
   art: string; // art crop, used for battlefield tiles
@@ -40,6 +44,8 @@ export interface CastInfo {
   kicked: number;
   /** A modal spell's chosen modes, as indexes into its script's `modal.modes`, in printed order (700.2). */
   modes: number[];
+  /** A battle spell's protector, chosen as it is cast (see `CastChoices.protector`). */
+  protector?: PlayerId;
 }
 
 /**
@@ -57,6 +63,11 @@ export interface CastChoices {
   sacrifice?: string[];
   /** A modal spell's modes, as indexes into its script's `modal.modes` (700.2a). */
   modes?: number[];
+  /**
+   * A battle's protector (310.9a): an opponent for a Siege (310.12a). The rules choose it
+   * as the battle enters; here it is announced with the spell. Left out, the engine picks.
+   */
+  protector?: PlayerId;
 }
 
 /** One physical card (or token) in a game. `name` is the key into the card database. */
@@ -78,6 +89,10 @@ export interface Card {
   counters: Record<string, number>;
   /** The permanent this Aura or Equipment is attached to (303.4b, 301.5a), or null. */
   attachedTo: string | null;
+  /** The turn one of its loyalty abilities was last activated, or 0 (606.3). */
+  loyaltyTurn: number;
+  /** A battle's protector (310.9), or null for anything else. */
+  protector: PlayerId | null;
   mods: Mod[];
   /**
    * How this card was cast: the X chosen (107.3) and how many times it was kicked
@@ -143,7 +158,13 @@ export type Step =
 
 export interface Attack {
   id: string; // attacking creature
+  /**
+   * The defending player (508.5): the player attacked, or the controller of the
+   * planeswalker or the protector of the battle attacked. They are the one who may block.
+   */
   defender: PlayerId;
+  /** The planeswalker or battle attacked (506.3, 508.1b), or null when attacking a player. */
+  target: string | null;
   blockers: string[];
   blocked: boolean; // set once blocks are locked in; stays true even if the blockers leave
 }
@@ -180,6 +201,8 @@ export interface StackItem {
   card: Card;
   /** Triggered abilities: the script hook that resolves it, and what it was told about the event. */
   hook?: TriggerHook;
+  /** A loyalty ability: its index in the script's `loyalty` list (606). */
+  ability?: number;
   event?: object;
   targets: (TargetRef | null)[];
   /** A waiting triggered ability whose controller has already chosen its place in the order (603.3b). */
@@ -275,10 +298,12 @@ export type Action =
   /** `hold`: keep priority afterwards instead of letting auto-pass pass it (117.3c). */
   | ({ type: 'cast'; card: string; targets?: (TargetRef | null)[]; hold?: boolean } & CastChoices)
   /** `crew`: the creatures tapped to pay a crew cost (702.122a). */
-  | { type: 'activate'; card: string; targets?: (TargetRef | null)[]; hold?: boolean; crew?: string[] }
+  /** `ability`: which loyalty ability (606), by index into the script's `loyalty`. Left out, the `activated` ability. */
+  | { type: 'activate'; card: string; ability?: number; targets?: (TargetRef | null)[]; hold?: boolean; crew?: string[] }
   | { type: 'tapMana'; card: string }
   | { type: 'untapMana'; card: string }
-  | { type: 'declareAttack'; card: string; defender: PlayerId }
+  /** `target`: a planeswalker or battle to attack instead of the player; `defender` is then its controller or protector (508.1b). */
+  | { type: 'declareAttack'; card: string; defender: PlayerId; target?: string }
   | { type: 'undeclareAttack'; card: string }
   | { type: 'declareBlock'; blocker: string; attacker: string }
   | { type: 'undeclareBlock'; blocker: string }
@@ -299,8 +324,19 @@ export type Action =
 // ---------- card scripts ----------
 
 export interface TargetSpec {
-  /** any = creature or player. spell and ability are on the stack (ability = activated or triggered). */
-  type: 'creature' | 'permanent' | 'player' | 'any' | 'spell' | 'ability';
+  /**
+   * any = creature, player, planeswalker or battle (115.4). spell and ability are on the
+   * stack (ability = activated or triggered).
+   */
+  type:
+    | 'creature'
+    | 'permanent'
+    | 'player'
+    | 'any'
+    | 'spell'
+    | 'ability'
+    | 'creature or planeswalker'
+    | 'player or planeswalker';
   who?: 'you' | 'opponent' | 'any'; // whose permanent / which player
   filter?: (g: Game, c: Card, source: Card) => boolean;
   optional?: boolean; // "you may" / "up to one"
@@ -330,18 +366,24 @@ export interface TriggerEvents {
   /** "When this enters". Its targets are `CardScript.targets`. */
   onEnter: object;
   onDies: object;
-  onAttack: { defender: PlayerId };
+  onAttack: { defender: PlayerId; target: string | null };
   onCombatDamageToPlayer: { player: PlayerId; amount: number };
   // Table-wide triggers: every permanent on the battlefield that defines one is asked.
   onCreatureEnters: { entered: Card };
   onCreatureDies: { dead: Card };
-  onCreatureAttacks: { attacker: Card; defender: PlayerId };
+  onCreatureAttacks: { attacker: Card; defender: PlayerId; target: string | null };
   onCast: { card: Card; caster: PlayerId };
   onDraw: { player: PlayerId };
   onLifeGain: { player: PlayerId; amount: number };
   onLandfall: { land: Card };
   onUpkeep: { player: PlayerId };
   onEndStep: { player: PlayerId };
+  /**
+   * A Siege's "When the last defense counter is removed from this permanent" (310.12b).
+   * The engine exiles it first; this hook is anything more. Casting it transformed needs
+   * double-faced cards, which aren't supported yet.
+   */
+  onDefeat: object;
 }
 
 export type TriggerHook = keyof TriggerEvents;
@@ -359,6 +401,14 @@ type Triggers = { [H in TriggerHook]?: Trigger<TriggerEvents[H]> };
 
 /** One mode of a modal spell (700.2). */
 export interface Mode {
+  text: string;
+  targets?: TargetSpec[];
+  resolve: (g: Game, ctx: Ctx) => void;
+}
+
+/** A planeswalker's loyalty ability (606): `cost` loyalty counters added (+) or removed (-). */
+export interface LoyaltyAbility {
+  cost: number;
   text: string;
   targets?: TargetSpec[];
   resolve: (g: Game, ctx: Ctx) => void;
@@ -419,9 +469,11 @@ export interface CardScript extends Triggers {
     text: string;
     resolve: (g: Game, ctx: Ctx) => void;
   };
+  /** A planeswalker's loyalty abilities, in printed order (606). */
+  loyalty?: LoyaltyAbility[];
   /** Bot hint: 'alpha' = cast before attacking with a wide board. */
   ai?: 'alpha';
 }
 
 /** Hooks that every permanent on the battlefield hears, not only the card the event is about. */
-export type BroadcastHook = Exclude<TriggerHook, 'onEnter' | 'onDies' | 'onAttack' | 'onCombatDamageToPlayer'>;
+export type BroadcastHook = Exclude<TriggerHook, 'onEnter' | 'onDies' | 'onAttack' | 'onCombatDamageToPlayer' | 'onDefeat'>;

@@ -4,7 +4,7 @@ import { produce } from 'immer';
 import { describe, expect, it } from 'vitest';
 import './fixtures';
 import { useStore } from '../src/ui/store';
-import { buildView, clickPermanent, clickPlayer, clickStackItem, pickMode, playHandCard, setChoices } from '../src/ui/view';
+import { buildView, clickPermanent, clickPlayer, clickStackItem, pickAbility, pickMode, playHandCard, setChoices } from '../src/ui/view';
 import type { Game } from '../src/engine';
 import { byName, emptyGame, put } from './helpers';
 
@@ -178,5 +178,58 @@ describe('Auras, Equipment and crew in the UI', () => {
     clickPermanent(byName(game(), 0, 'Raging Goblin')!);
     press(); // Pay {1}
     expect(byName(game(), 0, 'Bonesplitter')!.attachedTo).toBe(goblin.id);
+  });
+});
+
+describe('planeswalkers and battles in the UI (306, 310, 606)', () => {
+  it('picks a loyalty ability, then its target, and activates it without paying mana', () => {
+    play((d) => {
+      put(d, 0, 'Jace Beleren').counters.loyalty = 3;
+    });
+    const jace = byName(game(), 0, 'Jace Beleren')!;
+    expect(buildView().glow.get(jace.id)).toBe('play');
+    clickPermanent(jace);
+    const v = buildView();
+    expect(v.loyalty?.options.map((o) => [o.cost, o.ok])).toEqual([
+      ['+2', true],
+      ['−1', true],
+      ['−10', false],
+    ]);
+    pickAbility(1);
+    expect(buildView().targetPlayers.has(0)).toBe(true);
+    clickPlayer(0);
+    expect(useStore.getState().targeting).toBe(null);
+    expect(byName(game(), 0, 'Jace Beleren')!.counters.loyalty).toBe(2);
+    expect(game().players[0].hand).toHaveLength(1);
+  });
+
+  it('sends attackers at a planeswalker picked by clicking it (508.1b)', () => {
+    play((d) => {
+      put(d, 0, 'Kalonian Tusker');
+      put(d, 1, 'Jace Beleren').counters.loyalty = 3;
+    });
+    press(); // to combat
+    expect(game().decision?.type).toBe('attackers');
+    const jace = byName(game(), 1, 'Jace Beleren')!;
+    expect(buildView().glow.get(jace.id)).toBe('target');
+    clickPermanent(jace);
+    expect(buildView().attackTarget).toEqual({ defender: 1, target: jace.id });
+    clickPermanent(byName(game(), 0, 'Kalonian Tusker')!);
+    expect(game().combat!.attacks).toMatchObject([{ defender: 1, target: jace.id }]);
+    press(); // attack
+    expect(byName(game(), 1, 'Jace Beleren', 'graveyard')).toBeDefined();
+  });
+
+  it("chooses a Siege's protector while announcing it (310.12a)", () => {
+    play((d) => {
+      put(d, 0, 'Plains', 'battlefield', 3);
+      put(d, 0, 'Invasion of Dominaria', 'hand');
+    });
+    playHandCard(byName(game(), 0, 'Invasion of Dominaria', 'hand')!);
+    expect(buildView().announce?.protectors?.map((o) => o.id)).toEqual([1, 2, 3]);
+    setChoices({ protector: 3 });
+    press(); // Continue
+    press(); // Pay
+    expect(byName(game(), 0, 'Invasion of Dominaria')!.protector).toBe(3);
   });
 });
