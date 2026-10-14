@@ -2,45 +2,50 @@ import { useEffect, useRef, useState } from 'react';
 import type { CSSProperties, ReactNode } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import { DECKS, cardData } from '../cards/db';
-import { data, findCard } from '../engine';
+import { data, findCard, label } from '../engine';
 import type { Game, Step } from '../engine';
+import { ManaCost } from './Card';
 import { useRem } from './rem';
 import { useStore } from './store';
-import { cx } from './util';
-import { cancel, useView } from './view';
+import { cx, hoverProps } from './util';
+import { STEP_NAMES, cancel, useView } from './view';
 import type { Btn } from './view';
 
 // ---------- phase tracker + buttons (bottom right) ----------
 
 const ICONS: Record<string, ReactNode> = {
+  begin: <circle cx="12" cy="12" r="7" />,
+  end: <path d="M20.5 14.5A9 9 0 1 1 9.5 3.5a7 7 0 0 0 11 11Z" />,
   main: <path d="M12 3 21 12 12 21 3 12Z" />,
   attack: <path d="M3 21l1-4.5L15.5 5 21 3l-2 5.5L7.5 20 3 21Zm1.5-9.5 8 8-1.5 1.5-8-8 1.5-1.5Z" />,
   block: <path d="M12 2 20 5v6c0 5.5-3.5 9-8 11-4.5-2-8-5.5-8-11V5Z" />,
   damage: <path d="M12 1l2.6 6.3L21 5l-2.3 6.4L23 14l-6.4.9L15 22l-3-5.7L9 22l-1.6-7.1L1 14l4.3-2.6L3 5l6.4 2.3Z" />,
 };
 
-const PHASES: { step: Step; icon: keyof typeof ICONS; label: string }[] = [
-  { step: 'main1', icon: 'main', label: 'Main phase' },
-  { step: 'attackers', icon: 'attack', label: 'Declare attackers' },
-  { step: 'blockers', icon: 'block', label: 'Declare blockers' },
-  { step: 'damage', icon: 'damage', label: 'Combat damage' },
-  { step: 'main2', icon: 'main', label: 'Second main phase' },
+/** One pip per part of the turn. Short steps share a pip with their neighbour. */
+const PHASES: { steps: Step[]; icon: keyof typeof ICONS }[] = [
+  { steps: ['untap', 'upkeep', 'draw'], icon: 'begin' },
+  { steps: ['main1'], icon: 'main' },
+  { steps: ['beginCombat', 'attackers'], icon: 'attack' },
+  { steps: ['blockers'], icon: 'block' },
+  { steps: ['damage', 'endCombat'], icon: 'damage' },
+  { steps: ['main2'], icon: 'main' },
+  { steps: ['end', 'cleanup'], icon: 'end' },
 ];
 
 function PhaseTracker() {
   const g = useView().g;
-  const current = PHASES.find((p) => p.step === g.step);
   return (
     <div className="phases">
       <div className="phase-pips">
         {PHASES.map((p) => (
-          <svg key={p.step} viewBox="0 0 24 24" className={cx('pip', p.step === g.step && 'on')}>
+          <svg key={p.steps[0]} viewBox="0 0 24 24" className={cx('pip', p.steps.includes(g.step) && 'on')}>
             {ICONS[p.icon]}
           </svg>
         ))}
       </div>
       <div className="phase-label">
-        Turn {g.turn} · {g.players[g.active].name} · {current?.label ?? (g.step === 'discard' ? 'End step' : 'Game over')}
+        Turn {g.turn} · {g.players[g.active].name} · {STEP_NAMES[g.step]}
       </div>
     </div>
   );
@@ -92,7 +97,8 @@ export function Prompt() {
     <AnimatePresence>
       {prompt && (
         <motion.div key={prompt} className="prompt" initial={{ opacity: 0, scaleX: 0.8 }} animate={{ opacity: 1, scaleX: 1 }} exit={{ opacity: 0 }}>
-          {prompt}
+          {/* Mana costs like "{1}{B}" are drawn as symbols. */}
+          {prompt.split(/((?:\{[^}]+\})+)/).map((part, i) => (part.startsWith('{') ? <ManaCost key={i} cost={part} /> : part))}
         </motion.div>
       )}
     </AnimatePresence>
@@ -192,7 +198,37 @@ export function Preview() {
   );
 }
 
-/** Briefly shows each spell as it is cast (the prototype has no interactive stack). */
+/**
+ * The stack: spells and abilities waiting to resolve, oldest at the back. It only shows
+ * while the game is waiting on someone; a spell nobody responds to resolves at once.
+ */
+export function StackPanel() {
+  const { g, me } = useView();
+  if (!g.stack.length || g.step === 'gameOver') return null;
+  return (
+    <div className="stack-panel">
+      <div className="stack-title">Stack</div>
+      {g.stack.map((item, i) => {
+        const who = item.controller === me ? 'Your' : `${g.players[item.controller].name}'s`;
+        return (
+          <div
+            key={item.id}
+            data-stack={item.id}
+            className={cx('stack-item', i === g.stack.length - 1 && 'top')}
+            {...hoverProps(item.card.name)}
+          >
+            <img src={data(item.card).image} alt={label(item.card)} draggable={false} />
+            <span className="stack-tag">
+              {who} {item.kind === 'spell' ? 'spell' : 'ability'}
+            </span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+/** Briefly shows each spell as it is cast. While something is waiting on the stack, the stack panel shows it instead. */
 export function SpellFlash() {
   const { g, me } = useView();
   const speed = useStore((s) => s.speed);
@@ -208,7 +244,7 @@ export function SpellFlash() {
   }, [spell?.seq]);
   return (
     <AnimatePresence>
-      {shown && (
+      {shown && !g.stack.length && (
         <motion.div
           key={shown.seq}
           className="spell-flash"
@@ -224,7 +260,7 @@ export function SpellFlash() {
   );
 }
 
-/** Lines from attackers to the player they attack, and from blockers to what they block. */
+/** Lines from attackers to the player they attack, from blockers to what they block, and from the stack to targets. */
 export function ArrowLayer() {
   const g = useView().g;
   const svg = useRef<SVGSVGElement>(null);
@@ -232,6 +268,13 @@ export function ArrowLayer() {
     { key: `a-${a.id}-${a.defender}`, from: `[data-card="${a.id}"]`, to: `[data-avatar="${a.defender}"]`, kind: 'attack' },
     ...a.blockers.map((b) => ({ key: `b-${b}-${a.id}`, from: `[data-card="${b}"]`, to: `[data-card="${a.id}"]`, kind: 'block' })),
   ]);
+  for (const item of g.stack) {
+    for (const t of item.targets) {
+      if (!t) continue;
+      const to = t.kind === 'card' ? `[data-card="${t.id}"]` : `[data-avatar="${t.id}"]`;
+      arrows.push({ key: `t-${item.id}-${t.kind}-${t.id}`, from: `[data-stack="${item.id}"]`, to, kind: 'target' });
+    }
+  }
   const signature = arrows.map((a) => a.key).join();
 
   // Cards animate into place, so follow them every frame while combat is on screen.
@@ -267,7 +310,7 @@ export function ArrowLayer() {
   return (
     <svg ref={svg} className="arrows">
       <defs>
-        {['attack', 'block'].map((kind) => (
+        {['attack', 'block', 'target'].map((kind) => (
           <marker key={kind} id={`head-${kind}`} viewBox="0 0 10 10" refX="7" refY="5" markerWidth="4" markerHeight="4" orient="auto-start-reverse">
             <path d="M0 0 10 5 0 10Z" className={`head-${kind}`} />
           </marker>

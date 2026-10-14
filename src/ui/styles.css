@@ -1234,7 +1234,8 @@ button {
 }
 
 .line-attack,
-.line-block {
+.line-block,
+.line-target {
   fill: none;
   stroke-width: 0.5rem;
   stroke-linecap: round;
@@ -1251,12 +1252,77 @@ button {
   filter: drop-shadow(0 0 0.5rem #2f7fe0);
 }
 
+.line-target {
+  stroke: #ffe066;
+  stroke-dasharray: 0.2rem 1.1rem;
+  filter: drop-shadow(0 0 0.5rem #e0a800);
+}
+
 .head-attack {
   fill: #ff8a3c;
 }
 
+.head-target {
+  fill: #ffe066;
+}
+
 .head-block {
   fill: #7cbcff;
+}
+
+/* The stack sits where spells flash. Each card overlaps the one before it, so the top of the stack is in front. */
+.stack-panel {
+  position: absolute;
+  right: 38.5rem;
+  top: 13rem;
+  width: 19rem;
+  z-index: 35;
+}
+
+.stack-title {
+  margin-bottom: 0.5rem;
+  text-align: center;
+  font: 600 1.8rem var(--serif);
+  text-shadow: 0 0.15rem 0.4rem #000, 0 0 0.8rem #000;
+}
+
+.stack-item {
+  position: relative;
+}
+
+.stack-item + .stack-item {
+  margin-top: -22.6rem;
+}
+
+.stack-item img {
+  display: block;
+  width: 100%;
+  border-radius: 4.75% / 3.5%;
+  box-shadow: 0 0.6rem 1.6rem #000;
+}
+
+.stack-item.top img {
+  box-shadow:
+    0 0 2.4rem 0.4rem rgba(255, 210, 122, 0.6),
+    0 0.6rem 1.6rem #000;
+}
+
+.stack-tag {
+  display: none;
+  position: absolute;
+  left: 50%;
+  bottom: -0.9rem;
+  transform: translateX(-50%);
+  padding: 0.1rem 0.9rem;
+  white-space: nowrap;
+  font-size: 1.2rem;
+  color: #fff;
+  background: rgba(0, 0, 0, 0.85);
+  border-radius: 1rem;
+}
+
+.stack-item.top .stack-tag {
+  display: block;
 }
 
 /* Big enough to read. It covers part of the table for a moment, which is fine: it's gone in under two seconds. */

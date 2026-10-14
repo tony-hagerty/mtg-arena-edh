@@ -6,6 +6,7 @@ export interface Mana {
   source: string;
 }
 export type PlayerId = number;
+/** A player's own zones. The stack is shared, so it lives on `Game` instead (405). */
 export type Zone = 'library' | 'hand' | 'battlefield' | 'graveyard' | 'exile' | 'command';
 
 /** Static card info. Real cards come from Scryfall; tokens are defined in decklists.json. */
@@ -36,7 +37,7 @@ export interface Card {
   id: string;
   name: string;
   owner: PlayerId;
-  zone: Zone;
+  zone: Zone | 'stack';
   isCommander: boolean;
   isToken: boolean;
   tapped: boolean;
@@ -63,20 +64,29 @@ export interface Player {
   commanderCasts: number; // times cast from the command zone (commander tax = 2 per cast)
   commanderDamage: number[]; // combat damage taken from each player's commander, by owner id
   landsPlayed: number;
-  pool: Mana[]; // floating mana, emptied when the step changes
+  pool: Mana[]; // unspent mana, emptied as each step and phase ends (500.5)
   lost: boolean;
   drewFromEmpty: boolean;
 }
 
 /**
- * Who acts is always `Game.priority`.
- *  main1/main2 - active player plays cards, then passes
- *  attackers   - active player declares attackers, then passes
- *  blockers    - each attacked player in turn order declares blockers, then passes
- *  damage      - active player's last chance for instants before combat damage
- *  discard     - active player discards down to seven
+ * The steps and phases of a turn, in order (500.1). The two main phases have no steps.
+ * `damage` happens twice in a combat with first strike or double strike (510.4).
  */
-export type Step = 'main1' | 'attackers' | 'blockers' | 'damage' | 'main2' | 'discard' | 'gameOver';
+export type Step =
+  | 'untap'
+  | 'upkeep'
+  | 'draw'
+  | 'main1'
+  | 'beginCombat'
+  | 'attackers'
+  | 'blockers'
+  | 'damage'
+  | 'endCombat'
+  | 'main2'
+  | 'end'
+  | 'cleanup'
+  | 'gameOver';
 
 export interface Attack {
   id: string; // attacking creature
@@ -88,6 +98,10 @@ export interface Attack {
 export interface Combat {
   attacks: Attack[];
   toBlock: PlayerId[]; // defenders who still have to declare blocks
+  /** Creatures that dealt damage in the first-strike damage step, or null before any damage (510.4). */
+  struckFirst: string[] | null;
+  /** True after the first-strike damage step: a second combat damage step follows. */
+  moreDamage: boolean;
 }
 
 export type TargetRef = { kind: 'card'; id: string } | { kind: 'player'; id: PlayerId };
@@ -98,12 +112,49 @@ export interface LogEntry {
   player?: PlayerId;
 }
 
+/**
+ * A spell or ability on the stack (405). A spell is the card itself (601.2a). An ability
+ * is not a card: `card` is a copy of its source from when it was activated or triggered,
+ * so it still works after the source has left the battlefield (113.7a).
+ */
+export interface StackItem {
+  id: string;
+  kind: 'spell' | 'activated' | 'triggered';
+  controller: PlayerId;
+  card: Card;
+  /** Triggered abilities: the script hook that resolves it, and what it was told about the event. */
+  hook?: TriggerHook;
+  event?: object;
+  targets: (TargetRef | null)[];
+}
+
+/**
+ * A choice the game is waiting on that isn't a player using priority. `Game.priority`
+ * names the player who makes it.
+ *  attackers - the active player declares attackers (508.1)
+ *  blockers  - a defending player declares blockers (509.1)
+ *  discard   - the active player discards down to seven in the cleanup step (514.1)
+ *  targets   - a player chooses targets for a triggered ability going on the stack (603.3d).
+ *              `resume` is the player who gets priority afterwards.
+ */
+export type Decision =
+  | { type: 'attackers' | 'blockers' | 'discard' }
+  | { type: 'targets'; item: StackItem; resume: PlayerId };
+
 export interface Game {
   players: Player[];
   active: PlayerId;
+  /** The player the game is waiting on: who has priority (117), or who is making `decision`. */
   priority: PlayerId;
   turn: number;
   step: Step;
+  decision: Decision | null;
+  /** Spells and abilities waiting to resolve. The last one is the top (405.2). */
+  stack: StackItem[];
+  /** Abilities that have triggered but aren't on the stack yet (603.3). */
+  triggers: StackItem[];
+  /** How many players have passed priority in a row (117.4). */
+  passes: number;
   combat: Combat | null;
   winner: PlayerId | 'draw' | null;
   log: LogEntry[];
@@ -124,6 +175,8 @@ export type Action =
   | { type: 'declareBlock'; blocker: string; attacker: string }
   | { type: 'undeclareBlock'; blocker: string }
   | { type: 'discard'; card: string }
+  | { type: 'chooseTargets'; targets: (TargetRef | null)[] }
+  /** Pass priority, or finish declaring attackers or blockers. */
   | { type: 'pass' };
 
 // ---------- card scripts ----------
@@ -137,8 +190,10 @@ export interface TargetSpec {
 }
 
 export interface Ctx {
+  /** The spell, or the ability's source (a copy of it if it has left the battlefield). */
   self: Card;
   you: PlayerId;
+  /** Chosen targets. One that is no longer legal on resolution becomes null (608.2b). */
   targets: (TargetRef | null)[];
 }
 
@@ -148,30 +203,51 @@ export interface StaticBonus {
   keywords?: string[];
 }
 
+/**
+ * Every triggered-ability hook, with what it is told about the event that set it off.
+ * Cards in an event are copies from the moment it happened, so an ability can still read
+ * a creature that has since died (603.10a).
+ */
+export interface TriggerEvents {
+  /** "When this enters". Its targets are `CardScript.targets`. */
+  onEnter: object;
+  onDies: object;
+  onAttack: { defender: PlayerId };
+  onCombatDamageToPlayer: { player: PlayerId; amount: number };
+  // Table-wide triggers: every permanent on the battlefield that defines one is asked.
+  onCreatureEnters: { entered: Card };
+  onCreatureDies: { dead: Card };
+  onCreatureAttacks: { attacker: Card; defender: PlayerId };
+  onCast: { card: Card; caster: PlayerId };
+  onDraw: { player: PlayerId };
+  onLifeGain: { player: PlayerId; amount: number };
+  onLandfall: { land: Card };
+  onUpkeep: { player: PlayerId };
+  onEndStep: { player: PlayerId };
+}
+
+export type TriggerHook = keyof TriggerEvents;
+
+/**
+ * A triggered ability. A plain function triggers on every event of its kind and runs when
+ * the ability resolves. Use `{ when, resolve }` to trigger on only some events: `when` is
+ * checked as the event happens (603.2), `resolve` runs later, from the stack.
+ */
+export type Trigger<E> =
+  | ((g: Game, e: Ctx & E) => void)
+  | { when: (g: Game, e: { self: Card } & E) => boolean; resolve: (g: Game, e: Ctx & E) => void };
+
+type Triggers = { [H in TriggerHook]?: Trigger<TriggerEvents[H]> };
+
 /** Behaviour for one card name. Anything a card does beyond its printed keywords lives here. */
-export interface CardScript {
+export interface CardScript extends Triggers {
   /** "{T}: Add ..." */
   mana?: { amount: number; colors: ManaSym[] | 'identity' | 'any' };
   entersTapped?: boolean;
-  /** Targets of the spell, or of its enters-the-battlefield ability (chosen on cast). */
+  /** Targets of an instant or sorcery, or of a permanent's `onEnter` ability. */
   targets?: TargetSpec[];
   /** Instants and sorceries. */
   onResolve?: (g: Game, ctx: Ctx) => void;
-  /** Permanents: "When this enters". */
-  onEnter?: (g: Game, ctx: Ctx) => void;
-  onDies?: (g: Game, ctx: Ctx) => void;
-  onAttack?: (g: Game, e: { self: Card; defender: PlayerId }) => void;
-  onCombatDamageToPlayer?: (g: Game, e: { self: Card; player: PlayerId; amount: number }) => void;
-  // Table-wide triggers: called for every permanent on the battlefield that defines them.
-  onCreatureEnters?: (g: Game, e: { self: Card; entered: Card }) => void;
-  onCreatureDies?: (g: Game, e: { self: Card; dead: Card }) => void;
-  onCreatureAttacks?: (g: Game, e: { self: Card; attacker: Card; defender: PlayerId }) => void;
-  onCast?: (g: Game, e: { self: Card; card: Card; caster: PlayerId }) => void;
-  onDraw?: (g: Game, e: { self: Card; player: PlayerId }) => void;
-  onLifeGain?: (g: Game, e: { self: Card; player: PlayerId; amount: number }) => void;
-  onLandfall?: (g: Game, e: { self: Card; land: Card }) => void;
-  onUpkeep?: (g: Game, e: { self: Card; player: PlayerId }) => void;
-  onEndStep?: (g: Game, e: { self: Card; player: PlayerId }) => void;
   /** Continuous effect this permanent grants to creature `c` (may be itself). */
   static?: (g: Game, self: Card, c: Card) => StaticBonus | null;
   /** Characteristic-defining power/toughness (e.g. Nightmare). */
@@ -190,13 +266,5 @@ export interface CardScript {
   ai?: 'alpha';
 }
 
-export type BroadcastHook =
-  | 'onCreatureEnters'
-  | 'onCreatureDies'
-  | 'onCreatureAttacks'
-  | 'onCast'
-  | 'onDraw'
-  | 'onLifeGain'
-  | 'onLandfall'
-  | 'onUpkeep'
-  | 'onEndStep';
+/** Hooks that every permanent on the battlefield hears, not only the card the event is about. */
+export type BroadcastHook = Exclude<TriggerHook, 'onEnter' | 'onDies' | 'onAttack' | 'onCombatDamageToPlayer'>;

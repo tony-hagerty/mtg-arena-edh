@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { applyAction, availableMana, canCast, stats } from '../src/engine';
-import { byName, emptyGame, onBattlefield, put, run } from './helpers';
+import { applyAction, availableMana, canCast, canPlayLand, stats } from '../src/engine';
+import type { Game } from '../src/engine';
+import { byName, emptyGame, onBattlefield, put, run, runWith } from './helpers';
 
 const pass = { type: 'pass' } as const;
 
@@ -69,7 +70,8 @@ describe('combat', () => {
     const [a, b] = g.players[0].battlefield;
     g = run(g, pass, { type: 'declareAttack', card: a.id, defender: 1 }, { type: 'declareAttack', card: b.id, defender: 3 }, pass);
     expect(g.players.map((p) => p.life)).toEqual([40, 37, 40, 36]);
-    expect(g.step).toBe('main2');
+    // Nothing is left for player 0 to do, so the turn runs out and player 1's begins.
+    expect([g.active, g.step]).toEqual([1, 'main1']);
   });
 
   it('asks only attacked players who can block, in turn order', () => {
@@ -158,8 +160,8 @@ describe('card scripts', () => {
     let g = emptyGame((d) => {
       put(d, 0, 'Sheoldred, the Apocalypse');
     });
-    // To combat, declare no attackers, end turn: player 1 then draws for their turn.
-    g = run(g, pass, pass, pass);
+    // To combat, declare no attackers: the turn ends and player 1 draws in their draw step.
+    g = run(g, pass, pass);
     expect(g.active).toBe(1);
     expect(g.players[1].life).toBe(38);
   });
@@ -249,6 +251,211 @@ describe('card scripts', () => {
     expect(g.step).toBe('attackers');
     expect(g.players[0].pool).toEqual([]);
     expect(applyAction(g, { type: 'untapMana', card: swamp.id })).toBe(g);
+  });
+});
+
+describe('turn structure', () => {
+  const byHand = { autoPass: false };
+
+  it('goes through every step in order, skipping blocks and damage when nobody attacks (500.1, 508.8)', () => {
+    let g = emptyGame();
+    const seen: string[] = [];
+    while (g.turn === 1 || g.step !== 'main1') {
+      if (seen[seen.length - 1] !== g.step) seen.push(g.step);
+      g = runWith(byHand, g, pass);
+    }
+    // No one gets priority in the untap or cleanup steps (502.4, 514.3), so they never wait on a pass.
+    expect(seen).toEqual(['main1', 'beginCombat', 'attackers', 'endCombat', 'main2', 'end', 'upkeep', 'draw']);
+    expect(g.active).toBe(1);
+  });
+
+  it('ends a step only after every player passes in a row (117.4)', () => {
+    let g = emptyGame();
+    for (const next of [1, 2, 3]) {
+      g = runWith(byHand, g, pass);
+      expect([g.step, g.priority]).toEqual(['main1', next]);
+    }
+    g = runWith(byHand, g, pass);
+    expect([g.step, g.priority]).toEqual(['beginCombat', 0]);
+  });
+
+  it('untaps, then draws a card in the draw step (502.3, 504.1)', () => {
+    let g = emptyGame((d) => {
+      put(d, 1, 'Forest').tapped = true;
+      put(d, 1, 'Kalonian Tusker').sick = true;
+    });
+    g = run(g, pass);
+    expect([g.active, g.step]).toEqual([1, 'main1']);
+    expect(g.players[1].hand.length).toBe(1);
+    expect(g.players[1].battlefield.some((c) => c.tapped || c.sick)).toBe(false);
+  });
+
+  it('discards down to seven and wears off damage in the cleanup step (514.1, 514.2)', () => {
+    let g = emptyGame((d) => {
+      put(d, 0, 'Plains', 'hand', 9);
+      put(d, 0, 'Mountain');
+      put(d, 0, 'Shock', 'hand');
+      put(d, 1, 'Kalonian Tusker'); // 3/3
+    });
+    const tusker = byName(g, 1, 'Kalonian Tusker')!;
+    g = run(g, { type: 'cast', card: byName(g, 0, 'Shock', 'hand')!.id, targets: [{ kind: 'card', id: tusker.id }] });
+    expect(byName(g, 1, 'Kalonian Tusker')!.damage).toBe(2);
+    g = run(g, pass, pass); // both main phases: there is a land to play, so the second one stops too
+    expect([g.step, g.decision?.type, g.priority]).toEqual(['cleanup', 'discard', 0]);
+    const [a, b] = g.players[0].hand;
+    g = run(g, { type: 'discard', card: a.id }, { type: 'discard', card: b.id });
+    expect(g.players[0].hand.length).toBe(7);
+    expect(g.active).toBe(1);
+    expect(byName(g, 1, 'Kalonian Tusker')!.damage).toBe(0);
+  });
+
+  it('allows one land a turn, only in your own main phase with the stack empty (305.1, 305.2)', () => {
+    let g = emptyGame((d) => {
+      put(d, 0, 'Plains', 'hand', 2);
+      put(d, 1, 'Forest', 'hand');
+    });
+    const [first, second] = g.players[0].hand;
+    expect(canPlayLand(g, 1, g.players[1].hand[0])).toBe(false);
+    g = run(g, { type: 'playLand', card: first.id });
+    expect(applyAction(g, { type: 'playLand', card: second.id })).toBe(g);
+  });
+});
+
+describe('the stack', () => {
+  const shockVsGrowth = () =>
+    emptyGame((d) => {
+      put(d, 0, 'Mountain');
+      put(d, 0, 'Shock', 'hand');
+      put(d, 1, 'Forest');
+      put(d, 1, 'Giant Growth', 'hand');
+      put(d, 1, 'Kalonian Tusker', 'hand');
+      put(d, 1, 'Walking Corpse'); // 2/2
+    });
+  const castShock = (g: Game) => {
+    const corpse = byName(g, 1, 'Walking Corpse')!;
+    return run(g, { type: 'cast', card: byName(g, 0, 'Shock', 'hand')!.id, targets: [{ kind: 'card', id: corpse.id }] });
+  };
+
+  it('holds a spell until every player passes, then resolves it (601.2a, 117.4)', () => {
+    let g = castShock(shockVsGrowth());
+    expect(g.stack.map((x) => x.card.name)).toEqual(['Shock']);
+    expect(g.stack[0].card.zone).toBe('stack');
+    expect(byName(g, 1, 'Walking Corpse')).toBeDefined();
+    // Player 1 could respond, so the game stops for them. The others were passed automatically.
+    expect(g.priority).toBe(1);
+    g = run(g, pass);
+    expect(g.stack).toEqual([]);
+    expect(byName(g, 1, 'Walking Corpse')).toBeUndefined();
+    expect(g.players[0].graveyard.map((c) => c.name)).toEqual(['Shock']);
+    expect([g.step, g.priority]).toEqual(['main1', 0]); // the active player gets priority back (117.3b)
+  });
+
+  it('resolves the last thing added first (117.7, 405.5)', () => {
+    let g = castShock(shockVsGrowth());
+    const corpse = byName(g, 1, 'Walking Corpse')!;
+    g = run(g, { type: 'cast', card: byName(g, 1, 'Giant Growth', 'hand')!.id, targets: [{ kind: 'card', id: corpse.id }] });
+    // Giant Growth resolved first, so Shock hit a 5/5.
+    expect(g.stack).toEqual([]);
+    expect(byName(g, 1, 'Walking Corpse')!.damage).toBe(2);
+  });
+
+  it('only lets instants be cast in response or on another turn (117.1a)', () => {
+    let g = shockVsGrowth();
+    const tusker = byName(g, 1, 'Kalonian Tusker', 'hand')!;
+    expect(canCast(g, 1, tusker)).toBe(false); // no priority
+    g = castShock(g);
+    expect(canCast(g, 1, tusker)).toBe(false); // priority, but not their main phase
+    expect(canCast(g, 1, byName(g, 1, 'Giant Growth', 'hand')!)).toBe(true);
+  });
+
+  it('does nothing when its only target is gone by the time it resolves (608.2b)', () => {
+    let g = emptyGame((d) => {
+      put(d, 0, 'Swamp', 'battlefield', 3);
+      put(d, 0, 'Murder', 'hand');
+      put(d, 1, 'Mogg Fanatic');
+    });
+    const fanatic = byName(g, 1, 'Mogg Fanatic')!;
+    g = run(g, { type: 'cast', card: byName(g, 0, 'Murder', 'hand')!.id, targets: [{ kind: 'card', id: fanatic.id }] });
+    expect(g.priority).toBe(1);
+    // In response, sacrifice the Fanatic. The ability is on the stack without its source (113.7a).
+    g = run(g, { type: 'activate', card: fanatic.id, targets: [{ kind: 'player', id: 0 }] });
+    expect(g.stack).toEqual([]);
+    expect(g.players[0].life).toBe(39);
+    expect(g.players[0].graveyard.map((c) => c.name)).toEqual(['Murder']);
+    expect(g.log.some((l) => l.text.includes('no legal target'))).toBe(true);
+  });
+
+  it('puts a permanent spell onto the battlefield when it resolves, and its enters ability on the stack (608.3, 603.3)', () => {
+    let g = emptyGame((d) => {
+      put(d, 0, 'Forest', 'battlefield', 2);
+      put(d, 0, 'Elvish Visionary', 'hand');
+    });
+    const byHand = { autoPass: false };
+    g = runWith(byHand, g, { type: 'cast', card: byName(g, 0, 'Elvish Visionary', 'hand')!.id });
+    expect(byName(g, 0, 'Elvish Visionary')).toBeUndefined();
+    g = runWith(byHand, g, pass, pass, pass, pass);
+    expect(byName(g, 0, 'Elvish Visionary')).toBeDefined();
+    expect(g.stack.map((x) => [x.kind, x.card.name])).toEqual([['triggered', 'Elvish Visionary']]);
+    expect(g.players[0].hand.length).toBe(0);
+    g = runWith(byHand, g, pass, pass, pass, pass);
+    expect(g.players[0].hand.length).toBe(1);
+  });
+
+  it('chooses targets for a triggered ability as it goes on the stack (603.3d)', () => {
+    let g = emptyGame((d) => {
+      put(d, 0, 'Mountain', 'battlefield', 4);
+      put(d, 0, 'Flametongue Kavu', 'hand');
+      put(d, 1, 'Leatherback Baloth'); // 4/5
+    });
+    const baloth = byName(g, 1, 'Leatherback Baloth')!;
+    g = run(g, { type: 'cast', card: byName(g, 0, 'Flametongue Kavu', 'hand')!.id });
+    expect([g.decision?.type, g.priority]).toEqual(['targets', 0]);
+    expect(applyAction(g, pass)).toBe(g); // "target creature" isn't optional
+    g = run(g, { type: 'chooseTargets', targets: [{ kind: 'card', id: baloth.id }] });
+    expect(byName(g, 1, 'Leatherback Baloth')!.damage).toBe(4);
+    expect([g.decision, g.priority]).toEqual([null, 0]);
+  });
+
+  it('drops a triggered ability that has no legal target (603.3d)', () => {
+    let g = emptyGame((d) => {
+      put(d, 0, 'Swamp', 'battlefield', 4);
+      put(d, 0, 'Ravenous Chupacabra', 'hand');
+    });
+    g = run(g, { type: 'cast', card: byName(g, 0, 'Ravenous Chupacabra', 'hand')!.id });
+    expect(byName(g, 0, 'Ravenous Chupacabra')).toBeDefined();
+    expect([g.decision, g.stack]).toEqual([null, []]);
+  });
+
+  it("puts the active player's triggers on the stack first, so they resolve last (603.3b)", () => {
+    let g = emptyGame((d) => {
+      put(d, 0, 'Soul Warden');
+      put(d, 2, 'Soul Warden');
+      put(d, 1, 'Soul Warden');
+      put(d, 0, 'Forest', 'battlefield', 2);
+      put(d, 0, 'Kalonian Tusker', 'hand');
+    });
+    const byHand = { autoPass: false };
+    g = runWith(byHand, g, { type: 'cast', card: byName(g, 0, 'Kalonian Tusker', 'hand')!.id }, pass, pass, pass, pass);
+    expect(g.stack.map((x) => x.controller)).toEqual([0, 1, 2]);
+    g = run(g, pass);
+    expect(g.players.map((p) => p.life)).toEqual([41, 41, 41, 40]);
+  });
+
+  it('gives defenders a chance to act after attackers are declared (508.2)', () => {
+    let g = emptyGame((d) => {
+      put(d, 0, 'Kalonian Tusker');
+      put(d, 1, 'Plains', 'battlefield', 4);
+      put(d, 1, 'Divine Verdict', 'hand');
+    });
+    const tusker = byName(g, 0, 'Kalonian Tusker')!;
+    const verdict = byName(g, 1, 'Divine Verdict', 'hand')!;
+    g = run(g, pass);
+    expect(canCast(g, 1, verdict)).toBe(false); // nothing is attacking yet
+    g = run(g, { type: 'declareAttack', card: tusker.id, defender: 1 }, pass);
+    expect([g.step, g.decision, g.priority]).toEqual(['attackers', null, 1]);
+    g = run(g, { type: 'cast', card: verdict.id, targets: [{ kind: 'card', id: tusker.id }] });
+    expect(onBattlefield(g, tusker.id)).toBe(false);
+    expect(g.players[1].life).toBe(40);
   });
 });
 

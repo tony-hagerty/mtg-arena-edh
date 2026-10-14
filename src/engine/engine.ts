@@ -1,5 +1,6 @@
-// Game setup, turn structure and action handling. `applyAction` is the only way a
-// game changes: it returns a new Game, or the same object if the action was illegal.
+// Game setup, turn structure, priority, the stack and action handling. `applyAction` is
+// the only way a game changes: it returns a new Game, or the same object if the action
+// was illegal. Rule numbers in comments refer to docs/rules.
 import { produce } from 'immer';
 import { DECKS, deckLibrary } from '../cards/db';
 import { scriptOf } from './registry';
@@ -27,6 +28,7 @@ import {
   isPermanentCard,
   label,
   legalTargets,
+  living,
   log,
   makeCard,
   moveCard,
@@ -39,11 +41,15 @@ import {
   sameRef,
   says,
   shuffle,
+  snapshot,
   stats,
   tapForMana,
+  targetSpecs,
+  trigger,
+  turnOrder,
   untapMana,
 } from './rules';
-import type { Action, Card, Game, Player, PlayerId, Step, TargetRef, TargetSpec } from './types';
+import type { Action, Card, Game, Player, PlayerId, StackItem, Step, TargetRef, TargetSpec, Trigger } from './types';
 
 // ---------- setup ----------
 
@@ -59,7 +65,11 @@ export function newGame({ seed, humanDeck }: NewGameOptions): Game {
     active: 0,
     priority: 0,
     turn: 0,
-    step: 'main1',
+    step: 'untap',
+    decision: null,
+    stack: [],
+    triggers: [],
+    passes: 0,
     combat: null,
     winner: null,
     log: [],
@@ -100,33 +110,40 @@ export function newGame({ seed, humanDeck }: NewGameOptions): Game {
     }
     g.players.push(p);
   });
+  // In a multiplayer game nobody skips their first draw (103.8c).
   beginTurn(g, Math.floor(rand(g) * 4));
+  settle(g, true);
   return g;
 }
 
 // ---------- legality helpers (also used by the UI and bots) ----------
 
+const isMain = (step: Step) => step === 'main1' || step === 'main2';
+
+/**
+ * Can the player cast a spell or activate an ability now? They need priority (117.1).
+ * Anything that isn't instant speed also needs their own main phase and an empty stack (117.1a).
+ */
 function timingOk(g: Game, pid: PlayerId, instantSpeed: boolean): boolean {
-  if (g.priority !== pid || g.step === 'discard' || g.step === 'gameOver') return false;
+  if (g.priority !== pid || g.decision || g.step === 'gameOver') return false;
   if (instantSpeed) return true;
-  return pid === g.active && (g.step === 'main1' || g.step === 'main2');
+  return pid === g.active && isMain(g.step) && g.stack.length === 0;
 }
 
+/** Playing a land is a special action with sorcery timing, once a turn (305.1, 305.2). */
 export function canPlayLand(g: Game, pid: PlayerId, c: Card): boolean {
   return c.owner === pid && c.zone === 'hand' && isLand(c) && g.players[pid].landsPlayed < 1 && timingOk(g, pid, false);
 }
 
-export const castTargets = (c: Card): TargetSpec[] => scriptOf(c.name).targets ?? [];
+/** Targets chosen as a spell is cast (601.2c). A permanent's `targets` are for its enters ability instead. */
+export const castTargets = (c: Card): TargetSpec[] => (isPermanentCard(c) ? [] : (scriptOf(c.name).targets ?? []));
 
 export function canCast(g: Game, pid: PlayerId, c: Card): boolean {
   if (c.owner !== pid || (c.zone !== 'hand' && c.zone !== 'command') || isLand(c)) return false;
   if (!timingOk(g, pid, isInstantSpeed(c))) return false;
   if (!planPayment(g, pid, castCost(g, c))) return false;
-  // A spell needs all its targets; a permanent can enter with its trigger doing nothing.
-  if (!isPermanentCard(c)) {
-    for (const spec of castTargets(c)) {
-      if (!spec.optional && legalTargets(g, pid, spec, c).length === 0) return false;
-    }
+  for (const spec of castTargets(c)) {
+    if (!spec.optional && legalTargets(g, pid, spec, c).length === 0) return false;
   }
   return true;
 }
@@ -134,6 +151,7 @@ export function canCast(g: Game, pid: PlayerId, c: Card): boolean {
 export function canActivate(g: Game, pid: PlayerId, c: Card): boolean {
   const ab = scriptOf(c.name).activated;
   if (!ab || c.owner !== pid || c.zone !== 'battlefield' || !timingOk(g, pid, true)) return false;
+  // A summoning-sick creature can't pay a tap cost (302.6).
   if (ab.cost.tap && (c.tapped || (isCreature(c) && c.sick && !has(g, c, 'haste')))) return false;
   if (ab.cost.mana && !planPayment(g, pid, parseCost(ab.cost.mana))) return false;
   for (const spec of ab.targets ?? []) {
@@ -142,10 +160,11 @@ export function canActivate(g: Game, pid: PlayerId, c: Card): boolean {
   return true;
 }
 
-function targetsOk(g: Game, pid: PlayerId, c: Card, specs: TargetSpec[], targets: (TargetRef | null)[], lenient: boolean) {
+/** Every slot has a legal target, or is an optional one left empty. */
+function targetsOk(g: Game, pid: PlayerId, c: Card, specs: TargetSpec[], targets: (TargetRef | null)[]) {
   return specs.every((spec, i) => {
     const t = targets[i];
-    if (!t) return lenient || !!spec.optional;
+    if (!t) return !!spec.optional;
     return legalTargets(g, pid, spec, c).some((x) => sameRef(x, t));
   });
 }
@@ -158,7 +177,7 @@ export function blockCandidates(g: Game, pid: PlayerId): Card[] {
   return creaturesOf(g, pid).filter((b) => attackers.some((a) => a && canBlock(g, b, a)));
 }
 
-/** Blocks the rules don't allow as declared (a lone blocker on a menace creature). */
+/** Blocks the rules don't allow as declared: a lone blocker on a creature with menace (702.111b). */
 export function illegalBlocks(g: Game, pid: PlayerId): string[] {
   const out: string[] = [];
   for (const a of g.combat?.attacks ?? []) {
@@ -168,50 +187,153 @@ export function illegalBlocks(g: Game, pid: PlayerId): string[] {
   return out;
 }
 
-/** Can the player do anything at instant speed right now? If not, their window is skipped. */
-export function hasInstantOptions(g: Game, pid: PlayerId): boolean {
+/** Could the player with priority do anything other than pass? Mana abilities don't count. */
+export function canAct(g: Game, pid: PlayerId): boolean {
   const p = g.players[pid];
-  return [...p.hand, ...p.command].some((c) => canCast(g, pid, c)) || p.battlefield.some((c) => canActivate(g, pid, c));
+  return (
+    [...p.hand, ...p.command].some((c) => canCast(g, pid, c) || canPlayLand(g, pid, c)) ||
+    p.battlefield.some((c) => canActivate(g, pid, c))
+  );
+}
+
+// ---------- auto-pass ----------
+
+/**
+ * Should the game stop and ask this player, or pass priority for them?
+ *
+ * This is not a rule. Every player gets priority in every step (117.3), which in a
+ * four-player game is dozens of passes a turn, so like Arena the engine passes for a
+ * player unless they are likely to want to act:
+ *  - never when passing is all they can do, except in their own first main phase
+ *  - with something on the stack: when the top object is someone else's
+ *  - with the stack empty, on their turn: both main phases, and after blockers are declared
+ *  - with the stack empty, on another turn: after attackers and after blockers are
+ *    declared, and in the end step
+ * `applyAction(g, a, { autoPass: false })` turns it off.
+ */
+export function wantsPriority(g: Game, pid: PlayerId): boolean {
+  const top = g.stack[g.stack.length - 1];
+  const myTurn = pid === g.active;
+  if (!top && myTurn && g.step === 'main1') return true;
+  if (!canAct(g, pid)) return false;
+  if (top) return top.controller !== pid;
+  if (myTurn) return g.step === 'main2' || g.step === 'blockers';
+  const inCombat = !!g.combat?.attacks.length && (g.step === 'attackers' || g.step === 'blockers');
+  return inCombat || g.step === 'end';
 }
 
 // ---------- turn structure ----------
 
-function setStep(g: Game, step: Step) {
-  g.step = step;
-  for (const p of g.players) p.pool = [];
-}
+const STEP_ORDER: Step[] = [
+  'untap',
+  'upkeep',
+  'draw',
+  'main1',
+  'beginCombat',
+  'attackers',
+  'blockers',
+  'damage',
+  'endCombat',
+  'main2',
+  'end',
+  'cleanup',
+];
+
+/** The active player gets priority first. If they have left the game, the next player does (800.4j). */
+const firstPriority = (g: Game) => (g.players[g.active].lost ? nextLiving(g, g.active) : g.active);
 
 function beginTurn(g: Game, pid: PlayerId) {
-  const p = g.players[pid];
   g.active = pid;
-  g.priority = pid;
   g.turn++;
   g.combat = null;
-  setStep(g, 'main1');
-  p.landsPlayed = 0;
-  for (const c of p.battlefield) {
-    c.tapped = false;
-    c.sick = false;
-  }
-  log(g, `Turn ${g.turn} — ${p.name}`, pid);
-  broadcast(g, 'onUpkeep', { player: pid });
-  draw(g, pid, 1);
+  g.players[pid].landsPlayed = 0;
+  log(g, `Turn ${g.turn} — ${g.players[pid].name}`, pid);
+  beginStep(g, 'untap');
 }
 
-function endTurn(g: Game) {
-  broadcast(g, 'onEndStep', { player: g.active });
-  checkState(g);
-  if (g.winner !== null || g.players[g.active].lost) return;
-  g.combat = null;
-  if (g.players[g.active].hand.length > MAX_HAND) {
-    setStep(g, 'discard');
-    g.priority = g.active;
-    return;
+/**
+ * Starts a step or phase and does its turn-based actions (703). Whoever calls this lets
+ * `settle` run afterwards: it puts "at the beginning of" triggers on the stack and gives
+ * out priority (117.3a).
+ */
+function beginStep(g: Game, step: Step) {
+  const pid = g.active;
+  const p = g.players[pid];
+  g.step = step;
+  g.passes = 0;
+  g.priority = firstPriority(g);
+  switch (step) {
+    case 'untap':
+      // 502.3. Summoning sickness ends too: these have been under control since the turn began (302.6).
+      for (const c of p.battlefield) {
+        c.tapped = false;
+        c.sick = false;
+      }
+      // No player gets priority in the untap step (502.4).
+      beginStep(g, 'upkeep');
+      break;
+    case 'upkeep':
+      broadcast(g, 'onUpkeep', { player: pid }); // 503.1a
+      break;
+    case 'draw':
+      draw(g, pid, 1); // 504.1
+      break;
+    case 'beginCombat':
+      g.combat = { attacks: [], toBlock: [], struckFirst: null, moreDamage: false };
+      break;
+    case 'attackers':
+      if (attackCandidates(g, pid).length) g.decision = { type: 'attackers' }; // 508.1
+      break;
+    case 'blockers': {
+      // Each defending player who is able to block declares blockers, in APNAP order (802.4).
+      const combat = g.combat!;
+      combat.toBlock = turnOrder(g, pid).filter((d) => d !== pid && blockCandidates(g, d).length > 0);
+      if (combat.toBlock.length) {
+        g.decision = { type: 'blockers' };
+        g.priority = combat.toBlock[0];
+      } else {
+        blockersDeclared(g);
+      }
+      break;
+    }
+    case 'damage':
+      combatDamage(g);
+      break;
+    case 'end':
+      broadcast(g, 'onEndStep', { player: pid }); // 513.1
+      break;
+    case 'cleanup':
+      if (p.hand.length > MAX_HAND) g.decision = { type: 'discard' }; // 514.1
+      else cleanup(g);
+      break;
   }
-  cleanupAndNext(g);
 }
 
-function cleanupAndNext(g: Game) {
+/** Ends the current step or phase and begins the next. */
+function nextStep(g: Game) {
+  for (const p of g.players) p.pool = []; // unspent mana empties (500.5)
+  const combat = g.combat;
+  switch (g.step) {
+    case 'attackers':
+      // With no attackers, the declare blockers and combat damage steps are skipped (508.8).
+      return beginStep(g, combat?.attacks.length ? 'blockers' : 'endCombat');
+    case 'damage':
+      // A first-strike damage step is followed by a second combat damage step (510.4).
+      return beginStep(g, combat?.moreDamage ? 'damage' : 'endCombat');
+    case 'endCombat':
+      g.combat = null; // everything is removed from combat (511.3)
+      return beginStep(g, 'main2');
+    default:
+      return beginStep(g, STEP_ORDER[STEP_ORDER.indexOf(g.step) + 1]);
+  }
+}
+
+/**
+ * The second half of the cleanup step, then the next turn: damage wears off and "until
+ * end of turn" effects end, both at once (514.2). Players never get priority in this
+ * step; an ability that triggers here waits for the next upkeep instead (514.3a).
+ */
+function cleanup(g: Game) {
   for (const p of g.players) {
     for (const c of p.battlefield) {
       c.damage = 0;
@@ -224,8 +346,12 @@ function cleanupAndNext(g: Game) {
 
 // ---------- combat ----------
 
-function declareAttackers(g: Game) {
+/** Locks in the chosen attackers: they tap, and "attacks" abilities trigger (508.1f, 508.1m). */
+function attackersDeclared(g: Game) {
   const combat = g.combat!;
+  g.decision = null;
+  g.priority = firstPriority(g); // 508.2
+  if (!combat.attacks.length) return;
   const names: string[] = [];
   for (const a of combat.attacks) {
     const c = permanent(g, a.id)!;
@@ -233,43 +359,45 @@ function declareAttackers(g: Game) {
     names.push(`${label(c)} → ${g.players[a.defender].name}`);
   }
   log(g, `${says(g.players[g.active], 'attacks')}: ${names.join(', ')}.`, g.active);
-  for (const a of [...combat.attacks]) {
-    const c = permanent(g, a.id);
-    if (!c) continue;
-    scriptOf(c.name).onAttack?.(g, { self: c, defender: a.defender });
+  for (const a of combat.attacks) {
+    const c = permanent(g, a.id)!;
+    trigger(g, c, 'onAttack', { defender: a.defender });
     broadcast(g, 'onCreatureAttacks', { attacker: c, defender: a.defender });
-  }
-  checkState(g);
-  if (g.winner !== null || !g.combat || g.players[g.active].lost) return;
-  const order: PlayerId[] = [];
-  for (let pid = nextLiving(g, g.active); pid !== g.active; pid = nextLiving(g, pid)) {
-    if (blockCandidates(g, pid).length) order.push(pid);
-  }
-  g.combat.toBlock = order;
-  if (order.length) {
-    setStep(g, 'blockers');
-    g.priority = order[0];
-  } else {
-    toDamage(g);
   }
 }
 
-function toDamage(g: Game) {
-  const combat = g.combat!;
-  for (const a of combat.attacks) {
+/** Locks in blocks: each attacker is now blocked or unblocked for the rest of combat (509.1h). */
+function blockersDeclared(g: Game) {
+  for (const a of g.combat!.attacks) {
     a.blocked = a.blockers.length > 0;
     const c = permanent(g, a.id);
     if (c && a.blocked) {
       log(g, `${label(c)} is blocked by ${a.blockers.map((b) => label(permanent(g, b)!)).join(', ')}.`, a.defender);
     }
   }
-  setStep(g, 'damage');
-  g.priority = g.active;
-  if (!hasInstantOptions(g, g.active)) resolveCombat(g);
+  g.decision = null;
+  g.priority = firstPriority(g); // 509.2
 }
 
-/** One combat damage step. All damage is worked out first, then dealt at the same time. */
-function damageStep(g: Game, firstStrike: boolean, struckFirst: Set<string>) {
+/** The turn-based action of a combat damage step (510.1, 510.2). */
+function combatDamage(g: Game) {
+  const combat = g.combat!;
+  const fighters = combat.attacks.flatMap((a) => [a.id, ...a.blockers]).map((id) => permanent(g, id));
+  // Only first strikers and double strikers deal damage in the first of two damage steps (510.4).
+  const firstStrike =
+    combat.struckFirst === null && fighters.some((c) => c && (has(g, c, 'first strike') || has(g, c, 'double strike')));
+  const struckFirst = new Set(combat.struckFirst ?? []);
+  dealCombatDamage(g, firstStrike, struckFirst);
+  combat.struckFirst = [...struckFirst];
+  combat.moreDamage = firstStrike;
+}
+
+/**
+ * All damage is worked out first, then dealt at the same time (510.2). The split between
+ * several blockers is automatic: lethal damage to each in order, the rest to the last one,
+ * or to the defending player with trample (702.19b).
+ */
+function dealCombatDamage(g: Game, firstStrike: boolean, struckFirst: Set<string>) {
   const hits: { src: Card; card?: Card; player?: PlayerId; n: number }[] = [];
   const deals = (c: Card) => {
     const kw = stats(g, c).keywords;
@@ -308,20 +436,85 @@ function damageStep(g: Game, firstStrike: boolean, struckFirst: Set<string>) {
     if (h.card) damageCard(g, h.src, h.card, h.n);
     else damagePlayer(g, h.src, h.player!, h.n, true);
   }
-  checkState(g);
 }
 
-function resolveCombat(g: Game) {
-  if (g.combat) {
-    const fighters = g.combat.attacks.flatMap((a) => [a.id, ...a.blockers]).map((id) => permanent(g, id));
-    const anyFirst = fighters.some((c) => c && (has(g, c, 'first strike') || has(g, c, 'double strike')));
-    const struckFirst = new Set<string>();
-    if (anyFirst) damageStep(g, true, struckFirst);
-    if (g.combat && g.winner === null) damageStep(g, false, struckFirst);
+// ---------- priority and the stack ----------
+
+/**
+ * The player with priority passes it on (117.3d). Once every player has passed in a row,
+ * the top of the stack resolves, or the step ends if the stack is empty (117.4).
+ */
+function passPriority(g: Game) {
+  g.passes++;
+  if (g.passes < living(g).length) {
+    g.priority = nextLiving(g, g.priority);
+  } else if (g.stack.length) {
+    resolveTop(g);
+  } else {
+    nextStep(g);
   }
-  g.combat = null;
-  setStep(g, 'main2');
-  g.priority = g.active;
+}
+
+/** Resolves the top spell or ability of the stack (608). */
+function resolveTop(g: Game) {
+  const item = g.stack.pop()!;
+  const { card, controller } = item;
+  const script = scriptOf(card.name);
+  // Targets are checked again. Illegal ones are left alone, and if every target has
+  // become illegal the spell or ability does nothing at all (608.2b).
+  const specs = targetSpecs(item);
+  const targets = item.targets.map((t, i) =>
+    t && legalTargets(g, controller, specs[i], card).some((x) => sameRef(x, t)) ? t : null,
+  );
+  const fizzled = item.targets.some(Boolean) && !targets.some(Boolean);
+  if (fizzled) log(g, `${label(card)} has no legal target left and does nothing.`, controller);
+
+  if (item.kind === 'spell') {
+    if (isPermanentCard(card)) {
+      enterBattlefield(g, card); // 608.3
+    } else {
+      if (!fizzled) script.onResolve?.(g, { self: card, you: controller, targets });
+      moveCard(g, card, 'graveyard'); // the last part of resolving (608.2n)
+    }
+  } else if (!fizzled) {
+    // An ability uses its source as it is now, or as it last was if it has gone (113.7a).
+    const ctx = { self: permanent(g, card.id) ?? card, you: controller, targets };
+    if (item.kind === 'activated') {
+      script.activated!.resolve(g, ctx);
+    } else {
+      const t = script[item.hook!] as Trigger<object>;
+      (typeof t === 'function' ? t : t.resolve)(g, { ...item.event, ...ctx });
+    }
+  }
+  g.passes = 0;
+  g.priority = firstPriority(g); // 117.3b
+}
+
+/**
+ * Puts the next waiting triggered ability on the stack (603.3). The active player's go
+ * on first, then each other player's in turn order (603.3b), so they resolve in the
+ * reverse order. Returns false if none are waiting.
+ */
+function putTriggerOnStack(g: Game): boolean {
+  if (!g.triggers.length) return false;
+  const order = turnOrder(g, firstPriority(g));
+  let next = 0;
+  g.triggers.forEach((t, i) => {
+    if (order.indexOf(t.controller) < order.indexOf(g.triggers[next].controller)) next = i;
+  });
+  const [item] = g.triggers.splice(next, 1);
+  const specs = targetSpecs(item);
+  const options = specs.map((spec) => legalTargets(g, item.controller, spec, item.card));
+  // An ability that needs a target and has none is removed instead (603.3d).
+  if (specs.some((spec, i) => !spec.optional && options[i].length === 0)) return true;
+  if (options.some((o) => o.length)) {
+    g.decision = { type: 'targets', item, resume: g.priority };
+    g.priority = item.controller;
+    return true;
+  }
+  item.targets = specs.map(() => null);
+  g.stack.push(item);
+  return true;
 }
 
 // ---------- actions ----------
@@ -329,6 +522,7 @@ function resolveCombat(g: Game) {
 function act(g: Game, a: Action): boolean {
   const pid = g.priority;
   const p = g.players[pid];
+  const deciding = g.decision?.type;
   if (g.step === 'gameOver') return false;
 
   switch (a.type) {
@@ -338,27 +532,30 @@ function act(g: Game, a: Action): boolean {
       p.landsPlayed++;
       log(g, `${says(p, 'plays')} ${label(c)}.`, pid);
       enterBattlefield(g, c);
+      g.passes = 0; // the player keeps priority after a special action (117.3c)
       return true;
     }
 
+    // Casting is one action. The steps a player goes through to propose a spell (601.2:
+    // choose targets, then pay) are collected by the UI first, so backing out of any of
+    // them leaves the game as if the spell was never started (733.1).
     case 'cast': {
       const c = p.hand.find((x) => x.id === a.card) ?? p.command.find((x) => x.id === a.card);
       if (!c || !canCast(g, pid, c)) return false;
       const specs = castTargets(c);
       const targets = specs.map((_, i) => a.targets?.[i] ?? null);
-      if (!targetsOk(g, pid, c, specs, targets, isPermanentCard(c))) return false;
-      pay(g, pid, castCost(g, c));
-      if (c.zone === 'command') p.commanderCasts++;
+      if (!targetsOk(g, pid, c, specs, targets)) return false;
+      pay(g, pid, castCost(g, c)); // 601.2f-h
+      const from = c.zone === 'command' ? p.command : p.hand;
+      if (c.zone === 'command') p.commanderCasts++; // commander tax (903.8)
+      from.splice(from.findIndex((x) => x.id === c.id), 1);
+      c.zone = 'stack'; // 601.2a
+      g.stack.push({ id: `s${g.nextId++}`, kind: 'spell', controller: pid, card: c, targets });
       const chosen = targets.filter((t): t is TargetRef => !!t).map((t) => describeRef(g, t));
       log(g, `${says(p, 'casts')} ${label(c)}${chosen.length ? ` targeting ${chosen.join(' and ')}` : ''}.`, pid);
       g.lastSpell = { seq: (g.lastSpell?.seq ?? 0) + 1, name: c.name, caster: pid };
-      broadcast(g, 'onCast', { card: c, caster: pid });
-      if (isPermanentCard(c)) {
-        enterBattlefield(g, c, { targets });
-      } else {
-        moveCard(g, c, 'graveyard');
-        scriptOf(c.name).onResolve?.(g, { self: c, you: pid, targets });
-      }
+      broadcast(g, 'onCast', { card: c, caster: pid }); // 601.2i
+      g.passes = 0; // the caster keeps priority (117.3c)
       return true;
     }
 
@@ -368,19 +565,24 @@ function act(g: Game, a: Action): boolean {
       const ab = scriptOf(c.name).activated!;
       const specs = ab.targets ?? [];
       const targets = specs.map((_, i) => a.targets?.[i] ?? null);
-      if (!targetsOk(g, pid, c, specs, targets, false)) return false;
+      if (!targetsOk(g, pid, c, specs, targets)) return false;
       if (ab.cost.mana) pay(g, pid, parseCost(ab.cost.mana));
       if (ab.cost.tap) c.tapped = true;
-      log(g, `${says(p, 'activates')} ${label(c)}.`, pid);
+      // The ability goes on the stack as its own object, apart from its source (602.2a).
+      const item: StackItem = { id: `s${g.nextId++}`, kind: 'activated', controller: pid, card: snapshot(c), targets };
+      const chosen = targets.filter((t): t is TargetRef => !!t).map((t) => describeRef(g, t));
+      log(g, `${says(p, 'activates')} ${label(c)}${chosen.length ? ` targeting ${chosen.join(' and ')}` : ''}.`, pid);
       if (ab.cost.sacrifice) dieMany(g, [c], 'is sacrificed');
-      ab.resolve(g, { self: c, you: pid, targets });
+      g.stack.push(item);
+      g.passes = 0;
       return true;
     }
 
-    // Tapping for mana by hand, and taking it back. Not logged: it is the one thing a player can undo.
+    // Mana abilities don't use the stack (605.3b). Tapping by hand isn't logged: it is the
+    // one thing a player can undo.
     case 'tapMana': {
       const c = p.battlefield.find((x) => x.id === a.card);
-      if (!c || g.step === 'discard' || !canTapForMana(g, pid, c)) return false;
+      if (!c || deciding || !canTapForMana(g, pid, c)) return false;
       tapForMana(g, pid, c);
       return true;
     }
@@ -395,7 +597,7 @@ function act(g: Game, a: Action): boolean {
     case 'declareAttack': {
       const c = p.battlefield.find((x) => x.id === a.card);
       const defender = g.players[a.defender];
-      if (g.step !== 'attackers' || !g.combat || !c || !canAttack(g, c)) return false;
+      if (deciding !== 'attackers' || !g.combat || !c || !canAttack(g, c)) return false;
       if (!defender || defender.lost || defender.id === pid) return false;
       const existing = g.combat.attacks.find((x) => x.id === c.id);
       if (existing) existing.defender = a.defender;
@@ -404,13 +606,13 @@ function act(g: Game, a: Action): boolean {
     }
 
     case 'undeclareAttack': {
-      if (g.step !== 'attackers' || !g.combat || !g.combat.attacks.some((x) => x.id === a.card)) return false;
+      if (deciding !== 'attackers' || !g.combat || !g.combat.attacks.some((x) => x.id === a.card)) return false;
       g.combat.attacks = g.combat.attacks.filter((x) => x.id !== a.card);
       return true;
     }
 
     case 'declareBlock': {
-      if (g.step !== 'blockers' || !g.combat) return false;
+      if (deciding !== 'blockers' || !g.combat) return false;
       const blocker = p.battlefield.find((x) => x.id === a.blocker);
       const attack = g.combat.attacks.find((x) => x.id === a.attacker);
       const attacker = permanent(g, a.attacker);
@@ -421,7 +623,7 @@ function act(g: Game, a: Action): boolean {
     }
 
     case 'undeclareBlock': {
-      if (g.step !== 'blockers' || !g.combat) return false;
+      if (deciding !== 'blockers' || !g.combat) return false;
       const attack = g.combat.attacks.find((x) => x.defender === pid && x.blockers.includes(a.blocker));
       if (!attack) return false;
       attack.blockers = attack.blockers.filter((b) => b !== a.blocker);
@@ -430,30 +632,38 @@ function act(g: Game, a: Action): boolean {
 
     case 'discard': {
       const c = p.hand.find((x) => x.id === a.card);
-      if (g.step !== 'discard' || !c) return false;
+      if (deciding !== 'discard' || !c) return false;
       log(g, `${says(p, 'discards')} ${label(c)}.`, pid);
       moveCard(g, c, 'graveyard');
-      if (p.hand.length <= MAX_HAND) cleanupAndNext(g);
+      if (p.hand.length <= MAX_HAND) {
+        g.decision = null;
+        cleanup(g);
+      }
+      return true;
+    }
+
+    case 'chooseTargets': {
+      if (g.decision?.type !== 'targets') return false;
+      const { item, resume } = g.decision;
+      const specs = targetSpecs(item);
+      const targets = specs.map((_, i) => a.targets?.[i] ?? null);
+      if (!targetsOk(g, pid, item.card, specs, targets)) return false;
+      const chosen = targets.filter((t): t is TargetRef => !!t).map((t) => describeRef(g, t));
+      if (chosen.length) log(g, `${label(item.card)} targets ${chosen.join(' and ')}.`, pid);
+      item.targets = targets;
+      g.stack.push(item);
+      g.decision = null;
+      g.priority = resume;
       return true;
     }
 
     case 'pass': {
-      switch (g.step) {
-        case 'main1':
-          if (attackCandidates(g, pid).length === 0) {
-            endTurn(g);
-          } else {
-            g.combat = { attacks: [], toBlock: [] };
-            setStep(g, 'attackers');
-          }
+      switch (deciding) {
+        case undefined:
+          passPriority(g);
           return true;
         case 'attackers':
-          if (!g.combat?.attacks.length) {
-            g.combat = null;
-            setStep(g, 'main2');
-          } else {
-            declareAttackers(g);
-          }
+          attackersDeclared(g);
           return true;
         case 'blockers': {
           const combat = g.combat!;
@@ -464,15 +674,9 @@ function act(g: Game, a: Action): boolean {
           }
           combat.toBlock = combat.toBlock.filter((x) => x !== pid);
           if (combat.toBlock.length) g.priority = combat.toBlock[0];
-          else toDamage(g);
+          else blockersDeclared(g);
           return true;
         }
-        case 'damage':
-          resolveCombat(g);
-          return true;
-        case 'main2':
-          endTurn(g);
-          return true;
         default:
           return false;
       }
@@ -480,35 +684,36 @@ function act(g: Game, a: Action): boolean {
   }
 }
 
-/** Runs state-based actions and repairs the turn flow if a player with a pending decision is gone. */
-function settle(g: Game) {
-  for (let i = 0; i < 8; i++) {
+/**
+ * Runs the game forward until it needs a player. Each time a player would get priority,
+ * state-based actions are checked and waiting triggered abilities go on the stack, until
+ * neither does anything more (117.5). Then that player gets priority, or it is passed for
+ * them (see `wantsPriority`).
+ */
+function settle(g: Game, autoPass: boolean) {
+  for (let guard = 0; guard < 5000; guard++) {
     checkState(g);
     if (g.winner !== null) {
       g.step = 'gameOver';
       g.combat = null;
+      g.decision = null;
       return;
     }
-    if (g.players[g.active].lost) {
-      beginTurn(g, nextLiving(g, g.active));
-      continue;
-    }
-    if (g.step === 'blockers' && g.combat) {
-      const combat = g.combat;
-      combat.toBlock = combat.toBlock.filter((pid) => combat.attacks.some((a) => a.defender === pid));
-      if (!combat.toBlock.length) {
-        toDamage(g);
-        continue;
-      }
-      g.priority = combat.toBlock[0];
-    }
-    if (g.players[g.priority].lost) g.priority = g.active;
-    return;
+    if (g.decision) return;
+    if (putTriggerOnStack(g)) continue;
+    if (g.players[g.priority].lost) g.priority = nextLiving(g, g.priority);
+    if (!autoPass || wantsPriority(g, g.priority)) return;
+    passPriority(g);
   }
 }
 
-export function applyAction(g: Game, a: Action): Game {
+export interface ApplyOptions {
+  /** Pass priority for players who have nothing they'd want to do (default true). See `wantsPriority`. */
+  autoPass?: boolean;
+}
+
+export function applyAction(g: Game, a: Action, { autoPass = true }: ApplyOptions = {}): Game {
   return produce(g, (draft) => {
-    if (act(draft, a)) settle(draft);
+    if (act(draft, a)) settle(draft, autoPass);
   });
 }
