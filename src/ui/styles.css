@@ -170,7 +170,6 @@ button {
   gap: 1.5rem;
   --av: 8.2rem;
   --pile-w: 4.6rem;
-  --cmd-w: 7.2rem;
 }
 
 .seat-top .avatar {
@@ -290,7 +289,7 @@ button {
   box-shadow: 0 0.2rem 0.5rem rgba(0, 0, 0, 0.7);
 }
 
-/* ---------- zones: command, library, graveyard ---------- */
+/* ---------- zones: library, graveyard, exile ---------- */
 
 .pile {
   position: relative;
@@ -298,7 +297,7 @@ button {
   aspect-ratio: 5 / 7;
 }
 
-/* At the side seats, cards in the piles and the command zone are turned like permanents (see .tile). */
+/* At the side seats, cards in the piles are turned like permanents (see .tile). */
 .seat-left .pile,
 .seat-right .pile {
   width: calc(var(--pile-w) * 1.4);
@@ -372,72 +371,6 @@ button {
   border: 0.1rem solid #aeb7c8;
   border-radius: 50%;
   z-index: 3;
-}
-
-.command-slot {
-  width: var(--cmd-w);
-  aspect-ratio: 5 / 4;
-}
-
-.seat-left .command-slot,
-.seat-right .command-slot {
-  width: calc(var(--cmd-w) * 0.8);
-  aspect-ratio: 4 / 5;
-}
-
-.cmd-card,
-.cmd-empty {
-  position: relative;
-  width: 100%;
-  height: 100%;
-  border-radius: 0.5rem;
-}
-
-.cmd-card {
-  font-size: calc(var(--cmd-w) / 10);
-  box-shadow: 0 0.3rem 0.8rem rgba(0, 0, 0, 0.8);
-}
-
-.cmd-face {
-  position: absolute;
-  left: 50%;
-  top: 50%;
-  width: var(--cmd-w);
-  aspect-ratio: 5 / 4;
-  translate: -50% -50%;
-  rotate: var(--face);
-  border-radius: 0.5rem;
-  background-size: cover;
-  background-position: center 20%;
-  border: 0.2rem solid var(--f-gold);
-}
-
-.cmd-card .crown {
-  position: absolute;
-  left: 0.3em;
-  top: 0.1em;
-  font-size: 1.8em;
-  color: var(--f-gold);
-  text-shadow: 0 0 0.3em #000;
-}
-
-.cmd-card .tax {
-  position: absolute;
-  right: -0.4em;
-  bottom: -0.4em;
-  padding: 0 0.4em;
-  font: 700 1.5em/1.5em 'Segoe UI', sans-serif;
-  background: #1a1d24;
-  border: 0.08em solid var(--f-gold);
-  border-radius: 0.8em;
-}
-
-.cmd-empty {
-  display: grid;
-  place-items: center;
-  font-size: calc(var(--cmd-w) / 3);
-  color: rgba(210, 170, 66, 0.35);
-  border: 0.15rem dashed rgba(210, 170, 66, 0.4);
 }
 
 /* ---------- avatars ---------- */
@@ -529,6 +462,62 @@ button {
 
 .avatar.lost .avatar-art {
   filter: grayscale(1) brightness(0.5);
+}
+
+/*
+  Round badges on the portrait's rim: the crown at 10 o'clock and the commander tax at 2.
+  0.146 x the diameter is where a 45-degree line from the centre crosses the circle.
+*/
+.avatar-crown,
+.avatar-tax {
+  --badge: max(2.8rem, calc(var(--av) * 0.27));
+  position: absolute;
+  top: calc(var(--av) * 0.146 - var(--badge) / 2);
+  z-index: 3;
+  min-width: var(--badge);
+  height: var(--badge);
+  display: grid;
+  place-items: center;
+  border-radius: calc(var(--badge) / 2);
+  border: 0.15rem solid var(--f-gold);
+  background: radial-gradient(circle at 50% 30%, #3a3324, #14161c 70%);
+  box-shadow: 0 0.3rem 0.7rem rgba(0, 0, 0, 0.85);
+}
+
+.avatar-crown {
+  left: calc(var(--av) * 0.146 - var(--badge) / 2);
+  width: var(--badge);
+  padding: 0;
+  /* The glow-* highlights are sized in em. */
+  font-size: calc(var(--badge) * 0.3);
+  color: var(--f-gold);
+  cursor: var(--cursor);
+}
+
+/* The glyph itself is drawn bigger than the em the glows are measured in. */
+.avatar-crown span {
+  font-size: calc(var(--badge) * 0.58);
+  line-height: 1;
+}
+
+.avatar-crown.glow-play,
+.avatar-crown.glow-picked {
+  color: #ffe08a;
+  cursor: var(--cursor);
+}
+
+.avatar-crown.away {
+  color: rgba(210, 170, 66, 0.4);
+  border-style: dashed;
+  border-color: rgba(210, 170, 66, 0.45);
+  background: rgba(14, 16, 22, 0.85);
+}
+
+.avatar-tax {
+  right: calc(var(--av) * 0.146 - var(--badge) / 2);
+  padding: 0 0.5rem;
+  font: 700 calc(var(--badge) * 0.48) / 1 'Segoe UI', sans-serif;
+  color: #fff;
 }
 
 .cmd-dmg {
@@ -965,15 +954,18 @@ button {
   margin-right: 0.35rem;
 }
 
+/*
+  Library, graveyard and exile, just right of the log and its buttons (.log ends at 26.6rem).
+  They end at 48.2rem, clear of the hand until it holds a dozen cards.
+*/
 .me-zones {
   position: absolute;
-  left: 2.2rem;
+  left: 28.2rem;
   bottom: 2.2rem;
   display: flex;
   align-items: flex-end;
-  gap: 1.4rem;
-  --pile-w: 7rem;
-  --cmd-w: 12rem;
+  gap: 1rem;
+  --pile-w: 6rem;
 }
 
 .hand {
@@ -1056,15 +1048,48 @@ button {
 }
 
 .phases {
+  --phase: #ffc163;
+  --phase-glow: var(--orange);
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.8rem;
   text-align: center;
+}
+
+.phase-main {
+  position: relative;
 }
 
 .phase-pips {
   display: flex;
   justify-content: center;
   align-items: center;
-  gap: 1.3rem;
-  height: 3.2rem;
+  gap: 0.4rem;
+  height: 3.6rem;
+}
+
+.pip-btn {
+  position: relative;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  width: 2.6rem;
+  height: 3.6rem;
+  padding: 0;
+  background: none;
+  border: none;
+  border-radius: 0.6rem;
+}
+
+.phases.editable .pip-btn {
+  cursor: var(--cursor);
+}
+
+.phases.editable .pip-btn:hover,
+.pip-btn.open {
+  background: rgba(255, 255, 255, 0.08);
 }
 
 .pip {
@@ -1074,18 +1099,129 @@ button {
   transition: transform 0.2s, fill 0.2s;
 }
 
+.phases.editable .pip-btn:hover .pip:not(.on) {
+  fill: #8a93a5;
+}
+
 .pip.on {
-  fill: #ffc163;
+  fill: var(--phase);
   transform: scale(1.5);
-  filter: drop-shadow(0 0 0.6rem var(--orange));
+  filter: drop-shadow(0 0 0.6rem var(--phase-glow));
+}
+
+/* A stop: a ring for "stop if you can act", a dot for "always stop". */
+.stop-mark {
+  position: absolute;
+  left: calc(50% - 0.35rem);
+  bottom: -0.2rem;
+  width: 0.7rem;
+  height: 0.7rem;
+  border-radius: 50%;
+}
+
+.stop-mark.stop-ifAble {
+  border: 0.15rem solid var(--phase);
+}
+
+.stop-mark.stop-always {
+  background: var(--phase);
+  box-shadow: 0 0 0.4rem var(--phase-glow);
 }
 
 .phase-label {
-  margin-top: 0.3rem;
+  margin-top: 0.5rem;
   font-size: 1.25rem;
   color: #d4dbe9;
   text-shadow: 0 0.1rem 0.3rem #000;
 }
+
+.phases.editable .phase-label {
+  color: color-mix(in srgb, var(--phase) 45%, #d4dbe9);
+}
+
+/* A pip covering several steps, split into one button per step. */
+.step-split {
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% + 0.6rem);
+  transform: translateX(-50%);
+  display: flex;
+  gap: 0.4rem;
+  padding: 0.5rem;
+  background: rgba(10, 14, 22, 0.92);
+  border: 0.1rem solid color-mix(in srgb, var(--phase) 50%, transparent);
+  border-radius: 1rem;
+  box-shadow: 0 0.5rem 1.4rem rgba(0, 0, 0, 0.7);
+  white-space: nowrap;
+}
+
+.step-btn {
+  position: relative;
+  padding: 0.6rem 1rem 1rem;
+  font-size: 1.2rem;
+  font-weight: 600;
+  color: #d4dbe9;
+  background: rgba(255, 255, 255, 0.06);
+  border: 0.1rem solid transparent;
+  border-radius: 0.6rem;
+  cursor: var(--cursor);
+}
+
+.step-btn:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.14);
+}
+
+.step-btn.on {
+  color: var(--phase);
+  border-color: var(--phase);
+}
+
+.step-btn:disabled {
+  color: #596171;
+  cursor: var(--cursor);
+}
+
+/* Whose turns the stops are for: one arrow per seat, laid out like the table. */
+.seat-arrows {
+  display: grid;
+  grid-template: repeat(3, 1.6rem) / repeat(3, 1.6rem);
+  flex: none;
+}
+
+.seat-arrow {
+  display: flex;
+  padding: 0;
+  background: none;
+  border: none;
+  cursor: var(--cursor);
+}
+
+.seat-arrow svg {
+  width: 100%;
+  height: 100%;
+  fill: color-mix(in srgb, var(--deck) 45%, #2a303b);
+  transition: fill 0.2s, transform 0.2s;
+}
+
+.seat-arrow:hover svg,
+.seat-arrow.active svg {
+  fill: color-mix(in srgb, var(--deck) 75%, #2a303b);
+}
+
+.seat-arrow.on svg {
+  fill: var(--deck);
+  transform: scale(1.25);
+  filter: drop-shadow(0 0 0.4rem var(--deck));
+}
+
+.seat-arrow:disabled {
+  visibility: hidden;
+}
+
+.seat-arrow.arrow-top { grid-area: 1 / 2; }
+.seat-arrow.arrow-left { grid-area: 2 / 1; }
+.seat-arrow.arrow-right { grid-area: 2 / 3; }
+.seat-arrow.arrow-bottom { grid-area: 3 / 2; }
 
 .btn {
   height: 6.4rem;
@@ -1160,18 +1296,31 @@ button {
 
 /* ---------- log + controls ---------- */
 
+/*
+  Bottom-left corner: the buttons, with the log under them reaching down to the bottom
+  edge. The panel is anchored at the bottom, so with the log hidden the buttons sit in
+  the corner. Your piles start just right of it (see .me-zones).
+*/
 .log {
   position: absolute;
   left: 1.6rem;
-  top: calc(100% - 37.5rem);
-  width: 27rem;
+  bottom: 1.6rem;
+  width: 25rem;
   z-index: 20;
 }
 
 .log-bar {
   display: flex;
   gap: 0.5rem;
-  margin-bottom: 0.6rem;
+}
+
+/* Clips the lines while they fold open or shut. The gap under the buttons folds with them. */
+.log-body {
+  overflow: hidden;
+}
+
+.log-body .log-lines {
+  margin-top: 0.6rem;
 }
 
 .log-bar button {
@@ -1190,7 +1339,7 @@ button {
 }
 
 .log-lines {
-  height: 20.5rem;
+  height: 32.6rem;
   padding: 0.6rem 0.9rem;
   overflow-y: auto;
   font-size: 1.2rem;
@@ -1213,6 +1362,20 @@ button {
   margin-top: 0.9rem;
   font-weight: 700;
   color: #fff;
+}
+
+/* A card named in the log: hover it for the full card. */
+.log-card {
+  color: #eef1f7;
+  text-decoration: underline dashed rgba(238, 241, 247, 0.55);
+  text-decoration-thickness: 0.1rem;
+  text-underline-offset: 0.25rem;
+  cursor: help;
+}
+
+.log-card:hover {
+  color: #fff;
+  text-decoration-color: var(--deck);
 }
 
 /* ---------- overlays ---------- */
@@ -1407,6 +1570,168 @@ button {
   border-radius: 0.9rem;
 }
 
+/* ---------- card picker (search, mulligan, bottom, trigger order) ---------- */
+
+.picker {
+  display: flex;
+  flex-direction: column;
+  min-width: 80rem;
+  padding-bottom: 2rem;
+  /* the cards scroll; the title and buttons stay put */
+  overflow: hidden;
+}
+
+.picker-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 3rem;
+}
+
+.picker-head h2 {
+  text-transform: none;
+}
+
+.picker-fold {
+  padding: 0.6rem 1.6rem;
+  font-size: 1.5rem;
+  color: #d4dbe9;
+  background: rgba(255, 255, 255, 0.06);
+  border: 0.1rem solid #5d6472;
+  border-radius: 2rem;
+  cursor: var(--cursor);
+}
+
+.picker-fold:hover {
+  background: rgba(255, 255, 255, 0.14);
+}
+
+.picker-hint {
+  margin: -0.6rem 0 1.8rem;
+  font-size: 1.7rem;
+  color: #c3cad8;
+}
+
+.picker-cards {
+  min-height: 0;
+  justify-content: center;
+  overflow-y: auto;
+  /* room for the lift and glow of a hovered or picked card */
+  padding: 0.8rem;
+}
+
+.picker-card {
+  position: relative;
+  padding: 0;
+  background: none;
+  border: none;
+  border-radius: 0.9rem;
+  transition: transform 0.12s, box-shadow 0.12s, filter 0.12s;
+}
+
+.picker-card img {
+  display: block;
+}
+
+.picker-card.can {
+  cursor: var(--cursor);
+  box-shadow: 0 0 0 0.25rem var(--cyan), 0 0 1.6rem rgba(57, 227, 255, 0.55);
+}
+
+.picker-card.can:hover {
+  transform: translateY(-0.5rem);
+}
+
+.picker-card.picked {
+  box-shadow: 0 0 0 0.35rem var(--orange), 0 0 2.2rem rgba(255, 154, 46, 0.8);
+  transform: translateY(-0.8rem);
+}
+
+.picker-card.dim {
+  filter: brightness(0.45) saturate(0.6);
+}
+
+.picker-num {
+  position: absolute;
+  top: -1rem;
+  left: 50%;
+  transform: translateX(-50%);
+  min-width: 3.6rem;
+  padding: 0.3rem 1rem;
+  font: 700 1.8rem var(--serif);
+  color: #fff;
+  background: linear-gradient(#ffc56a, #d2670a);
+  border-radius: 2rem;
+  box-shadow: 0 0.3rem 0.8rem #000;
+}
+
+.picker-count {
+  position: absolute;
+  right: 0.8rem;
+  bottom: 0.8rem;
+  padding: 0.2rem 1rem;
+  font: 700 2rem var(--serif);
+  color: #fff;
+  background: rgba(8, 10, 16, 0.9);
+  border: 0.15rem solid #cfd6e4;
+  border-radius: 1.6rem;
+}
+
+.picker-buttons .btn:disabled {
+  filter: grayscale(0.85) brightness(0.65);
+}
+
+.picker-slot {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1rem;
+}
+
+.picker-move {
+  display: flex;
+  gap: 1rem;
+}
+
+.picker-move button {
+  width: 5rem;
+  height: 3.6rem;
+  font-size: 1.8rem;
+  color: #fff;
+  background: rgba(255, 255, 255, 0.08);
+  border: 0.15rem solid #8a93a5;
+  border-radius: 1.8rem;
+  cursor: var(--cursor);
+}
+
+.picker-move button:disabled {
+  opacity: 0.3;
+  cursor: var(--cursor);
+}
+
+.picker-buttons {
+  display: flex;
+  justify-content: flex-end;
+  gap: 1.6rem;
+  margin-top: 2rem;
+}
+
+.picker-pill {
+  position: absolute;
+  left: 50%;
+  top: 2rem;
+  z-index: 150;
+  transform: translateX(-50%);
+  padding: 1.2rem 3rem;
+  font: 600 2rem var(--serif);
+  color: #fff;
+  background: rgba(14, 17, 24, 0.95);
+  border: 0.2rem solid var(--cyan);
+  border-radius: 3rem;
+  box-shadow: 0 0 2rem rgba(57, 227, 255, 0.5);
+  cursor: var(--cursor);
+}
+
 .game-over {
   padding: 4rem 9rem 5rem;
   text-align: center;
@@ -1449,6 +1774,34 @@ button {
   width: fit-content;
   margin: 0 auto;
   z-index: 150;
+}
+
+.confirm {
+  max-width: 56rem;
+  padding: 3.5rem 5rem 4rem;
+  text-align: center;
+  background: radial-gradient(circle at 50% 0%, #2a3040, #0d0f14 75%);
+  border: 0.2rem solid #5d6472;
+  border-radius: 2rem;
+  box-shadow: 0 2rem 8rem #000;
+}
+
+.confirm h2 {
+  margin: 0;
+  font: 700 4rem var(--serif);
+  color: #f2e6c9;
+}
+
+.confirm p {
+  margin: 1rem 0 3rem;
+  font-size: 1.8rem;
+  color: #c6cedd;
+}
+
+.confirm-buttons {
+  display: flex;
+  justify-content: center;
+  gap: 2rem;
 }
 
 .knocked-out {

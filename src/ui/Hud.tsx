@@ -3,11 +3,11 @@ import type { CSSProperties, ReactNode } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import { DECKS, cardData } from '../cards/db';
 import { data, findCard, label } from '../engine';
-import type { Game, Step } from '../engine';
+import type { Game, LogEntry, PlayerId, Step, StopKind } from '../engine';
 import { ManaCost } from './Card';
 import { useRem } from './rem';
 import { useStore } from './store';
-import { cx, hoverProps } from './util';
+import { SEATS, cx, hoverProps } from './util';
 import { STEP_NAMES, cancel, useView } from './view';
 import type { Btn } from './view';
 
@@ -33,22 +33,139 @@ const PHASES: { steps: Step[]; icon: keyof typeof ICONS }[] = [
   { steps: ['end', 'cleanup'], icon: 'end' },
 ];
 
+/** Short names for the steps a pip covers, shown when it is split into one button per step. */
+const SHORT: Partial<Record<Step, string>> = {
+  untap: 'Untap',
+  upkeep: 'Upkeep',
+  draw: 'Draw',
+  beginCombat: 'Begin combat',
+  attackers: 'Attackers',
+  damage: 'Damage',
+  endCombat: 'End combat',
+  end: 'End step',
+  cleanup: 'Cleanup',
+};
+
+/** No player gets priority in these steps (502.4, 514.3), so a stop there could never fire. */
+const NO_PRIORITY: Step[] = ['untap', 'cleanup'];
+
+/** Each click moves a stop on: none, stop if you can act, always stop, none. */
+const STOP_CYCLE: (StopKind | undefined)[] = [undefined, 'ifAble', 'always'];
+const nextStop = (k: StopKind | undefined) => STOP_CYCLE[(STOP_CYCLE.indexOf(k) + 1) % STOP_CYCLE.length];
+const STOP_TEXT: Record<StopKind, string> = { ifAble: 'stop if you can act', always: 'always stop' };
+
+/** The arrow for each seat, pointing at that side of the table. */
+const ARROW_PATH: Record<(typeof SEATS)[number], string> = {
+  bottom: 'M4 8h16l-8 9Z',
+  left: 'M16 4v16l-9-8Z',
+  top: 'M4 16h16l-8-9Z',
+  right: 'M8 4v16l9-8Z',
+};
+
+const stopTitle = (step: Step, kind: StopKind | undefined) =>
+  NO_PRIORITY.includes(step)
+    ? `${STEP_NAMES[step]}: nobody gets priority here`
+    : `${STEP_NAMES[step]}: ${kind ? STOP_TEXT[kind] : 'no stop'}. Click to change.`;
+
+/**
+ * The steps of the turn, and the human's stops. Clicking a pip sets or clears a stop
+ * there; a pip covering several steps splits into one button per step first. The arrows
+ * pick whose turns the stops are for. With none picked, the tracker follows the turn.
+ */
 function PhaseTracker() {
-  const g = useView().g;
+  const { g, me } = useView();
+  const stops = useStore((s) => s.stops);
+  const setStop = useStore((s) => s.setStop);
+  const [seat, setSeat] = useState<PlayerId | null>(null);
+  const [open, setOpen] = useState<number | null>(null);
+  const root = useRef<HTMLDivElement>(null);
+  const editing = me !== null && seat !== null && !g.players[seat].lost ? seat : null;
+  const turn = editing ?? g.active;
+  const turnStops = me === null ? {} : (stops[turn] ?? {});
+  const live = turn === g.active;
+
+  // A split pip closes again on a click anywhere else.
+  useEffect(() => {
+    if (open === null) return;
+    const onDown = (e: MouseEvent) => root.current?.contains(e.target as Node) || setOpen(null);
+    window.addEventListener('mousedown', onDown);
+    return () => window.removeEventListener('mousedown', onDown);
+  }, [open]);
+
+  const deckVar = (pid: PlayerId) => `var(--f-${DECKS.find((d) => d.id === g.players[pid].deckId)!.color})`;
+  // Your turn is orange and everyone else's blue; a picked arrow shows that player's deck colour.
+  const tone = editing !== null ? { '--phase': deckVar(editing), '--phase-glow': deckVar(editing) } : g.active === 0 ? {} : { '--phase': '#8ccbff', '--phase-glow': '#2f8fff' };
+  const strongest = (steps: Step[]) =>
+    steps.some((s) => turnStops[s] === 'always') ? 'always' : steps.some((s) => turnStops[s] === 'ifAble') ? 'ifAble' : undefined;
+  const whose = (pid: PlayerId) => (pid === me ? 'your' : `${g.players[pid].name}'s`);
+
   return (
-    <div className="phases">
-      <div className="phase-pips">
-        {PHASES.map((p) => (
-          <svg key={p.steps[0]} viewBox="0 0 24 24" className={cx('pip', p.steps.includes(g.step) && 'on')}>
-            {ICONS[p.icon]}
-          </svg>
-        ))}
-      </div>
-      <div className="phase-label">
-        Turn {g.turn} · {g.players[g.active].name} · {STEP_NAMES[g.step]}
+    <div className={cx('phases', me !== null && 'editable')} ref={root} style={tone as CSSProperties}>
+      {me !== null && (
+        <div className="seat-arrows">
+          {g.players.map((p) => (
+            <button
+              key={p.id}
+              className={cx('seat-arrow', `arrow-${SEATS[p.id]}`, editing === p.id && 'on', g.active === p.id && 'active')}
+              style={{ '--deck': deckVar(p.id) } as CSSProperties}
+              disabled={p.lost}
+              title={editing === p.id ? 'Back to the current turn' : `Set stops for ${whose(p.id)} turns`}
+              onClick={() => setSeat(editing === p.id ? null : p.id)}
+            >
+              <svg viewBox="0 0 24 24">
+                <path d={ARROW_PATH[SEATS[p.id]]} />
+              </svg>
+            </button>
+          ))}
+        </div>
+      )}
+      <div className="phase-main">
+        {open !== null && (
+          <div className="step-split">
+            {PHASES[open].steps.map((step) => (
+              <button
+                key={step}
+                className={cx('step-btn', live && g.step === step && 'on')}
+                disabled={NO_PRIORITY.includes(step)}
+                title={stopTitle(step, turnStops[step])}
+                onClick={() => setStop(turn, step, nextStop(turnStops[step]))}
+              >
+                {SHORT[step]}
+                <StopMark kind={turnStops[step]} />
+              </button>
+            ))}
+          </div>
+        )}
+        <div className="phase-pips">
+          {PHASES.map((p, i) => {
+            const single = p.steps.length === 1;
+            return (
+              <button
+                key={p.steps[0]}
+                className={cx('pip-btn', open === i && 'open')}
+                disabled={me === null}
+                title={single ? stopTitle(p.steps[0], turnStops[p.steps[0]]) : `${p.steps.map((s) => STEP_NAMES[s]).join(', ')}: click to set stops`}
+                onClick={() => (single ? setStop(turn, p.steps[0], nextStop(turnStops[p.steps[0]])) : setOpen(open === i ? null : i))}
+              >
+                <svg viewBox="0 0 24 24" className={cx('pip', live && p.steps.includes(g.step) && 'on')}>
+                  {ICONS[p.icon]}
+                </svg>
+                <StopMark kind={strongest(p.steps)} />
+              </button>
+            );
+          })}
+        </div>
+        <div className="phase-label">
+          {editing !== null ? `Stops on ${whose(editing)} turns` : `Turn ${g.turn} · ${g.players[g.active].name} · ${STEP_NAMES[g.step]}`}
+        </div>
       </div>
     </div>
   );
+}
+
+/** Under a pip or step: a ring for "stop if you can act", a dot for "always stop". */
+function StopMark({ kind }: { kind: StopKind | undefined }) {
+  return <span className={cx('stop-mark', kind && `stop-${kind}`)} />;
 }
 
 function Button({ btn, small }: { btn: Btn; small?: boolean }) {
@@ -67,6 +184,11 @@ export function ActionBar() {
   // Space/Enter = main button, Escape = cancel, like Arena.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      // While the exit dialog is open the keys belong to it: Esc stays, Enter presses the focused button.
+      if (useStore.getState().confirmExit) {
+        if (e.code === 'Escape') useStore.setState({ confirmExit: false });
+        return;
+      }
       const { primary, secondary } = latest.current;
       if ((e.code === 'Space' || e.code === 'Enter') && primary && !primary.disabled) {
         // Drop focus first, or a button that was just clicked would also fire natively.
@@ -109,6 +231,30 @@ export function Prompt() {
 
 const SPEEDS = [1, 2, 4];
 
+const escapeRegExp = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+/** A log line with the cards it names underlined. Hover one to see the card. */
+function LogText({ entry }: { entry: LogEntry }) {
+  if (!entry.cards?.length) return <>{entry.text}</>;
+  // Longest names first, so a name that contains another is matched whole.
+  const names = [...entry.cards].sort((a, b) => b.length - a.length).map(escapeRegExp);
+  // Splitting on a capture group keeps the matches: they land at the odd indexes.
+  const parts = entry.text.split(new RegExp(`(${names.join('|')})`));
+  return (
+    <>
+      {parts.map((part, i) =>
+        i % 2 ? (
+          <span key={i} className="log-card" {...hoverProps(part)}>
+            {part}
+          </span>
+        ) : (
+          part
+        ),
+      )}
+    </>
+  );
+}
+
 export function LogPanel() {
   const g = useView().g;
   const show = useStore((s) => s.showLog);
@@ -118,28 +264,77 @@ export function LogPanel() {
     lines.current?.scrollTo({ top: lines.current.scrollHeight });
   }, [g.log.length, show]);
   const start = Math.max(0, g.log.length - 80);
+  // The panel hangs from the bottom-left corner, so as the lines fold away the buttons ride down with them.
   return (
     <aside className="log">
       <div className="log-bar">
-        <button onClick={() => useStore.setState({ showLog: !show })}>{show ? 'Hide log' : 'Show log'}</button>
+        <button onClick={() => useStore.setState({ showLog: !show })} aria-expanded={show}>
+          {show ? 'Hide log' : 'Show log'}
+        </button>
         <button onClick={() => useStore.setState({ speed: SPEEDS[(SPEEDS.indexOf(speed) + 1) % SPEEDS.length] })} title="Bot speed">
           Speed {speed}×
         </button>
-        <button onClick={() => useStore.getState().quit()}>Menu</button>
+        <button onClick={() => useStore.setState({ confirmExit: true })}>Exit</button>
       </div>
-      {show && (
-        <div className="log-lines" ref={lines}>
-          {g.log.slice(start).map((l, i) => {
-            const color = l.player === undefined ? '#fff' : `var(--f-${DECKS.find((d) => d.id === g.players[l.player!].deckId)!.color})`;
-            return (
-              <div key={start + i} className={cx('log-line', l.text.startsWith('Turn ') && 'turn')} style={{ '--deck': color } as CSSProperties}>
-                {l.text}
-              </div>
-            );
-          })}
-        </div>
-      )}
+      <AnimatePresence initial={false}>
+        {show && (
+          <motion.div
+            key="log"
+            className="log-body"
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: 'auto', opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.28, ease: [0.25, 1, 0.5, 1] }}
+          >
+            <div className="log-lines" ref={lines}>
+              {g.log.slice(start).map((l, i) => {
+                const color = l.player === undefined ? '#fff' : `var(--f-${DECKS.find((d) => d.id === g.players[l.player!].deckId)!.color})`;
+                return (
+                  <div key={start + i} className={cx('log-line', l.text.startsWith('Turn ') && 'turn')} style={{ '--deck': color } as CSSProperties}>
+                    <LogText entry={l} />
+                  </div>
+                );
+              })}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </aside>
+  );
+}
+
+/** Asks before leaving a game in progress. */
+export function ExitConfirm() {
+  const open = useStore((s) => s.confirmExit);
+  const stay = () => useStore.setState({ confirmExit: false });
+  return (
+    <AnimatePresence>
+      {open && (
+        <motion.div className="modal" onClick={stay} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+          <motion.div
+            className="confirm"
+            role="alertdialog"
+            aria-modal="true"
+            aria-labelledby="exit-title"
+            onClick={(e) => e.stopPropagation()}
+            initial={{ scale: 0.92 }}
+            animate={{ scale: 1 }}
+            exit={{ scale: 0.96 }}
+          >
+            <h2 id="exit-title">Leave this game?</h2>
+            <p>The game ends here and you go back to the deck menu.</p>
+            <div className="confirm-buttons">
+              <button className="btn btn-plain small" onClick={stay} autoFocus>
+                <span className="btn-label">Keep playing</span>
+              </button>
+              <button className="btn btn-attack small" onClick={() => useStore.getState().quit()}>
+                <span className="btn-label">Exit</span>
+              </button>
+            </div>
+          </motion.div>
+        </motion.div>
+      )}
+    </AnimatePresence>
   );
 }
 

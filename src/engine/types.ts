@@ -110,6 +110,8 @@ export interface LogEntry {
   turn: number;
   text: string;
   player?: PlayerId;
+  /** Names of the cards the text mentions, exactly as written in it, so the UI can link them. */
+  cards?: string[];
 }
 
 /**
@@ -126,20 +128,49 @@ export interface StackItem {
   hook?: TriggerHook;
   event?: object;
   targets: (TargetRef | null)[];
+  /** A waiting triggered ability whose controller has already chosen its place in the order (603.3b). */
+  ordered?: boolean;
+}
+
+/**
+ * Cards a player picks from a list. `choiceOptions` in engine.ts says which cards are
+ * shown, which can be picked, and how many.
+ *  search - look through your library for a basic land (701.23) and put it onto the
+ *           battlefield or into your hand. `source` names the spell or ability.
+ *  bottom - put `count` cards from your hand on the bottom of your library after a mulligan (103.5)
+ */
+export type CardChoice =
+  | { kind: 'search'; player: PlayerId; source: string; to: 'battlefield' | 'hand'; tapped: boolean; subtype?: string }
+  | { kind: 'bottom'; player: PlayerId; count: number };
+
+/** The mulligan process before the first turn (103.5). `active` is the starting player meanwhile. */
+export interface Mulligans {
+  /** Mulligans taken so far, by player id. */
+  taken: number[];
+  /** Players still to declare this round, in turn order from the starting player. */
+  waiting: PlayerId[];
+  /** Players who declared a mulligan this round. They all take it once everyone has declared. */
+  taking: PlayerId[];
 }
 
 /**
  * A choice the game is waiting on that isn't a player using priority. `Game.priority`
  * names the player who makes it.
- *  attackers - the active player declares attackers (508.1)
- *  blockers  - a defending player declares blockers (509.1)
- *  discard   - the active player discards down to seven in the cleanup step (514.1)
- *  targets   - a player chooses targets for a triggered ability going on the stack (603.3d).
- *              `resume` is the player who gets priority afterwards.
+ *  mulligan      - before the game, a player declares whether they keep their hand (103.5)
+ *  attackers     - the active player declares attackers (508.1)
+ *  blockers      - a defending player declares blockers (509.1)
+ *  discard       - the active player discards down to seven in the cleanup step (514.1)
+ *  targets       - a player chooses targets for a triggered ability going on the stack (603.3d).
+ *                  `resume` is the player who gets priority afterwards.
+ *  orderTriggers - a player puts several of their triggered abilities on the stack in the
+ *                  order they choose (603.3b). Their waiting ones are in `Game.triggers`.
+ *  chooseCards   - a player picks cards from a list (see `CardChoice`)
  */
 export type Decision =
-  | { type: 'attackers' | 'blockers' | 'discard' }
-  | { type: 'targets'; item: StackItem; resume: PlayerId };
+  | { type: 'mulligan' | 'attackers' | 'blockers' | 'discard' }
+  | { type: 'targets'; item: StackItem; resume: PlayerId }
+  | { type: 'orderTriggers'; resume: PlayerId }
+  | { type: 'chooseCards'; choice: CardChoice };
 
 export interface Game {
   players: Player[];
@@ -153,6 +184,12 @@ export interface Game {
   stack: StackItem[];
   /** Abilities that have triggered but aren't on the stack yet (603.3). */
   triggers: StackItem[];
+  /** Mulligans in progress before the first turn (103.5), or null once the game has begun. */
+  mulligan: Mulligans | null;
+  /** Card choices waiting to be asked, in order. The first becomes a `chooseCards` decision. */
+  choices: CardChoice[];
+  /** The stack item that is partway through resolving while its controller makes a choice (608.2). */
+  resolving: string | null;
   /** How many players have passed priority in a row (117.4). */
   passes: number;
   combat: Combat | null;
@@ -176,6 +213,13 @@ export type Action =
   | { type: 'undeclareBlock'; blocker: string }
   | { type: 'discard'; card: string }
   | { type: 'chooseTargets'; targets: (TargetRef | null)[] }
+  /** Answers a `mulligan` decision. */
+  | { type: 'keep' }
+  | { type: 'mulligan' }
+  /** Answers a `chooseCards` decision. For `bottom`, they go down in this order, so the last is the very bottom card. */
+  | { type: 'chooseCards'; cards: string[] }
+  /** Answers `orderTriggers`: every waiting trigger of yours, in the order they go on the stack (the last resolves first). */
+  | { type: 'orderTriggers'; order: string[] }
   /** Pass priority, or finish declaring attackers or blockers. */
   | { type: 'pass' };
 
