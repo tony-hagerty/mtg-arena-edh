@@ -164,18 +164,42 @@ export function evaluate(g: Game, pid: PlayerId): number {
 
 const PASS: Action = { type: 'pass' };
 
+/** What a permanent is worth, for picking which targets to try. */
+const worth = (g: Game, c: Card) => (isCreature(c) ? threat(g, c) : isPlaneswalker(c) ? walkerValue(c) : 1 + data(c).cmc * 0.5);
+
+/**
+ * The targets worth trying for one target slot, so a wide board stays cheap to look ahead
+ * on, most promising first: spells and abilities, opponents, their four most valuable
+ * permanents, the three graveyard cards the bot wants most, its own two most valuable
+ * permanents, and itself. With `limit`, only that many.
+ */
+function shortlist(g: Game, pid: PlayerId, legal: TargetRef[], limit = Infinity): TargetRef[] {
+  const cards = legal.filter((t) => t.kind === 'card').map((t) => ({ t, c: findCard(g, t.id as string)! }));
+  const onField = cards.filter((x) => x.c.zone === 'battlefield');
+  const best = (xs: typeof cards, n: number) => [...xs].sort((a, b) => worth(g, b.c) - worth(g, a.c)).slice(0, n).map((x) => x.t);
+  return [
+    ...legal.filter((t) => t.kind === 'stack'),
+    ...legal.filter((t) => t.kind === 'player' && t.id !== pid),
+    ...best(onField.filter((x) => x.c.controller !== pid), 4),
+    ...cards.filter((x) => x.c.zone !== 'battlefield').sort((a, b) => cardWant(g, pid, b.c) - cardWant(g, pid, a.c)).slice(0, 3).map((x) => x.t),
+    ...best(onField.filter((x) => x.c.controller === pid), 2),
+    ...legal.filter((t) => t.kind === 'player' && t.id === pid),
+  ].slice(0, limit);
+}
+
 /** Every way of choosing targets for `specs` (capped so wide boards stay cheap). */
 function targetChoices(g: Game, pid: PlayerId, specs: TargetSpec[], source: Card): (TargetRef | null)[][] {
   let combos: (TargetRef | null)[][] = [[]];
   for (const spec of specs) {
-    const legal: (TargetRef | null)[] = legalTargets(g, pid, spec, source);
+    // With several targets to choose, fewer options each, so the combinations stay few.
+    const legal: (TargetRef | null)[] = shortlist(g, pid, legalTargets(g, pid, spec, source), specs.length > 1 ? 5 : Infinity);
     if (spec.optional || legal.length === 0) legal.push(null);
     // A target that must differ from an earlier one can't repeat it (115.3).
     const fits = (c: (TargetRef | null)[], t: TargetRef | null) => {
       const other = spec.distinctFrom === undefined ? null : c[spec.distinctFrom];
       return !t || !other || t.kind !== other.kind || t.id !== other.id;
     };
-    combos = combos.flatMap((c) => legal.filter((t) => fits(c, t)).map((t) => [...c, t])).slice(0, 80);
+    combos = combos.flatMap((c) => legal.filter((t) => fits(c, t)).map((t) => [...c, t])).slice(0, 40);
   }
   return combos;
 }
@@ -253,8 +277,11 @@ function candidateActions(g: Game, pid: PlayerId): { action: Action; spendsCard:
     const script = scriptFor(c);
     // Cards with their own rule for when to cast them are left to it.
     if (!canCast(g, pid, c) || script.botCast?.(g, pid, c) === false || script.ai === 'extraTurn' || script.ai === 'ritual') continue;
-    for (const choices of castChoices(g, pid, c)) {
-      for (const targets of targetChoices(g, pid, castTargets(c, choices.modes, choices.face, choices.gift), c)) {
+    // About 36 ways per card at most, shared out among its ways of casting it (a modal spell's mode sets).
+    const ways = castChoices(g, pid, c);
+    const each = Math.max(4, Math.floor(36 / Math.max(1, ways.length)));
+    for (const choices of ways) {
+      for (const targets of targetChoices(g, pid, castTargets(c, choices.modes, choices.face, choices.gift), c).slice(0, each)) {
         out.push({ action: { type: 'cast', card: c.id, targets, ...choices }, spendsCard: c.zone === 'hand' || c.zone === 'command' });
       }
     }
@@ -303,7 +330,13 @@ function anyTargets(g: Game): Action {
   if (g.decision?.type === 'commanderZone') return { type: 'commanderZone', toCommand: true };
   if (g.decision?.type !== 'targets') return PASS;
   const { item } = g.decision;
-  const targets = targetSpecs(item).map((spec) => (spec.optional ? null : (legalTargets(g, g.priority, spec, item.card)[0] ?? null)));
+  // An opponent or something of theirs if there is one: most triggered abilities that target harm.
+  const mine = (t: TargetRef) => (t.kind === 'player' ? t.id === g.priority : t.kind === 'card' && findCard(g, t.id)?.controller === g.priority);
+  const targets = targetSpecs(item).map((spec) => {
+    if (spec.optional) return null;
+    const legal = legalTargets(g, g.priority, spec, item.card);
+    return legal.find((t) => !mine(t)) ?? legal[0] ?? null;
+  });
   return { type: 'chooseTargets', targets };
 }
 
@@ -343,7 +376,7 @@ function resolveStack(g: Game, pid: PlayerId, depth = 0): Game {
     const deciding = g.decision?.type;
     if (deciding === 'chooseCards' || deciding === 'orderTriggers' || deciding === 'commanderZone' || deciding === 'ask' || deciding === 'name' || deciding === 'player' || deciding === 'cast' || deciding === 'retarget') {
       action = anyTargets(g);
-    } else if (g.decision?.type === 'targets') action = g.priority === pid && depth < 2 ? bestTargets(g, pid, depth) : anyTargets(g);
+    } else if (g.decision?.type === 'targets') action = g.priority === pid && depth < 1 ? bestTargets(g, pid, depth) : anyTargets(g);
     else if (g.stack.length && !g.decision) action = PASS;
     else break;
     const next = applyAction(g, action, STEP_BY_STEP);
@@ -376,8 +409,10 @@ function finishCombat(g: Game): Game {
  */
 function bestPlay(g: Game, pid: PlayerId): Action | null {
   const throughCombat = fighting(g);
+  // Triggered abilities the play sets off take quick targets here: searching theirs too for
+  // every candidate costs too much. The bot searches properly when it really chooses.
   const outcome = (s: Game) => {
-    s = resolveStack(s, pid);
+    s = resolveStack(s, pid, 1);
     return evaluate(throughCombat ? finishCombat(s) : s, pid);
   };
   const baseline = outcome(g);
