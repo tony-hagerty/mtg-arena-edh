@@ -8,7 +8,7 @@ import { ManaCost } from './Card';
 import { useRem } from './rem';
 import { useStore } from './store';
 import { SEATS, cx, deckColor, hoverProps } from './util';
-import { STEP_NAMES, cancel, useView } from './view';
+import { STEP_NAMES, cancel, setChoices, useView } from './view';
 import type { Btn } from './view';
 
 // ---------- phase tracker + buttons (bottom right) ----------
@@ -209,6 +209,74 @@ export function ActionBar() {
       <PhaseTracker />
       {v.secondary && <Button btn={v.secondary} small />}
       {v.primary && <Button btn={v.primary} />}
+    </div>
+  );
+}
+
+/**
+ * Choices announced before a spell's targets (601.2b): the value of X (107.3a), how many
+ * times to pay kicker (702.33), and the mana cost or an alternative cost (118.9).
+ */
+export function CastOptions() {
+  const { announce: a } = useView();
+  if (!a) return null;
+  const { choices } = a;
+  const x = choices.x ?? 0;
+  const kicked = choices.kicked ?? 0;
+  return (
+    <div className="cast-options">
+      {a.costs.length > 1 && (
+        <div className="cast-row">
+          <span className="cast-label">Cost</span>
+          {a.costs.map((c) => (
+            <button
+              key={c.alt ?? 'mana'}
+              className={cx('chip', choices.alt === c.alt && 'on')}
+              disabled={!c.payable}
+              onClick={() => setChoices({ alt: c.alt })}
+            >
+              {c.label.startsWith('{') ? <ManaCost cost={c.label} /> : c.label}
+            </button>
+          ))}
+        </div>
+      )}
+      {a.maxX !== null && (
+        <div className="cast-row">
+          <span className="cast-label">X</span>
+          <button className="chip" disabled={x <= 0} onClick={() => setChoices({ x: x - 1 })} aria-label="Less">
+            −
+          </button>
+          <b className="cast-x">{x}</b>
+          <button className="chip" disabled={x >= a.maxX} onClick={() => setChoices({ x: x + 1 })} aria-label="More">
+            +
+          </button>
+          <button className="chip" disabled={x === a.maxX} onClick={() => setChoices({ x: a.maxX! })}>
+            Max
+          </button>
+        </div>
+      )}
+      {a.kicker && (
+        <div className="cast-row">
+          <span className="cast-label">
+            Kicker <ManaCost cost={a.kicker.text} />
+          </span>
+          {a.kicker.most > 1 || kicked > 1 ? (
+            <>
+              <button className="chip" disabled={kicked <= 0} onClick={() => setChoices({ kicked: kicked - 1 })} aria-label="Fewer">
+                −
+              </button>
+              <b className="cast-x">×{kicked}</b>
+              <button className="chip" disabled={kicked >= a.kicker.most} onClick={() => setChoices({ kicked: kicked + 1 })} aria-label="More">
+                +
+              </button>
+            </>
+          ) : (
+            <button className={cx('chip', kicked > 0 && 'on')} disabled={!kicked && !a.kicker.most} onClick={() => setChoices({ kicked: kicked ? 0 : 1 })}>
+              {kicked ? 'Kicked' : 'Kick'}
+            </button>
+          )}
+        </div>
+      )}
     </div>
   );
 }

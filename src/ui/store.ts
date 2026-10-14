@@ -1,10 +1,11 @@
 import { create } from 'zustand';
 import { applyAction, applyBotAction, defaultStops, newGame } from '../engine';
-import type { Action, ApplyOptions, Game, PlayerId, Step, StopKind, Stops, TargetRef, TargetSpec, Zone } from '../engine';
+import type { Action, ApplyOptions, CastChoices, Game, PlayerId, Step, StopKind, Stops, TargetRef, TargetSpec, Zone } from '../engine';
 
 /**
  * A spell or ability the human is part-way through. `cast` and `activate` are proposals
- * (601.2): targets are chosen first, then the cost is paid, and until it is paid nothing
+ * (601.2): X, kicker and the alternative cost are announced first, then targets are
+ * chosen, then anything to sacrifice, then the cost is paid. Until it is paid nothing
  * has reached the game. `trigger` is a triggered ability the game is already waiting on
  * for targets (see `targetingOf` in view.ts).
  */
@@ -15,6 +16,10 @@ export interface Targeting {
   chosen: (TargetRef | null)[];
   /** Mana sources tapped by hand while paying, so cancelling can untap them again (733.1). */
   tapped: string[];
+  /** What the human has announced for a spell so far (601.2b). */
+  choices: CastChoices;
+  /** Still announcing X, kicker or the alternative cost: targets come next. */
+  announcing: boolean;
 }
 
 const STOPS_KEY = 'arena-edh.stops';
