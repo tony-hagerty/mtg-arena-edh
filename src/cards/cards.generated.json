@@ -2249,23 +2249,21 @@
    "image": "https://cards.scryfall.io/normal/front/7/8/78b194b3-108a-4152-bd37-52c302e25ad6.jpg",
    "art": "https://cards.scryfall.io/art_crop/front/7/8/78b194b3-108a-4152-bd37-52c302e25ad6.jpg"
   },
-  "Fire Elemental": {
-   "name": "Fire Elemental",
-   "manaCost": "{3}{R}{R}",
-   "cmc": 5,
+  "Dragon Tempest": {
+   "name": "Dragon Tempest",
+   "manaCost": "{1}{R}",
+   "cmc": 2,
    "colors": [
     "R"
    ],
    "colorIdentity": [
     "R"
    ],
-   "typeLine": "Creature — Elemental",
-   "oracleText": "",
-   "power": "5",
-   "toughness": "4",
+   "typeLine": "Enchantment",
+   "oracleText": "Whenever a creature you control with flying enters, it gains haste until end of turn.\nWhenever a Dragon you control enters, it deals X damage to any target, where X is the number of Dragons you control.",
    "keywords": [],
-   "image": "https://cards.scryfall.io/normal/front/d/c/dc506f58-048d-49cc-ad8c-2eb851b08bb6.jpg",
-   "art": "https://cards.scryfall.io/art_crop/front/d/c/dc506f58-048d-49cc-ad8c-2eb851b08bb6.jpg"
+   "image": "https://cards.scryfall.io/normal/front/3/9/39ac7ad0-e570-4209-988c-7c0f9b9d2004.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/3/9/39ac7ad0-e570-4209-988c-7c0f9b9d2004.jpg"
   },
   "Furnace Whelp": {
    "name": "Furnace Whelp",

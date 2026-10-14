@@ -5,7 +5,7 @@
 // `CardPicker` is the reusable part; `Decisions` chooses which one the game is asking for.
 import { useState } from 'react';
 import { CREATURE_TYPES, cardNames, isCardName } from '../cards/db';
-import { canCast, canMulligan, canSayYes, choiceOptions, commanderTax, data, findCard, label, nextMulliganBottom, resolvingItem } from '../engine';
+import { canCast, canMulligan, canSayYes, choiceOptions, commanderTax, data, findCard, label, nextMulliganBottom, resolvingItem, triggerText } from '../engine';
 import type { Action, AskChoice, Card, CardChoice, CastChoice, Game, NameChoice, PlayerChoice, PlayerId } from '../engine';
 import { ManaCost } from './Card';
 import { useStore } from './store';
@@ -410,6 +410,8 @@ function TriggerOrder({ g, me }: { g: Game; me: PlayerId }) {
                 <img src={data(t.card).image} alt={label(t.card)} draggable={false} />
                 <span className="picker-num">{ORDINAL[i] ?? `${i + 1}th`}</span>
               </div>
+              {/* A card with several abilities for one event says which one this is. */}
+              {triggerText(t) && <p className="picker-ability">{triggerText(t)}</p>}
               <div className="picker-move">
                 <button disabled={i === 0} onClick={() => move(i, -1)} aria-label="Resolve sooner">
                   ◀

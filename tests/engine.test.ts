@@ -47,6 +47,7 @@ import {
   findCard,
   manaValue,
   maxModes,
+  triggerText,
 } from '../src/engine';
 import type { Action, ApplyOptions, Game, TurnStops } from '../src/engine';
 import { DECKS } from '../src/cards/db';
@@ -3679,5 +3680,67 @@ describe('the red-green and green-white starter decks (session 8b)', () => {
     for (let i = 0; i < 20 && asking(g)?.kind === 'pick' && g.priority === 1; i++) g = applyBotAction(g, botAction(g, 1));
     expect(byName(g, 1, 'Serra Angel')).toBeDefined();
     expect(byName(g, 1, 'Llanowar Elves', 'graveyard')).toBeDefined();
+  });
+});
+
+describe('several triggered abilities for one event (603.2)', () => {
+  const byHand = { autoPass: false };
+  const tempest = (creature: string, setup: (d: Game) => void = () => {}) =>
+    emptyGame((d) => {
+      d.players[0].isBot = false;
+      put(d, 0, 'Dragon Tempest');
+      put(d, 0, 'Mountain', 'battlefield', 6);
+      put(d, 0, creature, 'hand');
+      setup(d);
+    });
+  const castIt = (g: Game, name: string) =>
+    runWith(byHand, g, { type: 'cast', card: byName(g, 0, name, 'hand')!.id }, pass, pass, pass, pass);
+
+  it('Dragon Tempest: a Dragon with flying triggers both abilities, each its own stack item', () => {
+    let g = castIt(tempest('Shivan Dragon', (d) => void put(d, 0, 'Furnace Whelp')), 'Shivan Dragon');
+    // Both triggered at once, so their controller orders them (603.3b).
+    expect([g.decision?.type, g.priority]).toEqual(['orderTriggers', 0]);
+    const [haste, damage] = g.triggers;
+    expect([haste.trigger, damage.trigger]).toEqual([0, 1]);
+    expect([triggerText(haste), triggerText(damage)]).toEqual(['A creature with flying gains haste', 'The Dragon deals damage equal to your Dragons']);
+    // The damage ability goes on the stack last, so it resolves first. Only it has a target.
+    g = runWith(byHand, g, { type: 'orderTriggers', order: [haste.id, damage.id] });
+    expect(g.decision?.type).toBe('targets');
+    g = runWith(byHand, g, { type: 'chooseTargets', targets: [{ kind: 'player', id: 1 }] });
+    expect(g.stack.map((x) => x.trigger)).toEqual([0, 1]);
+    expect(g.stack[0].targets).toEqual([]);
+    g = runWith(byHand, g, pass, pass, pass, pass);
+    // X is the number of Dragons you control: Shivan Dragon and Furnace Whelp.
+    expect(g.players[1].life).toBe(38);
+    expect(stats(g, byName(g, 0, 'Shivan Dragon')!).keywords.has('haste')).toBe(false);
+    g = runWith(byHand, g, pass, pass, pass, pass);
+    expect(g.stack).toEqual([]);
+    expect(stats(g, byName(g, 0, 'Shivan Dragon')!).keywords.has('haste')).toBe(true);
+  });
+
+  it('Dragon Tempest: a flier that is not a Dragon triggers only the haste ability', () => {
+    let g = castIt(tempest('Serra Angel', (d) => void put(d, 0, 'Plains', 'battlefield', 2)), 'Serra Angel');
+    expect(g.decision).toBe(null);
+    expect(g.stack.map((x) => [x.card.name, x.trigger])).toEqual([['Dragon Tempest', 0]]);
+    g = runWith(byHand, g, pass, pass, pass, pass);
+    expect(stats(g, byName(g, 0, 'Serra Angel')!).keywords.has('haste')).toBe(true);
+    expect(g.players.map((p) => p.life)).toEqual([40, 40, 40, 40]);
+  });
+
+  it("Dragon Tempest ignores an opponent's Dragon, and a bot's two triggers both resolve", () => {
+    let g = emptyGame((d) => {
+      d.active = 1;
+      d.priority = 1;
+      put(d, 0, 'Dragon Tempest');
+      put(d, 1, 'Dragon Tempest');
+      put(d, 1, 'Mountain', 'battlefield', 6);
+      put(d, 1, 'Shivan Dragon', 'hand');
+    });
+    g = run(g, { type: 'cast', card: byName(g, 1, 'Shivan Dragon', 'hand')!.id });
+    for (let i = 0; i < 20 && (g.stack.length || g.triggers.length || g.decision); i++) g = applyBotAction(g, botAction(g, g.priority));
+    // Only player 1's Tempest triggered: one Dragon, so 1 damage in all, and haste.
+    const lost = g.players.reduce((n, p) => n + 40 - p.life, 0);
+    expect(lost).toBe(1);
+    expect(stats(g, byName(g, 1, 'Shivan Dragon')!).keywords.has('haste')).toBe(true);
   });
 });

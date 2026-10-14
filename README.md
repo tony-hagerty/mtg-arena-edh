@@ -208,7 +208,9 @@ Rule numbers below are from the Comprehensive Rules in `docs/rules/`.
 - Triggered abilities (603): they trigger when the event happens, go on the stack the
   next time a player would get priority (active player's first), and choose targets then.
   You choose the order of your own that go on together (603.3b); bots keep the order they
-  triggered in.
+  triggered in. A card can have several abilities for the same event (Dragon Tempest's two
+  "enters" abilities): each triggers, targets and goes on the stack on its own (603.2), and
+  the ordering window and the stack (on hover) say which one it is.
 - Mulligans (103.5): players declare in turn order from the starting player, then
   everyone who chose to mulligan does so at once and puts cards on the bottom. The first
   mulligan is free in multiplayer (103.5c). Bots keep a hand with 2 to 5 lands.
@@ -330,9 +332,7 @@ These are deliberate cuts for a prototype, roughly in the order I'd tackle them 
   `tests/fixtures.ts` (Jace Beleren, Garruk Wildspeaker, Invasion of Dominaria). A
   planeswalker that says it "can be your commander" is accepted as one (903.3a).
 - Auras can only enchant permanents, not players (702.5d). A card can have only one
-  activated ability, so an Equipment's equip is its only one. It can also have only one
-  triggered ability for each kind of event, so a card with two "whenever ... enters"
-  abilities (Dragon Tempest) can't be scripted yet. Proliferate, shield,
+  activated ability, so an Equipment's equip is its only one. Proliferate, shield,
   stun and other counters with their own rules (122.1c-j) do nothing special yet.
   The test-only cards are in `tests/fixtures.ts` (Pacifism, Holy Strength, Bonesplitter,
   Loxodon Warhammer, Untethered Express, Black Sun's Zenith).
@@ -465,7 +465,10 @@ stack as `Game.resolving` until it is answered. What happens next is the script'
    text }` for level 2, 3) and reads `self.level`, with `onLevel` for "when this Class
    becomes level N". `flashback: '{2}{U}'` lets it be cast from a graveyard.
    `createToken(g, pid, 'Treasure')` (or `'Food'`, `'Clue'`) makes the predefined tokens.
-   A `{ when, resolve }` trigger can take `targets`.
+   A `{ when, resolve }` trigger can take `targets`. A hook can hold a list of triggers
+   when a card has several for one event (`onCreatureEnters: [a, b]`, Dragon Tempest); then
+   each names its own `targets` (`onEnter` ones too) and a short `text`, and `when` may be
+   left out for one that triggers on every event.
    Mana: `mana` can be a list of abilities, each with `colors` (a list, `'any'`,
    `'identity'` or a function), and optionally `life`, `damage`, `sacrifice`, `when`,
    `fromHand` or `manual`. `addMana(g, pid, ['B', 'B', 'B'], self)` for rituals;

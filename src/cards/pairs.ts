@@ -10,6 +10,7 @@ import {
   addMana,
   allCreatures,
   ask,
+  battlefield,
   attachedBonus,
   chooseToDiscard,
   chooseToSacrifice,
@@ -25,6 +26,7 @@ import {
   finishEnter,
   gainControl,
   gainLife,
+  has,
   hasType,
   isCreature,
   isLand,
@@ -42,6 +44,7 @@ import {
   refPlayer,
   sameCard,
   stats,
+  subtypesOf,
   turnOrder,
 } from '../engine/rules';
 import type { Card, CardScript, Game, PlayerId, TargetSpec } from '../engine/types';
@@ -62,6 +65,9 @@ const ferocious = (g: Game, you: PlayerId) => creaturesOf(g, you).some((c) => st
 
 /** "Whenever a Dragon you control attacks". */
 const dragonOfYoursAttacks = (_g: Game, e: { self: Card; attacker: Card }) => e.attacker.controller === e.self.controller && hasType(e.attacker, 'Dragon');
+
+/** Has the creature type Dragon (205.3m), not just "Dragon" somewhere in its type line. */
+const isDragon = (c: Card) => subtypesOf(c).includes('Dragon');
 
 /** The permanent an event remembered, if it is still the same object (400.7). */
 const sameObject = (g: Game, remembered: Card) => {
@@ -408,6 +414,29 @@ registerScripts({
   'Savage Ventmaw': {
     // "Whenever this creature attacks, add {R}{R}{R}{G}{G}{G}. Until end of turn, you don't lose this mana as steps and phases end."
     onAttack: (g, { self, you }) => addMana(g, you, ['R', 'R', 'R', 'G', 'G', 'G'], self, { keep: true }),
+  },
+  // Two triggered abilities for the same event, each triggering on its own (603.2).
+  'Dragon Tempest': {
+    onCreatureEnters: [
+      {
+        // "Whenever a creature you control with flying enters, it gains haste until end of turn."
+        text: 'A creature with flying gains haste',
+        when: (g, { self, entered }) => entered.controller === self.controller && has(g, permanent(g, entered.id) ?? entered, 'flying'),
+        resolve: (g, { entered }) => pump(g, sameObject(g, entered), 0, 0, ['haste']),
+      },
+      {
+        // "Whenever a Dragon you control enters, it deals X damage to any target, where X is
+        // the number of Dragons you control." The Dragon deals it, as it last was if it has
+        // left; X is counted as the ability resolves (608.2h).
+        text: 'The Dragon deals damage equal to your Dragons',
+        when: (_g, { self, entered }) => entered.controller === self.controller && isDragon(entered),
+        targets: [anyTarget],
+        resolve: (g, { you, entered, targets }) => {
+          const dragons = battlefield(g).filter((c) => c.controller === you && isDragon(c)).length;
+          dealDamage(g, sameObject(g, entered) ?? entered, targets[0], dragons);
+        },
+      },
+    ],
   },
   'Atarka, World Render': {
     // "Whenever a Dragon you control attacks, it gains double strike until end of turn."

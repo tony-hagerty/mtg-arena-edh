@@ -2013,6 +2013,16 @@ button {
   gap: 1rem;
 }
 
+/* Which of a card's abilities a trigger is, under its card in the trigger-order window. */
+.picker-ability {
+  max-width: 22rem;
+  margin: 0;
+  font-size: 1.4rem;
+  line-height: 1.3;
+  text-align: center;
+  color: #c3cad8;
+}
+
 .picker-move {
   display: flex;
   gap: 1rem;
