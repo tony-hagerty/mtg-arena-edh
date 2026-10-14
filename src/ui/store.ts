@@ -1,6 +1,6 @@
 import { create } from 'zustand';
-import { applyAction, applyBotAction, newGame } from '../engine';
-import type { Action, Game, PlayerId, TargetRef, TargetSpec, Zone } from '../engine';
+import { applyAction, applyBotAction, defaultStops, newGame } from '../engine';
+import type { Action, ApplyOptions, Game, PlayerId, Step, StopKind, Stops, TargetRef, TargetSpec, Zone } from '../engine';
 
 /**
  * A spell or ability the human is part-way through. `cast` and `activate` are proposals
@@ -15,6 +15,27 @@ export interface Targeting {
   chosen: (TargetRef | null)[];
   /** Mana sources tapped by hand while paying, so cancelling can untap them again (733.1). */
   tapped: string[];
+}
+
+const STOPS_KEY = 'arena-edh.stops';
+
+/** The human's stops from the last session, or the defaults. Storage can be missing or blocked. */
+function loadStops(): Stops {
+  try {
+    const saved = JSON.parse(localStorage.getItem(STOPS_KEY) ?? 'null');
+    if (Array.isArray(saved) && saved.length === 4) return saved;
+  } catch {
+    // fall through to the defaults
+  }
+  return defaultStops(0);
+}
+
+function saveStops(stops: Stops) {
+  try {
+    localStorage.setItem(STOPS_KEY, JSON.stringify(stops));
+  } catch {
+    // stops just won't outlast the page
+  }
 }
 
 export interface Hover {
@@ -39,6 +60,9 @@ interface Store {
   /** The "leave this game?" dialog is open. */
   confirmExit: boolean;
   speed: number;
+  /** Where the game stops for the human (seat 0), by whose turn it is. A UI preference passed to the engine. */
+  stops: Stops;
+  setStop: (turn: PlayerId, step: Step, kind: StopKind | undefined) => void;
   start: (deck: number | null) => void;
   quit: () => void;
   act: (a: Action) => boolean;
@@ -58,10 +82,18 @@ export const useStore = create<Store>()((set, get) => ({
   showLog: true,
   confirmExit: false,
   speed: 1,
+  stops: loadStops(),
+
+  setStop: (turn, step, kind) => {
+    const stops = get().stops.map((t, i) => (i === turn ? { ...t, [step]: kind } : t));
+    if (!kind) delete stops[turn][step];
+    saveStops(stops);
+    set({ stops });
+  },
 
   start: (deck) =>
     set({
-      game: newGame({ seed: (Math.random() * 2 ** 31) | 0, humanDeck: deck }),
+      game: newGame({ seed: (Math.random() * 2 ** 31) | 0, humanDeck: deck, stops: deck === null ? {} : { 0: get().stops } }),
       gameNo: get().gameNo + 1,
       human: deck === null ? null : 0,
       targeting: null,
@@ -78,7 +110,7 @@ export const useStore = create<Store>()((set, get) => ({
   act: (a) => {
     const g = get().game;
     if (!g) return false;
-    const next = applyAction(g, a);
+    const next = applyAction(g, a, engineOptions());
     if (next === g) return false;
     // Declaring attackers/blockers and tapping for mana keep the current selection; anything else resets it.
     const mana = a.type === 'tapMana' || a.type === 'untapMana';
@@ -90,6 +122,12 @@ export const useStore = create<Store>()((set, get) => ({
 
   botAct: (a) => {
     const g = get().game;
-    if (g) set({ game: applyBotAction(g, a) });
+    if (g) set({ game: applyBotAction(g, a, engineOptions()) });
   },
 }));
+
+/** The human's stops go to the engine with every action, bots' included: those decide when the human is asked too. */
+function engineOptions(): ApplyOptions {
+  const { human, stops } = useStore.getState();
+  return { stops: human === null ? {} : { [human]: stops } };
+}

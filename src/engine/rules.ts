@@ -423,6 +423,10 @@ const SECOND_PERSON: Record<string, string> = {
   attacks: 'attack',
   discards: 'discard',
   fetches: 'fetch',
+  finds: 'find',
+  puts: 'put',
+  keeps: 'keep',
+  mulligans: 'mulligan',
   gains: 'gain',
   loses: 'lose',
   wins: 'win',
@@ -653,24 +657,32 @@ export function addCounters(_g: Game, c: Card | undefined, n = 1) {
   if (c && c.zone === 'battlefield') c.counters += n;
 }
 
-/** Finds a basic land in the library (optionally of one subtype), moves it, then shuffles. */
+/**
+ * The player searches their library for a basic land (optionally of one subtype), puts it
+ * onto the battlefield or into their hand, then shuffles. They choose the card, so this
+ * only queues the choice: the engine asks for it once the effect has finished, before the
+ * spell or ability is done resolving (see `CardChoice`).
+ */
 export function searchBasic(
   g: Game,
   pid: PlayerId,
   to: 'battlefield' | 'hand',
   opts: { tapped?: boolean; subtype?: string } = {},
-): boolean {
-  const p = g.players[pid];
-  if (p.lost) return false;
-  const land = p.library.find((c) => hasType(c, 'Basic Land') && (!opts.subtype || hasType(c, opts.subtype)));
-  if (land) {
-    log(g, `${says(p, 'fetches')} ${label(land)}.`, pid, [land]);
-    if (to === 'battlefield') enterBattlefield(g, land, { tapped: opts.tapped ?? true });
-    else moveCard(g, land, 'hand');
-  }
-  shuffle(g, p.library);
-  return !!land;
+) {
+  if (g.players[pid].lost) return;
+  const source = g.stack.find((x) => x.id === g.resolving)?.card;
+  g.choices.push({
+    kind: 'search',
+    player: pid,
+    source: source ? label(source) : 'Search',
+    to,
+    tapped: to === 'battlefield' && (opts.tapped ?? true),
+    subtype: opts.subtype,
+  });
 }
+
+/** Cards that a search for a basic land (of `subtype`, if given) can find. */
+export const searchable = (c: Card, subtype?: string) => hasType(c, 'Basic Land') && (!subtype || hasType(c, subtype));
 
 // ---------- state-based actions ----------
 
