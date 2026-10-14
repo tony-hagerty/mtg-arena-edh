@@ -8,16 +8,22 @@ import {
   canCast,
   canMulligan,
   canPlayLand,
+  castCost,
   choiceOptions,
   data,
   defaultStops,
   moveCard,
+  makeCard,
   newGame,
+  parseCost,
+  planPayment,
   stats,
+  tapForMana,
   turnOrder,
 } from '../src/engine';
 import type { ApplyOptions, Game, TurnStops } from '../src/engine';
-import { byName, emptyGame, onBattlefield, put, run, runWith } from './helpers';
+import { DECKS } from '../src/cards/db';
+import { byName, emptyGame, onBattlefield, put, run, runWith, twoCommanderDeck } from './helpers';
 
 const pass = { type: 'pass' } as const;
 
@@ -45,7 +51,7 @@ describe('commander rules', () => {
     // 15 lands - 5 (Lyra) - 3 (Murder) = 7 left, exactly Lyra + 2 tax.
     g = run(g, { type: 'cast', card: lyra.id });
     expect(availableMana(g, 0)).toBe(0);
-    expect(g.players[0].commanderCasts).toBe(2);
+    expect(g.players[0].commanderCasts).toEqual([2]);
   });
 
   // Player 0 is made human in these, since bots always send their commander home.
@@ -99,7 +105,7 @@ describe('commander rules', () => {
   it('asks a human whose commander goes to their hand, and lets them keep it there (903.9b)', () => {
     let g = emptyGame((d) => {
       d.players[0].isBot = false;
-      d.players[0].commanderCasts = 1;
+      d.players[0].commanderCasts = [1];
       put(d, 0, 'Plains', 'battlefield', 5);
       moveCard(d, d.players[0].command[0], 'hand');
     });
@@ -130,7 +136,8 @@ describe('commander rules', () => {
     let g = emptyGame((d) => {
       const c = put(d, 0, 'Ghalta, Primal Hunger');
       c.isCommander = true;
-      d.players[1].commanderDamage[0] = 10;
+      d.players[0].commanders = ['Ghalta, Primal Hunger'];
+      d.players[1].commanderDamage[0] = [10];
     });
     const ghalta = byName(g, 0, 'Ghalta, Primal Hunger')!;
     g = run(g, pass, { type: 'declareAttack', card: ghalta.id, defender: 1 }, pass);
@@ -152,6 +159,101 @@ describe('commander rules', () => {
     expect(ghalta(setup(true)).name).toBe('Ghalta, Primal Hunger');
     expect(canCast(setup(false), 3, ghalta(setup(false)))).toBe(false);
     expect(canCast(setup(true), 3, ghalta(setup(true)))).toBe(true);
+  });
+});
+
+describe('two commanders (702.124) and multicolour decks', () => {
+  /** Player 0 gets two commanders, Lyra (W) and Torbran (R), both in the command zone. */
+  const boros = (setup: (g: Game) => void = () => {}) =>
+    emptyGame((d) => {
+      const p = d.players[0];
+      p.commanders = ['Lyra Dawnbringer', 'Torbran, Thane of Red Fell'];
+      p.colors = ['W', 'R'];
+      p.commanderCasts = [0, 0];
+      p.command.push(makeCard(d, 'Torbran, Thane of Red Fell', 0, 'command', { isCommander: true }));
+      for (const o of d.players) o.commanderDamage[0] = [0, 0];
+      setup(d);
+    });
+
+  it('starts both commanders in the command zone, with colours from both (702.124b-c)', () => {
+    const g = newGame({ seed: 3, humanDeck: null, decks: [twoCommanderDeck(), ...DECKS.slice(1)] });
+    const p = g.players[0];
+    expect(p.command.map((c) => c.name).sort()).toEqual(['Lyra Dawnbringer', 'Torbran, Thane of Red Fell']);
+    expect(p.command.every((c) => c.isCommander)).toBe(true);
+    expect(p.library.length + p.hand.length).toBe(98);
+    expect(p.colors).toEqual(['W', 'R']);
+    expect(p.commanderCasts).toEqual([0, 0]);
+    // Everyone tracks damage from each of player 0's two commanders separately.
+    expect(g.players[1].commanderDamage[0]).toEqual([0, 0]);
+    expect(g.players[1].commanderDamage[1]).toEqual([0]);
+  });
+
+  it('charges each commander only for its own casts (903.8, 702.124d)', () => {
+    let g = boros((d) => put(d, 0, 'Mountain', 'battlefield', 4));
+    const torbran = byName(g, 0, 'Torbran, Thane of Red Fell', 'command')!;
+    g = run(g, { type: 'cast', card: torbran.id }, pass);
+    expect(g.players[0].commanderCasts).toEqual([0, 1]);
+    g = produce(g, (d) => moveCard(d, byName(d, 0, 'Torbran, Thane of Red Fell')!, 'command'));
+    const lyra = byName(g, 0, 'Lyra Dawnbringer', 'command')!;
+    expect(castCost(g, lyra).generic).toBe(3); // no tax: Torbran's cast doesn't count
+    expect(castCost(g, byName(g, 0, 'Torbran, Thane of Red Fell', 'command')!).generic).toBe(3); // {1} + 2 tax
+  });
+
+  it('counts commander damage from each partner separately (903.10a, 702.124d)', () => {
+    const attack = (damage: number[]) => {
+      let g = boros((d) => {
+        const c = put(d, 0, 'Ghalta, Primal Hunger'); // a 12/12 standing in as the second commander
+        c.isCommander = true;
+        d.players[0].commanders = ['Lyra Dawnbringer', 'Ghalta, Primal Hunger'];
+        d.players[1].commanderDamage[0] = damage;
+      });
+      g = run(g, pass, { type: 'declareAttack', card: byName(g, 0, 'Ghalta, Primal Hunger')!.id, defender: 1 }, pass);
+      return g.players[1];
+    };
+    // 20 from Lyra plus 12 from Ghalta is 32, but no single commander has dealt 21.
+    const safe = attack([20, 0]);
+    expect(safe.commanderDamage[0]).toEqual([20, 12]);
+    expect(safe.lost).toBe(false);
+    expect(attack([0, 10]).lost).toBe(true);
+  });
+
+  it('pays multicolour costs from multicolour sources', () => {
+    const g = boros((d) => {
+      put(d, 0, 'Arcane Signet'); // W or R: the commanders' combined identity (702.124c)
+      put(d, 0, 'Plains');
+    });
+    expect(planPayment(g, 0, parseCost('{R}{W}'))?.tap).toHaveLength(2);
+    expect(planPayment(g, 0, parseCost('{W}{W}'))?.tap).toHaveLength(2);
+    expect(planPayment(g, 0, parseCost('{R}{R}'))).toBe(null);
+    // Pips go to the source that can't make anything else first, scarcest colour first.
+    const both = boros((d) => {
+      put(d, 0, 'Manalith');
+      put(d, 0, 'Arcane Signet');
+      put(d, 0, 'Mountain');
+    });
+    expect(planPayment(both, 0, parseCost('{G}{R}{W}'))?.tap).toHaveLength(3);
+    expect(planPayment(both, 0, parseCost('{G}{G}{R}'))).toBe(null);
+  });
+
+  it('a hand-tapped multicolour source makes the colour the hand needs', () => {
+    const g = boros((d) => {
+      put(d, 0, 'Arcane Signet');
+      put(d, 0, 'Lightning Bolt', 'hand');
+    });
+    const after = produce(g, (d) => tapForMana(d, 0, byName(d, 0, 'Arcane Signet')!));
+    expect(after.players[0].pool.map((m) => m.sym)).toEqual(['R']);
+  });
+
+  it('bots play the land for the colour they are missing', () => {
+    const g = boros((d) => {
+      put(d, 0, 'Plains', 'battlefield', 2);
+      put(d, 0, 'Plains', 'hand');
+      put(d, 0, 'Mountain', 'hand');
+      put(d, 0, 'Lightning Bolt', 'hand');
+    });
+    const action = botAction(g, 0);
+    expect(action.type).toBe('playLand');
+    expect(action.type === 'playLand' && g.players[0].hand.find((c) => c.id === action.card)?.name).toBe('Mountain');
   });
 });
 

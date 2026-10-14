@@ -1,9 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import { applyBotAction, botAction, newGame } from '../src/engine';
 import type { Game } from '../src/engine';
+import { DECKS } from '../src/cards/db';
+import type { DeckDef } from '../src/cards/db';
+import { twoCommanderDeck } from './helpers';
 
-/** Checks things that must hold after every single action. */
-function checkInvariants(g: Game) {
+/** Checks things that must hold after every single action. `sizes` is each player's deck size. */
+function checkInvariants(g: Game, sizes: number[]) {
   const seen = new Set<string>();
   for (const p of g.players) {
     const zones = [p.library, p.hand, p.battlefield, p.graveyard, p.exile, p.command];
@@ -26,9 +29,9 @@ function checkInvariants(g: Game) {
       if (c.zone !== 'stack') throw new Error(`${c.name} thinks it is in ${c.zone} but is on the stack`);
     }
     real += casting.length;
-    if (!p.lost && real !== 60) throw new Error(`${p.name} has ${real} cards instead of 60`);
+    if (!p.lost && real !== sizes[p.id]) throw new Error(`${p.name} has ${real} cards instead of ${sizes[p.id]}`);
     const commanders = [...p.command, ...p.battlefield, ...p.hand, ...p.library, ...p.graveyard, ...p.exile, ...casting].filter((c) => c.isCommander).length;
-    if (!p.lost && commanders !== 1) throw new Error(`${p.name}'s commander is missing`);
+    if (!p.lost && commanders !== p.commanders.length) throw new Error(`${p.name} has ${commanders} commanders instead of ${p.commanders.length}`);
     // Bots always send their commander home (903.9), once nothing is partway through resolving.
     if (!g.resolving && [...p.graveyard, ...p.exile, ...p.hand, ...p.library].some((c) => c.isCommander)) throw new Error(`${p.name}'s commander didn't go home`);
   }
@@ -40,14 +43,15 @@ function checkInvariants(g: Game) {
   }
 }
 
-function playOut(seed: number) {
-  let g = newGame({ seed, humanDeck: null });
+function playOut(seed: number, decks?: DeckDef[]) {
+  let g = newGame({ seed, humanDeck: null, decks });
+  const sizes = g.players.map((p) => p.library.length + p.hand.length + p.command.length);
   let actions = 0;
   while (g.step !== 'gameOver') {
     const next = applyBotAction(g, botAction(g, g.priority));
     if (next === g) throw new Error(`seed ${seed}: bot stalled at step ${g.step}`);
     g = next;
-    checkInvariants(g);
+    checkInvariants(g, sizes);
     if (++actions > 20_000) throw new Error(`seed ${seed}: game did not finish (turn ${g.turn})`);
   }
   return { g, actions };
@@ -62,6 +66,15 @@ describe('four bots play full games', () => {
       const winner = g.winner === 'draw' ? 'draw' : g.players[g.winner!].deckId;
       results.push(`seed ${seed}: ${winner} wins on turn ${g.turn} after ${actions} actions`);
       console.log(results[results.length - 1]);
+    });
+  }
+});
+
+describe('a 100-card two-commander deck', () => {
+  for (const seed of [7, 8, 9]) {
+    it(`seed ${seed}: bots play it to a finish against the starter decks`, () => {
+      const { g } = playOut(seed, [twoCommanderDeck(), DECKS[1], DECKS[3], DECKS[0]]);
+      expect(g.winner).not.toBe(null);
     });
   }
 });

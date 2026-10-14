@@ -16,6 +16,7 @@ import {
 import {
   COMMANDER_DAMAGE,
   canBlock,
+  commanderDamageFrom,
   creaturesOf,
   data,
   fight,
@@ -24,12 +25,13 @@ import {
   legalTargets,
   manaOf,
   opponentsOf,
+  parseCost,
   permanent,
   stats,
   targetSpecs,
 } from './rules';
 import type { ApplyOptions } from './engine';
-import type { Action, Card, Game, Player, PlayerId, TargetRef, TargetSpec } from './types';
+import type { Action, Card, Game, ManaSym, Player, PlayerId, TargetRef, TargetSpec } from './types';
 
 // ---------- position evaluation ----------
 
@@ -69,7 +71,7 @@ export function evaluate(g: Game, pid: PlayerId): number {
   const me = g.players[pid];
   if (me.lost) return -1000;
   if (g.winner === pid) return 1000;
-  let v = lifeValue(me.life) + boardValue(g, me) + handValue(me) - Math.max(...me.commanderDamage) * 0.3;
+  let v = lifeValue(me.life) + boardValue(g, me) + handValue(me) - Math.max(...me.commanderDamage.flat()) * 0.3;
   for (const o of g.players) {
     if (o.id === pid) continue;
     if (o.lost) v += 25;
@@ -227,7 +229,7 @@ function planAttacks(g: Game, pid: PlayerId): Map<string, PlayerId> {
     let best: PlayerId | null = null;
     let bestScore = -Infinity;
     for (const { o, blockers, bias } of opps) {
-      const lethal = cs.power >= o.life || (c.isCommander && o.commanderDamage[pid] + cs.power >= COMMANDER_DAMAGE);
+      const lethal = cs.power >= o.life || (c.isCommander && commanderDamageFrom(g, o, c) + cs.power >= COMMANDER_DAMAGE);
       const unblocked = cs.power * (lethal ? 5 : 0.6) + (c.isCommander ? cs.power * 0.3 : 0);
       const able = blockers.filter((b) => canBlock(g, b, c));
       let value = unblocked + 0.5;
@@ -282,7 +284,7 @@ function planBlocks(g: Game, pid: PlayerId): Map<string, string> {
     const s = stats(g, atk);
     const able = free().filter((b) => canBlock(g, b, atk));
     const mustStop =
-      incoming >= me.life || (atk.isCommander && me.commanderDamage[atk.owner] + s.power >= COMMANDER_DAMAGE);
+      incoming >= me.life || (atk.isCommander && commanderDamageFrom(g, me, atk) + s.power >= COMMANDER_DAMAGE);
     if (s.keywords.has('menace')) {
       if (mustStop && able.length >= 2) {
         const pair = [...able].sort((a, b) => threat(g, a) - threat(g, b)).slice(0, 2);
@@ -316,10 +318,24 @@ function blockAction(g: Game, pid: PlayerId): Action {
 
 // ---------- main phases ----------
 
+/**
+ * The land to play: the one making the colour the bot is shortest of. A multicolour deck
+ * wants each of its colours on the battlefield before a second land of any one of them.
+ */
+function bestLand(g: Game, pid: PlayerId, lands: Card[]): Card {
+  const p = g.players[pid];
+  const sources = p.battlefield.map((c) => manaOf(g, c)?.colors ?? []);
+  const pips = [...p.hand, ...p.command].flatMap((c) => parseCost(data(c).manaCost).pips);
+  const short = (sym: ManaSym) => pips.filter((x) => x === sym).length / (1 + sources.filter((m) => m.includes(sym)).length);
+  const score = (land: Card) =>
+    Math.max(0, ...(manaOf(g, land)?.colors ?? []).map(short)) - (scriptOf(land.name).entersTapped ? 0.5 : 0);
+  return lands.reduce((best, c) => (score(c) > score(best) ? c : best));
+}
+
 function mainAction(g: Game, pid: PlayerId): Action {
   const p = g.players[pid];
-  const land = p.hand.find((c) => canPlayLand(g, pid, c));
-  if (land) return { type: 'playLand', card: land.id };
+  const lands = p.hand.filter((c) => canPlayLand(g, pid, c));
+  if (lands.length) return { type: 'playLand', card: bestLand(g, pid, lands).id };
   const play = bestPlay(g, pid);
   if (play) return play;
   // Team pumps look worthless to `evaluate` (they wear off), so cast them by rule.
