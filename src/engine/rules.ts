@@ -672,10 +672,7 @@ function useManaAbility(g: Game, pid: PlayerId, c: Card, ab: ManaUse) {
     moveCard(g, c, 'exile');
     return;
   }
-  if (!ab.noTap) {
-    c.tapped = true;
-    trigger(g, c, 'onTapped', {});
-  }
+  if (!ab.noTap) tap(g, c);
   if (ab.damage) damagePlayer(g, c, pid, ab.damage);
   if (ab.sacrifice) dieMany(g, [c], 'is sacrificed');
 }
@@ -1276,6 +1273,16 @@ export function gainControl(g: Game, c: Card, pid: PlayerId) {
   log(g, `${says(g.players[pid], 'gains')} control of ${label(c)}.`, pid, [c]);
 }
 
+/**
+ * Taps a permanent, for a cost, an attack or an effect. "Whenever this becomes tapped"
+ * triggers only if it was untapped (City of Brass, Emmara).
+ */
+export function tap(g: Game, c: Card) {
+  if (c.tapped) return;
+  c.tapped = true;
+  trigger(g, c, 'onTapped', {});
+}
+
 /** A copy of a card as it is right now, for an ability or event to remember (113.7a, 603.10a). */
 export const snapshot = (c: Card): Card => ({ ...c, mods: c.mods.map((m) => ({ ...m, keywords: [...m.keywords] })) });
 
@@ -1400,12 +1407,15 @@ export function copyOf(c: Card, extra: { subtypes?: string[]; keywords?: string[
   return { ...base, subtypes: [...base.subtypes, ...(extra.subtypes ?? [])], keywords: [...base.keywords, ...(extra.keywords ?? [])] };
 }
 
-/** Creates tokens (111.2). Returns them as stored in the game, so callers can change them further. */
-export function createToken(g: Game, pid: PlayerId, key: string, count = 1, opts: { tapped?: boolean } = {}): Card[] {
+/**
+ * Creates tokens (111.2). Returns them as stored in the game, so callers can change them
+ * further. `copy`: what the tokens are copies of (707.2), set before they enter.
+ */
+export function createToken(g: Game, pid: PlayerId, key: string, count = 1, opts: { tapped?: boolean; copy?: CopyInfo | null } = {}): Card[] {
   if (g.players[pid].lost) return [];
   const out: Card[] = [];
   for (let i = 0; i < count; i++) {
-    const c = makeCard(g, key, pid, 'battlefield', { isToken: true });
+    const c = makeCard(g, key, pid, 'battlefield', { isToken: true, copy: opts.copy ?? null });
     g.players[pid].battlefield.push(c);
     // Re-read through the draft so later mutations hit the stored object.
     const stored = g.players[pid].battlefield[g.players[pid].battlefield.length - 1];
@@ -1859,6 +1869,32 @@ export function chooseToDiscard(g: Game, pid: PlayerId, n: number) {
   if (!hand.length || n <= 0) return;
   const count = Math.min(n, hand.length);
   pickCards(g, pid, hand, { min: count, max: count, text: `discard ${count === 1 ? 'a card' : `${count} cards`}`, button: 'Discard', then: '@discard' });
+}
+
+/** The player creates a token that's a copy of creature token `token` (701.36a, 707.2). */
+export function copyToken(g: Game, pid: PlayerId, token: Card | undefined) {
+  if (!token) return;
+  const [made] = createToken(g, pid, token.name, 1, { copy: token.copy ? copyOf(token) : null });
+  if (made) log(g, `${says(g.players[pid], 'creates')} a copy of ${label(token)}.`, pid, [made]);
+}
+
+/**
+ * The player populates (701.36a): they choose a creature token they control and create a
+ * copy of it. With none, nothing happens (701.36b). When the tokens differ, the player
+ * chooses, and this returns true: the continuation `then` copies `picked[0]` and does
+ * whatever the spell says next. The engine's own `@populate` only copies it.
+ */
+export function populate(g: Game, pid: PlayerId, then = '@populate'): boolean {
+  const tokens = creaturesOf(g, pid).filter((c) => c.isToken);
+  if (!tokens.length) return false;
+  // Tokens with the same copiable values make the same copy: no need to ask.
+  const same = tokens.every((c) => c.name === tokens[0].name && JSON.stringify(c.copy) === JSON.stringify(tokens[0].copy));
+  if (same) {
+    copyToken(g, pid, tokens[0]);
+    return false;
+  }
+  pickCards(g, pid, tokens, { min: 1, max: 1, text: 'populate: choose a creature token to copy', button: 'Copy', then, data: { populate: true } });
+  return true;
 }
 
 /**

@@ -1,13 +1,4 @@
 {
-  "shared": [
-    "Sol Ring",
-    "Arcane Signet",
-    "Worn Powerstone",
-    "Thran Dynamo",
-    "Manalith",
-    "Solemn Simulacrum",
-    "Meteor Golem"
-  ],
   "decks": [
     {
       "id": "white",
@@ -175,15 +166,15 @@
     },
     {
       "id": "red",
-      "title": "Forge of the Thane",
-      "blurb": "Burn that hits harder, goblins and dragons.",
+      "title": "Fire and Fang",
+      "blurb": "Red-green dragons and giants: Halana and Alena pile counters on a hasty threat.",
       "pilot": "Cinder",
-      "legacy": true,
       "commanders": [
-        "Torbran, Thane of Red Fell"
+        "Halana and Alena, Partners"
       ],
       "basics": {
-        "Mountain": 24
+        "Mountain": 17,
+        "Forest": 15
       },
       "cards": [
         "Goblin Piker",
@@ -213,20 +204,59 @@
         "Lightning Strike",
         "Shatter",
         "Fervor",
-        "Brute Strength"
+        "Brute Strength",
+        "Sol Ring",
+        "Arcane Signet",
+        "Worn Powerstone",
+        "Thran Dynamo",
+        "Manalith",
+        "Solemn Simulacrum",
+        "Meteor Golem",
+        "Torbran, Thane of Red Fell",
+        "Llanowar Elves",
+        "Elvish Mystic",
+        "Rampant Growth",
+        "Cultivate",
+        "Wood Elves",
+        "Ghalta, Primal Hunger",
+        "Colossal Dreadmaw",
+        "Carnage Tyrant",
+        "Gigantosaurus",
+        "Garruk's Packleader",
+        "Rabid Bite",
+        "Beast Within",
+        "Savage Ventmaw",
+        "Atarka, World Render",
+        "Ghor-Clan Rampager",
+        "Domri's Ambush",
+        "Decimate",
+        "Return of the Wildspeaker",
+        "Temur Battle Rage",
+        "Raging Swordtooth",
+        "Dragonmaster Outcast",
+        "Crater's Claws",
+        "Dragonlord's Servant",
+        "Utvara Hellkite",
+        "Shamanic Revelation",
+        "Verix Bladewing",
+        "Command Tower",
+        "Rugged Highlands",
+        "Karplusan Forest",
+        "Rootbound Crag",
+        "Stomping Ground"
       ]
     },
     {
       "id": "green",
-      "title": "Primal Hunger",
-      "blurb": "Ramp into enormous tramplers.",
+      "title": "Conclave's Chorus",
+      "blurb": "Green-white tokens: copy the biggest one, and gain life as each arrives.",
       "pilot": "Bramble",
-      "legacy": true,
       "commanders": [
-        "Ghalta, Primal Hunger"
+        "Trostani, Selesnya's Voice"
       ],
       "basics": {
-        "Forest": 24
+        "Forest": 18,
+        "Plains": 14
       },
       "cards": [
         "Llanowar Elves",
@@ -256,7 +286,46 @@
         "Overrun",
         "Rabid Bite",
         "Harmonize",
-        "Beast Within"
+        "Beast Within",
+        "Sol Ring",
+        "Arcane Signet",
+        "Worn Powerstone",
+        "Thran Dynamo",
+        "Manalith",
+        "Solemn Simulacrum",
+        "Meteor Golem",
+        "Ghalta, Primal Hunger",
+        "Soul Warden",
+        "Ajani's Pridemate",
+        "Archangel of Thune",
+        "Serra Angel",
+        "Inspiring Overseer",
+        "Captain of the Watch",
+        "Attended Knight",
+        "Raise the Alarm",
+        "Swords to Plowshares",
+        "Path to Exile",
+        "Wrath of God",
+        "Glorious Anthem",
+        "Disenchant",
+        "Selesnya Charm",
+        "Trostani's Summoner",
+        "Armada Wurm",
+        "Emmara, Soul of the Accord",
+        "Growing Ranks",
+        "Rootborn Defenses",
+        "Sundering Growth",
+        "Scion of Vitu-Ghazi",
+        "Collective Blessing",
+        "Advent of the Wurm",
+        "Unflinching Courage",
+        "Trostani Discordant",
+        "Call of the Conclave",
+        "Command Tower",
+        "Blossoming Sands",
+        "Brushland",
+        "Sunpetal Grove",
+        "Temple Garden"
       ]
     },
     {
@@ -558,6 +627,115 @@
       "oracleText": "Sacrifice this token: Add {C}.",
       "keywords": [],
       "query": "t:token !\"Eldrazi Scion\""
+    },
+    "Dragon 5/5 flying": {
+      "name": "Dragon",
+      "power": "5",
+      "toughness": "5",
+      "colors": [
+        "R"
+      ],
+      "typeLine": "Token Creature — Dragon",
+      "oracleText": "Flying",
+      "keywords": [
+        "Flying"
+      ],
+      "query": "t:token !\"Dragon\" c=r pow=5 tou=5 kw:flying"
+    },
+    "Dragon 6/6 flying": {
+      "name": "Dragon",
+      "power": "6",
+      "toughness": "6",
+      "colors": [
+        "R"
+      ],
+      "typeLine": "Token Creature — Dragon",
+      "oracleText": "Flying",
+      "keywords": [
+        "Flying"
+      ],
+      "query": "t:token !\"Dragon\" c=r pow=6 tou=6 kw:flying"
+    },
+    "Karox Bladewing": {
+      "name": "Karox Bladewing",
+      "power": "4",
+      "toughness": "4",
+      "colors": [
+        "R"
+      ],
+      "typeLine": "Legendary Token Creature — Dragon",
+      "oracleText": "Flying",
+      "keywords": [
+        "Flying"
+      ],
+      "query": "t:token !\"Karox Bladewing\""
+    },
+    "Soldier 1/1 lifelink": {
+      "name": "Soldier",
+      "power": "1",
+      "toughness": "1",
+      "colors": [
+        "W"
+      ],
+      "typeLine": "Token Creature — Soldier",
+      "oracleText": "Lifelink",
+      "keywords": [
+        "Lifelink"
+      ],
+      "query": "t:token !\"Soldier\" c=w pow=1 tou=1 kw:lifelink"
+    },
+    "Bird 1/1 flying": {
+      "name": "Bird",
+      "power": "1",
+      "toughness": "1",
+      "colors": [
+        "W"
+      ],
+      "typeLine": "Token Creature — Bird",
+      "oracleText": "Flying",
+      "keywords": [
+        "Flying"
+      ],
+      "query": "t:token !\"Bird\" c=w pow=1 tou=1 kw:flying"
+    },
+    "Centaur": {
+      "name": "Centaur",
+      "power": "3",
+      "toughness": "3",
+      "colors": [
+        "G"
+      ],
+      "typeLine": "Token Creature — Centaur",
+      "keywords": [],
+      "query": "t:token !\"Centaur\" c=g pow=3 tou=3"
+    },
+    "Rhino 4/4 trample": {
+      "name": "Rhino",
+      "power": "4",
+      "toughness": "4",
+      "colors": [
+        "G"
+      ],
+      "typeLine": "Token Creature — Rhino",
+      "oracleText": "Trample",
+      "keywords": [
+        "Trample"
+      ],
+      "query": "t:token !\"Rhino\" c=g pow=4 tou=4 kw:trample"
+    },
+    "Wurm 5/5 trample": {
+      "name": "Wurm",
+      "power": "5",
+      "toughness": "5",
+      "colors": [
+        "G"
+      ],
+      "typeLine": "Token Creature — Wurm",
+      "oracleText": "Trample",
+      "keywords": [
+        "Trample"
+      ],
+      "query": "t:token !\"Wurm\" c=g pow=5 tou=5 kw:trample"
     }
   }
 }
