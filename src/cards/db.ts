@@ -18,9 +18,14 @@ export interface DeckDef {
    * 60 cards instead of 100. Kept until the starter decks are rebuilt as 100-card decks.
    */
   legacy?: boolean;
+  /** Still being built: kept off the menu, and its cards may not all have scripts yet. */
+  wip?: boolean;
 }
 
-export const DECKS = lists.decks as unknown as DeckDef[];
+/** Every deck in decklists.json, unfinished ones included. */
+export const ALL_DECKS = lists.decks as unknown as DeckDef[];
+/** The decks on the menu. */
+export const DECKS = ALL_DECKS.filter((d) => !d.wip);
 export const SHARED: string[] = lists.shared;
 
 const cards = generated.cards as Record<string, CardData>;
@@ -77,6 +82,12 @@ export function cardData(name: string): CardData {
 }
 
 export const ALL_CARD_NAMES = Object.keys(cards);
+
+/** Is this the name of a card (not a token)? Any face's name counts. */
+export const isCardName = (name: string) => name in cards || faceNames.has(name);
+
+/** Every card name the game knows, faces included, for naming a card (201.3). */
+export const cardNames = () => [...new Set([...Object.keys(cards), ...faceNames.keys()])].sort();
 
 /**
  * Adds cards that aren't in cards.generated.json. Tests use it to try out rules on cards

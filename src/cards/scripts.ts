@@ -405,9 +405,8 @@ registerScripts({
   'Rampaging Baloths': {
     onLandfall: { when: yourLand, resolve: (g, { you }) => createToken(g, you, 'Beast 4/4') },
   },
-  // "Can't be countered" is always true here: the card pool has no counterspells.
-  'Terra Stomper': {},
-  'Carnage Tyrant': {},
+  'Terra Stomper': { uncounterable: true },
+  'Carnage Tyrant': { uncounterable: true },
   'Acidic Slime': {
     targets: [
       {

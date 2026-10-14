@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { applyBotAction, botAction, newGame } from '../src/engine';
 import type { Game } from '../src/engine';
-import { DECKS } from '../src/cards/db';
+import { ALL_DECKS, DECKS } from '../src/cards/db';
 import type { DeckDef } from '../src/cards/db';
 import './fixtures';
 import { twoCommanderDeck } from './helpers';
@@ -148,4 +148,18 @@ describe('decks with double-faced, split and adventurer cards, Sagas, Classes, f
       expect(g.winner).not.toBe(null);
     });
   }
+});
+
+describe('the Kraum and Tymna deck (session 7a: its 7b cards do nothing yet)', () => {
+  const kraum = ALL_DECKS.find((d) => d.id === 'kraum-tymna')!;
+  for (const seed of [61, 62, 63]) {
+    it(`seed ${seed}: bots play it to a finish against the starter decks`, () => {
+      const { g } = playOut(seed, [kraum, DECKS[1], DECKS[0], DECKS[2]]);
+      expect(g.winner).not.toBe(null);
+    });
+  }
+  it('seed 64: two copies of it play to a finish', () => {
+    const { g } = playOut(64, [kraum, DECKS[3], { ...kraum, id: 'kraum2' }, DECKS[1]]);
+    expect(g.winner).not.toBe(null);
+  });
 });

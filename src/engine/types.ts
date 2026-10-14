@@ -4,6 +4,8 @@ export type ManaSym = Color | 'C';
 export interface Mana {
   sym: ManaSym;
   source: string;
+  /** Which of the source's mana abilities made it, by index into `manaAbilities`. */
+  ability?: number;
 }
 export type PlayerId = number;
 /** A player's own zones. The stack is shared, so it lives on `Game` instead (405). */
@@ -71,6 +73,8 @@ export interface CastChoices {
   alt?: number;
   /** Permanents sacrificed for the script's `additionalCost` (118.8). */
   sacrifice?: string[];
+  /** Cards exiled from the caster's hand for an alternative cost that asks for it, like Force of Will's (118.9). */
+  exile?: string[];
   /** A modal spell's modes, as indexes into its script's `modal.modes` (700.2a). */
   modes?: number[];
   /**
@@ -117,6 +121,8 @@ export interface Card {
   face: number;
   /** A Class's level (716.2). 1 for anything else (716.2d). */
   level: number;
+  /** The turn each "only once each turn" ability of it last triggered, by name. */
+  once: Record<string, number>;
   /** An adventurer card exiled after its Adventure resolved: its owner may cast it from exile (715.3d). */
   adventure: boolean;
   mods: Mod[];
@@ -161,6 +167,45 @@ export interface Player {
   pool: Mana[]; // unspent mana, emptied as each step and phase ends (500.5)
   lost: boolean;
   drewFromEmpty: boolean;
+  /** Set when an effect says this player loses the game (104.3e). The next state-based check removes them. */
+  loses: string | null;
+  /** Set when an effect says this player wins the game (104.2b). The next state-based check ends the game. */
+  wins: boolean;
+  /** Spells this player has cast this turn, and how many of them were noncreature spells. */
+  spellsCast: number;
+  noncreatureSpellsCast: number;
+  /** Cards this player has drawn this turn (121.1). */
+  drawn: number;
+}
+
+/** An effect that lasts until end of turn (514.2) and isn't attached to a permanent. */
+export type TurnEffect =
+  /** The player can't cast spells, or only noncreature spells, this turn (Silence). */
+  | { kind: 'cantCast'; player: PlayerId; noncreature?: boolean }
+  /** The player may cast spells as though they had flash this turn (Borne Upon a Wind). */
+  | { kind: 'flash'; player: PlayerId };
+
+/**
+ * A delayed triggered ability (603.7): it triggers once, at the beginning of the next
+ * `step` of a turn that fits (603.7b), and then the script's `delayed[key]` runs from the stack.
+ */
+export interface Delayed {
+  id: string;
+  controller: PlayerId;
+  /** The spell or ability that made it, as it was then. */
+  card: Card;
+  key: string;
+  step: 'upkeep' | 'end';
+  /** Only in this turn. Left out: the next such step of `player`'s turn, or of anyone's turn without `player`. */
+  turn?: number;
+  player?: PlayerId;
+  data?: Record<string, unknown>;
+}
+
+/** An extra turn waiting to be taken (500.7). `loseAtEnd`: the card that makes its player lose the game at that turn's end step. */
+export interface ExtraTurn {
+  player: PlayerId;
+  loseAtEnd?: Card;
 }
 
 /**
@@ -241,15 +286,66 @@ export interface StackItem {
 }
 
 /**
+ * What a search can find (701.23). Each list matches any one of its entries: `types`
+ * against card types ("Artifact"), `subtypes` against subtypes ("Island"). Nothing set
+ * means any card.
+ */
+export interface Find {
+  basic?: boolean;
+  types?: string[];
+  subtypes?: string[];
+  /** Mana value at most this. */
+  maxMv?: number;
+  /** "a Mountain or Plains card", for the prompt. */
+  label: string;
+}
+
+/**
+ * What happens once a choice made partway through resolving is made: the resolving spell
+ * or ability's script `then[key]` runs with the answer (608.2d). `data` is passed along.
+ */
+interface Then {
+  then?: string;
+  data?: Record<string, unknown>;
+}
+
+/**
  * Cards a player picks from a list. `choiceOptions` in engine.ts says which cards are
  * shown, which can be picked, and how many.
- *  search - look through your library for a basic land (701.23) and put it onto the
- *           battlefield or into your hand. `source` names the spell or ability.
+ *  search - look through your library for a card (701.23) and put it onto the
+ *           battlefield, into your hand or on top. `source` names the spell or ability.
  *  bottom - put `count` cards from your hand on the bottom of your library after a mulligan (103.5)
+ *  pick   - pick `min` to `max` of some particular cards, such as the top few of a library
  */
 export type CardChoice =
-  | { kind: 'search'; player: PlayerId; source: string; to: 'battlefield' | 'hand'; tapped: boolean; subtype?: string }
-  | { kind: 'bottom'; player: PlayerId; count: number };
+  | ({ kind: 'search'; player: PlayerId; source: string; to: 'battlefield' | 'hand' | 'top'; tapped: boolean; find?: Find; reveal?: boolean } & Then)
+  | { kind: 'bottom'; player: PlayerId; count: number }
+  | ({ kind: 'pick'; player: PlayerId; source: string; cards: string[]; min: number; max: number; text: string; button: string } & Then);
+
+/**
+ * A yes/no question to a player partway through resolving (608.2d): "you may ...", or
+ * "... unless that player pays {2}" (118.12a). `cost` and `life` are what saying yes costs.
+ */
+export interface AskChoice extends Then {
+  kind: 'ask';
+  player: PlayerId;
+  source: string;
+  text: string;
+  cost?: string;
+  life?: number;
+  yes: string;
+  no: string;
+}
+
+/** A player names a card (201.3), as Demonic Consultation asks. */
+export interface NameChoice extends Then {
+  kind: 'name';
+  player: PlayerId;
+  source: string;
+  text: string;
+}
+
+export type Choice = CardChoice | AskChoice | NameChoice;
 
 /** The mulligan process before the first turn (103.5). `active` is the starting player meanwhile. */
 export interface Mulligans {
@@ -273,6 +369,8 @@ export interface Mulligans {
  *  orderTriggers - a player puts several of their triggered abilities on the stack in the
  *                  order they choose (603.3b). Their waiting ones are in `Game.triggers`.
  *  chooseCards   - a player picks cards from a list (see `CardChoice`)
+ *  ask           - a player answers yes or no (see `AskChoice`)
+ *  name          - a player names a card (see `NameChoice`)
  *  commanderZone - a player's commander was put into their graveyard, exile, hand or
  *                  library, and they choose whether it goes to the command zone (903.9).
  *                  `resume` is the player who gets priority afterwards.
@@ -282,6 +380,8 @@ export type Decision =
   | { type: 'targets'; item: StackItem; resume: PlayerId }
   | { type: 'orderTriggers'; resume: PlayerId }
   | { type: 'chooseCards'; choice: CardChoice }
+  | { type: 'ask'; choice: AskChoice }
+  | { type: 'name'; choice: NameChoice }
   | { type: 'commanderZone'; card: string; resume: PlayerId };
 
 export interface Game {
@@ -302,8 +402,8 @@ export interface Game {
   triggers: StackItem[];
   /** Mulligans in progress before the first turn (103.5), or null once the game has begun. */
   mulligan: Mulligans | null;
-  /** Card choices waiting to be asked, in order. The first becomes a `chooseCards` decision. */
-  choices: CardChoice[];
+  /** Choices waiting to be asked, in order. The first becomes a `chooseCards`, `ask` or `name` decision. */
+  choices: Choice[];
   /** The stack item that is partway through resolving while its controller makes a choice (608.2). */
   resolving: string | null;
   /** How many players have passed priority in a row (117.4). */
@@ -317,6 +417,16 @@ export interface Game {
   nextId: number;
   /** Last spell cast, so the UI can flash it on screen. */
   lastSpell: { seq: number; name: string; caster: PlayerId } | null;
+  /** Spells cast this turn by every player, for storm (702.40a). */
+  spellsCast: number;
+  /** Players dealt combat damage this turn. */
+  combatDamaged: PlayerId[];
+  /** Effects that last until end of turn (514.2). */
+  effects: TurnEffect[];
+  /** Delayed triggered abilities waiting for their moment (603.7). */
+  delayed: Delayed[];
+  /** Extra turns to take after this one. The last is taken first (500.7). */
+  extraTurns: ExtraTurn[];
 }
 
 export type Action =
@@ -327,7 +437,8 @@ export type Action =
   /** `crew`: the creatures tapped to pay a crew cost (702.122a). */
   /** `ability`: which loyalty ability (606), by index into the script's `loyalty`. Left out, the `activated` ability. */
   | { type: 'activate'; card: string; ability?: number; targets?: (TargetRef | null)[]; hold?: boolean; crew?: string[] }
-  | { type: 'tapMana'; card: string }
+  /** `ability`: which of its mana abilities (`manaAbilities`). Left out, the one that suits the player best. */
+  | { type: 'tapMana'; card: string; ability?: number }
   | { type: 'untapMana'; card: string }
   /** `target`: a planeswalker or battle to attack instead of the player; `defender` is then its controller or protector (508.1b). */
   | { type: 'declareAttack'; card: string; defender: PlayerId; target?: string }
@@ -343,6 +454,10 @@ export type Action =
   | { type: 'chooseCards'; cards: string[] }
   /** Answers `orderTriggers`: every waiting trigger of yours, in the order they go on the stack (the last resolves first). */
   | { type: 'orderTriggers'; order: string[] }
+  /** Answers an `ask` decision. */
+  | { type: 'answer'; yes: boolean }
+  /** Answers a `name` decision with a card name. */
+  | { type: 'name'; name: string }
   /** Answers `commanderZone`: true moves the commander to the command zone, false leaves it where it is. */
   | { type: 'commanderZone'; toCommand: boolean }
   /** Pass priority, or finish declaring attackers or blockers. */
@@ -367,6 +482,8 @@ export interface TargetSpec {
   who?: 'you' | 'opponent' | 'any'; // whose permanent / which player
   filter?: (g: Game, c: Card, source: Card) => boolean;
   optional?: boolean; // "you may" / "up to one"
+  /** Can't be the same as the target chosen for the spec at this index: "two target players" (115.3). */
+  distinctFrom?: number;
   label: string;
 }
 
@@ -415,6 +532,16 @@ export interface TriggerEvents {
   onChapter: { chapter: number };
   /** "When this Class becomes level N" (716.2a). */
   onLevel: { level: number };
+  /** Storm's copy trigger (702.40a). The engine puts it on the stack and resolves it. */
+  onStorm: { count: number; item: StackItem };
+  /** A delayed triggered ability (603.7): the script's `delayed[key]` runs. */
+  onDelayed: { key: string; data: Record<string, unknown> };
+  /** "Whenever this becomes tapped." */
+  onTapped: object;
+  /** "At the beginning of each of your postcombat main phases" (505.1). */
+  onPostcombatMain: { player: PlayerId };
+  /** "At the beginning of your draw step", after the draw (504.2). */
+  onDrawStep: { player: PlayerId };
 }
 
 export type TriggerHook = keyof TriggerEvents;
@@ -438,6 +565,36 @@ export interface Mode {
   resolve: (g: Game, ctx: Ctx) => void;
 }
 
+/**
+ * A mana ability (605). `{T}` is part of its cost unless `noTap`. `life` is paid as part of
+ * the cost (119.4); `damage` is dealt to its controller as part of the effect.
+ */
+export interface ManaAbility {
+  amount: number;
+  /** The colours it can make, one chosen each time: a list, the commanders' colour identity, any colour, or worked out now. */
+  colors: ManaSym[] | 'identity' | 'any' | ((g: Game, self: Card) => ManaSym[]);
+  noTap?: boolean;
+  sacrifice?: boolean;
+  life?: number;
+  damage?: number;
+  /** "Activate only if ..." */
+  when?: (g: Game, self: Card) => boolean;
+  /** Activated from its owner's hand, by exiling the card (Simian Spirit Guide). */
+  fromHand?: boolean;
+  /** Auto-pay never uses it: the player activates it on purpose. */
+  manual?: boolean;
+}
+
+/** What a continuation (`CardScript.then`) is told: the answer to the choice it waited on. */
+export interface ThenCtx extends Ctx {
+  /** The player who made the choice. */
+  chooser: PlayerId;
+  picked: Card[];
+  yes: boolean;
+  name: string;
+  data: Record<string, unknown>;
+}
+
 /** A planeswalker's loyalty ability (606): `cost` loyalty counters added (+) or removed (-). */
 export interface LoyaltyAbility {
   cost: number;
@@ -448,8 +605,8 @@ export interface LoyaltyAbility {
 
 /** Behaviour for one card name. Anything a card does beyond its printed keywords lives here. */
 export interface CardScript extends Triggers {
-  /** "{T}: Add ...". `sacrifice`: the source is sacrificed as part of the cost, like a Treasure (111.10a). */
-  mana?: { amount: number; colors: ManaSym[] | 'identity' | 'any'; sacrifice?: boolean };
+  /** Its mana abilities (605): "{T}: Add ...". `sacrifice`: the source is sacrificed as part of the cost, like a Treasure (111.10a). */
+  mana?: ManaAbility | ManaAbility[];
   entersTapped?: boolean;
   /** Targets of an instant or sorcery, or of a permanent's `onEnter` ability. */
   targets?: TargetSpec[];
@@ -481,7 +638,14 @@ export interface CardScript extends Triggers {
    * Costs the caster may pay rather than the mana cost (118.9), such as "you may cast this
    * spell without paying its mana cost" (`mana: ''`). `when` says if it is available now.
    */
-  alternativeCosts?: { label: string; mana: string; life?: number; when?: (g: Game, self: Card) => boolean }[];
+  alternativeCosts?: {
+    label: string;
+    mana: string;
+    life?: number;
+    when?: (g: Game, self: Card) => boolean;
+    /** Exile another card from your hand that fits, like Force of Will's blue card. */
+    exile?: { label: string; filter: (g: Game, c: Card, self: Card) => boolean };
+  }[];
   /** Extra damage added when `source` (controlled by self's owner) damages `targetOwner` or their permanent. */
   damageBonus?: (g: Game, self: Card, source: Card, targetOwner: PlayerId) => number;
   /**
@@ -495,7 +659,8 @@ export interface CardScript extends Triggers {
    * (702.122a). `sorcery` limits it to sorcery timing, like equip (702.6a).
    */
   activated?: {
-    cost: { tap?: boolean; mana?: string; sacrifice?: boolean; crew?: number };
+    /** `life`: life paid as part of the cost (119.4), like a fetch land's. */
+    cost: { tap?: boolean; mana?: string; sacrifice?: boolean; crew?: number; life?: number };
     sorcery?: boolean;
     targets?: TargetSpec[];
     text: string;
@@ -511,9 +676,46 @@ export interface CardScript extends Triggers {
   levels?: { cost: string; text: string }[];
   /** "You have no maximum hand size" (402.2). */
   noMaxHandSize?: boolean;
-  /** Bot hint: 'alpha' = cast before attacking with a wide board. */
-  ai?: 'alpha';
+  /**
+   * Continuations: what happens after a choice made partway through resolving (608.2d).
+   * A choice names one with `then`; the resolving spell or ability's script runs it.
+   */
+  then?: Record<string, (g: Game, ctx: ThenCtx) => void>;
+  /** Delayed triggered abilities this card creates (603.7), by key. See `Delayed`. */
+  delayed?: Record<string, (g: Game, ctx: Ctx & { data: Record<string, unknown> }) => void>;
+  /**
+   * While this permanent is on the battlefield: does it stop `pid` casting a spell or
+   * activating an ability of `card`? "Can't" wins over "can" (101.2).
+   */
+  forbids?: (g: Game, self: Card, pid: PlayerId, act: { kind: 'cast' | 'activate'; card: Card }) => boolean;
+  /** While this permanent is on the battlefield: may `pid` cast `spell` as though it had flash? */
+  grantsFlash?: (g: Game, self: Card, pid: PlayerId, spell: Card) => boolean;
+  /** "This spell can't be countered" (113.6g). */
+  uncounterable?: boolean;
+  /** While this permanent is on the battlefield: can't `spell`, cast by `caster`, be countered? */
+  protectsSpell?: (g: Game, self: Card, spell: Card, caster: PlayerId) => boolean;
+  /** "This doesn't untap during your untap step" (502.3). */
+  noUntap?: boolean;
+  /**
+   * How a bot answers a choice this card asks partway through resolving, by the choice's
+   * `then` key. Without one, bots use a general rule (see ai.ts).
+   */
+  botChoice?: Record<string, (g: Game, pid: PlayerId, choice: Choice) => Action>;
+  /**
+   * Bot hint: may a bot cast this now? For a card whose cost comes later, which the
+   * look-ahead can't see (Pact of Negation's upkeep payment).
+   */
+  botCast?: (g: Game, pid: PlayerId, self: Card) => boolean;
+  /**
+   * Bot hint: 'alpha' = cast before attacking with a wide board. 'tutor' = a search for a
+   * card, cast in the second main phase with mana to spare (the look-ahead can't see what
+   * it finds is worth).
+   */
+  ai?: 'alpha' | 'tutor';
 }
 
 /** Hooks that every permanent on the battlefield hears, not only the card the event is about. */
-export type BroadcastHook = Exclude<TriggerHook, 'onEnter' | 'onDies' | 'onAttack' | 'onCombatDamageToPlayer' | 'onDefeat' | 'onChapter' | 'onLevel'>;
+export type BroadcastHook = Exclude<
+  TriggerHook,
+  'onEnter' | 'onDies' | 'onAttack' | 'onCombatDamageToPlayer' | 'onDefeat' | 'onChapter' | 'onLevel' | 'onStorm' | 'onDelayed' | 'onTapped'
+>;

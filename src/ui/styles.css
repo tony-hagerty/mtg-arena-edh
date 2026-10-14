@@ -2033,6 +2033,34 @@ button {
   margin-top: 2rem;
 }
 
+.name-row {
+  display: flex;
+  align-items: center;
+  gap: 2rem;
+}
+
+.name-source {
+  width: 16rem;
+  border-radius: 0.8rem;
+}
+
+.name-input {
+  flex: 1;
+  min-width: 0;
+  padding: 1.2rem 1.6rem;
+  font: 600 2rem var(--serif);
+  color: #fff;
+  background: rgba(255, 255, 255, 0.06);
+  border: 0.15rem solid #8a93a5;
+  border-radius: 1rem;
+}
+
+.name-input:focus {
+  outline: none;
+  border-color: var(--cyan);
+  box-shadow: 0 0 1.2rem rgba(57, 227, 255, 0.45);
+}
+
 .picker-pill {
   position: absolute;
   left: 50%;

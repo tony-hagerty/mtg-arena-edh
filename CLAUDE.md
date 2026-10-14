@@ -2,6 +2,14 @@
 
 See `README.md` for commands, project layout, and known simplifications.
 
+## Card wording is the rules
+
+Magic interactions depend on exact wording: "may" vs. "must", "you" vs. "that player",
+"target" vs. not, "when" vs. "as", exile vs. graveyard. Before scripting or changing a
+card, read its Oracle text clause by clause and follow `docs/card-scripting.md`. Never
+approximate a card quietly: ask the user, and list any approved difference in the
+README's "Known simplifications".
+
 ## Magic rules reference
 
 The official Comprehensive Rules are stored locally in `docs/rules/`. Use them
