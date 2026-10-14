@@ -51,7 +51,8 @@ interface Store {
   human: PlayerId | null;
   targeting: Targeting | null;
   attackTarget: PlayerId | null;
-  pickedBlocker: string | null;
+  /** Blockers the human picked that could block more than one attacker: the next attacker they click gets them all. */
+  pickedBlockers: string[];
   hover: Hover | null;
   /** Card ids in the order the human arranged their hand. Display only: the engine never sees it. */
   handOrder: string[];
@@ -75,7 +76,7 @@ export const useStore = create<Store>()((set, get) => ({
   human: null,
   targeting: null,
   attackTarget: null,
-  pickedBlocker: null,
+  pickedBlockers: [],
   hover: null,
   handOrder: [],
   viewer: null,
@@ -98,7 +99,7 @@ export const useStore = create<Store>()((set, get) => ({
       human: deck === null ? null : 0,
       targeting: null,
       attackTarget: null,
-      pickedBlocker: null,
+      pickedBlockers: [],
       hover: null,
       handOrder: [],
       viewer: null,
@@ -116,7 +117,7 @@ export const useStore = create<Store>()((set, get) => ({
     const mana = a.type === 'tapMana' || a.type === 'untapMana';
     const keep = mana || a.type.includes('declare');
     // A land is still under the pointer after it is tapped, so its preview stays up too.
-    set({ game: next, ...(mana ? {} : { hover: null }), ...(keep ? {} : { targeting: null, pickedBlocker: null }) });
+    set({ game: next, ...(mana ? {} : { hover: null }), ...(keep ? {} : { targeting: null, pickedBlockers: [] }) });
     return true;
   },
 

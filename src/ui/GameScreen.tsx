@@ -11,10 +11,10 @@ export function GameScreen() {
   const human = useStore((s) => s.human);
   const targeting = useStore((s) => s.targeting);
   const attackTarget = useStore((s) => s.attackTarget);
-  const pickedBlocker = useStore((s) => s.pickedBlocker);
+  const pickedBlockers = useStore((s) => s.pickedBlockers);
   const speed = useStore((s) => s.speed);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  const view = useMemo(buildView, [game, human, targeting, attackTarget, pickedBlocker]);
+  const view = useMemo(buildView, [game, human, targeting, attackTarget, pickedBlockers]);
 
   // Bot driver: whenever a bot has the decision, let it act after a short, readable pause.
   useEffect(() => {

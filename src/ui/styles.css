@@ -838,6 +838,12 @@ button {
   z-index: 2;
 }
 
+/* The badge uses the whole pile, so it lights up on its own when the pointer is on it. */
+.tile-badge:hover {
+  background: var(--cyan);
+  color: #05060a;
+}
+
 /* ---------- highlights (shared by tiles, hand cards and the commander) ---------- */
 
 .glow-play,
