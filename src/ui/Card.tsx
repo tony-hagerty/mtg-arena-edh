@@ -1,7 +1,7 @@
 import { useRef, useState } from 'react';
 import type { CSSProperties, RefObject } from 'react';
 import { motion } from 'motion/react';
-import { attachmentsOf, data, defenseOf, isBattle, isCreature, isPlaneswalker, loyaltyOf, scriptOf, stats } from '../engine';
+import { attachmentsOf, data, defenseOf, isBattle, isCreature, isPlaneswalker, loyaltyOf, scriptFor, stats } from '../engine';
 import type { Card, CardData } from '../engine';
 import { useRem } from './rem';
 import { SEATS, cx, hoverProps } from './util';
@@ -111,10 +111,12 @@ function fan(index: number, total: number, maxGap: number, span: number) {
 function Counters({ card }: { card: Card }) {
   // Loyalty and defense have their own badge, where a creature's P/T goes.
   const entries = Object.entries(card.counters).filter(([kind, n]) => n > 0 && kind !== 'loyalty' && kind !== 'defense');
+  // A Class's level (716.2) shows with them.
+  if (card.level > 1) entries.push([`level`, card.level]);
   if (!entries.length) return null;
-  const text = ([kind, n]: [string, number]) => (kind === '+1/+1' ? `+${n}` : kind === '-1/-1' ? `-${n}` : `${n} ${kind}`);
+  const text = ([kind, n]: [string, number]) => (kind === '+1/+1' ? `+${n}` : kind === '-1/-1' ? `-${n}` : kind === 'level' ? `Lv ${n}` : `${n} ${kind}`);
   return (
-    <div className="tile-counters" title={entries.map(([kind, n]) => `${n} ${kind} counter${n === 1 ? '' : 's'}`).join(', ')}>
+    <div className="tile-counters" title={entries.map(([kind, n]) => (kind === 'level' ? `Level ${n}` : `${n} ${kind} counter${n === 1 ? '' : 's'}`)).join(', ')}>
       {entries.map((e) => (
         <span key={e[0]} className={cx(e[0] === '-1/-1' && 'minus')}>
           {text(e)}
@@ -142,7 +144,7 @@ function Attachments({ cards }: { cards: Card[] }) {
             e.stopPropagation();
             clickPermanent(c);
           }}
-          {...hoverProps(c.name)}
+          {...hoverProps(data(c).name)}
         >
           <div className="tile-attached-art" style={{ backgroundImage: `url(${data(c).art})` }} />
           <span>{data(c).name}</span>
@@ -154,7 +156,7 @@ function Attachments({ cards }: { cards: Card[] }) {
 
 /** The hover text for a permanent's activated abilities: its `activated` one, and each loyalty ability (606). */
 const abilityText = (card: Card) => {
-  const script = scriptOf(card.name);
+  const script = scriptFor(card);
   return [script.activated?.text, ...(script.loyalty ?? []).map((ab) => `${loyaltyCost(ab.cost)}: ${ab.text}`)].filter(Boolean).join('\n');
 };
 
@@ -201,7 +203,7 @@ export function Permanent({ card, badge }: { card: Card; badge?: Card[] }) {
       exit={{ opacity: 0, scale: 0.4, transition: { duration: 0.3 } }}
       transition={SPRING}
       onClick={() => clickPermanent(card)}
-      {...hoverProps(card.name)}
+      {...hoverProps(d.name)}
     >
       {attached.length > 0 && <Attachments cards={attached} />}
       <div className="tile-face">
@@ -234,7 +236,7 @@ export function Permanent({ card, badge }: { card: Card; badge?: Card[] }) {
         )}
         <Counters card={card} />
         {sick && <i className="tile-sick ms ms-ability-summoning-sickness" title="Summoning sick" />}
-        {(scriptOf(card.name).activated || scriptOf(card.name).loyalty) && <div className="tile-ability" title={abilityText(card)} />}
+        {(scriptFor(card).activated || scriptFor(card).loyalty) && <div className="tile-ability" title={abilityText(card)} />}
         {card.tapped && <div className="tile-tapmark" />}
         {badge && (
           <div

@@ -2300,6 +2300,22 @@
   "Beast 4/4": {
    "art": "https://cards.scryfall.io/art_crop/front/8/5/859bda9a-fa90-4ad3-b0c1-6fc62e27c12f.jpg",
    "image": "https://cards.scryfall.io/normal/front/8/5/859bda9a-fa90-4ad3-b0c1-6fc62e27c12f.jpg"
+  },
+  "Treasure": {
+   "art": "https://cards.scryfall.io/art_crop/front/d/1/d1892b78-7663-4cbd-a732-9a4b0b18d4c8.jpg",
+   "image": "https://cards.scryfall.io/normal/front/d/1/d1892b78-7663-4cbd-a732-9a4b0b18d4c8.jpg"
+  },
+  "Food": {
+   "art": "https://cards.scryfall.io/art_crop/front/2/7/276dedb8-3d41-499c-8804-bb1471fcb06f.jpg",
+   "image": "https://cards.scryfall.io/normal/front/2/7/276dedb8-3d41-499c-8804-bb1471fcb06f.jpg"
+  },
+  "Clue": {
+   "art": "https://cards.scryfall.io/art_crop/front/5/e/5e644586-888f-4e2e-8d66-8aa02bd79ec1.jpg",
+   "image": "https://cards.scryfall.io/normal/front/5/e/5e644586-888f-4e2e-8d66-8aa02bd79ec1.jpg"
+  },
+  "Knight 2/2 vigilance": {
+   "art": "https://cards.scryfall.io/art_crop/front/f/4/f4035134-a162-4651-86c5-ae006b6e0e20.jpg",
+   "image": "https://cards.scryfall.io/normal/front/f/4/f4035134-a162-4651-86c5-ae006b6e0e20.jpg"
   }
  }
 }

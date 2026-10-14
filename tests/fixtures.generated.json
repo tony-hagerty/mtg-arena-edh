@@ -1,0 +1,883 @@
+{
+ "cards": {
+  "Blaze": {
+   "name": "Blaze",
+   "manaCost": "{X}{R}",
+   "cmc": 1,
+   "colors": [
+    "R"
+   ],
+   "colorIdentity": [
+    "R"
+   ],
+   "typeLine": "Sorcery",
+   "oracleText": "Blaze deals X damage to any target.",
+   "keywords": [],
+   "image": "https://cards.scryfall.io/normal/front/b/1/b16d0422-61ea-4039-b1c1-e590ace9156e.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/b/1/b16d0422-61ea-4039-b1c1-e590ace9156e.jpg"
+  },
+  "Boros Recruit": {
+   "name": "Boros Recruit",
+   "manaCost": "{R/W}",
+   "cmc": 1,
+   "colors": [
+    "R",
+    "W"
+   ],
+   "colorIdentity": [
+    "R",
+    "W"
+   ],
+   "typeLine": "Creature — Goblin Soldier",
+   "oracleText": "({R/W} can be paid with either {R} or {W}.)\nFirst strike",
+   "power": "1",
+   "toughness": "1",
+   "keywords": [
+    "First strike"
+   ],
+   "image": "https://cards.scryfall.io/normal/front/5/a/5af01330-05c2-4c5b-9830-2886711b2b5d.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/5/a/5af01330-05c2-4c5b-9830-2886711b2b5d.jpg"
+  },
+  "Gut Shot": {
+   "name": "Gut Shot",
+   "manaCost": "{R/P}",
+   "cmc": 1,
+   "colors": [
+    "R"
+   ],
+   "colorIdentity": [
+    "R"
+   ],
+   "typeLine": "Instant",
+   "oracleText": "({R/P} can be paid with either {R} or 2 life.)\nGut Shot deals 1 damage to any target.",
+   "keywords": [],
+   "image": "https://cards.scryfall.io/normal/front/4/6/461987da-8860-4a04-8f93-d182523ca311.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/4/6/461987da-8860-4a04-8f93-d182523ca311.jpg"
+  },
+  "Spectral Procession": {
+   "name": "Spectral Procession",
+   "manaCost": "{2/W}{2/W}{2/W}",
+   "cmc": 6,
+   "colors": [
+    "W"
+   ],
+   "colorIdentity": [
+    "W"
+   ],
+   "typeLine": "Sorcery",
+   "oracleText": "Create three 1/1 white Spirit creature tokens with flying.",
+   "keywords": [],
+   "image": "https://cards.scryfall.io/normal/front/9/9/9964629e-d79e-46e4-b3fd-e7d1759cbc60.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/9/9/9964629e-d79e-46e4-b3fd-e7d1759cbc60.jpg"
+  },
+  "Burst Lightning": {
+   "name": "Burst Lightning",
+   "manaCost": "{R}",
+   "cmc": 1,
+   "colors": [
+    "R"
+   ],
+   "colorIdentity": [
+    "R"
+   ],
+   "typeLine": "Instant",
+   "oracleText": "Kicker {4} (You may pay an additional {4} as you cast this spell.)\nBurst Lightning deals 2 damage to any target. If this spell was kicked, it deals 4 damage instead.",
+   "keywords": [
+    "Kicker"
+   ],
+   "image": "https://cards.scryfall.io/normal/front/a/e/aec5d380-d354-4750-931a-6c91853e2edc.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/a/e/aec5d380-d354-4750-931a-6c91853e2edc.jpg"
+  },
+  "Bone Splinters": {
+   "name": "Bone Splinters",
+   "manaCost": "{B}",
+   "cmc": 1,
+   "colors": [
+    "B"
+   ],
+   "colorIdentity": [
+    "B"
+   ],
+   "typeLine": "Sorcery",
+   "oracleText": "As an additional cost to cast this spell, sacrifice a creature.\nDestroy target creature.",
+   "keywords": [],
+   "image": "https://cards.scryfall.io/normal/front/1/0/106b5c96-d1bd-433d-955e-ace0b60d3bc3.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/1/0/106b5c96-d1bd-433d-955e-ace0b60d3bc3.jpg"
+  },
+  "Flawless Maneuver": {
+   "name": "Flawless Maneuver",
+   "manaCost": "{2}{W}",
+   "cmc": 3,
+   "colors": [
+    "W"
+   ],
+   "colorIdentity": [
+    "W"
+   ],
+   "typeLine": "Instant",
+   "oracleText": "If you control a commander, you may cast this spell without paying its mana cost.\nCreatures you control gain indestructible until end of turn.",
+   "keywords": [],
+   "image": "https://cards.scryfall.io/normal/front/3/f/3ffe82a4-584e-4ebd-9551-a745bed01e26.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/3/f/3ffe82a4-584e-4ebd-9551-a745bed01e26.jpg"
+  },
+  "Thalia, Guardian of Thraben": {
+   "name": "Thalia, Guardian of Thraben",
+   "manaCost": "{1}{W}",
+   "cmc": 2,
+   "colors": [
+    "W"
+   ],
+   "colorIdentity": [
+    "W"
+   ],
+   "typeLine": "Legendary Creature — Human Soldier",
+   "oracleText": "First strike\nNoncreature spells cost {1} more to cast.",
+   "power": "2",
+   "toughness": "1",
+   "keywords": [
+    "First strike"
+   ],
+   "image": "https://cards.scryfall.io/normal/front/c/9/c9f8b8fb-1cd8-450e-a1fe-892e7a323479.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/c/9/c9f8b8fb-1cd8-450e-a1fe-892e7a323479.jpg"
+  },
+  "Ruby Medallion": {
+   "name": "Ruby Medallion",
+   "manaCost": "{2}",
+   "cmc": 2,
+   "colors": [],
+   "colorIdentity": [],
+   "typeLine": "Artifact",
+   "oracleText": "Red spells you cast cost {1} less to cast.",
+   "keywords": [],
+   "image": "https://cards.scryfall.io/normal/front/6/3/630febf5-58ff-4dab-a5a8-575ebc5435a6.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/6/3/630febf5-58ff-4dab-a5a8-575ebc5435a6.jpg"
+  },
+  "Island": {
+   "name": "Island",
+   "manaCost": "",
+   "cmc": 0,
+   "colors": [],
+   "colorIdentity": [
+    "U"
+   ],
+   "typeLine": "Basic Land — Island",
+   "oracleText": "({T}: Add {U}.)",
+   "keywords": [],
+   "image": "https://cards.scryfall.io/normal/front/1/3/1335d293-3dd2-4f13-bd2c-22181f4528ee.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/1/3/1335d293-3dd2-4f13-bd2c-22181f4528ee.jpg"
+  },
+  "Counterspell": {
+   "name": "Counterspell",
+   "manaCost": "{U}{U}",
+   "cmc": 2,
+   "colors": [
+    "U"
+   ],
+   "colorIdentity": [
+    "U"
+   ],
+   "typeLine": "Instant",
+   "oracleText": "Counter target spell.",
+   "keywords": [],
+   "image": "https://cards.scryfall.io/normal/front/4/f/4f616706-ec97-4923-bb1e-11a69fbaa1f8.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/4/f/4f616706-ec97-4923-bb1e-11a69fbaa1f8.jpg"
+  },
+  "Negate": {
+   "name": "Negate",
+   "manaCost": "{1}{U}",
+   "cmc": 2,
+   "colors": [
+    "U"
+   ],
+   "colorIdentity": [
+    "U"
+   ],
+   "typeLine": "Instant",
+   "oracleText": "Counter target noncreature spell.",
+   "keywords": [],
+   "image": "https://cards.scryfall.io/normal/front/5/2/52d58fe4-6070-4022-9cd7-c35a11b44525.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/5/2/52d58fe4-6070-4022-9cd7-c35a11b44525.jpg"
+  },
+  "Essence Scatter": {
+   "name": "Essence Scatter",
+   "manaCost": "{1}{U}",
+   "cmc": 2,
+   "colors": [
+    "U"
+   ],
+   "colorIdentity": [
+    "U"
+   ],
+   "typeLine": "Instant",
+   "oracleText": "Counter target creature spell.",
+   "keywords": [],
+   "image": "https://cards.scryfall.io/normal/front/3/2/32840097-0531-4c43-b6a8-e76c17420b04.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/3/2/32840097-0531-4c43-b6a8-e76c17420b04.jpg"
+  },
+  "Stifle": {
+   "name": "Stifle",
+   "manaCost": "{U}",
+   "cmc": 1,
+   "colors": [
+    "U"
+   ],
+   "colorIdentity": [
+    "U"
+   ],
+   "typeLine": "Instant",
+   "oracleText": "Counter target activated or triggered ability. (Mana abilities can't be targeted.)",
+   "keywords": [],
+   "image": "https://cards.scryfall.io/normal/front/6/1/616d1b20-61c1-4d39-a9b5-ad9fd61699e4.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/6/1/616d1b20-61c1-4d39-a9b5-ad9fd61699e4.jpg"
+  },
+  "Cryptic Command": {
+   "name": "Cryptic Command",
+   "manaCost": "{1}{U}{U}{U}",
+   "cmc": 4,
+   "colors": [
+    "U"
+   ],
+   "colorIdentity": [
+    "U"
+   ],
+   "typeLine": "Instant",
+   "oracleText": "Choose two —\n• Counter target spell.\n• Return target permanent to its owner's hand.\n• Tap all creatures your opponents control.\n• Draw a card.",
+   "keywords": [],
+   "image": "https://cards.scryfall.io/normal/front/3/0/30f6fca9-003b-4f6b-9d6e-1e88adda4155.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/3/0/30f6fca9-003b-4f6b-9d6e-1e88adda4155.jpg"
+  },
+  "Boros Charm": {
+   "name": "Boros Charm",
+   "manaCost": "{R}{W}",
+   "cmc": 2,
+   "colors": [
+    "R",
+    "W"
+   ],
+   "colorIdentity": [
+    "R",
+    "W"
+   ],
+   "typeLine": "Instant",
+   "oracleText": "Choose one —\n• Boros Charm deals 4 damage to target player or planeswalker.\n• Permanents you control gain indestructible until end of turn.\n• Target creature gains double strike until end of turn.",
+   "keywords": [],
+   "image": "https://cards.scryfall.io/normal/front/e/0/e0d8c9f6-cbbd-4694-b100-01cfb81036cc.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/e/0/e0d8c9f6-cbbd-4694-b100-01cfb81036cc.jpg"
+  },
+  "Fiery Confluence": {
+   "name": "Fiery Confluence",
+   "manaCost": "{2}{R}{R}",
+   "cmc": 4,
+   "colors": [
+    "R"
+   ],
+   "colorIdentity": [
+    "R"
+   ],
+   "typeLine": "Sorcery",
+   "oracleText": "Choose three. You may choose the same mode more than once.\n• Fiery Confluence deals 1 damage to each creature.\n• Fiery Confluence deals 2 damage to each opponent.\n• Destroy target artifact.",
+   "keywords": [],
+   "image": "https://cards.scryfall.io/normal/front/8/5/85d431c2-e4fa-426d-83cb-ecb782e7e87d.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/8/5/85d431c2-e4fa-426d-83cb-ecb782e7e87d.jpg"
+  },
+  "Pacifism": {
+   "name": "Pacifism",
+   "manaCost": "{1}{W}",
+   "cmc": 2,
+   "colors": [
+    "W"
+   ],
+   "colorIdentity": [
+    "W"
+   ],
+   "typeLine": "Enchantment — Aura",
+   "oracleText": "Enchant creature\nEnchanted creature can't attack or block.",
+   "keywords": [
+    "Enchant"
+   ],
+   "image": "https://cards.scryfall.io/normal/front/4/3/433eed50-81af-4a59-b624-57b6f5f1bb0f.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/4/3/433eed50-81af-4a59-b624-57b6f5f1bb0f.jpg"
+  },
+  "Holy Strength": {
+   "name": "Holy Strength",
+   "manaCost": "{W}",
+   "cmc": 1,
+   "colors": [
+    "W"
+   ],
+   "colorIdentity": [
+    "W"
+   ],
+   "typeLine": "Enchantment — Aura",
+   "oracleText": "Enchant creature\nEnchanted creature gets +1/+2.",
+   "keywords": [
+    "Enchant"
+   ],
+   "image": "https://cards.scryfall.io/normal/front/a/c/ac0987b8-755e-42f1-bd6d-1401fecd4171.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/a/c/ac0987b8-755e-42f1-bd6d-1401fecd4171.jpg"
+  },
+  "Bonesplitter": {
+   "name": "Bonesplitter",
+   "manaCost": "{1}",
+   "cmc": 1,
+   "colors": [],
+   "colorIdentity": [],
+   "typeLine": "Artifact — Equipment",
+   "oracleText": "Equipped creature gets +2/+0.\nEquip {1}",
+   "keywords": [
+    "Equip"
+   ],
+   "image": "https://cards.scryfall.io/normal/front/6/9/690972a8-72df-4050-a353-16e45589167c.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/6/9/690972a8-72df-4050-a353-16e45589167c.jpg"
+  },
+  "Loxodon Warhammer": {
+   "name": "Loxodon Warhammer",
+   "manaCost": "{3}",
+   "cmc": 3,
+   "colors": [],
+   "colorIdentity": [],
+   "typeLine": "Artifact — Equipment",
+   "oracleText": "Equipped creature gets +3/+0 and has trample and lifelink.\nEquip {3}",
+   "keywords": [
+    "Equip"
+   ],
+   "image": "https://cards.scryfall.io/normal/front/1/3/13eeff85-9e4a-46c9-841f-f3b1c556ef18.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/1/3/13eeff85-9e4a-46c9-841f-f3b1c556ef18.jpg"
+  },
+  "Untethered Express": {
+   "name": "Untethered Express",
+   "manaCost": "{4}",
+   "cmc": 4,
+   "colors": [],
+   "colorIdentity": [],
+   "typeLine": "Artifact — Vehicle",
+   "oracleText": "Trample\nWhenever this Vehicle attacks, put a +1/+1 counter on it.\nCrew 1 (Tap any number of creatures you control with total power 1 or more: This Vehicle becomes an artifact creature until end of turn.)",
+   "power": "4",
+   "toughness": "4",
+   "keywords": [
+    "Crew",
+    "Trample"
+   ],
+   "image": "https://cards.scryfall.io/normal/front/d/b/dba729d8-fd5e-4183-806a-0997f443a58f.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/d/b/dba729d8-fd5e-4183-806a-0997f443a58f.jpg"
+  },
+  "Black Sun's Zenith": {
+   "name": "Black Sun's Zenith",
+   "manaCost": "{X}{B}{B}",
+   "cmc": 2,
+   "colors": [
+    "B"
+   ],
+   "colorIdentity": [
+    "B"
+   ],
+   "typeLine": "Sorcery",
+   "oracleText": "Put X -1/-1 counters on each creature. Shuffle Black Sun's Zenith into its owner's library.",
+   "keywords": [],
+   "image": "https://cards.scryfall.io/normal/front/e/d/eda98f51-a918-4ef7-a123-7d4200c79620.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/e/d/eda98f51-a918-4ef7-a123-7d4200c79620.jpg"
+  },
+  "Reverberate": {
+   "name": "Reverberate",
+   "manaCost": "{R}{R}",
+   "cmc": 2,
+   "colors": [
+    "R"
+   ],
+   "colorIdentity": [
+    "R"
+   ],
+   "typeLine": "Instant",
+   "oracleText": "Copy target instant or sorcery spell. You may choose new targets for the copy.",
+   "keywords": [],
+   "image": "https://cards.scryfall.io/normal/front/5/9/5996feb4-02ac-45e8-a7f2-966cf74391dc.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/5/9/5996feb4-02ac-45e8-a7f2-966cf74391dc.jpg"
+  },
+  "Jace Beleren": {
+   "name": "Jace Beleren",
+   "manaCost": "{1}{U}{U}",
+   "cmc": 3,
+   "colors": [
+    "U"
+   ],
+   "colorIdentity": [
+    "U"
+   ],
+   "typeLine": "Legendary Planeswalker — Jace",
+   "oracleText": "+2: Each player draws a card.\n−1: Target player draws a card.\n−10: Target player mills twenty cards.",
+   "loyalty": "3",
+   "keywords": [
+    "Mill"
+   ],
+   "image": "https://cards.scryfall.io/normal/front/8/0/806d4e61-004f-4e52-b2e8-ba11b922cc7d.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/8/0/806d4e61-004f-4e52-b2e8-ba11b922cc7d.jpg"
+  },
+  "Garruk Wildspeaker": {
+   "name": "Garruk Wildspeaker",
+   "manaCost": "{2}{G}{G}",
+   "cmc": 4,
+   "colors": [
+    "G"
+   ],
+   "colorIdentity": [
+    "G"
+   ],
+   "typeLine": "Legendary Planeswalker — Garruk",
+   "oracleText": "+1: Untap two target lands.\n−1: Create a 3/3 green Beast creature token.\n−4: Creatures you control get +3/+3 and gain trample until end of turn.",
+   "loyalty": "3",
+   "keywords": [],
+   "image": "https://cards.scryfall.io/normal/front/0/8/08cf7ee6-ba30-42cd-a5b3-fd2fe7252f11.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/0/8/08cf7ee6-ba30-42cd-a5b3-fd2fe7252f11.jpg"
+  },
+  "Invasion of Dominaria // Serra Faithkeeper": {
+   "name": "Invasion of Dominaria // Serra Faithkeeper",
+   "manaCost": "{2}{W}",
+   "cmc": 3,
+   "colors": [
+    "W"
+   ],
+   "colorIdentity": [
+    "W"
+   ],
+   "typeLine": "Battle — Siege",
+   "oracleText": "(As a Siege enters, choose an opponent to protect it. You and others can attack it. When it's defeated, exile it, then cast it transformed.)\nWhen this Siege enters, you gain 4 life and draw a card.",
+   "defense": "5",
+   "keywords": [
+    "Flying",
+    "Vigilance",
+    "Transform"
+   ],
+   "image": "https://cards.scryfall.io/normal/front/7/e/7e784d3d-0c6d-4ce5-beb5-edd2adb32385.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/7/e/7e784d3d-0c6d-4ce5-beb5-edd2adb32385.jpg",
+   "layout": "transform",
+   "faces": [
+    {
+     "name": "Invasion of Dominaria",
+     "manaCost": "{2}{W}",
+     "cmc": 3,
+     "colors": [
+      "W"
+     ],
+     "colorIdentity": [
+      "W"
+     ],
+     "typeLine": "Battle — Siege",
+     "oracleText": "(As a Siege enters, choose an opponent to protect it. You and others can attack it. When it's defeated, exile it, then cast it transformed.)\nWhen this Siege enters, you gain 4 life and draw a card.",
+     "defense": "5",
+     "keywords": [
+      "Transform"
+     ],
+     "image": "https://cards.scryfall.io/normal/front/7/e/7e784d3d-0c6d-4ce5-beb5-edd2adb32385.jpg",
+     "art": "https://cards.scryfall.io/art_crop/front/7/e/7e784d3d-0c6d-4ce5-beb5-edd2adb32385.jpg"
+    },
+    {
+     "name": "Serra Faithkeeper",
+     "manaCost": "",
+     "cmc": 3,
+     "colors": [
+      "W"
+     ],
+     "colorIdentity": [
+      "W"
+     ],
+     "typeLine": "Creature — Angel",
+     "oracleText": "Flying, vigilance",
+     "power": "4",
+     "toughness": "4",
+     "keywords": [
+      "Flying",
+      "Vigilance"
+     ],
+     "image": "https://cards.scryfall.io/normal/back/7/e/7e784d3d-0c6d-4ce5-beb5-edd2adb32385.jpg",
+     "art": "https://cards.scryfall.io/art_crop/back/7/e/7e784d3d-0c6d-4ce5-beb5-edd2adb32385.jpg"
+    }
+   ]
+  },
+  "Delver of Secrets // Insectile Aberration": {
+   "name": "Delver of Secrets // Insectile Aberration",
+   "manaCost": "{U}",
+   "cmc": 1,
+   "colors": [
+    "U"
+   ],
+   "colorIdentity": [
+    "U"
+   ],
+   "typeLine": "Creature — Human Wizard",
+   "oracleText": "At the beginning of your upkeep, look at the top card of your library. You may reveal that card. If an instant or sorcery card is revealed this way, transform this creature.",
+   "power": "1",
+   "toughness": "1",
+   "keywords": [
+    "Flying",
+    "Transform"
+   ],
+   "image": "https://cards.scryfall.io/normal/front/6/9/6904ea20-e504-47da-95a0-08739fdde260.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/6/9/6904ea20-e504-47da-95a0-08739fdde260.jpg",
+   "layout": "transform",
+   "faces": [
+    {
+     "name": "Delver of Secrets",
+     "manaCost": "{U}",
+     "cmc": 1,
+     "colors": [
+      "U"
+     ],
+     "colorIdentity": [
+      "U"
+     ],
+     "typeLine": "Creature — Human Wizard",
+     "oracleText": "At the beginning of your upkeep, look at the top card of your library. You may reveal that card. If an instant or sorcery card is revealed this way, transform this creature.",
+     "power": "1",
+     "toughness": "1",
+     "keywords": [
+      "Transform"
+     ],
+     "image": "https://cards.scryfall.io/normal/front/6/9/6904ea20-e504-47da-95a0-08739fdde260.jpg",
+     "art": "https://cards.scryfall.io/art_crop/front/6/9/6904ea20-e504-47da-95a0-08739fdde260.jpg"
+    },
+    {
+     "name": "Insectile Aberration",
+     "manaCost": "",
+     "cmc": 1,
+     "colors": [
+      "U"
+     ],
+     "colorIdentity": [
+      "U"
+     ],
+     "typeLine": "Creature — Human Insect",
+     "oracleText": "Flying",
+     "power": "3",
+     "toughness": "2",
+     "keywords": [
+      "Flying"
+     ],
+     "image": "https://cards.scryfall.io/normal/back/6/9/6904ea20-e504-47da-95a0-08739fdde260.jpg",
+     "art": "https://cards.scryfall.io/art_crop/back/6/9/6904ea20-e504-47da-95a0-08739fdde260.jpg"
+    }
+   ]
+  },
+  "Kazandu Mammoth // Kazandu Valley": {
+   "name": "Kazandu Mammoth // Kazandu Valley",
+   "manaCost": "{1}{G}{G}",
+   "cmc": 3,
+   "colors": [
+    "G"
+   ],
+   "colorIdentity": [
+    "G"
+   ],
+   "typeLine": "Creature — Elephant",
+   "oracleText": "Landfall — Whenever a land you control enters, this creature gets +2/+2 until end of turn.",
+   "power": "3",
+   "toughness": "3",
+   "keywords": [
+    "Landfall"
+   ],
+   "image": "https://cards.scryfall.io/normal/front/2/f/2f632537-63bf-4490-86e6-e6067b9c1a3b.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/2/f/2f632537-63bf-4490-86e6-e6067b9c1a3b.jpg",
+   "layout": "modal_dfc",
+   "faces": [
+    {
+     "name": "Kazandu Mammoth",
+     "manaCost": "{1}{G}{G}",
+     "cmc": 3,
+     "colors": [
+      "G"
+     ],
+     "colorIdentity": [
+      "G"
+     ],
+     "typeLine": "Creature — Elephant",
+     "oracleText": "Landfall — Whenever a land you control enters, this creature gets +2/+2 until end of turn.",
+     "power": "3",
+     "toughness": "3",
+     "keywords": [
+      "Landfall"
+     ],
+     "image": "https://cards.scryfall.io/normal/front/2/f/2f632537-63bf-4490-86e6-e6067b9c1a3b.jpg",
+     "art": "https://cards.scryfall.io/art_crop/front/2/f/2f632537-63bf-4490-86e6-e6067b9c1a3b.jpg"
+    },
+    {
+     "name": "Kazandu Valley",
+     "manaCost": "",
+     "cmc": 0,
+     "colors": [],
+     "colorIdentity": [
+      "G"
+     ],
+     "typeLine": "Land",
+     "oracleText": "This land enters tapped.\n{T}: Add {G}.",
+     "keywords": [],
+     "image": "https://cards.scryfall.io/normal/back/2/f/2f632537-63bf-4490-86e6-e6067b9c1a3b.jpg",
+     "art": "https://cards.scryfall.io/art_crop/back/2/f/2f632537-63bf-4490-86e6-e6067b9c1a3b.jpg"
+    }
+   ]
+  },
+  "Needleverge Pathway // Pillarverge Pathway": {
+   "name": "Needleverge Pathway // Pillarverge Pathway",
+   "manaCost": "",
+   "cmc": 0,
+   "colors": [],
+   "colorIdentity": [
+    "R",
+    "W"
+   ],
+   "typeLine": "Land",
+   "oracleText": "{T}: Add {R}.",
+   "keywords": [],
+   "image": "https://cards.scryfall.io/normal/front/6/5/6559047e-6ede-4815-a3a0-389062094f9d.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/6/5/6559047e-6ede-4815-a3a0-389062094f9d.jpg",
+   "layout": "modal_dfc",
+   "faces": [
+    {
+     "name": "Needleverge Pathway",
+     "manaCost": "",
+     "cmc": 0,
+     "colors": [],
+     "colorIdentity": [
+      "R",
+      "W"
+     ],
+     "typeLine": "Land",
+     "oracleText": "{T}: Add {R}.",
+     "keywords": [],
+     "image": "https://cards.scryfall.io/normal/front/6/5/6559047e-6ede-4815-a3a0-389062094f9d.jpg",
+     "art": "https://cards.scryfall.io/art_crop/front/6/5/6559047e-6ede-4815-a3a0-389062094f9d.jpg"
+    },
+    {
+     "name": "Pillarverge Pathway",
+     "manaCost": "",
+     "cmc": 0,
+     "colors": [],
+     "colorIdentity": [
+      "R",
+      "W"
+     ],
+     "typeLine": "Land",
+     "oracleText": "{T}: Add {W}.",
+     "keywords": [],
+     "image": "https://cards.scryfall.io/normal/back/6/5/6559047e-6ede-4815-a3a0-389062094f9d.jpg",
+     "art": "https://cards.scryfall.io/art_crop/back/6/5/6559047e-6ede-4815-a3a0-389062094f9d.jpg"
+    }
+   ]
+  },
+  "Dead // Gone": {
+   "name": "Dead // Gone",
+   "manaCost": "{R} // {2}{R}",
+   "cmc": 4,
+   "colors": [
+    "R"
+   ],
+   "colorIdentity": [
+    "R"
+   ],
+   "typeLine": "Instant // Instant",
+   "oracleText": "Dead deals 2 damage to target creature.\n//\nReturn target creature you don't control to its owner's hand.",
+   "keywords": [],
+   "image": "https://cards.scryfall.io/normal/front/4/5/45b090c7-f1ba-4656-8b51-915fc1876922.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/4/5/45b090c7-f1ba-4656-8b51-915fc1876922.jpg",
+   "layout": "split",
+   "faces": [
+    {
+     "name": "Dead",
+     "manaCost": "{R}",
+     "cmc": 1,
+     "colors": [
+      "R"
+     ],
+     "colorIdentity": [
+      "R"
+     ],
+     "typeLine": "Instant",
+     "oracleText": "Dead deals 2 damage to target creature.",
+     "keywords": [],
+     "image": "https://cards.scryfall.io/normal/front/4/5/45b090c7-f1ba-4656-8b51-915fc1876922.jpg",
+     "art": "https://cards.scryfall.io/art_crop/front/4/5/45b090c7-f1ba-4656-8b51-915fc1876922.jpg"
+    },
+    {
+     "name": "Gone",
+     "manaCost": "{2}{R}",
+     "cmc": 3,
+     "colors": [
+      "R"
+     ],
+     "colorIdentity": [
+      "R"
+     ],
+     "typeLine": "Instant",
+     "oracleText": "Return target creature you don't control to its owner's hand.",
+     "keywords": [],
+     "image": "https://cards.scryfall.io/normal/front/4/5/45b090c7-f1ba-4656-8b51-915fc1876922.jpg",
+     "art": "https://cards.scryfall.io/art_crop/front/4/5/45b090c7-f1ba-4656-8b51-915fc1876922.jpg"
+    }
+   ]
+  },
+  "Murderous Rider // Swift End": {
+   "name": "Murderous Rider // Swift End",
+   "manaCost": "{1}{B}{B}",
+   "cmc": 3,
+   "colors": [
+    "B"
+   ],
+   "colorIdentity": [
+    "B"
+   ],
+   "typeLine": "Creature — Zombie Knight",
+   "oracleText": "Lifelink\nWhen this creature dies, put it on the bottom of its owner's library.",
+   "power": "2",
+   "toughness": "3",
+   "keywords": [
+    "Lifelink"
+   ],
+   "image": "https://cards.scryfall.io/normal/front/8/0/80fffad3-2486-4350-8dff-54a215ebfc28.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/8/0/80fffad3-2486-4350-8dff-54a215ebfc28.jpg",
+   "layout": "adventure",
+   "faces": [
+    {
+     "name": "Murderous Rider",
+     "manaCost": "{1}{B}{B}",
+     "cmc": 3,
+     "colors": [
+      "B"
+     ],
+     "colorIdentity": [
+      "B"
+     ],
+     "typeLine": "Creature — Zombie Knight",
+     "oracleText": "Lifelink\nWhen this creature dies, put it on the bottom of its owner's library.",
+     "power": "2",
+     "toughness": "3",
+     "keywords": [
+      "Lifelink"
+     ],
+     "image": "https://cards.scryfall.io/normal/front/8/0/80fffad3-2486-4350-8dff-54a215ebfc28.jpg",
+     "art": "https://cards.scryfall.io/art_crop/front/8/0/80fffad3-2486-4350-8dff-54a215ebfc28.jpg"
+    },
+    {
+     "name": "Swift End",
+     "manaCost": "{1}{B}{B}",
+     "cmc": 3,
+     "colors": [
+      "B"
+     ],
+     "colorIdentity": [
+      "B"
+     ],
+     "typeLine": "Instant — Adventure",
+     "oracleText": "Destroy target creature or planeswalker. You lose 2 life. (Then exile this card. You may cast the creature later from exile.)",
+     "keywords": [],
+     "image": "https://cards.scryfall.io/normal/front/8/0/80fffad3-2486-4350-8dff-54a215ebfc28.jpg",
+     "art": "https://cards.scryfall.io/art_crop/front/8/0/80fffad3-2486-4350-8dff-54a215ebfc28.jpg"
+    }
+   ]
+  },
+  "History of Benalia": {
+   "name": "History of Benalia",
+   "manaCost": "{1}{W}{W}",
+   "cmc": 3,
+   "colors": [
+    "W"
+   ],
+   "colorIdentity": [
+    "W"
+   ],
+   "typeLine": "Enchantment — Saga",
+   "oracleText": "(As this Saga enters and after your draw step, add a lore counter. Sacrifice after III.)\nI, II — Create a 2/2 white Knight creature token with vigilance.\nIII — Knights you control get +2/+1 until end of turn.",
+   "keywords": [],
+   "image": "https://cards.scryfall.io/normal/front/d/1/d134385d-b01c-41c7-bb2d-30722b44dc5a.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/d/1/d134385d-b01c-41c7-bb2d-30722b44dc5a.jpg"
+  },
+  "Wizard Class": {
+   "name": "Wizard Class",
+   "manaCost": "{U}",
+   "cmc": 1,
+   "colors": [
+    "U"
+   ],
+   "colorIdentity": [
+    "U"
+   ],
+   "typeLine": "Enchantment — Class",
+   "oracleText": "(Gain the next level as a sorcery to add its ability.)\nYou have no maximum hand size.\n{2}{U}: Level 2\nWhen this Class becomes level 2, draw two cards.\n{4}{U}: Level 3\nWhenever you draw a card, put a +1/+1 counter on target creature you control.",
+   "keywords": [],
+   "image": "https://cards.scryfall.io/normal/front/d/1/d1f629fb-b097-4240-8560-ef47f5678f48.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/d/1/d1f629fb-b097-4240-8560-ef47f5678f48.jpg"
+  },
+  "Think Twice": {
+   "name": "Think Twice",
+   "manaCost": "{1}{U}",
+   "cmc": 2,
+   "colors": [
+    "U"
+   ],
+   "colorIdentity": [
+    "U"
+   ],
+   "typeLine": "Instant",
+   "oracleText": "Draw a card.\nFlashback {2}{U} (You may cast this card from your graveyard for its flashback cost. Then exile it.)",
+   "keywords": [
+    "Flashback"
+   ],
+   "image": "https://cards.scryfall.io/normal/front/8/5/85835de4-66ea-4ba1-87ca-6bcec2a8660a.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/8/5/85835de4-66ea-4ba1-87ca-6bcec2a8660a.jpg"
+  },
+  "Strike It Rich": {
+   "name": "Strike It Rich",
+   "manaCost": "{R}",
+   "cmc": 1,
+   "colors": [
+    "R"
+   ],
+   "colorIdentity": [
+    "R"
+   ],
+   "typeLine": "Sorcery",
+   "oracleText": "Create a Treasure token. (It's an artifact with \"{T}, Sacrifice this token: Add one mana of any color.\")\nFlashback {2}{R} (You may cast this card from your graveyard for its flashback cost. Then exile it.)",
+   "keywords": [
+    "Treasure",
+    "Flashback"
+   ],
+   "image": "https://cards.scryfall.io/normal/front/1/c/1c7c2814-a617-4123-acdf-1b01b2768210.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/1/c/1c7c2814-a617-4123-acdf-1b01b2768210.jpg"
+  },
+  "Thraben Inspector": {
+   "name": "Thraben Inspector",
+   "manaCost": "{W}",
+   "cmc": 1,
+   "colors": [
+    "W"
+   ],
+   "colorIdentity": [
+    "W"
+   ],
+   "typeLine": "Creature — Human Soldier",
+   "oracleText": "When this creature enters, investigate. (Create a Clue token. It's an artifact with \"{2}, Sacrifice this token: Draw a card.\")",
+   "power": "1",
+   "toughness": "2",
+   "keywords": [
+    "Investigate"
+   ],
+   "image": "https://cards.scryfall.io/normal/front/0/8/08a5007f-06a0-40fa-a252-c38baa6b5c6f.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/0/8/08a5007f-06a0-40fa-a252-c38baa6b5c6f.jpg"
+  },
+  "Bake into a Pie": {
+   "name": "Bake into a Pie",
+   "manaCost": "{2}{B}{B}",
+   "cmc": 4,
+   "colors": [
+    "B"
+   ],
+   "colorIdentity": [
+    "B"
+   ],
+   "typeLine": "Instant",
+   "oracleText": "Destroy target creature. Create a Food token. (It's an artifact with \"{2}, {T}, Sacrifice this token: You gain 3 life.\")",
+   "keywords": [
+    "Food"
+   ],
+   "image": "https://cards.scryfall.io/normal/front/2/a/2ab0e660-86a3-4b92-82fa-77dcb5db947d.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/2/a/2ab0e660-86a3-4b92-82fa-77dcb5db947d.jpg"
+  }
+ }
+}

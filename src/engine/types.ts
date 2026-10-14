@@ -27,6 +27,14 @@ export interface CardData {
   keywords: string[];
   image: string; // full card image
   art: string; // art crop, used for battlefield tiles
+  /**
+   * A card with more than one face: double-faced (712: `transform` or `modal_dfc`), split
+   * (709) or adventurer (715). Its own fields are what it has outside the stack and
+   * battlefield: the front face's, a split card's two halves combined (709.4), or an
+   * adventurer's normal ones (715.4). `faces` has each face's own.
+   */
+  layout?: 'transform' | 'modal_dfc' | 'split' | 'adventure';
+  faces?: CardData[];
 }
 
 /** Until-end-of-turn modifier. */
@@ -46,6 +54,8 @@ export interface CastInfo {
   modes: number[];
   /** A battle spell's protector, chosen as it is cast (see `CastChoices.protector`). */
   protector?: PlayerId;
+  /** Cast for its flashback cost: it is exiled whenever it would leave the stack (702.34a). */
+  flashback?: boolean;
 }
 
 /**
@@ -68,6 +78,12 @@ export interface CastChoices {
    * as the battle enters; here it is announced with the spell. Left out, the engine picks.
    */
   protector?: PlayerId;
+  /**
+   * Which face to cast, by index into `CardData.faces`: a split card's half (709.3), an
+   * adventurer's Adventure (1, 715.3), or a modal double-faced card's face (712.11b).
+   * Left out, the front face or normal characteristics.
+   */
+  face?: number;
 }
 
 /** One physical card (or token) in a game. `name` is the key into the card database. */
@@ -93,6 +109,16 @@ export interface Card {
   loyaltyTurn: number;
   /** A battle's protector (310.9), or null for anything else. */
   protector: PlayerId | null;
+  /**
+   * Which face is up, by index into `CardData.faces`: a transformed permanent's back face
+   * (701.27), a modal double-faced card's face (712.8f), or the half or Adventure being cast
+   * (709.3b, 715.3b). 0 everywhere but the stack and battlefield (712.8a).
+   */
+  face: number;
+  /** A Class's level (716.2). 1 for anything else (716.2d). */
+  level: number;
+  /** An adventurer card exiled after its Adventure resolved: its owner may cast it from exile (715.3d). */
+  adventure: boolean;
   mods: Mod[];
   /**
    * How this card was cast: the X chosen (107.3) and how many times it was kicked
@@ -294,7 +320,8 @@ export interface Game {
 }
 
 export type Action =
-  | { type: 'playLand'; card: string }
+  /** `face`: the land face of a modal double-faced card to put onto the battlefield (712.12). */
+  | { type: 'playLand'; card: string; face?: number }
   /** `hold`: keep priority afterwards instead of letting auto-pass pass it (117.3c). */
   | ({ type: 'cast'; card: string; targets?: (TargetRef | null)[]; hold?: boolean } & CastChoices)
   /** `crew`: the creatures tapped to pay a crew cost (702.122a). */
@@ -384,6 +411,10 @@ export interface TriggerEvents {
    * double-faced cards, which aren't supported yet.
    */
   onDefeat: object;
+  /** A Saga's chapter ability (714.2b). The engine triggers it; the script's `chapters` say what it does. */
+  onChapter: { chapter: number };
+  /** "When this Class becomes level N" (716.2a). */
+  onLevel: { level: number };
 }
 
 export type TriggerHook = keyof TriggerEvents;
@@ -391,11 +422,12 @@ export type TriggerHook = keyof TriggerEvents;
 /**
  * A triggered ability. A plain function triggers on every event of its kind and runs when
  * the ability resolves. Use `{ when, resolve }` to trigger on only some events: `when` is
- * checked as the event happens (603.2), `resolve` runs later, from the stack.
+ * checked as the event happens (603.2), `resolve` runs later, from the stack. `targets`
+ * are chosen as it goes on the stack (603.3d); an `onEnter` ability uses `CardScript.targets`.
  */
 export type Trigger<E> =
   | ((g: Game, e: Ctx & E) => void)
-  | { when: (g: Game, e: { self: Card } & E) => boolean; resolve: (g: Game, e: Ctx & E) => void };
+  | { when: (g: Game, e: { self: Card } & E) => boolean; resolve: (g: Game, e: Ctx & E) => void; targets?: TargetSpec[] };
 
 type Triggers = { [H in TriggerHook]?: Trigger<TriggerEvents[H]> };
 
@@ -416,8 +448,8 @@ export interface LoyaltyAbility {
 
 /** Behaviour for one card name. Anything a card does beyond its printed keywords lives here. */
 export interface CardScript extends Triggers {
-  /** "{T}: Add ..." */
-  mana?: { amount: number; colors: ManaSym[] | 'identity' | 'any' };
+  /** "{T}: Add ...". `sacrifice`: the source is sacrificed as part of the cost, like a Treasure (111.10a). */
+  mana?: { amount: number; colors: ManaSym[] | 'identity' | 'any'; sacrifice?: boolean };
   entersTapped?: boolean;
   /** Targets of an instant or sorcery, or of a permanent's `onEnter` ability. */
   targets?: TargetSpec[];
@@ -471,9 +503,17 @@ export interface CardScript extends Triggers {
   };
   /** A planeswalker's loyalty abilities, in printed order (606). */
   loyalty?: LoyaltyAbility[];
+  /** Flashback [cost]: it may be cast from its owner's graveyard for this cost (702.34a). */
+  flashback?: string;
+  /** A Saga's chapter abilities, chapter I first (714.2). */
+  chapters?: Mode[];
+  /** A Class's level bars (716.2a): `levels[0]` is "[cost]: Level 2", and so on. Scripts read `self.level`. */
+  levels?: { cost: string; text: string }[];
+  /** "You have no maximum hand size" (402.2). */
+  noMaxHandSize?: boolean;
   /** Bot hint: 'alpha' = cast before attacking with a wide board. */
   ai?: 'alpha';
 }
 
 /** Hooks that every permanent on the battlefield hears, not only the card the event is about. */
-export type BroadcastHook = Exclude<TriggerHook, 'onEnter' | 'onDies' | 'onAttack' | 'onCombatDamageToPlayer' | 'onDefeat'>;
+export type BroadcastHook = Exclude<TriggerHook, 'onEnter' | 'onDies' | 'onAttack' | 'onCombatDamageToPlayer' | 'onDefeat' | 'onChapter' | 'onLevel'>;

@@ -1,9 +1,12 @@
 // Real cards that aren't in the card pool yet, with scripts, so tests can try out rules
 // the pool doesn't use: X, hybrid, Phyrexian, kicker, sacrifice and alternative costs,
 // cost changes, counterspells, modal spells, copying spells, counters, Auras, Equipment,
-// Vehicles, planeswalkers and battles. Importing this file registers them. Their data is typed in by hand
-// (Scryfall can't be reached from every machine), without images.
+// Vehicles, planeswalkers, battles, double-faced, split and adventurer cards, Sagas,
+// Classes, flashback and Treasure, Food and Clue tokens. Importing this file registers
+// them. Their data comes from Scryfall: list a name in tests/fixture-cards.json and run
+// `npm run fetch-cards`, which writes tests/fixtures.generated.json.
 import { registerCards } from '../src/cards/db';
+import generated from './fixtures.generated.json';
 import {
   CANT_ATTACK,
   CANT_BLOCK,
@@ -18,6 +21,10 @@ import {
   copySpell,
   counter,
   createToken,
+  label,
+  log,
+  loseLife,
+  transform,
   gainLife,
   creaturesOf,
   damageCard,
@@ -35,86 +42,9 @@ import {
   refPlayer,
 } from '../src/engine';
 import { registerScripts } from '../src/engine/registry';
-import type { CardData, Color, TargetSpec } from '../src/engine';
+import type { CardData, TargetSpec } from '../src/engine';
 
-const card = (name: string, manaCost: string, cmc: number, colors: Color[], typeLine: string, oracleText: string, extra: Partial<CardData> = {}): CardData => ({
-  name,
-  manaCost,
-  cmc,
-  colors,
-  colorIdentity: colors,
-  typeLine,
-  oracleText,
-  keywords: [],
-  image: '',
-  art: '',
-  ...extra,
-});
-
-registerCards({
-  Blaze: card('Blaze', '{X}{R}', 1, ['R'], 'Sorcery', 'Blaze deals X damage to any target.'),
-  'Boros Recruit': card('Boros Recruit', '{R/W}', 1, ['R', 'W'], 'Creature — Goblin Soldier', 'First strike', {
-    power: '1',
-    toughness: '1',
-    keywords: ['First strike'],
-  }),
-  'Gut Shot': card('Gut Shot', '{R/P}', 1, ['R'], 'Instant', '({R/P} can be paid with either {R} or 2 life.)\nGut Shot deals 1 damage to any target.'),
-  'Spectral Procession': card('Spectral Procession', '{2/W}{2/W}{2/W}', 6, ['W'], 'Sorcery', 'Create three 1/1 white Spirit creature tokens with flying.'),
-  'Burst Lightning': card('Burst Lightning', '{R}', 1, ['R'], 'Instant', 'Kicker {4}\nBurst Lightning deals 2 damage to any target. If this spell was kicked, it deals 4 damage instead.', {
-    keywords: ['Kicker'],
-  }),
-  'Bone Splinters': card('Bone Splinters', '{B}', 1, ['B'], 'Sorcery', 'As an additional cost to cast this spell, sacrifice a creature.\nDestroy target creature.'),
-  'Flawless Maneuver': card('Flawless Maneuver', '{2}{W}', 3, ['W'], 'Instant', 'If you control a commander, you may cast this spell without paying its mana cost.\nCreatures you control gain indestructible until end of turn.'),
-  'Thalia, Guardian of Thraben': card('Thalia, Guardian of Thraben', '{1}{W}', 2, ['W'], 'Legendary Creature — Human Soldier', 'First strike\nNoncreature spells cost {1} more to cast.', {
-    power: '2',
-    toughness: '1',
-    keywords: ['First strike'],
-  }),
-  'Ruby Medallion': card('Ruby Medallion', '{2}', 2, [], 'Artifact', 'Red spells you cast cost {1} less to cast.'),
-  // The pool has no blue deck, so no Island either.
-  Island: card('Island', '', 0, [], 'Basic Land — Island', '({T}: Add {U}.)', { colorIdentity: ['U'] }),
-  Counterspell: card('Counterspell', '{U}{U}', 2, ['U'], 'Instant', 'Counter target spell.'),
-  Negate: card('Negate', '{1}{U}', 2, ['U'], 'Instant', 'Counter target noncreature spell.'),
-  'Essence Scatter': card('Essence Scatter', '{1}{U}', 2, ['U'], 'Instant', 'Counter target creature spell.'),
-  Stifle: card('Stifle', '{U}', 1, ['U'], 'Instant', 'Counter target activated or triggered ability. (Mana abilities can\'t be targeted.)'),
-  'Cryptic Command': card('Cryptic Command', '{1}{U}{U}{U}', 4, ['U'], 'Instant', 'Choose two —\n• Counter target spell.\n• Return target permanent to its owner\'s hand.\n• Tap all creatures your opponents control.\n• Draw a card.'),
-  'Boros Charm': card('Boros Charm', '{R}{W}', 2, ['R', 'W'], 'Instant', 'Choose one —\n• Boros Charm deals 4 damage to target player or planeswalker.\n• Permanents you control gain indestructible until end of turn.\n• Target creature gains double strike until end of turn.'),
-  'Fiery Confluence': card('Fiery Confluence', '{2}{R}{R}', 4, ['R'], 'Sorcery', 'Choose three. You may choose the same mode more than once.\n• Fiery Confluence deals 1 damage to each creature.\n• Fiery Confluence deals 2 damage to each opponent.\n• Destroy target artifact.'),
-  Pacifism: card('Pacifism', '{1}{W}', 2, ['W'], 'Enchantment — Aura', "Enchant creature\nEnchanted creature can't attack or block.", { keywords: ['Enchant'] }),
-  'Holy Strength': card('Holy Strength', '{W}', 1, ['W'], 'Enchantment — Aura', 'Enchant creature\nEnchanted creature gets +1/+2.', { keywords: ['Enchant'] }),
-  Bonesplitter: card('Bonesplitter', '{1}', 1, [], 'Artifact — Equipment', 'Equipped creature gets +2/+0.\nEquip {1}', { keywords: ['Equip'] }),
-  'Loxodon Warhammer': card('Loxodon Warhammer', '{3}', 3, [], 'Artifact — Equipment', 'Equipped creature gets +3/+0 and has trample and lifelink.\nEquip {3}', {
-    keywords: ['Equip'],
-  }),
-  'Untethered Express': card('Untethered Express', '{4}', 4, [], 'Legendary Artifact — Vehicle', 'Trample\nWhenever Untethered Express attacks, put a +1/+1 counter on it.\nCrew 1', {
-    power: '4',
-    toughness: '4',
-    keywords: ['Trample', 'Crew'],
-  }),
-  "Black Sun's Zenith": card("Black Sun's Zenith", '{X}{B}{B}', 2, ['B'], 'Sorcery', "Put X -1/-1 counters on each creature. Shuffle Black Sun's Zenith into its owner's library."),
-  Reverberate: card('Reverberate', '{R}{R}', 2, ['R'], 'Instant', 'Copy target instant or sorcery spell. You may choose new targets for the copy.'),
-  'Jace Beleren': card('Jace Beleren', '{1}{U}{U}', 3, ['U'], 'Legendary Planeswalker — Jace', '+2: Each player draws a card.\n−1: Target player draws a card.\n−10: Target player mills twenty cards.', {
-    loyalty: '3',
-  }),
-  'Garruk Wildspeaker': card(
-    'Garruk Wildspeaker',
-    '{2}{G}{G}',
-    4,
-    ['G'],
-    'Legendary Planeswalker — Garruk',
-    '+1: Untap two target lands.\n−1: Create a 3/3 green Beast creature token.\n−4: Creatures you control get +3/+3 and gain trample until end of turn.',
-    { loyalty: '3' },
-  ),
-  'Invasion of Dominaria': card(
-    'Invasion of Dominaria',
-    '{2}{W}',
-    3,
-    ['W'],
-    'Battle — Siege',
-    "(As a Siege enters, choose an opponent to protect it. You and others can attack it. When it's defeated, exile it, then cast it transformed.)\nWhen this Siege enters, you gain 4 life and draw a card.",
-    { defense: '5' },
-  ),
-});
+registerCards((generated as { cards: Record<string, CardData> }).cards);
 
 const anyTarget: TargetSpec = { type: 'any', label: 'any target' };
 const land: TargetSpec = { type: 'permanent', label: 'target land', filter: (_g, c) => hasType(c, 'Land') };
@@ -299,4 +229,85 @@ registerScripts({
     },
   },
   'Ruby Medallion': { costModifier: (_g, self, spell, caster) => (caster === self.owner && isColor(spell, 'R') ? -1 : 0) },
+
+  // ---------- double-faced, split and adventurer cards (712, 709, 715) ----------
+  'Delver of Secrets': {
+    onUpkeep: {
+      when: (_g, { self, player }) => player === self.owner,
+      resolve: (g, { self, you }) => {
+        // Look at the top card; revealing an instant or sorcery is free upside, so it always happens.
+        const top = g.players[you].library[0];
+        if (!top || !(hasType(top, 'Instant') || hasType(top, 'Sorcery'))) return;
+        log(g, `${g.players[you].name} reveals ${label(top)}.`, you, [top]);
+        transform(g, permanent(g, self.id));
+      },
+    },
+  },
+  'Kazandu Mammoth': {
+    onLandfall: {
+      when: (_g, { self, land }) => land.owner === self.owner,
+      resolve: (g, { self }) => pump(g, permanent(g, self.id), 2, 2),
+    },
+  },
+  'Kazandu Valley': { entersTapped: true, mana: { amount: 1, colors: ['G'] } },
+  'Needleverge Pathway': { mana: { amount: 1, colors: ['R'] } },
+  'Pillarverge Pathway': { mana: { amount: 1, colors: ['W'] } },
+  Dead: { targets: [{ type: 'creature', label: 'target creature' }], onResolve: (g, { self, targets }) => void dealDamage(g, self, targets[0], 2) },
+  Gone: {
+    targets: [{ type: 'creature', who: 'opponent', label: "target creature you don't control" }],
+    onResolve: (g, { targets }) => {
+      const c = refCard(g, targets[0]);
+      if (c) moveCard(g, c, 'hand');
+    },
+  },
+  'Murderous Rider': {
+    onDies: (g, { self }) => {
+      const c = g.players[self.owner].graveyard.find((x) => x.id === self.id);
+      if (c) moveCard(g, c, 'library'); // the bottom: the library's last card
+    },
+  },
+  'Swift End': {
+    targets: [{ type: 'creature or planeswalker', label: 'target creature or planeswalker' }],
+    onResolve: (g, { targets, you }) => {
+      destroy(g, refCard(g, targets[0]));
+      loseLife(g, you, 2);
+    },
+  },
+
+  // ---------- Sagas and Classes (714, 716) ----------
+  'History of Benalia': {
+    chapters: [
+      { text: 'Create a 2/2 white Knight creature token with vigilance.', resolve: (g, { you }) => createToken(g, you, 'Knight 2/2 vigilance') },
+      { text: 'Create a 2/2 white Knight creature token with vigilance.', resolve: (g, { you }) => createToken(g, you, 'Knight 2/2 vigilance') },
+      {
+        text: 'Knights you control get +2/+1 until end of turn.',
+        resolve: (g, { you }) => creaturesOf(g, you).filter((c) => hasType(c, 'Knight')).forEach((c) => pump(g, c, 2, 1)),
+      },
+    ],
+  },
+  'Wizard Class': {
+    noMaxHandSize: true,
+    levels: [
+      { cost: '{2}{U}', text: 'Level 2: When this Class becomes level 2, draw two cards.' },
+      { cost: '{4}{U}', text: 'Level 3: Whenever you draw a card, put a +1/+1 counter on target creature you control.' },
+    ],
+    onLevel: { when: (_g, { level }) => level === 2, resolve: (g, { you }) => draw(g, you, 2) },
+    onDraw: {
+      when: (_g, { self, player }) => self.level >= 3 && player === self.owner,
+      targets: [{ type: 'creature', who: 'you', label: 'target creature you control' }],
+      resolve: (g, { targets }) => addCounters(g, refCard(g, targets[0])),
+    },
+  },
+
+  // ---------- flashback (702.34) and predefined tokens (111.10) ----------
+  'Think Twice': { flashback: '{2}{U}', onResolve: (g, { you }) => draw(g, you, 1) },
+  'Strike It Rich': { flashback: '{2}{R}', onResolve: (g, { you }) => createToken(g, you, 'Treasure') },
+  'Thraben Inspector': { onEnter: (g, { you }) => createToken(g, you, 'Clue') },
+  'Bake into a Pie': {
+    targets: [{ type: 'creature', label: 'target creature' }],
+    onResolve: (g, { targets, you }) => {
+      destroy(g, refCard(g, targets[0]));
+      createToken(g, you, 'Food');
+    },
+  },
 });

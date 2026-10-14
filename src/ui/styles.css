@@ -1886,6 +1886,11 @@ button {
   border-radius: 0.9rem;
 }
 
+/* A card that can be cast from the graveyard or exile (flashback, an Adventure). */
+.viewer-cards img.glow-play {
+  cursor: pointer;
+}
+
 /* ---------- card picker (search, mulligan, bottom, trigger order) ---------- */
 
 .picker {
