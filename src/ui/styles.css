@@ -20,8 +20,7 @@ html {
   --cyan: #39e3ff;
   --orange: #ff9a2e;
   --serif: 'Palatino Linotype', 'Book Antiqua', Palatino, Georgia, serif;
-  /* Arena-style arrow (public/cursor.png, see README credits). Its tip is the top-left pixel.
-     Clickable things use the system hand (`pointer`) instead. */
+  /* Arena-style arrow (public/cursor.png, see README credits). Its tip is the top-left pixel. */
   --cursor: url('/cursor.png') 0 0, auto;
   /* How cards are turned and which way rows run. Each opponent's seat overrides these. */
   --face: 0deg;
@@ -30,6 +29,13 @@ html {
 
 * {
   box-sizing: border-box;
+  /* The arrow everywhere, in place of the browser's hand, I-beam and the rest. */
+  cursor: var(--cursor);
+}
+
+/* While a mouse button is held (main.tsx sets the class): a pressed-in arrow with the same tip. */
+:root.pressing {
+  --cursor: url('/cursor-down.png') 0 0, auto;
 }
 
 body {
@@ -39,7 +45,6 @@ body {
   color: #eef1f7;
   font-family: 'Segoe UI', system-ui, sans-serif;
   user-select: none;
-  cursor: var(--cursor);
 }
 
 button {
@@ -326,7 +331,6 @@ button {
 .pile.graveyard,
 .pile.exile {
   border-radius: 0.4rem;
-  cursor: pointer;
 }
 
 .pile.graveyard img,
@@ -345,7 +349,6 @@ button {
 
 .pile.empty {
   border: 0.15rem dashed rgba(255, 255, 255, 0.3);
-  cursor: var(--cursor);
 }
 
 .pile.exile.empty {
@@ -444,10 +447,6 @@ button {
   animation: blink 1s steps(2) infinite;
 }
 
-.avatar.targetable {
-  cursor: pointer;
-}
-
 .avatar.targetable .avatar-art {
   box-shadow:
     0 0 0 0.35rem #ffe45c,
@@ -493,7 +492,6 @@ button {
   /* The glow-* highlights are sized in em. */
   font-size: calc(var(--badge) * 0.3);
   color: var(--f-gold);
-  cursor: var(--cursor);
 }
 
 /* The glyph itself is drawn bigger than the em the glows are measured in. */
@@ -505,7 +503,6 @@ button {
 .avatar-crown.glow-play,
 .avatar-crown.glow-picked {
   color: #ffe08a;
-  cursor: pointer;
 }
 
 .avatar-crown.away {
@@ -849,7 +846,6 @@ button {
   box-shadow:
     0 0 0 0.25em var(--cyan),
     0 0 1.4em 0.3em rgba(57, 227, 255, 0.7);
-  cursor: pointer;
 }
 
 .glow-target {
@@ -857,25 +853,18 @@ button {
     0 0 0 0.3em #ffe45c,
     0 0 1.8em 0.4em rgba(255, 228, 92, 0.85);
   animation: breathe 1s ease-in-out infinite;
-  cursor: crosshair;
 }
 
 .glow-picked {
   box-shadow:
     0 0 0 0.35em #fff,
     0 0 1.8em 0.5em #fff;
-  cursor: pointer;
 }
 
 .glow-discard {
   box-shadow:
     0 0 0 0.25em #ff5a4a,
     0 0 1.4em 0.3em rgba(255, 90, 74, 0.7);
-  cursor: pointer;
-}
-
-.tile.mana-source {
-  cursor: pointer;
 }
 
 .tile.blocking {
@@ -983,7 +972,6 @@ button {
   top: 0;
   width: 15rem;
   margin-left: -7.5rem;
-  cursor: grab;
   touch-action: none;
 }
 
@@ -1085,10 +1073,6 @@ button {
   border-radius: 0.6rem;
 }
 
-.phases.editable .pip-btn {
-  cursor: pointer;
-}
-
 .phases.editable .pip-btn:hover,
 .pip-btn.open {
   background: rgba(255, 255, 255, 0.08);
@@ -1166,7 +1150,6 @@ button {
   background: rgba(255, 255, 255, 0.06);
   border: 0.1rem solid transparent;
   border-radius: 0.6rem;
-  cursor: pointer;
 }
 
 .step-btn:hover:not(:disabled) {
@@ -1180,7 +1163,6 @@ button {
 
 .step-btn:disabled {
   color: #596171;
-  cursor: var(--cursor);
 }
 
 /* Whose turns the stops are for: one arrow per seat, laid out like the table. */
@@ -1195,7 +1177,6 @@ button {
   padding: 0;
   background: none;
   border: none;
-  cursor: pointer;
 }
 
 .seat-arrow svg {
@@ -1234,7 +1215,6 @@ button {
   color: #fff;
   border: none;
   border-radius: 3.2rem;
-  cursor: pointer;
   text-shadow: 0 0.15rem 0.25rem rgba(0, 0, 0, 0.7);
   box-shadow:
     inset 0 0.25rem 0.3rem rgba(255, 255, 255, 0.4),
@@ -1288,7 +1268,6 @@ button {
 }
 
 .btn:disabled {
-  cursor: var(--cursor);
   border-color: #5d6472;
   color: #aab3c5;
 }
@@ -1334,7 +1313,6 @@ button {
   background: rgba(10, 12, 18, 0.75);
   border: 0.1rem solid #5d6472;
   border-radius: 0.5rem;
-  cursor: pointer;
 }
 
 .log-bar button:hover {
@@ -1373,7 +1351,6 @@ button {
   text-decoration: underline dashed rgba(238, 241, 247, 0.55);
   text-decoration-thickness: 0.1rem;
   text-underline-offset: 0.25rem;
-  cursor: help;
 }
 
 .log-card:hover {
@@ -1602,7 +1579,6 @@ button {
   background: rgba(255, 255, 255, 0.06);
   border: 0.1rem solid #5d6472;
   border-radius: 2rem;
-  cursor: pointer;
 }
 
 .picker-fold:hover {
@@ -1637,7 +1613,6 @@ button {
 }
 
 .picker-card.can {
-  cursor: pointer;
   box-shadow: 0 0 0 0.25rem var(--cyan), 0 0 1.6rem rgba(57, 227, 255, 0.55);
 }
 
@@ -1704,12 +1679,10 @@ button {
   background: rgba(255, 255, 255, 0.08);
   border: 0.15rem solid #8a93a5;
   border-radius: 1.8rem;
-  cursor: pointer;
 }
 
 .picker-move button:disabled {
   opacity: 0.3;
-  cursor: var(--cursor);
 }
 
 .picker-buttons {
@@ -1732,7 +1705,6 @@ button {
   border: 0.2rem solid var(--cyan);
   border-radius: 3rem;
   box-shadow: 0 0 2rem rgba(57, 227, 255, 0.5);
-  cursor: pointer;
 }
 
 .game-over {
@@ -1830,7 +1802,6 @@ button {
   background: #2f3644;
   border: 0.1rem solid #aab3c5;
   border-radius: 0.6rem;
-  cursor: pointer;
 }
 
 /* ---------- menu ---------- */
@@ -1869,7 +1840,6 @@ button {
   background: rgba(12, 14, 20, 0.85);
   border: 0.3rem solid;
   border-radius: 2rem;
-  cursor: pointer;
   transition: transform 0.15s, box-shadow 0.15s;
 }
 
@@ -1913,7 +1883,6 @@ button {
   text-decoration: underline;
   background: none;
   border: none;
-  cursor: pointer;
 }
 
 .watch:hover {
