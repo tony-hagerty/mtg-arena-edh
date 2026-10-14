@@ -1,9 +1,28 @@
-// Card behaviour for the Kraum and Tymna deck (session 7a: the engine features its combo
-// turns need). Cards that are still to come in session 7b have no entry yet; see
-// docs/plans/commander-decks.md.
+// Card behaviour for the Kraum and Tymna deck. Each script follows the card's Oracle text
+// clause by clause (docs/card-scripting.md); comments quote the clauses that need care.
 import { registerScripts } from '../engine/registry';
 import {
+  MUST_ATTACK,
+  abilitySource,
   addEffect,
+  choosePlayer,
+  copyItem,
+  copyOf,
+  copySpell,
+  data,
+  enterBattlefield,
+  findCard,
+  shuffle,
+  finishEnter,
+  gainControl,
+  isLand,
+  isPermanentCard,
+  offerCast,
+  offerRetarget,
+  refGraveyard,
+  resolvingItem,
+  sameCard,
+  surveil,
   addMana,
   ask,
   bounce,
@@ -46,9 +65,10 @@ import {
   turnOrder,
   winGame,
 } from '../engine/rules';
-import { canPayLater, cardWant } from '../engine/ai';
+import { canPayLater, cardWant, oracleOnStack, threat } from '../engine/ai';
 import { canSayYes } from '../engine/engine';
 import type { AskChoice, Card, CardScript, Choice, Ctx, Find, Game, ManaSym, PlayerId, TargetSpec } from '../engine/types';
+import { CREATURE_TYPES } from './db';
 
 // ---------- target specs and conditions ----------
 
@@ -57,7 +77,7 @@ const anySpell = spell('target spell');
 const noncreatureSpell = spell('target noncreature spell', (_g, c) => !isCreature(c));
 const blueCard = { label: 'a blue card', filter: (_g: Game, c: Card) => isColor(c, 'U') };
 const isOpponent = (g: Game, a: PlayerId, b: PlayerId) => a !== b && !g.players[b].lost;
-const controlsCommander = (g: Game, self: Card) => g.players[self.owner].battlefield.some((c) => c.isCommander);
+const controlsCommander = (g: Game, self: Card) => g.players[self.controller].battlefield.some((c) => c.isCommander);
 const WUBRG: ManaSym[] = ['W', 'U', 'B', 'R', 'G'];
 
 // ---------- reusable pieces ----------
@@ -80,6 +100,7 @@ const tutor = (to: 'hand' | 'top', find?: Find, extra: Partial<CardScript> = {})
 
 /** "Add {B}{B}{B}" and other rituals: the mana goes straight into the caster's pool. */
 const ritual = (syms: (g: Game, ctx: Ctx) => ManaSym[]): CardScript => ({
+  ai: 'ritual',
   onResolve: (g, ctx) => addMana(g, ctx.you, syms(g, ctx), ctx.self),
 });
 
@@ -101,7 +122,7 @@ const counterspell = (target: TargetSpec, after?: (g: Game, ctx: Ctx, controller
 
 /** The colours of mana the lands an opponent controls could produce (Fellwar Stone, Exotic Orchard). */
 const opponentLandColors = (g: Game, self: Card): ManaSym[] => {
-  const all = new Set(opponentsOf(g, self.owner).flatMap((o) => o.battlefield.filter((c) => hasType(c, 'Land')).flatMap((c) => landColors(g, c))));
+  const all = new Set(opponentsOf(g, self.controller).flatMap((o) => o.battlefield.filter((c) => hasType(c, 'Land')).flatMap((c) => landColors(g, c))));
   return WUBRG.filter((x) => all.has(x));
 };
 
@@ -144,7 +165,7 @@ function drawsUnlessPays(g: Game, you: PlayerId, payer: PlayerId, cost: string, 
 const opponentCasts =
   (noncreature = false) =>
   (g: Game, e: { self: Card; card: Card; caster: PlayerId }) =>
-    isOpponent(g, e.self.owner, e.caster) && (!noncreature || !isCreature(e.card));
+    isOpponent(g, e.self.controller, e.caster) && (!noncreature || !isCreature(e.card));
 
 /** Recruit (701.70a): draw a card, then discard a card. If it was a nonland card, create a 1/1 white Human Soldier. */
 function recruit(g: Game, pid: PlayerId) {
@@ -182,7 +203,7 @@ registerScripts({
   'Spire of Industry': {
     mana: [
       { amount: 1, colors: ['C'] },
-      { amount: 1, colors: 'any', life: 1, when: (g, self) => g.players[self.owner].battlefield.some((c) => hasType(c, 'Artifact')) },
+      { amount: 1, colors: 'any', life: 1, when: (g, self) => g.players[self.controller].battlefield.some((c) => hasType(c, 'Artifact')) },
     ],
   },
   'Command Tower': { mana: { amount: 1, colors: 'identity' } },
@@ -193,13 +214,13 @@ registerScripts({
   'Lotus Petal': { mana: { amount: 1, colors: 'any', sacrifice: true } },
   'Mox Opal': {
     // Metalcraft: only while you control three or more artifacts.
-    mana: { amount: 1, colors: 'any', when: (g, self) => g.players[self.owner].battlefield.filter((c) => hasType(c, 'Artifact')).length >= 3 },
+    mana: { amount: 1, colors: 'any', when: (g, self) => g.players[self.controller].battlefield.filter((c) => hasType(c, 'Artifact')).length >= 3 },
   },
   'Mox Amber': {
     mana: {
       amount: 1,
       colors: (g, self) => {
-        const legends = g.players[self.owner].battlefield.filter((c) => hasType(c, 'Legendary') && (isCreature(c) || hasType(c, 'Planeswalker')));
+        const legends = g.players[self.controller].battlefield.filter((c) => hasType(c, 'Legendary') && (isCreature(c) || hasType(c, 'Planeswalker')));
         return WUBRG.filter((x) => legends.some((c) => isColor(c, x as never)));
       },
     },
@@ -211,7 +232,7 @@ registerScripts({
     // It has no "if", so it always triggers. While it is untapped, paying would do nothing,
     // so nobody is asked.
     onUpkeep: {
-      when: (_g, { self, player }) => player === self.owner,
+      when: (_g, { self, player }) => player === self.controller,
       resolve: (g, { you, self }) => {
         const vault = permanent(g, self.id);
         if (vault?.tapped) ask(g, you, { text: `Pay {4} to untap ${label(vault)}?`, cost: '{4}', yes: 'Pay {4}', no: "Don't Pay", then: 'untap' });
@@ -219,7 +240,7 @@ registerScripts({
     },
     // "At the beginning of your draw step, if this artifact is tapped" checks again as it resolves (603.4).
     onDrawStep: {
-      when: (_g, { self, player }) => player === self.owner && self.tapped,
+      when: (_g, { self, player }) => player === self.controller && self.tapped,
       resolve: (g, { self, you }) => {
         const vault = permanent(g, self.id);
         if (vault?.tapped) damagePlayer(g, vault, you, 1);
@@ -280,7 +301,7 @@ registerScripts({
     noncreatureSpell,
     undefined,
     {
-      alternativeCosts: [{ label: 'Exile a blue card', mana: '', exile: blueCard, when: (g, self) => g.active !== self.owner }],
+      alternativeCosts: [{ label: 'Exile a blue card', mana: '', exile: blueCard, when: (g, self) => g.active !== self.controller }],
       // "If that spell is countered this way, exile it instead of putting it into its owner's graveyard."
       onResolve: (g, { targets }) => void counter(g, targets[0], { exile: true }),
     },
@@ -345,10 +366,10 @@ registerScripts({
   'Grand Abolisher': {
     // During your turn, opponents can't cast spells or activate abilities of artifacts, creatures, or enchantments.
     forbids: (g, self, pid, act) =>
-      g.active === self.owner && pid !== self.owner && (act.kind === 'cast' || ['Artifact', 'Creature', 'Enchantment'].some((x) => hasType(act.card, x))),
+      g.active === self.controller && pid !== self.controller && (act.kind === 'cast' || ['Artifact', 'Creature', 'Enchantment'].some((x) => hasType(act.card, x))),
   },
   'Voice of Victory': {
-    forbids: (g, self, pid, act) => g.active === self.owner && pid !== self.owner && act.kind === 'cast',
+    forbids: (g, self, pid, act) => g.active === self.controller && pid !== self.controller && act.kind === 'cast',
     // Mobilize 2 (702.181a): two tapped and attacking 1/1 red Warriors, sacrificed at the beginning of the next end step.
     onAttack: (g, { self, you, defender, target }) => {
       const tokens = createToken(g, you, 'Warrior', 2, { tapped: true });
@@ -365,9 +386,9 @@ registerScripts({
     },
   },
   'Valley Floodcaller': {
-    grantsFlash: (_g, self, pid, spell) => pid === self.owner && !isCreature(spell),
+    grantsFlash: (_g, self, pid, spell) => pid === self.controller && !isCreature(spell),
     onCast: {
-      when: (_g, { self, card, caster }) => caster === self.owner && !isCreature(card),
+      when: (_g, { self, card, caster }) => caster === self.controller && !isCreature(card),
       resolve: (g, { you }) => {
         for (const c of creaturesOf(g, you)) {
           if (!['Bird', 'Frog', 'Otter', 'Rat'].some((x) => hasType(c, x))) continue;
@@ -393,7 +414,7 @@ registerScripts({
   'Mystic Remora': {
     // Cumulative upkeep {1} (702.24a): an age counter, then pay {1} for each or sacrifice it.
     onUpkeep: {
-      when: (_g, { self, player }) => player === self.owner,
+      when: (_g, { self, player }) => player === self.controller,
       resolve: (g, { self, you }) => {
         const remora = permanent(g, self.id);
         if (!remora) return;
@@ -426,14 +447,14 @@ registerScripts({
   },
   'Smothering Tithe': {
     onDraw: {
-      when: (g, { self, player }) => isOpponent(g, self.owner, player),
-      resolve: (g, { self, player }) => payOr(g, player, '{2}', `Pay {2}, or ${g.players[self.owner].name === 'You' ? 'you create' : `${g.players[self.owner].name} creates`} a Treasure (${label(self)}).`),
+      when: (g, { self, player }) => isOpponent(g, self.controller, player),
+      resolve: (g, { self, player }) => payOr(g, player, '{2}', `Pay {2}, or ${g.players[self.controller].name === 'You' ? 'you create' : `${g.players[self.controller].name} creates`} a Treasure (${label(self)}).`),
     },
     then: { unpaid: (g, { you, yes }) => !yes && void createToken(g, you, 'Treasure') },
   },
   'Gleaming Splendor': {
     onDraw: {
-      when: (g, { self, player }) => isOpponent(g, self.owner, player) && g.players[player].drawn === 2,
+      when: (g, { self, player }) => isOpponent(g, self.controller, player) && g.players[player].drawn === 2,
       resolve: (g, { you }) => void createToken(g, you, 'Treasure'),
     },
     activated: {
@@ -464,7 +485,7 @@ registerScripts({
     // checked again as it resolves (603.4).
     onDraw: {
       when: (g, { self, player }) => {
-        if (!isOpponent(g, self.owner, player) || g.active === player || self.once.secretary === g.turn) return false;
+        if (!isOpponent(g, self.controller, player) || g.active === player || self.once.secretary === g.turn) return false;
         self.once.secretary = g.turn;
         return true;
       },
@@ -474,7 +495,7 @@ registerScripts({
   },
   "Kraum, Ludevic's Opus": {
     onCast: {
-      when: (g, e) => isOpponent(g, e.self.owner, e.caster) && g.players[e.caster].spellsCast === 2,
+      when: (g, e) => isOpponent(g, e.self.controller, e.caster) && g.players[e.caster].spellsCast === 2,
       resolve: (g, { you }) => draw(g, you),
     },
   },
@@ -484,7 +505,7 @@ registerScripts({
     // cards." It always triggers; X is worked out as it resolves, counting combat damage from
     // any source. With X = 0 there is nothing to pay or draw, so nobody is asked.
     onPostcombatMain: {
-      when: (_g, { self, player }) => player === self.owner,
+      when: (_g, { self, player }) => player === self.controller,
       resolve: (g, { you }) => {
         const x = g.combatDamaged.filter((p) => isOpponent(g, you, p)).length;
         if (x) ask(g, you, { text: `Pay ${x} life to draw ${x} card${x === 1 ? '' : 's'}?`, life: x, yes: `Pay ${x} Life`, no: "Don't Pay", then: 'draw', data: { x } });
@@ -545,6 +566,15 @@ registerScripts({
     },
   },
   'Demonic Consultation': {
+    // With its own Thassa's Oracle on the stack, a bot names a card that can't be in its
+    // library, its commander, to exile the whole library. Otherwise the card it wants most.
+    botChoice: {
+      named: (g, pid) => {
+        if (oracleOnStack(g, pid)) return { type: 'name', name: g.players[pid].commanders[0] };
+        const lib = [...g.players[pid].library].sort((a, b) => cardWant(g, pid, b) - cardWant(g, pid, a));
+        return { type: 'name', name: lib.length ? data(lib[0]).name : 'Island' };
+      },
+    },
     onResolve: (g, { you }) =>
       nameCard(g, you, { text: 'Name a card. The top six cards are exiled, then cards until the named one, which goes to your hand.', then: 'named' }),
     then: {
@@ -582,7 +612,8 @@ registerScripts({
     botChoice: {
       take: (g, pid) => {
         const card = g.players[pid].exile.find((c) => c.id === (choiceData(g)?.card as string));
-        return { type: 'answer', yes: !!card && wants(g, pid, card) };
+        // With its own Thassa's Oracle on the stack, a bot takes nothing: the library is to be emptied.
+        return { type: 'answer', yes: !!card && !oracleOnStack(g, pid) && wants(g, pid, card) };
       },
     },
   },
@@ -593,9 +624,605 @@ registerScripts({
       if (p) mill(g, p.id, 3);
     },
   },
-  'Final Fortune': { onResolve: (g, { self, you }) => extraTurn(g, you, { loseAtEnd: self }) },
-  'Last Chance': { onResolve: (g, { self, you }) => extraTurn(g, you, { loseAtEnd: self }) },
+  'Final Fortune': { ai: 'extraTurn', onResolve: (g, { self, you }) => extraTurn(g, you, { loseAtEnd: self }) },
+  'Last Chance': { ai: 'extraTurn', onResolve: (g, { self, you }) => extraTurn(g, you, { loseAtEnd: self }) },
 });
+
+// ---------- session 7b: graveyard, exile and odd cards ----------
+
+/** The card types among cards in a player's graveyard (205.2a), for delirium. */
+const CARD_TYPES = ['Artifact', 'Battle', 'Creature', 'Enchantment', 'Instant', 'Kindred', 'Land', 'Planeswalker', 'Sorcery'];
+const delirium = (g: Game, pid: PlayerId) => CARD_TYPES.filter((t) => g.players[pid].graveyard.some((c) => hasType(c, t))).length >= 4;
+
+/** "You may play / cast [cards] this turn": a permission for each card, while it stays the same object. */
+function mayCast(g: Game, pid: PlayerId, cards: Card[], opts: { play?: boolean; anyMana?: boolean } = {}) {
+  for (const c of cards) addEffect(g, { kind: 'mayCast', player: pid, card: c.id, moves: c.moves, ...opts });
+}
+
+/** Exiles the top `n` cards of a player's library face up, and returns them. */
+function exileTop(g: Game, pid: PlayerId, n: number): Card[] {
+  const cards = g.players[pid].library.slice(0, n);
+  for (const c of cards) moveCard(g, c, 'exile');
+  if (cards.length) log(g, `${says(g.players[pid], 'exiles')} ${cards.map(label).join(', ')} from the top of ${g.players[pid].isBot ? 'their' : 'your'} library.`, pid, cards);
+  return cards;
+}
+
+/** A player's name as the subject of a log line about them: "You" or "Ludevic". */
+const who = (g: Game, pid: PlayerId) => g.players[pid].name;
+
+/** One step of Ad Nauseam: "Reveal the top card of your library and put that card into your hand. You lose life equal to its mana value." */
+function adNauseam(g: Game, pid: PlayerId) {
+  const top = g.players[pid].library[0];
+  if (!top) return;
+  log(g, `${says(g.players[pid], 'reveals')} ${label(top)} and ${g.players[pid].isBot ? 'puts' : 'put'} it into ${g.players[pid].isBot ? 'their' : 'your'} hand.`, pid, [top]);
+  moveCard(g, top, 'hand');
+  loseLife(g, pid, manaValue(top));
+  // "You may repeat this process any number of times."
+  if (g.players[pid].library.length) ask(g, pid, { text: `Reveal another card? You have ${g.players[pid].life} life.`, yes: 'Reveal Another', no: 'Stop', then: 'again' });
+}
+
+/** The creature type a bot picks: the one most common among the creatures in its deck that it hasn't played yet. */
+function favouriteType(g: Game, pid: PlayerId): string {
+  const p = g.players[pid];
+  const counts = new Map<string, number>();
+  for (const c of [...p.library, ...p.hand, ...p.command]) {
+    if (!isCreature(c)) continue;
+    for (const t of data(c).typeLine.split(' — ')[1]?.split(' ') ?? []) if (CREATURE_TYPES.includes(t)) counts.set(t, (counts.get(t) ?? 0) + 1);
+  }
+  return [...counts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? 'Human';
+}
+
+/** A bot's answer to a card choice. */
+const pickCard = (cards: string[]) => ({ type: 'chooseCards' as const, cards });
+
+registerScripts({
+  'Underworld Breach': {
+    // "Each nonland card in your graveyard has escape. The escape cost is equal to the card's
+    // mana cost plus exile three other cards from your graveyard." (702.138a)
+    grantsEscape: (_g, self, c) => c.owner === self.controller,
+    // "At the beginning of the end step, sacrifice this enchantment." Every end step, anyone's.
+    onEndStep: (g) => {
+      const breach = abilitySource(g);
+      if (breach) sacrifice(g, breach);
+    },
+  },
+  'Mnemonic Betrayal': {
+    onResolve: (g, { self, you }) => {
+      // "Exile all opponents' graveyards."
+      const exiled: Card[] = [];
+      for (const o of opponentsOf(g, you)) {
+        const cards = [...o.graveyard];
+        for (const c of cards) moveCard(g, c, 'exile');
+        if (cards.length) log(g, `${o.name}'s graveyard is exiled: ${cards.map(label).join(', ')}.`, you, cards);
+        exiled.push(...cards);
+      }
+      // "You may cast spells from among those cards this turn, and mana of any type can be spent to cast them."
+      mayCast(g, you, exiled, { anyMana: true });
+      // "At the beginning of the next end step, if any of those cards remain exiled, return them to their owners' graveyards."
+      if (exiled.length) delay(g, self, you, { key: 'return', step: 'end', data: { cards: exiled.map((c) => ({ id: c.id, moves: c.moves })) } });
+      // "Exile Mnemonic Betrayal." Instead of its owner's graveyard (608.2n). A copy just ceases to exist.
+      if (!self.isToken) {
+        log(g, `${label(self)} is exiled.`, you, [self]);
+        moveCard(g, self, 'exile');
+      }
+    },
+    delayedIf: { return: (g, data) => betrayed(g, data).length > 0 },
+    delayed: {
+      return: (g, { data }) => {
+        const cards = betrayed(g, data);
+        for (const c of cards) moveCard(g, c, 'graveyard');
+        if (cards.length) log(g, `${cards.map(label).join(', ')} ${cards.length === 1 ? 'returns' : 'return'} to ${cards.length === 1 ? "its owner's graveyard" : "their owners' graveyards"}.`, undefined, cards);
+      },
+    },
+  },
+  Necropotence: {
+    // "Skip your draw step." (614.1b)
+    skipDrawStep: true,
+    // "Whenever you discard a card, exile that card from your graveyard."
+    onDiscard: {
+      when: (_g, { self, player }) => player === self.controller,
+      resolve: (g, { card }) => {
+        const c = g.players[card.owner].graveyard.find((x) => sameCard(x, card));
+        if (!c) return;
+        log(g, `${label(c)} is exiled from ${g.players[c.owner].isBot ? `${g.players[c.owner].name}'s` : 'your'} graveyard (Necropotence).`, c.owner, [c]);
+        moveCard(g, c, 'exile');
+      },
+    },
+    // "Pay 1 life: Exile the top card of your library face down. Put that card into your hand at the beginning of your next end step."
+    activated: {
+      cost: { life: 1 },
+      text: 'Pay 1 life: exile the top card of your library face down; it goes to your hand at your next end step',
+      resolve: (g, { self, you }) => {
+        const top = g.players[you].library[0];
+        if (!top) return;
+        moveCard(g, top, 'exile');
+        top.faceDown = true; // nobody may look at it, its owner included (406.3)
+        log(g, `${says(g.players[you], 'exiles')} the top card of ${g.players[you].isBot ? 'their' : 'your'} library face down.`, you);
+        delay(g, self, you, { key: 'hand', step: 'end', player: you, data: { id: top.id, moves: top.moves } });
+      },
+    },
+    delayed: {
+      hand: (g, { you, data }) => {
+        const c = g.players[you].exile.find((x) => sameCard(x, data as { id: string; moves: number }));
+        if (!c) return;
+        moveCard(g, c, 'hand');
+        log(g, `${says(g.players[you], 'puts')} a card exiled with Necropotence into ${g.players[you].isBot ? 'their' : 'your'} hand.`, you);
+      },
+    },
+    // Bots pay a life a card in their second main phase while they have plenty, up to a full hand.
+    botActivate: (g, pid) => {
+      const p = g.players[pid];
+      const coming = g.delayed.filter((d) => d.controller === pid && d.key === 'hand').length;
+      return g.active === pid && g.step === 'main2' && p.life > 16 && p.hand.length + coming < 7 && p.library.length > 5;
+    },
+  },
+  'Ad Nauseam': {
+    onResolve: (g, { you }) => adNauseam(g, you),
+    then: { again: (g, { you, yes }) => yes && adNauseam(g, you) },
+    // Bots keep going while they stay at a safe life total.
+    botChoice: { again: (g, pid) => ({ type: 'answer', yes: g.players[pid].life > 12 && g.players[pid].library.length > 5 }) },
+  },
+  Intuition: {
+    targets: [{ type: 'player', who: 'opponent', label: 'target opponent' }],
+    // "Search your library for three cards and reveal them." They must be found if they can be (701.23d).
+    onResolve: (g, { you }) => search(g, you, 'none', undefined, { count: 3, reveal: true, then: 'found' }),
+    then: {
+      // "Target opponent chooses one."
+      found: (g, { you, targets, picked }) => {
+        const o = refPlayer(g, targets[0]);
+        if (!o || !picked.length) return;
+        pickCards(g, o.id, picked, { min: 1, max: 1, text: `choose the card ${g.players[you].name === 'You' ? 'you put into your' : `${who(g, you)} puts into their`} hand`, button: 'Choose', then: 'chosen', data: { cards: picked.map((c) => c.id) } });
+      },
+      // "Put that card into your hand and the rest into your graveyard. Then shuffle."
+      chosen: (g, { you, picked, data }) => {
+        const lib = g.players[you].library;
+        for (const id of data.cards as string[]) {
+          const c = lib.find((x) => x.id === id);
+          if (!c) continue;
+          const toHand = picked.some((x) => x.id === id);
+          moveCard(g, c, toHand ? 'hand' : 'graveyard');
+          log(g, `${label(c)} goes to ${who(g, you)}'s ${toHand ? 'hand' : 'graveyard'}.`, you, [c]);
+        }
+        shuffle(g, lib);
+      },
+    },
+    // The opponent gives the caster the card it would want least.
+    botChoice: {
+      chosen: (g, _pid, choice) => {
+        const caster = resolvingItem(g)!.controller;
+        const cards = choice.kind === 'pick' ? choice.cards.map((id) => findCard(g, id)!) : [];
+        return pickCard([...cards].sort((a, b) => cardWant(g, caster, a) - cardWant(g, caster, b)).slice(0, 1).map((c) => c.id));
+      },
+    },
+  },
+  Mockingbird: {
+    // "You may have this creature enter as a copy of any creature on the battlefield with mana
+    // value less than or equal to the amount of mana spent to cast this creature, except it's a
+    // Bird in addition to its other types and it has flying." A replacement effect (614.1c):
+    // the choice is made before it enters (614.12a). Not cast, no mana was spent.
+    replaceEnter: (g, c, controller) => {
+      const spent = c.zone === 'stack' ? (c.cast?.spent ?? 0) : 0;
+      const options = g.players.flatMap((p) => (p.lost ? [] : p.battlefield)).filter((x) => isCreature(x) && manaValue(x) <= spent);
+      if (!options.length) return false;
+      pickCards(g, controller, options, { min: 0, max: 1, text: `you may have it enter as a copy of a creature with mana value ${spent} or less`, button: 'Copy', then: 'copy', script: c.id });
+      return true;
+    },
+    then: {
+      copy: (g, { self, picked, data }) => finishEnter(g, self, data, picked[0] ? { copy: copyOf(picked[0], { subtypes: ['Bird'], keywords: ['Flying'] }) } : {}),
+    },
+    // Bots copy the best creature, if it beats a 1/1 flier.
+    botChoice: {
+      copy: (g, _pid, choice) => {
+        const cards = choice.kind === 'pick' ? choice.cards.map((id) => permanent(g, id)!).filter(Boolean) : [];
+        const best = [...cards].sort((a, b) => threat(g, b) - threat(g, a))[0];
+        return pickCard(best && threat(g, best) > 3 ? [best.id] : []);
+      },
+    },
+  },
+  'Deflecting Swat': {
+    // "If you control a commander, you may cast this spell without paying its mana cost."
+    alternativeCosts: [{ label: 'Free (you control a commander)', mana: '', when: controlsCommander }],
+    // "You may choose new targets for target spell or ability." (115.7d)
+    targets: [{ type: 'spell or ability', label: 'target spell or ability' }],
+    onResolve: (g, { you, targets }) => {
+      const item = refStack(g, targets[0]);
+      if (item) offerRetarget(g, you, item);
+    },
+  },
+  'Chain of Vapor': {
+    // "Return target nonland permanent to its owner's hand."
+    targets: [{ type: 'permanent', label: 'target nonland permanent', filter: (_g, c) => !isLand(c) }],
+    onResolve: (g, { targets }) => {
+      const c = refCard(g, targets[0]);
+      if (!c) return;
+      const controller = c.controller;
+      bounce(g, c);
+      // "Then that permanent's controller may sacrifice a land of their choice."
+      const lands = g.players[controller].battlefield.filter(isLand);
+      if (lands.length) pickCards(g, controller, lands, { min: 0, max: 1, text: 'you may sacrifice a land to copy Chain of Vapor', button: 'Sacrifice', then: 'sacrificed' });
+    },
+    then: {
+      // "If the player does, they may copy this spell and may choose a new target for that copy."
+      sacrificed: (g, { chooser, picked }) => {
+        const land = picked[0] && permanent(g, picked[0].id);
+        if (!land) return;
+        sacrifice(g, land);
+        ask(g, chooser, { text: 'Copy Chain of Vapor? You may choose a new target for the copy.', yes: 'Copy', no: "Don't Copy", then: 'copy' });
+      },
+      copy: (g, { chooser, yes }) => {
+        const item = resolvingItem(g);
+        if (yes && item) copyItem(g, item, chooser);
+      },
+    },
+    // Bots keep their lands.
+    botChoice: { sacrificed: () => pickCard([]) },
+  },
+  'Wishclaw Talisman': {
+    // "This artifact enters with three wish counters on it." (614.1c)
+    entersWith: { wish: 3 },
+    // "{1}, {T}, Remove a wish counter from this artifact: Search your library for a card, put it
+    // into your hand, then shuffle. An opponent gains control of this artifact. Activate only
+    // during your turn."
+    activated: {
+      cost: { mana: '{1}', tap: true, counters: { kind: 'wish', n: 1 } },
+      when: (g, self) => g.active === self.controller,
+      text: '{1}, {T}, remove a wish counter: search for a card; an opponent gains control of this',
+      resolve: (g, { you }) => {
+        search(g, you, 'hand');
+        // The ability's controller chooses which opponent (109.5).
+        choosePlayer(g, you, { text: 'Choose an opponent to gain control of Wishclaw Talisman.', options: opponentsOf(g, you).map((o) => o.id), then: 'give' });
+      },
+    },
+    then: {
+      give: (g, { player }) => {
+        const talisman = abilitySource(g);
+        if (talisman && player !== null) gainControl(g, talisman, player);
+      },
+    },
+    // Bots give it to the opponent whose turn comes last. They use one an opponent gave them, and their own only to find a missing combo piece.
+    botChoice: {
+      give: (g, pid, choice) => {
+        const options = choice.kind === 'player' ? choice.options : [];
+        const order = turnOrder(g, pid).filter((x) => options.includes(x));
+        return { type: 'choosePlayer', player: order[order.length - 1] ?? options[0] };
+      },
+    },
+    botActivate: (g, pid, self) => self.owner !== pid || comboMissing(g, pid),
+  },
+  'Gemstone Caverns': {
+    // "If this card is in your opening hand and you're not the starting player, you may begin the
+    // game with Gemstone Caverns on the battlefield with a luck counter on it. If you do, exile a
+    // card from your hand." (103.6a)
+    openingHand: (g, self, pid) => {
+      if (g.active === pid) return;
+      ask(g, pid, {
+        text: 'Begin the game with Gemstone Caverns on the battlefield with a luck counter on it? If you do, exile a card from your hand.',
+        yes: 'Begin with It',
+        no: 'Keep in Hand',
+        then: 'begin',
+        script: self.id,
+      });
+    },
+    // "{T}: Add {C}. If Gemstone Caverns has a luck counter on it, instead add one mana of any color."
+    mana: [
+      { amount: 1, colors: ['C'], when: (_g, self) => !self.counters.luck },
+      { amount: 1, colors: 'any', when: (_g, self) => !!self.counters.luck },
+    ],
+    then: {
+      begin: (g, { self, you, yes }) => {
+        if (!yes || self.zone !== 'hand') return;
+        log(g, `${says(g.players[you], 'begins')} the game with Gemstone Caverns on the battlefield.`, you, [self]);
+        enterBattlefield(g, self, { controller: you });
+        const caverns = permanent(g, self.id);
+        if (caverns) caverns.counters.luck = 1;
+        const hand = g.players[you].hand;
+        if (hand.length) pickCards(g, you, hand, { min: 1, max: 1, text: 'exile a card from your hand', button: 'Exile', then: 'exile', script: self.id });
+      },
+      exile: (g, { you, picked }) => {
+        const c = picked[0];
+        if (!c || c.zone !== 'hand') return;
+        log(g, `${says(g.players[you], 'exiles')} ${label(c)} from ${g.players[you].isBot ? 'their' : 'your'} hand.`, you, [c]);
+        moveCard(g, c, 'exile');
+      },
+    },
+    botChoice: {
+      begin: () => ({ type: 'answer', yes: true }),
+      exile: (g, pid, choice) => pickCard(leastWanted(g, pid, choice)),
+    },
+  },
+  'Cavern of Souls': {
+    // "As this land enters, choose a creature type." (614.1c, 614.12a)
+    replaceEnter: (g, c, controller) => {
+      nameCard(g, controller, { text: 'Choose a creature type.', of: 'creature type', then: 'type', script: c.id });
+      return true;
+    },
+    then: { type: (g, { self, name, data }) => finishEnter(g, self, data, { chosen: name }) },
+    // "{T}: Add {C}." "{T}: Add one mana of any color. Spend this mana only to cast a creature
+    // spell of the chosen type, and that spell can't be countered." (106.6)
+    mana: [
+      { amount: 1, colors: ['C'] },
+      { amount: 1, colors: 'any', chosenType: true, uncounterable: true },
+    ],
+    botChoice: { type: (g, pid) => ({ type: 'name', name: favouriteType(g, pid) }) },
+  },
+  'Chrome Mox': {
+    // "Imprint — When this artifact enters, you may exile a nonartifact, nonland card from your hand."
+    onEnter: (g, { you }) => {
+      const options = g.players[you].hand.filter((c) => !hasType(c, 'Artifact') && !isLand(c));
+      if (options.length) pickCards(g, you, options, { min: 0, max: 1, text: 'you may exile a nonartifact, nonland card from your hand', button: 'Exile', then: 'imprint' });
+    },
+    then: {
+      imprint: (g, { you, picked }) => {
+        const c = picked[0];
+        if (!c || c.zone !== 'hand') return;
+        log(g, `${says(g.players[you], 'exiles')} ${label(c)} with Chrome Mox.`, you, [c]);
+        moveCard(g, c, 'exile');
+        // The mana ability is linked to the card exiled (607.2a), if the Mox is still the same object.
+        const mox = abilitySource(g);
+        if (mox) mox.linked = [{ id: c.id, moves: c.moves }];
+      },
+    },
+    // "{T}: Add one mana of any of the exiled card's colors." No colour, no mana (106.5).
+    mana: {
+      amount: 1,
+      colors: (g, self) => {
+        const exiled = self.linked.map((l) => g.players.flatMap((p) => p.exile).find((x) => sameCard(x, l))).filter((x): x is Card => !!x);
+        return WUBRG.filter((x) => exiled.some((c) => isColor(c, x as never)));
+      },
+    },
+    // Bots exile the coloured card they want least, in one of their colours.
+    botChoice: {
+      imprint: (g, pid, choice) => {
+        const cards = choice.kind === 'pick' ? choice.cards.map((id) => findCard(g, id)!) : [];
+        const useful = cards.filter((c) => data(c).colors.some((x) => g.players[pid].colors.includes(x)));
+        return pickCard([...useful].sort((a, b) => cardWant(g, pid, a) - cardWant(g, pid, b)).slice(0, 1).map((c) => c.id));
+      },
+    },
+  },
+  'Mox Diamond': {
+    // "If this artifact would enter, you may discard a land card instead. If you do, put this
+    // artifact onto the battlefield. If you don't, put it into its owner's graveyard."
+    replaceEnter: (g, c, controller) => {
+      const lands = g.players[controller].hand.filter(isLand);
+      if (!lands.length) {
+        diamondToGraveyard(g, c);
+        return true;
+      }
+      pickCards(g, controller, lands, { min: 0, max: 1, text: "you may discard a land card. If you don't, Mox Diamond goes to the graveyard", button: 'Discard', then: 'diamond', script: c.id });
+      return true;
+    },
+    then: {
+      diamond: (g, { self, picked, data }) => {
+        const land = picked[0];
+        if (land && land.zone === 'hand') {
+          discard(g, land);
+          finishEnter(g, self, data);
+        } else diamondToGraveyard(g, self);
+      },
+    },
+    // "{T}: Add one mana of any color."
+    mana: { amount: 1, colors: 'any' },
+    botChoice: { diamond: (g, pid, choice) => pickCard(leastWanted(g, pid, choice)) },
+  },
+  "Lion's Eye Diamond": {
+    // "Discard your hand, Sacrifice this artifact: Add three mana of any one color. Activate only
+    // as an instant." No {T} in the cost. Auto-pay never uses it.
+    mana: { amount: 3, colors: 'any', noTap: true, sacrifice: true, discardHand: true, instant: true, manual: true },
+  },
+  'Ragavan, Nimble Pilferer': {
+    // "Whenever Ragavan deals combat damage to a player, create a Treasure token and exile the top
+    // card of that player's library. Until end of turn, you may cast that card."
+    onCombatDamageToPlayer: (g, { you, player }) => {
+      createToken(g, you, 'Treasure');
+      const [top] = exileTop(g, player, 1);
+      if (top) mayCast(g, you, [top]);
+    },
+    // "Dash {1}{R}" (702.109a): the engine gives haste and returns it at the next end step.
+    alternativeCosts: [{ label: 'Dash {1}{R}', mana: '{1}{R}', dash: true }],
+  },
+  'Into the Flood Maw': {
+    // "Return target creature an opponent controls to its owner's hand. If the gift was promised,
+    // instead return target nonland permanent an opponent controls to its owner's hand."
+    targets: [{ type: 'creature', who: 'opponent', label: 'target creature an opponent controls' }],
+    // "Gift a tapped Fish" (702.174f): the promised player creates a tapped 1/1 blue Fish first (702.174j).
+    gift: { token: 'Fish', tapped: true, targets: [{ type: 'permanent', who: 'opponent', label: 'target nonland permanent an opponent controls', filter: (_g, c) => !isLand(c) }] },
+    onResolve: (g, { targets }) => bounce(g, refCard(g, targets[0])),
+  },
+  'Beseech the Mirror': {
+    // "Bargain" (702.166a): as an additional cost, you may sacrifice an artifact, enchantment, or token.
+    additionalCost: {
+      optional: true,
+      sacrifice: { type: 'permanent', who: 'you', label: 'an artifact, enchantment, or token to sacrifice (bargain)', filter: (_g, c) => c.isToken || hasType(c, 'Artifact') || hasType(c, 'Enchantment') },
+    },
+    ai: 'tutor',
+    // "Search your library for a card, exile it face down, then shuffle."
+    onResolve: (g, { you }) => search(g, you, 'none', undefined, { then: 'found' }),
+    then: {
+      found: (g, { self, you, picked }) => {
+        const c = picked[0];
+        if (!c) return;
+        moveCard(g, c, 'exile');
+        c.faceDown = true;
+        c.known = [you]; // the player who searched saw it, and may still look (406.3)
+        log(g, `${says(g.players[you], 'exiles')} a card face down.`, you);
+        // "If this spell was bargained, you may cast the exiled card without paying its mana cost
+        // if that spell's mana value is 4 or less. Put the exiled card into your hand if it wasn't cast this way."
+        const ref = { id: c.id, moves: c.moves };
+        if (self.cast?.bargained) {
+          offerCast(g, you, c, { free: true, maxMv: 4, text: `You may cast ${label(c)} without paying its mana cost (mana value 4 or less). If you don't, it goes to your hand.`, then: 'cast', data: ref });
+        } else toHand(g, you, ref);
+      },
+      cast: (g, { you, yes, data }) => !yes && toHand(g, you, data as { id: string; moves: number }),
+    },
+  },
+  "Dragon's Rage Channeler": {
+    // "Whenever you cast a noncreature spell, surveil 1." (701.25a)
+    onCast: {
+      when: (_g, { self, card, caster }) => caster === self.controller && !isCreature(card),
+      resolve: (g, { you }) => surveil(g, you, 1),
+    },
+    // "Delirium — As long as there are four or more card types among cards in your graveyard,
+    // this creature gets +2/+2, has flying, and attacks each combat if able."
+    static: (g, self, c) => (c.id === self.id && delirium(g, self.controller) ? { power: 2, toughness: 2, keywords: ['flying', MUST_ATTACK] } : null),
+  },
+  'Birgi, God of Storytelling': {
+    // "Whenever you cast a spell, add {R}. Until end of turn, you don't lose this mana as steps and phases end."
+    onCast: {
+      when: (_g, { self, caster }) => caster === self.controller,
+      resolve: (g, { self, you }) => addMana(g, you, ['R'], self, { keep: true }),
+    },
+    // "Creatures you control can boast twice during each of your turns rather than once."
+    // No card in the game has boast, so there is nothing for this to change.
+  },
+  'Harnfel, Horn of Bounty': {
+    // "Discard a card: Exile the top two cards of your library. You may play those cards this turn."
+    activated: {
+      cost: { discard: 1 },
+      text: 'Discard a card: exile the top two cards of your library; you may play them this turn',
+      resolve: (g, { you }) => mayCast(g, you, exileTop(g, you, 2), { play: true }),
+    },
+    // Bots trade a card they don't want for two new ones, in their main phase.
+    botActivate: (g, pid) => g.active === pid && g.step === 'main1' && g.players[pid].hand.some((c) => cardWant(g, pid, c) <= 2) && g.players[pid].library.length > 4,
+  },
+  "Jeska's Will": {
+    ai: 'ritual',
+    modal: {
+      min: 1,
+      // "Choose one. If you control a commander as you cast this spell, you may choose both instead."
+      max: (g, self) => (controlsCommander(g, self) ? 2 : 1),
+      modes: [
+        {
+          // "Add {R} for each card in target opponent's hand."
+          text: "Add {R} for each card in target opponent's hand",
+          targets: [{ type: 'player', who: 'opponent', label: 'target opponent' }],
+          resolve: (g, { self, you, targets }) => {
+            const o = refPlayer(g, targets[0]);
+            if (o) addMana(g, you, Array<ManaSym>(o.hand.length).fill('R'), self);
+          },
+        },
+        {
+          // "Exile the top three cards of your library. You may play them this turn."
+          text: 'Exile the top three cards of your library. You may play them this turn',
+          resolve: (g, { you }) => mayCast(g, you, exileTop(g, you, 3), { play: true }),
+        },
+      ],
+    },
+  },
+  'Otawara, Soaring City': {
+    // "{T}: Add {U}."
+    mana: { amount: 1, colors: ['U'] },
+    // "Channel — {3}{U}, Discard this card: Return target artifact, creature, enchantment, or
+    // planeswalker to its owner's hand. This ability costs {1} less to activate for each
+    // legendary creature you control."
+    activated: {
+      fromHand: true,
+      cost: { mana: '{3}{U}', discardSelf: true },
+      reduction: (g, self) => g.players[self.owner].battlefield.filter((c) => hasType(c, 'Legendary') && isCreature(c)).length,
+      targets: [
+        {
+          type: 'permanent',
+          label: 'target artifact, creature, enchantment, or planeswalker',
+          filter: (_g, c) => ['Artifact', 'Creature', 'Enchantment', 'Planeswalker'].some((t) => hasType(c, t)),
+        },
+      ],
+      text: 'Channel: return target artifact, creature, enchantment, or planeswalker to its owner’s hand',
+      resolve: (g, { targets }) => bounce(g, refCard(g, targets[0])),
+    },
+  },
+  "Sevinne's Reclamation": {
+    // "Return target permanent card with mana value 3 or less from your graveyard to the battlefield."
+    targets: [
+      {
+        type: 'graveyard card',
+        who: 'you',
+        label: 'target permanent card with mana value 3 or less in your graveyard',
+        filter: (_g, c) => isPermanentCard(c) && manaValue(c) <= 3,
+      },
+    ],
+    onResolve: (g, { self, you, targets }) => {
+      const c = refGraveyard(g, targets[0]);
+      if (c) {
+        log(g, `${label(c)} returns to the battlefield.`, you, [c]);
+        enterBattlefield(g, c, { controller: you });
+      }
+      // "If this spell was cast from a graveyard, you may copy this spell and may choose a new
+      // target for the copy." A copy wasn't cast (707.10), so it can't copy itself again.
+      if (self.cast?.from === 'graveyard') ask(g, you, { text: "Copy Sevinne's Reclamation? You may choose a new target for the copy.", yes: 'Copy', no: "Don't Copy", then: 'copy' });
+    },
+    then: {
+      copy: (g, { you, yes }) => {
+        const item = resolvingItem(g);
+        if (yes && item) copyItem(g, item, you);
+      },
+    },
+    // "Flashback {4}{W}"
+    flashback: '{4}{W}',
+  },
+  'Flare of Duplication': {
+    // "You may sacrifice a nontoken red creature rather than pay this spell's mana cost."
+    alternativeCosts: [
+      {
+        label: 'Sacrifice a nontoken red creature',
+        mana: '',
+        sacrifice: { type: 'creature', who: 'you', label: 'a nontoken red creature to sacrifice', filter: (_g, c) => !c.isToken && isColor(c, 'R') },
+      },
+    ],
+    // "Copy target instant or sorcery spell. You may choose new targets for the copy." (707.10c)
+    targets: [spell('target instant or sorcery spell', (_g, c) => hasType(c, 'Instant') || hasType(c, 'Sorcery'))],
+    onResolve: (g, { you, targets }) => copySpell(g, targets[0], you),
+  },
+  'Hexing Squelcher': {
+    // "This spell can't be countered."
+    uncounterable: true,
+    // "Ward—Pay 2 life." (702.21a)
+    ward: { life: 2 },
+    // "Spells you control can't be countered."
+    protectsSpell: (_g, self, _spell, caster) => caster === self.controller,
+    // "Other creatures you control have 'Ward—Pay 2 life.'"
+    grantsWard: (_g, self, c) => (c.id !== self.id && c.controller === self.controller && isCreature(c) ? { life: 2 } : null),
+  },
+  'Rain of Filth': {
+    // "Until end of turn, lands you control gain 'Sacrifice this land: Add {B}.'" Only the lands
+    // you control as it resolves (611.2c).
+    onResolve: (g, { you }) => {
+      for (const c of g.players[you].battlefield.filter(isLand)) {
+        c.mods.push({ power: 0, toughness: 0, keywords: [], mana: { amount: 1, colors: ['B'], noTap: true, sacrifice: true } });
+      }
+      log(g, `${g.players[you].isBot ? `${who(g, you)}'s` : 'Your'} lands gain "Sacrifice this land: Add {B}" until end of turn.`, you);
+    },
+  },
+});
+
+/** Mnemonic Betrayal's cards that are still in exile, as the same objects (400.7). */
+function betrayed(g: Game, data: Record<string, unknown>): Card[] {
+  const refs = data.cards as { id: string; moves: number }[];
+  return g.players.flatMap((p) => p.exile).filter((c) => refs.some((r) => sameCard(c, r)));
+}
+
+/** Mox Diamond, not entering: "put it into its owner's graveyard". */
+function diamondToGraveyard(g: Game, c: Card) {
+  log(g, `${label(c)} goes to its owner's graveyard instead.`, c.owner, [c]);
+  moveCard(g, c, 'graveyard');
+}
+
+/** Beseech the Mirror: "Put the exiled card into your hand", if it is still the card it exiled. */
+function toHand(g: Game, pid: PlayerId, ref: { id: string; moves: number }) {
+  const c = g.players[pid].exile.find((x) => sameCard(x, ref));
+  if (!c) return;
+  log(g, `${says(g.players[pid], 'puts')} the card exiled with Beseech the Mirror into ${g.players[pid].isBot ? 'their' : 'your'} hand.`, pid);
+  moveCard(g, c, 'hand');
+}
+
+/**
+ * Is a piece of the deck's win missing? Thassa's Oracle wins with Demonic Consultation or
+ * Tainted Pact: a bot holding one half wants the other.
+ */
+function comboMissing(g: Game, pid: PlayerId): boolean {
+  const hand = g.players[pid].hand.map((c) => c.name);
+  const oracle = hand.includes("Thassa's Oracle");
+  const enabler = hand.includes('Demonic Consultation') || hand.includes('Tainted Pact');
+  return oracle !== enabler;
+}
 
 /** Thassa's Oracle's last sentence: "If X is greater than or equal to the number of cards in your library, you win the game." */
 function oracleCheck(g: Game, pid: PlayerId, x: number) {

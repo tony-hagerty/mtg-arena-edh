@@ -77,8 +77,8 @@ const drawAndLose = (cards: number, life: number) => (g: Game, { you }: Ctx) => 
 };
 const isSpell = (c: Card) => hasType(c, 'Instant') || hasType(c, 'Sorcery');
 // Trigger conditions shared by several cards.
-const youCastASpell = (_g: Game, e: { self: Card; card: Card; caster: PlayerId }) => e.caster === e.self.owner && isSpell(e.card);
-const yourLand = (_g: Game, e: { self: Card; land: Card }) => e.land.owner === e.self.owner;
+const youCastASpell = (_g: Game, e: { self: Card; card: Card; caster: PlayerId }) => e.caster === e.self.controller && isSpell(e.card);
+const yourLand = (_g: Game, e: { self: Card; land: Card }) => e.land.controller === e.self.controller;
 const teamPump = (g: Game, you: PlayerId, power: number, toughness: number, keywords: string[] = []) => {
   for (const c of creaturesOf(g, you)) pump(g, c, power, toughness, keywords);
 };
@@ -102,12 +102,12 @@ registerScripts({
   // ===== White =====
   'Lyra Dawnbringer': {
     static: (_g, self, c) =>
-      c.id !== self.id && c.owner === self.owner && hasType(c, 'Angel') ? { power: 1, toughness: 1, keywords: ['lifelink'] } : null,
+      c.id !== self.id && c.controller === self.controller && hasType(c, 'Angel') ? { power: 1, toughness: 1, keywords: ['lifelink'] } : null,
   },
   'Angel of Mercy': { onEnter: (g, { you }) => gainLife(g, you, 3) },
   'Archangel of Thune': {
     onLifeGain: {
-      when: (_g, { self, player }) => player === self.owner,
+      when: (_g, { self, player }) => player === self.controller,
       resolve: (g, { you }) => {
         for (const c of creaturesOf(g, you)) addCounters(g, c);
       },
@@ -123,13 +123,13 @@ registerScripts({
   'Attended Knight': { onEnter: (g, { you }) => createToken(g, you, 'Soldier') },
   'Captain of the Watch': {
     static: (_g, self, c) =>
-      c.id !== self.id && c.owner === self.owner && hasType(c, 'Soldier') ? { power: 1, toughness: 1, keywords: ['vigilance'] } : null,
+      c.id !== self.id && c.controller === self.controller && hasType(c, 'Soldier') ? { power: 1, toughness: 1, keywords: ['vigilance'] } : null,
     onEnter: (g, { you }) => createToken(g, you, 'Soldier', 3),
   },
   'Sunblast Angel': { onEnter: (g) => destroyMany(g, allCreatures(g).filter((c) => c.tapped)) },
   "Ajani's Pridemate": {
     onLifeGain: {
-      when: (_g, { self, player }) => player === self.owner,
+      when: (_g, { self, player }) => player === self.controller,
       resolve: (g, { self }) => addCounters(g, self),
     },
   },
@@ -140,7 +140,7 @@ registerScripts({
     },
   },
   'Benalish Marshal': {
-    static: (_g, self, c) => (c.id !== self.id && c.owner === self.owner ? { power: 1, toughness: 1 } : null),
+    static: (_g, self, c) => (c.id !== self.id && c.controller === self.controller ? { power: 1, toughness: 1 } : null),
   },
   "Victory's Herald": {
     onAttack: (g) => {
@@ -152,9 +152,11 @@ registerScripts({
     onResolve: (g, { targets }) => {
       const c = refCard(g, targets[0]);
       if (!c) return;
-      const power = stats(g, c).power;
+      // "Its controller gains life equal to its power": as it last was on the battlefield.
+      const { power } = stats(g, c);
+      const controller = c.controller;
       exile(g, c);
-      gainLife(g, c.owner, power);
+      gainLife(g, controller, power);
     },
   },
   'Wrath of God': wrath,
@@ -163,11 +165,12 @@ registerScripts({
     onResolve: (g, { targets }) => {
       const c = refCard(g, targets[0]);
       if (!c) return;
+      const controller = c.controller;
       exile(g, c);
-      searchBasic(g, c.owner, 'battlefield');
+      searchBasic(g, controller, 'battlefield');
     },
   },
-  'Glorious Anthem': { static: (_g, self, c) => (c.owner === self.owner ? { power: 1, toughness: 1 } : null) },
+  'Glorious Anthem': { static: (_g, self, c) => (c.controller === self.controller ? { power: 1, toughness: 1 } : null) },
   'Raise the Alarm': { onResolve: (g, { you }) => createToken(g, you, 'Soldier', 2) },
   Revitalize: {
     onResolve: (g, { you }) => {
@@ -186,7 +189,7 @@ registerScripts({
   // ===== Black =====
   'Sheoldred, the Apocalypse': {
     onDraw: (g, { self, player }) => {
-      if (player === self.owner) gainLife(g, player, 2);
+      if (player === self.controller) gainLife(g, player, 2);
       else loseLife(g, player, 2);
     },
   },
@@ -201,7 +204,7 @@ registerScripts({
   },
   'Zulaport Cutthroat': {
     onCreatureDies: {
-      when: (_g, { self, dead }) => dead.owner === self.owner,
+      when: (_g, { self, dead }) => dead.controller === self.controller,
       resolve: (g, { you }) => {
         eachOpponentLoses(g, you, 1);
         gainLife(g, you, 1);
@@ -229,8 +232,8 @@ registerScripts({
       for (const o of opponentsOf(g, you)) for (const c of creaturesOf(g, o.id)) pump(g, c, -2, -2);
     },
     onCreatureDies: {
-      when: (_g, { self, dead }) => dead.owner !== self.owner,
-      resolve: (g, { dead }) => void loseLife(g, dead.owner, 2),
+      when: (_g, { self, dead }) => dead.controller !== self.controller,
+      resolve: (g, { dead }) => void loseLife(g, dead.controller, 2),
     },
   },
   'Vampire Sovereign': {
@@ -246,11 +249,11 @@ registerScripts({
   'Phyrexian Rager': { onEnter: drawAndLose(1, 1) },
   'Grave Titan': {
     onEnter: (g, { you }) => createToken(g, you, 'Zombie', 2),
-    onAttack: (g, { self }) => createToken(g, self.owner, 'Zombie', 2),
+    onAttack: (g, { self }) => createToken(g, self.controller, 'Zombie', 2),
   },
   Nightmare: {
     basePT: (g, self) => {
-      const swamps = g.players[self.owner].battlefield.filter((c) => hasType(c, 'Swamp')).length;
+      const swamps = g.players[self.controller].battlefield.filter((c) => hasType(c, 'Swamp')).length;
       return { power: swamps, toughness: swamps };
     },
   },
@@ -279,7 +282,7 @@ registerScripts({
   },
   'Phyrexian Arena': {
     onUpkeep: {
-      when: (_g, { self, player }) => player === self.owner,
+      when: (_g, { self, player }) => player === self.controller,
       resolve: (g, { you }) => {
         draw(g, you);
         loseLife(g, you, 1);
@@ -289,7 +292,7 @@ registerScripts({
 
   // ===== Red =====
   'Torbran, Thane of Red Fell': {
-    damageBonus: (_g, self, source, targetOwner) => (isColor(source, 'R') && targetOwner !== self.owner ? 2 : 0),
+    damageBonus: (_g, self, source, targetOwner) => (isColor(source, 'R') && targetOwner !== self.controller ? 2 : 0),
   },
   'Goblin Chainwhirler': {
     onEnter: (g, { self, you }) => {
@@ -343,7 +346,7 @@ registerScripts({
   },
   Hellrider: {
     onCreatureAttacks: {
-      when: (_g, { self, attacker }) => attacker.owner === self.owner,
+      when: (_g, { self, attacker }) => attacker.controller === self.controller,
       // The player or planeswalker it's attacking (508.5). A battle it attacks doesn't count.
       resolve: (g, { self, defender, target }) => {
         const attacked = target ? permanent(g, target) : undefined;
@@ -390,7 +393,7 @@ registerScripts({
     },
   },
   Shatter: kill({ type: 'permanent', label: 'target artifact', filter: (_g, c) => hasType(c, 'Artifact') }),
-  Fervor: { static: (_g, self, c) => (c.owner === self.owner ? { keywords: ['haste'] } : null) },
+  Fervor: { static: (_g, self, c) => (c.controller === self.controller ? { keywords: ['haste'] } : null) },
   'Brute Strength': {
     targets: [creature()],
     onResolve: (g, { targets }) => pump(g, refCard(g, targets[0]), 3, 1, ['trample']),
@@ -398,7 +401,7 @@ registerScripts({
 
   // ===== Green =====
   'Ghalta, Primal Hunger': {
-    costReduction: (g, self) => creaturesOf(g, self.owner).reduce((n, c) => n + Math.max(0, stats(g, c).power), 0),
+    costReduction: (g, self) => creaturesOf(g, self.controller).reduce((n, c) => n + Math.max(0, stats(g, c).power), 0),
   },
   'Llanowar Elves': { mana: { amount: 1, colors: ['G'] } },
   'Elvish Mystic': { mana: { amount: 1, colors: ['G'] } },
@@ -447,13 +450,13 @@ registerScripts({
   'Elvish Visionary': { onEnter: (g, { you }) => draw(g, you) },
   'Beast Whisperer': {
     onCast: {
-      when: (_g, { self, card, caster }) => caster === self.owner && isCreature(card),
+      when: (_g, { self, card, caster }) => caster === self.controller && isCreature(card),
       resolve: (g, { you }) => draw(g, you),
     },
   },
   "Garruk's Packleader": {
     onCreatureEnters: {
-      when: (g, { self, entered }) => entered.id !== self.id && entered.owner === self.owner && stats(g, entered).power >= 3,
+      when: (g, { self, entered }) => entered.id !== self.id && entered.controller === self.controller && stats(g, entered).power >= 3,
       resolve: (g, { you }) => draw(g, you),
     },
   },
@@ -480,8 +483,9 @@ registerScripts({
     onResolve: (g, { targets }) => {
       const c = refCard(g, targets[0]);
       if (!c) return;
+      const controller = c.controller;
       destroy(g, c);
-      createToken(g, c.owner, 'Beast 3/3');
+      createToken(g, controller, 'Beast 3/3');
     },
   },
 

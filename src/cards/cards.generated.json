@@ -3925,6 +3925,10 @@
   "Warrior": {
    "art": "https://cards.scryfall.io/art_crop/front/7/e/7edc0515-a130-45a7-aa09-0e23bba41587.jpg",
    "image": "https://cards.scryfall.io/normal/front/7/e/7edc0515-a130-45a7-aa09-0e23bba41587.jpg"
+  },
+  "Fish": {
+   "art": "https://cards.scryfall.io/art_crop/front/d/e/de0d6700-49f0-4233-97ba-cef7821c30ed.jpg",
+   "image": "https://cards.scryfall.io/normal/front/d/e/de0d6700-49f0-4233-97ba-cef7821c30ed.jpg"
   }
  }
 }

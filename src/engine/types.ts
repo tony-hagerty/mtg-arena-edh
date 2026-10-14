@@ -6,6 +6,12 @@ export interface Mana {
   source: string;
   /** Which of the source's mana abilities made it, by index into `manaAbilities`. */
   ability?: number;
+  /** "Until end of turn, you don't lose this mana as steps and phases end" (Birgi): the turn it lasts until (500.5). */
+  keep?: number;
+  /** "Spend this mana only to cast a creature spell of the chosen type" (106.6): that creature type. */
+  only?: string;
+  /** "... and that spell can't be countered" (106.6): the spell it is spent on can't be countered. */
+  uncounterable?: boolean;
 }
 export type PlayerId = number;
 /** A player's own zones. The stack is shared, so it lives on `Game` instead (405). */
@@ -46,6 +52,8 @@ export interface Mod {
   keywords: string[];
   /** Makes the permanent an artifact creature too, e.g. a crewed Vehicle (702.122a). */
   creature?: boolean;
+  /** A mana ability it gains until end of turn (Rain of Filth). */
+  mana?: ManaAbility;
 }
 
 /** What was chosen for a spell as it was cast (601.2b). */
@@ -58,6 +66,24 @@ export interface CastInfo {
   protector?: PlayerId;
   /** Cast for its flashback cost: it is exiled whenever it would leave the stack (702.34a). */
   flashback?: boolean;
+  /** The zone it was cast from ("if this spell was cast from a graveyard"). */
+  from?: Zone;
+  /** Which alternative cost was paid, by index into the script's `alternativeCosts` (118.9). */
+  alt?: number;
+  /** Cast for its dash cost (702.109a). */
+  dash?: boolean;
+  /** Cast with escape (702.138b). */
+  escaped?: boolean;
+  /** Cast without paying its mana cost (Beseech the Mirror). */
+  free?: boolean;
+  /** Bargained (702.166b): the optional sacrifice was paid. */
+  bargained?: boolean;
+  /** The opponent promised its gift (702.174a, 702.174k), if it was promised. */
+  gift?: PlayerId;
+  /** How much mana was spent to cast it (Mockingbird). */
+  spent?: number;
+  /** Mana spent on it said the spell can't be countered (Cavern of Souls, 106.6). */
+  uncounterable?: boolean;
 }
 
 /**
@@ -82,6 +108,13 @@ export interface CastChoices {
    * as the battle enters; here it is announced with the spell. Left out, the engine picks.
    */
   protector?: PlayerId;
+  /**
+   * Escape (702.138a): the three other cards in the caster's graveyard exiled to pay the
+   * escape cost. Set only when a card is cast from a graveyard with escape.
+   */
+  escape?: string[];
+  /** The opponent a gift is promised to (702.174a). Left out, no gift is promised. */
+  gift?: PlayerId;
   /**
    * Which face to cast, by index into `CardData.faces`: a split card's half (709.3), an
    * adventurer's Adventure (1, 715.3), or a modal double-faced card's face (712.11b).
@@ -138,6 +171,40 @@ export interface Card {
    * library (903.9b).
    */
   mayReturn: boolean;
+  /**
+   * Who controls it (110.2). The owner everywhere but the battlefield and the stack: a
+   * permanent enters under the control of whoever put it there (110.2a), and a spell is
+   * controlled by whoever cast it (601.2a).
+   */
+  controller: PlayerId;
+  /**
+   * Players an effect gave control of this permanent, oldest first, after the player who
+   * controlled it before the first of them. Empty if control never changed (Wishclaw).
+   */
+  gained: PlayerId[];
+  /** How many times it has changed zones. Each zone change makes a new object (400.7). */
+  moves: number;
+  /** What this permanent entered as a copy of (707), or null. */
+  copy: CopyInfo | null;
+  /** Exiled face down (406.3): nobody may look at it but the players in `known`. */
+  faceDown: boolean;
+  /** Players who may look at it while it is face down in exile (406.3). */
+  known: PlayerId[];
+  /** A choice made as it entered, such as Cavern of Souls's creature type (614.12a). */
+  chosen: string | null;
+  /** Cards an ability of it exiled, for the ability linked to it (607), like Chrome Mox's. */
+  linked: { id: string; moves: number }[];
+}
+
+/**
+ * A copy effect (707): the copiable values of card `name` with face `face` up, plus the
+ * exceptions the copy effect adds (707.9b): extra subtypes and keywords.
+ */
+export interface CopyInfo {
+  name: string;
+  face: number;
+  subtypes: string[];
+  keywords: string[];
 }
 
 export interface Player {
@@ -182,6 +249,11 @@ export interface Player {
 export type TurnEffect =
   /** The player can't cast spells, or only noncreature spells, this turn (Silence). */
   | { kind: 'cantCast'; player: PlayerId; noncreature?: boolean }
+  /**
+   * The player may cast card `card` (while it is the same object, `moves`) this turn, or
+   * also play it if it is a land (`play`). `anyMana`: mana of any type can be spent to cast it.
+   */
+  | { kind: 'mayCast'; player: PlayerId; card: string; moves: number; play?: boolean; anyMana?: boolean }
   /** The player may cast spells as though they had flash this turn (Borne Upon a Wind). */
   | { kind: 'flash'; player: PlayerId };
 
@@ -307,6 +379,11 @@ export interface Find {
 interface Then {
   then?: string;
   data?: Record<string, unknown>;
+  /**
+   * The card whose script `then` runs, instead of the resolving spell or ability's: a card
+   * entering the battlefield (614.12a) or acting from an opening hand (103.6).
+   */
+  script?: string;
 }
 
 /**
@@ -318,9 +395,22 @@ interface Then {
  *  pick   - pick `min` to `max` of some particular cards, such as the top few of a library
  */
 export type CardChoice =
-  | ({ kind: 'search'; player: PlayerId; source: string; to: 'battlefield' | 'hand' | 'top'; tapped: boolean; find?: Find; reveal?: boolean } & Then)
+  | ({
+      kind: 'search';
+      player: PlayerId;
+      source: string;
+      /** 'none': the cards stay in the library for the continuation to move. */
+      to: 'battlefield' | 'hand' | 'top' | 'none';
+      tapped: boolean;
+      find?: Find;
+      reveal?: boolean;
+      /** How many cards to find. Left out, one. */
+      count?: number;
+    } & Then)
   | { kind: 'bottom'; player: PlayerId; count: number }
-  | ({ kind: 'pick'; player: PlayerId; source: string; cards: string[]; min: number; max: number; text: string; button: string } & Then);
+  | ({ kind: 'pick'; player: PlayerId; source: string; cards: string[]; min: number; max: number; text: string; button: string } & Then)
+  /** The legend rule (704.5j): the player keeps one of these legendary permanents. `resume` gets priority afterwards. */
+  | { kind: 'legend'; player: PlayerId; cards: string[]; resume: PlayerId };
 
 /**
  * A yes/no question to a player partway through resolving (608.2d): "you may ...", or
@@ -337,15 +427,49 @@ export interface AskChoice extends Then {
   no: string;
 }
 
-/** A player names a card (201.3), as Demonic Consultation asks. */
+/** A player names a card (201.3), as Demonic Consultation asks, or chooses a creature type (Cavern of Souls). */
 export interface NameChoice extends Then {
   kind: 'name';
   player: PlayerId;
   source: string;
   text: string;
+  /** What is named. Left out, a card. */
+  of?: 'creature type';
 }
 
-export type Choice = CardChoice | AskChoice | NameChoice;
+/** A player chooses a player, such as "an opponent" (Wishclaw Talisman). */
+export interface PlayerChoice extends Then {
+  kind: 'player';
+  player: PlayerId;
+  source: string;
+  text: string;
+  options: PlayerId[];
+}
+
+/**
+ * A player may cast `card` while a spell resolves (608.2g), without paying its mana cost
+ * if `free`. Answered by a `cast` action for that card, or `answer` no.
+ */
+export interface CastChoice extends Then {
+  kind: 'cast';
+  player: PlayerId;
+  source: string;
+  text: string;
+  card: string;
+  free: boolean;
+  /** "If that spell's mana value is N or less" (Beseech the Mirror). */
+  maxMv?: number;
+}
+
+/** A player may choose new targets for spell or ability `item` (115.7d). Answered by `chooseTargets`. */
+export interface RetargetChoice extends Then {
+  kind: 'retarget';
+  player: PlayerId;
+  source: string;
+  item: string;
+}
+
+export type Choice = CardChoice | AskChoice | NameChoice | PlayerChoice | CastChoice | RetargetChoice;
 
 /** The mulligan process before the first turn (103.5). `active` is the starting player meanwhile. */
 export interface Mulligans {
@@ -355,6 +479,8 @@ export interface Mulligans {
   waiting: PlayerId[];
   /** Players who declared a mulligan this round. They all take it once everyone has declared. */
   taking: PlayerId[];
+  /** Opening-hand actions (103.6) have been offered. */
+  opened?: boolean;
 }
 
 /**
@@ -371,6 +497,9 @@ export interface Mulligans {
  *  chooseCards   - a player picks cards from a list (see `CardChoice`)
  *  ask           - a player answers yes or no (see `AskChoice`)
  *  name          - a player names a card (see `NameChoice`)
+ *  player        - a player chooses a player (see `PlayerChoice`)
+ *  cast          - a player may cast a card while a spell resolves (see `CastChoice`)
+ *  retarget      - a player may choose new targets for a spell or ability (see `RetargetChoice`)
  *  commanderZone - a player's commander was put into their graveyard, exile, hand or
  *                  library, and they choose whether it goes to the command zone (903.9).
  *                  `resume` is the player who gets priority afterwards.
@@ -382,6 +511,9 @@ export type Decision =
   | { type: 'chooseCards'; choice: CardChoice }
   | { type: 'ask'; choice: AskChoice }
   | { type: 'name'; choice: NameChoice }
+  | { type: 'player'; choice: PlayerChoice }
+  | { type: 'cast'; choice: CastChoice }
+  | { type: 'retarget'; choice: RetargetChoice }
   | { type: 'commanderZone'; card: string; resume: PlayerId };
 
 export interface Game {
@@ -436,9 +568,13 @@ export type Action =
   | ({ type: 'cast'; card: string; targets?: (TargetRef | null)[]; hold?: boolean } & CastChoices)
   /** `crew`: the creatures tapped to pay a crew cost (702.122a). */
   /** `ability`: which loyalty ability (606), by index into the script's `loyalty`. Left out, the `activated` ability. */
-  | { type: 'activate'; card: string; ability?: number; targets?: (TargetRef | null)[]; hold?: boolean; crew?: string[] }
-  /** `ability`: which of its mana abilities (`manaAbilities`). Left out, the one that suits the player best. */
-  | { type: 'tapMana'; card: string; ability?: number }
+  /** `discard`: the cards discarded to pay a "Discard a card" cost. */
+  | { type: 'activate'; card: string; ability?: number; targets?: (TargetRef | null)[]; hold?: boolean; crew?: string[]; discard?: string[] }
+  /**
+   * `ability`: which of its mana abilities (`manaAbilities`). Left out, the one that suits
+   * the player best. `color`: the colour to make, for an ability with a choice.
+   */
+  | { type: 'tapMana'; card: string; ability?: number; color?: ManaSym }
   | { type: 'untapMana'; card: string }
   /** `target`: a planeswalker or battle to attack instead of the player; `defender` is then its controller or protector (508.1b). */
   | { type: 'declareAttack'; card: string; defender: PlayerId; target?: string }
@@ -446,6 +582,7 @@ export type Action =
   | { type: 'declareBlock'; blocker: string; attacker: string }
   | { type: 'undeclareBlock'; blocker: string }
   | { type: 'discard'; card: string }
+  /** Answers a `targets` decision, or a `retarget` one with the new set of targets (115.7d). */
   | { type: 'chooseTargets'; targets: (TargetRef | null)[] }
   /** Answers a `mulligan` decision. */
   | { type: 'keep' }
@@ -454,10 +591,12 @@ export type Action =
   | { type: 'chooseCards'; cards: string[] }
   /** Answers `orderTriggers`: every waiting trigger of yours, in the order they go on the stack (the last resolves first). */
   | { type: 'orderTriggers'; order: string[] }
-  /** Answers an `ask` decision. */
+  /** Answers an `ask` decision, or declines a `cast` decision with `yes: false`. */
   | { type: 'answer'; yes: boolean }
-  /** Answers a `name` decision with a card name. */
+  /** Answers a `name` decision with a card name (or a creature type). */
   | { type: 'name'; name: string }
+  /** Answers a `player` decision. */
+  | { type: 'choosePlayer'; player: PlayerId }
   /** Answers `commanderZone`: true moves the commander to the command zone, false leaves it where it is. */
   | { type: 'commanderZone'; toCommand: boolean }
   /** Pass priority, or finish declaring attackers or blockers. */
@@ -478,7 +617,10 @@ export interface TargetSpec {
     | 'spell'
     | 'ability'
     | 'creature or planeswalker'
-    | 'player or planeswalker';
+    | 'player or planeswalker'
+    | 'spell or ability'
+    /** A card in a graveyard (Sevinne's Reclamation). */
+    | 'graveyard card';
   who?: 'you' | 'opponent' | 'any'; // whose permanent / which player
   filter?: (g: Game, c: Card, source: Card) => boolean;
   optional?: boolean; // "you may" / "up to one"
@@ -542,6 +684,16 @@ export interface TriggerEvents {
   onPostcombatMain: { player: PlayerId };
   /** "At the beginning of your draw step", after the draw (504.2). */
   onDrawStep: { player: PlayerId };
+  /** "Whenever you discard a card." `card` is the discarded card, now in its owner's graveyard. */
+  onDiscard: { card: Card; player: PlayerId };
+  /** Ward (702.21a), which the engine resolves. `item` is the spell or ability to counter unless its controller pays. */
+  onWard: { item: string; cost: WardCost };
+}
+
+/** What ward costs (702.21a): mana, life, or both. */
+export interface WardCost {
+  mana?: string;
+  life?: number;
 }
 
 export type TriggerHook = keyof TriggerEvents;
@@ -583,6 +735,14 @@ export interface ManaAbility {
   fromHand?: boolean;
   /** Auto-pay never uses it: the player activates it on purpose. */
   manual?: boolean;
+  /** "Discard your hand" is part of the cost (Lion's Eye Diamond). */
+  discardHand?: boolean;
+  /** "Activate only as an instant": only while its controller has priority. */
+  instant?: boolean;
+  /** "Spend this mana only to cast a creature spell of the chosen type" (the permanent's `chosen`). */
+  chosenType?: boolean;
+  /** "... and that spell can't be countered." */
+  uncounterable?: boolean;
 }
 
 /** What a continuation (`CardScript.then`) is told: the answer to the choice it waited on. */
@@ -592,6 +752,8 @@ export interface ThenCtx extends Ctx {
   picked: Card[];
   yes: boolean;
   name: string;
+  /** The player chosen, for a `player` choice. */
+  player: PlayerId | null;
   data: Record<string, unknown>;
 }
 
@@ -616,7 +778,7 @@ export interface CardScript extends Triggers {
    * targets (700.2c), and the chosen ones run in printed order. Use instead of
    * `targets` and `onResolve`.
    */
-  modal?: { min: number; max: number; repeat?: boolean; modes: Mode[] };
+  modal?: { min: number; max: number | ((g: Game, self: Card) => number); repeat?: boolean; modes: Mode[] };
   /** Instants and sorceries. */
   onResolve?: (g: Game, ctx: Ctx) => void;
   /** Continuous effect this permanent grants to creature `c` (may be itself). */
@@ -632,8 +794,17 @@ export interface CardScript extends Triggers {
   costModifier?: (g: Game, self: Card, spell: Card, caster: PlayerId) => number;
   /** Kicker (702.33): an optional additional cost. `multi` is multikicker, paid any number of times (702.33c). */
   kicker?: { mana: string; multi?: boolean };
-  /** "As an additional cost to cast this spell, sacrifice a ..." (118.8). The spec says what can be sacrificed. */
-  additionalCost?: { sacrifice: TargetSpec };
+  /**
+   * "As an additional cost to cast this spell, sacrifice a ..." (118.8). The spec says what
+   * can be sacrificed. `optional`: the caster may sacrifice one, as bargain says (702.166a).
+   */
+  additionalCost?: { sacrifice: TargetSpec; optional?: boolean };
+  /**
+   * Gift (702.174): "Gift a [token]". The caster may promise an opponent a gift as they
+   * cast it; that player then creates the token before the spell's other effects
+   * (702.174j). `targets`: the spell's targets when the gift was promised (702.174m).
+   */
+  gift?: { token: string; tapped?: boolean; targets?: TargetSpec[] };
   /**
    * Costs the caster may pay rather than the mana cost (118.9), such as "you may cast this
    * spell without paying its mana cost" (`mana: ''`). `when` says if it is available now.
@@ -645,6 +816,10 @@ export interface CardScript extends Triggers {
     when?: (g: Game, self: Card) => boolean;
     /** Exile another card from your hand that fits, like Force of Will's blue card. */
     exile?: { label: string; filter: (g: Game, c: Card, self: Card) => boolean };
+    /** Sacrifice a permanent that fits, like Flare of Duplication's red creature. */
+    sacrifice?: TargetSpec;
+    /** Dash (702.109a): the permanent has haste and returns to its owner's hand at the next end step. */
+    dash?: boolean;
   }[];
   /** Extra damage added when `source` (controlled by self's owner) damages `targetOwner` or their permanent. */
   damageBonus?: (g: Game, self: Card, source: Card, targetOwner: PlayerId) => number;
@@ -659,9 +834,19 @@ export interface CardScript extends Triggers {
    * (702.122a). `sorcery` limits it to sorcery timing, like equip (702.6a).
    */
   activated?: {
-    /** `life`: life paid as part of the cost (119.4), like a fetch land's. */
-    cost: { tap?: boolean; mana?: string; sacrifice?: boolean; crew?: number; life?: number };
+    /**
+     * `life`: life paid as part of the cost (119.4), like a fetch land's. `discard`: cards
+     * discarded from the hand, chosen by the player. `discardSelf`: this card is discarded
+     * (channel, activated from the hand). `counters`: counters removed from it.
+     */
+    cost: { tap?: boolean; mana?: string; sacrifice?: boolean; crew?: number; life?: number; discard?: number; discardSelf?: boolean; counters?: { kind: string; n: number } };
     sorcery?: boolean;
+    /** Activated from its owner's hand rather than the battlefield, like channel. */
+    fromHand?: boolean;
+    /** "Activate only if ..." / "Activate only during your turn." */
+    when?: (g: Game, self: Card) => boolean;
+    /** Generic mana its cost is reduced by. */
+    reduction?: (g: Game, self: Card) => number;
     targets?: TargetSpec[];
     text: string;
     resolve: (g: Game, ctx: Ctx) => void;
@@ -683,6 +868,8 @@ export interface CardScript extends Triggers {
   then?: Record<string, (g: Game, ctx: ThenCtx) => void>;
   /** Delayed triggered abilities this card creates (603.7), by key. See `Delayed`. */
   delayed?: Record<string, (g: Game, ctx: Ctx & { data: Record<string, unknown> }) => void>;
+  /** An intervening "if" of a delayed triggered ability (603.4): it triggers only if this is true. Its `delayed` checks again as it resolves. */
+  delayedIf?: Record<string, (g: Game, data: Record<string, unknown>) => boolean>;
   /**
    * While this permanent is on the battlefield: does it stop `pid` casting a spell or
    * activating an ability of `card`? "Can't" wins over "can" (101.2).
@@ -696,6 +883,29 @@ export interface CardScript extends Triggers {
   protectsSpell?: (g: Game, self: Card, spell: Card, caster: PlayerId) => boolean;
   /** "This doesn't untap during your untap step" (502.3). */
   noUntap?: boolean;
+  /** "Skip your draw step" (614.1b, 614.10). */
+  skipDrawStep?: boolean;
+  /**
+   * A replacement effect that modifies how this permanent enters (614.1c, 614.12) and needs
+   * a choice, like Mox Diamond's or Cavern of Souls's. It queues the choice (with `script`
+   * set to the card) and returns true; the continuation puts the card onto the battlefield
+   * with `finishEnter`, or elsewhere. Returning false lets it enter as usual.
+   */
+  replaceEnter?: (g: Game, c: Card, controller: PlayerId) => boolean;
+  /** "This enters with [counters]" (614.1c). */
+  entersWith?: Record<string, number>;
+  /**
+   * While this permanent is on the battlefield: does card `c` in a graveyard have escape
+   * (702.138)? Its escape cost is then its mana cost plus exiling three other cards from
+   * that graveyard.
+   */
+  grantsEscape?: (g: Game, self: Card, c: Card) => boolean;
+  /** Ward (702.21). */
+  ward?: WardCost;
+  /** While this permanent is on the battlefield: the ward it gives permanent `c`, or null. */
+  grantsWard?: (g: Game, self: Card, c: Card) => WardCost | null;
+  /** An action from an opening hand (103.6), like Gemstone Caverns's. It queues its own choices. */
+  openingHand?: (g: Game, self: Card, pid: PlayerId) => void;
   /**
    * How a bot answers a choice this card asks partway through resolving, by the choice's
    * `then` key. Without one, bots use a general rule (see ai.ts).
@@ -709,13 +919,17 @@ export interface CardScript extends Triggers {
   /**
    * Bot hint: 'alpha' = cast before attacking with a wide board. 'tutor' = a search for a
    * card, cast in the second main phase with mana to spare (the look-ahead can't see what
-   * it finds is worth).
+   * it finds is worth). 'ritual' = it makes mana: cast it when the mana lets the bot cast
+   * something it couldn't otherwise. 'extraTurn' = an extra turn that loses the game at its
+   * end: cast only when the bot could win in that turn.
    */
-  ai?: 'alpha' | 'tutor';
+  ai?: 'alpha' | 'tutor' | 'ritual' | 'extraTurn';
+  /** Bot hint: should a bot activate this permanent's `activated` ability now? The look-ahead can't see what it is worth. */
+  botActivate?: (g: Game, pid: PlayerId, self: Card) => boolean;
 }
 
 /** Hooks that every permanent on the battlefield hears, not only the card the event is about. */
 export type BroadcastHook = Exclude<
   TriggerHook,
-  'onEnter' | 'onDies' | 'onAttack' | 'onCombatDamageToPlayer' | 'onDefeat' | 'onChapter' | 'onLevel' | 'onStorm' | 'onDelayed' | 'onTapped'
+  'onEnter' | 'onDies' | 'onAttack' | 'onCombatDamageToPlayer' | 'onDefeat' | 'onChapter' | 'onLevel' | 'onStorm' | 'onDelayed' | 'onTapped' | 'onWard'
 >;

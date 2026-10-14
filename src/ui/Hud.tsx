@@ -7,8 +7,8 @@ import type { Game, LogEntry, PlayerId, Step, StopKind } from '../engine';
 import { ManaCost } from './Card';
 import { useRem } from './rem';
 import { useStore } from './store';
-import { SEATS, cx, deckColor, hoverProps } from './util';
-import { STEP_NAMES, cancel, clickStackItem, pickAbility, pickFace, pickMode, playHandCard, setChoices, exileForMana, useView } from './view';
+import { SEATS, cx, deckColor, faceUp, hoverProps } from './util';
+import { STEP_NAMES, activateFromHand, cancel, clickStackItem, pickAbility, pickColor, pickFace, pickMode, playHandCard, setChoices, exileForMana, useView } from './view';
 import type { Btn } from './view';
 
 // ---------- phase tracker + buttons (bottom right) ----------
@@ -255,6 +255,14 @@ export function CastOptions() {
           </button>
         </div>
       )}
+      {a.handAbility && (
+        <div className="cast-row">
+          <span className="cast-label">Or</span>
+          <button className="chip" onClick={activateFromHand}>
+            {a.handAbility}
+          </button>
+        </div>
+      )}
       {a.faces && (
         <div className="cast-row">
           <span className="cast-label">Face</span>
@@ -294,12 +302,25 @@ export function CastOptions() {
           <span className="cast-label">Cost</span>
           {a.costs.map((c) => (
             <button
-              key={c.alt ?? 'mana'}
-              className={cx('chip', choices.alt === c.alt && 'on')}
+              key={c.escape ? 'escape' : (c.alt ?? 'mana')}
+              className={cx('chip', choices.alt === c.alt && !!choices.escape === !!c.escape && 'on')}
               disabled={!c.payable}
-              onClick={() => setChoices({ alt: c.alt })}
+              onClick={() => setChoices({ alt: c.alt, escape: c.escape ? [] : undefined })}
             >
               {c.label.startsWith('{') ? <ManaCost cost={c.label} /> : c.label}
+            </button>
+          ))}
+        </div>
+      )}
+      {a.gifts && (
+        <div className="cast-row">
+          <span className="cast-label">Gift</span>
+          <button className={cx('chip', choices.gift === undefined && 'on')} onClick={() => setChoices({ gift: undefined })}>
+            None
+          </button>
+          {a.gifts.map((o) => (
+            <button key={o.id} className={cx('chip', choices.gift === o.id && 'on')} onClick={() => setChoices({ gift: o.id })}>
+              {o.name}
             </button>
           ))}
         </div>
@@ -351,6 +372,29 @@ export function CastOptions() {
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+/** The colour for a mana ability that makes several mana of one chosen colour, like Lion's Eye Diamond's. */
+export function ColorPicker() {
+  const pick = useStore((s) => s.colorPick);
+  const g = useView().g;
+  const card = pick && findCard(g, pick.cardId);
+  if (!pick || !card) return null;
+  return (
+    <div className="cast-options">
+      <div className="cast-row">
+        <span className="cast-label">{label(card)}: choose a colour</span>
+        {pick.colors.map((c) => (
+          <button key={c} className="chip" onClick={() => pickColor(c)} aria-label={c}>
+            <ManaCost cost={`{${c}}`} />
+          </button>
+        ))}
+        <button className="chip" onClick={() => pickColor(null)}>
+          Cancel
+        </button>
+      </div>
     </div>
   );
 }
@@ -545,9 +589,16 @@ export function Preview() {
     shown.current = { left, top, width };
   }
   if (!shown.current) return null;
+  // A name that isn't a card or token key (a copied token's own name) has nothing to show.
+  let d: ReturnType<typeof cardData>;
+  try {
+    d = cardData(hover.name);
+  } catch {
+    return null;
+  }
   return (
     <div className="preview" key={hover.name} style={shown.current}>
-      <img src={cardData(hover.name).image} alt={cardData(hover.name).name} />
+      <img src={d.image} alt={d.name} />
     </div>
   );
 }
@@ -696,7 +747,7 @@ export function ZoneViewer() {
   if (!viewer) return null;
   const p = g.players[viewer.pid];
   const cards = [...p[viewer.zone]].reverse();
-  const glow = useView().glow;
+  const { glow, me } = useView();
   return (
     <div className="modal" onClick={() => useStore.setState({ viewer: null })}>
       <div className="viewer">
@@ -705,6 +756,8 @@ export function ZoneViewer() {
         </h2>
         <div className="viewer-cards">
           {cards.map((c) => {
+            // A card exiled face down shows its back, unless the human may look at it (406.3).
+            if (!faceUp(c, me)) return <div key={c.id} className="card-back viewer-back" title="Exiled face down" />;
             // A flashback card or an exiled adventurer card can be cast from here (702.34a, 715.3d).
             const castable = glow.get(c.id) === 'play';
             return (

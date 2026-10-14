@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { applyBotAction, botAction, newGame } from '../src/engine';
-import type { Game } from '../src/engine';
-import { ALL_DECKS, DECKS } from '../src/cards/db';
+import type { Card, Game } from '../src/engine';
+import { DECKS } from '../src/cards/db';
 import type { DeckDef } from '../src/cards/db';
 import './fixtures';
 import { twoCommanderDeck } from './helpers';
@@ -9,33 +9,38 @@ import { twoCommanderDeck } from './helpers';
 /** Checks things that must hold after every single action. `sizes` is each player's deck size. */
 function checkInvariants(g: Game, sizes: number[]) {
   const seen = new Set<string>();
+  const owned = g.players.map(() => [] as Card[]);
   for (const p of g.players) {
     const zones = [p.library, p.hand, p.battlefield, p.graveyard, p.exile, p.command];
     const names = ['library', 'hand', 'battlefield', 'graveyard', 'exile', 'command'];
-    let real = 0;
     zones.forEach((zone, i) => {
       for (const c of zone) {
         if (seen.has(c.id)) throw new Error(`card ${c.name} (${c.id}) is in two places`);
         seen.add(c.id);
         if (c.zone !== names[i]) throw new Error(`${c.name} thinks it is in ${c.zone} but is in ${names[i]}`);
-        if (c.owner !== p.id) throw new Error(`${c.name} is in the wrong player's zone`);
-        if (!c.isToken) real++;
+        // A permanent is on its controller's side (110.2); any other card is in its owner's zone.
+        if ((c.zone === 'battlefield' ? c.controller : c.owner) !== p.id) throw new Error(`${c.name} is in the wrong player's zone`);
+        if (c.zone !== 'battlefield' && c.controller !== c.owner) throw new Error(`${c.name} is controlled by a non-owner off the battlefield`);
+        if (!c.isToken) owned[c.owner].push(c);
       }
     });
-    // A spell on the stack is a card too (601.2a).
-    // A copy of a spell isn't a card (707.10).
-    const casting = g.stack.filter((x) => x.kind === 'spell' && x.card.owner === p.id && !x.copy).map((x) => x.card);
-    for (const c of casting) {
-      if (seen.has(c.id)) throw new Error(`card ${c.name} (${c.id}) is on the stack and somewhere else`);
-      seen.add(c.id);
-      if (c.zone !== 'stack') throw new Error(`${c.name} thinks it is in ${c.zone} but is on the stack`);
-    }
-    real += casting.length;
-    if (!p.lost && real !== sizes[p.id]) throw new Error(`${p.name} has ${real} cards instead of ${sizes[p.id]}`);
-    const commanders = [...p.command, ...p.battlefield, ...p.hand, ...p.library, ...p.graveyard, ...p.exile, ...casting].filter((c) => c.isCommander).length;
-    if (!p.lost && commanders !== p.commanders.length) throw new Error(`${p.name} has ${commanders} commanders instead of ${p.commanders.length}`);
+  }
+  // A spell on the stack is a card too (601.2a). A copy of a spell isn't a card (707.10).
+  for (const x of g.stack) {
+    if (x.kind !== 'spell' || x.copy) continue;
+    const c = x.card;
+    if (seen.has(c.id)) throw new Error(`card ${c.name} (${c.id}) is on the stack and somewhere else`);
+    seen.add(c.id);
+    if (c.zone !== 'stack') throw new Error(`${c.name} thinks it is in ${c.zone} but is on the stack`);
+    owned[c.owner].push(c);
+  }
+  for (const p of g.players) {
+    if (p.lost) continue;
+    if (owned[p.id].length !== sizes[p.id]) throw new Error(`${p.name} has ${owned[p.id].length} cards instead of ${sizes[p.id]}`);
+    const commanders = owned[p.id].filter((c) => c.isCommander);
+    if (commanders.length !== p.commanders.length) throw new Error(`${p.name} has ${commanders.length} commanders instead of ${p.commanders.length}`);
     // Bots always send their commander home (903.9), once nothing is partway through resolving.
-    if (!g.resolving && [...p.graveyard, ...p.exile, ...p.hand, ...p.library].some((c) => c.isCommander)) throw new Error(`${p.name}'s commander didn't go home`);
+    if (!g.resolving && commanders.some((c) => ['graveyard', 'exile', 'hand', 'library'].includes(c.zone))) throw new Error(`${p.name}'s commander didn't go home`);
   }
   if (g.step !== 'gameOver' && g.players[g.priority].lost) throw new Error('a dead player has priority');
   if (g.triggers.length && !g.decision && g.step !== 'gameOver') throw new Error('a triggered ability was left waiting');
@@ -150,16 +155,18 @@ describe('decks with double-faced, split and adventurer cards, Sagas, Classes, f
   }
 });
 
-describe('the Kraum and Tymna deck (session 7a: its 7b cards do nothing yet)', () => {
-  const kraum = ALL_DECKS.find((d) => d.id === 'kraum-tymna')!;
+describe('the Kraum and Tymna deck', () => {
+  const kraum = DECKS.find((d) => d.id === 'kraum-tymna')!;
   for (const seed of [61, 62, 63]) {
     it(`seed ${seed}: bots play it to a finish against the starter decks`, () => {
       const { g } = playOut(seed, [kraum, DECKS[1], DECKS[0], DECKS[2]]);
       expect(g.winner).not.toBe(null);
     });
   }
-  it('seed 64: two copies of it play to a finish', () => {
-    const { g } = playOut(64, [kraum, DECKS[3], { ...kraum, id: 'kraum2' }, DECKS[1]]);
-    expect(g.winner).not.toBe(null);
-  });
+  for (const seed of [64, 65]) {
+    it(`seed ${seed}: two copies of it play to a finish`, () => {
+      const { g } = playOut(seed, [kraum, DECKS[3], { ...kraum, id: 'kraum2' }, DECKS[1]]);
+      expect(g.winner).not.toBe(null);
+    });
+  }
 });

@@ -4,13 +4,13 @@
 // yes/no questions and naming a card that come up while a spell or ability resolves.
 // `CardPicker` is the reusable part; `Decisions` chooses which one the game is asking for.
 import { useState } from 'react';
-import { cardNames, isCardName } from '../cards/db';
-import { canMulligan, canSayYes, choiceOptions, commanderTax, data, label, nextMulliganBottom, resolvingItem } from '../engine';
-import type { Action, AskChoice, Card, CardChoice, Game, NameChoice, PlayerId } from '../engine';
+import { CREATURE_TYPES, cardNames, isCardName } from '../cards/db';
+import { canCast, canMulligan, canSayYes, choiceOptions, commanderTax, data, findCard, label, nextMulliganBottom, resolvingItem } from '../engine';
+import type { Action, AskChoice, Card, CardChoice, CastChoice, Game, NameChoice, PlayerChoice, PlayerId } from '../engine';
 import { ManaCost } from './Card';
 import { useStore } from './store';
 import { cx, hoverProps } from './util';
-import { useView } from './view';
+import { chooseEscape, chooseGraveyardTarget, playHandCard, useView } from './view';
 
 const act = (a: Action) => useStore.getState().act(a);
 
@@ -164,6 +164,18 @@ function ChoicePicker({ g, choice }: { g: Game; choice: CardChoice }) {
       />
     );
   }
+  if (choice.kind === 'legend') {
+    return (
+      <CardPicker
+        title="Legend rule"
+        hint="You control two or more legendary permanents with the same name. Keep one; the rest go to the graveyard."
+        cards={cards}
+        selectable={() => true}
+        max={1}
+        buttons={(picked) => [{ label: 'Keep', tone: 'go', disabled: picked.length !== 1, onClick: () => choose(picked) }]}
+      />
+    );
+  }
   if (choice.kind === 'pick') {
     const { min } = choiceOptions(g, choice);
     return (
@@ -181,21 +193,35 @@ function ChoicePicker({ g, choice }: { g: Game; choice: CardChoice }) {
   }
   // Cards that can be found first, then the rest of the library.
   const sorted = [...cards].sort((a, b) => Number(valid.has(b.id)) - Number(valid.has(a.id)));
-  const where = choice.to === 'hand' ? 'into your hand' : choice.to === 'top' ? 'on top of your library' : `onto the battlefield${choice.tapped ? ' tapped' : ''}`;
-  const what = choice.find?.label ?? 'a card';
+  const { min } = choiceOptions(g, choice);
+  const where =
+    choice.to === 'hand'
+      ? 'into your hand'
+      : choice.to === 'top'
+        ? 'on top of your library'
+        : choice.to === 'none'
+          ? `for ${choice.source}`
+          : `onto the battlefield${choice.tapped ? ' tapped' : ''}`;
+  const what = choice.find?.label ?? (max > 1 ? `${max} cards` : 'a card');
   // A search for just "a card" has to find one (701.23d).
-  const must = !choice.find && valid.size > 0;
+  const must = min > 0;
   return (
     <CardPicker
       title={`${choice.source}: search your library`}
-      hint={`Choose ${what} to put ${where}. ${valid.size ? 'Your library is shuffled afterwards.' : 'There is none in your library.'}`}
+      hint={`Choose ${what} ${where}. ${valid.size ? 'Your library is shuffled afterwards.' : 'There is none in your library.'}`}
       cards={sorted}
       selectable={(c) => valid.has(c.id)}
-      max={1}
+      max={max}
       stackCopies
       buttons={(picked) => [
         ...(must ? [] : [{ label: 'Find Nothing', tone: 'plain' as const, disabled: picked.length > 0, onClick: () => choose([]) }]),
-        { label: 'Choose', sub: picked.length ? label(cards.find((c) => c.id === picked[0])!) : undefined, tone: 'go', disabled: !picked.length, onClick: () => choose(picked) },
+        {
+          label: 'Choose',
+          sub: max > 1 ? `${picked.length} of ${max}` : picked.length ? label(cards.find((c) => c.id === picked[0])!) : undefined,
+          tone: 'go',
+          disabled: picked.length < Math.max(min, 1),
+          onClick: () => choose(picked),
+        },
       ]}
     />
   );
@@ -203,7 +229,8 @@ function ChoicePicker({ g, choice }: { g: Game; choice: CardChoice }) {
 
 /** A yes/no question while a spell or ability resolves: "you may ...", or "... unless you pay {1}" (118.12a). */
 function AskPanel({ g, choice }: { g: Game; choice: AskChoice }) {
-  const source = resolvingItem(g)?.card;
+  // The card asking: the one resolving, or one entering or in an opening hand.
+  const source = choice.script ? findCard(g, choice.script) : resolvingItem(g)?.card;
   const answer = (yes: boolean) => act({ type: 'answer', yes });
   const can = canSayYes(g, choice);
   return (
@@ -223,7 +250,11 @@ function AskPanel({ g, choice }: { g: Game; choice: AskChoice }) {
 function NamePanel({ g, choice }: { g: Game; choice: NameChoice }) {
   const [name, setName] = useState('');
   const [folded, setFolded] = useState(false);
-  const source = resolvingItem(g)?.card;
+  const source = choice.script ? findCard(g, choice.script) : resolvingItem(g)?.card;
+  // A creature type (205.3m, Cavern of Souls), or a card name (201.3).
+  const type = choice.of === 'creature type';
+  const ok = type ? CREATURE_TYPES.includes(name) : isCardName(name);
+  const list = type ? CREATURE_TYPES : cardNames();
   if (folded) {
     return (
       <button className="picker-pill" onClick={() => setFolded(false)}>
@@ -231,12 +262,13 @@ function NamePanel({ g, choice }: { g: Game; choice: NameChoice }) {
       </button>
     );
   }
-  const ok = isCardName(name);
   return (
     <div className="modal">
       <div className="viewer picker">
         <div className="picker-head">
-          <h2>{choice.source}: name a card</h2>
+          <h2>
+            {choice.source}: {type ? 'choose a creature type' : 'name a card'}
+          </h2>
           <button className="picker-fold" onClick={() => setFolded(true)}>
             View table
           </button>
@@ -249,7 +281,7 @@ function NamePanel({ g, choice }: { g: Game; choice: NameChoice }) {
             list="card-names"
             value={name}
             autoFocus
-            placeholder="Card name"
+            placeholder={type ? 'Creature type' : 'Card name'}
             onChange={(e) => setName(e.target.value)}
             onKeyDown={(e) => {
               e.stopPropagation(); // typing a space shouldn't press the main button
@@ -257,19 +289,86 @@ function NamePanel({ g, choice }: { g: Game; choice: NameChoice }) {
             }}
           />
           <datalist id="card-names">
-            {cardNames().map((n) => (
+            {list.map((n) => (
               <option key={n} value={n} />
             ))}
           </datalist>
         </div>
         <div className="picker-buttons">
           <button className="btn btn-go small" disabled={!ok} onClick={() => act({ type: 'name', name })}>
-            <span className="btn-label">Name It</span>
-            {name && !ok && <span className="btn-sub">No card has that name</span>}
+            <span className="btn-label">{type ? 'Choose It' : 'Name It'}</span>
+            {name && !ok && <span className="btn-sub">{type ? 'Not a creature type' : 'No card has that name'}</span>}
           </button>
         </div>
       </div>
     </div>
+  );
+}
+
+/** Choosing a player while a spell or ability resolves, like "an opponent" (Wishclaw Talisman). */
+function PlayerPanel({ g, choice }: { g: Game; choice: PlayerChoice }) {
+  const source = resolvingItem(g)?.card;
+  return (
+    <CardPicker
+      title={choice.source}
+      hint={choice.text}
+      cards={source ? [source] : []}
+      buttons={() => choice.options.map((pid) => ({ label: g.players[pid].name, tone: 'go' as const, onClick: () => act({ type: 'choosePlayer', player: pid }) }))}
+    />
+  );
+}
+
+/**
+ * The human may cast a card while a spell resolves (608.2g), like the card Beseech the
+ * Mirror found. Casting it goes through the usual steps: targets, costs, paying.
+ */
+function CastNowPanel({ g, choice }: { g: Game; choice: CastChoice }) {
+  const card = findCard(g, choice.card);
+  const can = !!card && canCast(g, choice.player, card);
+  return (
+    <CardPicker
+      title={choice.source}
+      hint={choice.text}
+      cards={card ? [card] : []}
+      buttons={() => [
+        { label: "Don't Cast", tone: 'plain', onClick: () => act({ type: 'answer', yes: false }) },
+        { label: 'Cast', sub: can ? undefined : "It can't be cast", tone: 'go', disabled: !can, onClick: () => card && playHandCard(card) },
+      ]}
+    />
+  );
+}
+
+/** Escape (702.138a): picks three other cards in the graveyard to exile as part of the cost. */
+export function EscapePicker() {
+  const { escape } = useView();
+  if (!escape) return null;
+  return (
+    <CardPicker
+      key={escape.card.id}
+      title={`${label(escape.card)}: escape`}
+      hint="Choose three other cards in your graveyard to exile to pay for it."
+      cards={escape.options}
+      selectable={() => true}
+      max={3}
+      buttons={(picked) => [{ label: 'Exile Them', sub: `${picked.length} of 3`, tone: 'go', disabled: picked.length !== 3, onClick: () => chooseEscape(picked) }]}
+    />
+  );
+}
+
+/** A target in a graveyard (Sevinne's Reclamation): graveyards aren't on the table, so they are picked from here. */
+export function GraveyardTargets() {
+  const { graveTargets: t } = useView();
+  if (!t) return null;
+  return (
+    <CardPicker
+      key={`${t.card.id}:${t.spec.label}`}
+      title={`${label(t.card)}: choose a target`}
+      hint={`Choose ${t.spec.label}.`}
+      cards={t.options}
+      selectable={() => true}
+      max={1}
+      buttons={(picked) => [{ label: 'Target', tone: 'go', disabled: picked.length !== 1, onClick: () => chooseGraveyardTarget(picked[0]) }]}
+    />
   );
 }
 
@@ -368,6 +467,7 @@ function CommanderZone({ g, card }: { g: Game; card: Card }) {
 /** The picker for whatever the game is asking the human, if it is a choice of cards. */
 export function Decisions() {
   const { g, me, mine } = useView();
+  const targeting = useStore((s) => s.targeting);
   if (!mine || me === null || !g.decision) return null;
   const d = g.decision;
   // Keyed by the cards on offer, so a new choice starts with nothing picked.
@@ -380,6 +480,11 @@ export function Decisions() {
       return <AskPanel key={`${g.log.length}:${d.choice.text}`} g={g} choice={d.choice} />;
     case 'name':
       return <NamePanel key={g.log.length} g={g} choice={d.choice} />;
+    case 'player':
+      return <PlayerPanel key={g.log.length} g={g} choice={d.choice} />;
+    case 'cast':
+      // Hidden while the human goes through casting it.
+      return targeting ? null : <CastNowPanel key={g.log.length} g={g} choice={d.choice} />;
     case 'orderTriggers':
       return <TriggerOrder key={g.triggers.map((t) => t.id).join()} g={g} me={me} />;
     case 'commanderZone': {
