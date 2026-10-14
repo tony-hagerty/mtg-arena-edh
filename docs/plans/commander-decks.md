@@ -3,7 +3,7 @@
 Goal: play real 100-card Commander decks of any colours, with partner commanders and
 every card type, and add the user's own deck to the menu.
 
-**Status: sessions 1-4 done. Don't start the next session until the user says so.**
+**Status: sessions 1-5 done. Don't start the next session until the user says so.**
 
 ## What "every card type" means here
 
@@ -67,18 +67,22 @@ Order matters: each one builds on the ones before it.
 - Vehicles and crew (301.7, 702.122).
 - UI: draw attached cards tucked under their host.
 
-### 5. Planeswalkers and battles
+### 5. Planeswalkers and battles (done)
 
 - Loyalty, one loyalty ability per turn at sorcery speed (306, 606).
 - Attacking planeswalkers and battles: `Attack.defender` can be a permanent (506.3, 508.1b).
+  Done as `Attack.target` (the permanent) beside `defender` (its controller or protector,
+  the player who blocks, 508.5).
 - Damage to them removes counters (120.3c); SBA puts them in the graveyard at 0 (704.5i).
-- Battles: protector, defeat trigger (310).
+- Battles: protector, defeat trigger (310). Casting a defeated Siege transformed waits
+  for double-faced cards in session 6: it is only exiled for now.
 - Bots attack and defend them sensibly.
 
 ### 6. Other card frames and graveyard casting
 
 - Double-faced cards: transforming (712) and modal double-faced (MDFC) cards.
   `scripts/fetch-cards.mjs` must keep each face's data (Scryfall `card_faces`).
+  Then a defeated Siege is cast transformed without paying its mana cost (310.12b).
 - Adventures (715), split cards (709), Sagas (714), Classes (716).
 - Casting from the graveyard: flashback (702.34), and similar.
 - Common tokens: Treasure, Food, Clue (111.10).

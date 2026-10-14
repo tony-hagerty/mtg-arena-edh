@@ -792,6 +792,30 @@ button {
   color: #ff7466;
 }
 
+/* A planeswalker's loyalty (306.5c): a shield, where a creature's P/T goes. */
+.tile-pt.tile-loyalty {
+  min-width: 1.3em;
+  text-align: center;
+  border-radius: 0.2em 0.2em 50% 50%;
+  background: linear-gradient(#4a4f5c, #1b1d24);
+}
+
+/* A battle's defense (310.4c). */
+.tile-pt.tile-defense {
+  min-width: 1.3em;
+  text-align: center;
+  color: #ffd27a;
+  background: linear-gradient(#5c3b2a, #24150e);
+  border-color: #d9a066;
+}
+
+.loyalty-cost {
+  display: inline-block;
+  min-width: 2.2em;
+  margin-right: 0.4em;
+  text-align: center;
+}
+
 .tile-keywords {
   position: absolute;
   left: 0.3em;

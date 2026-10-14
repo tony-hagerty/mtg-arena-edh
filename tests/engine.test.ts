@@ -16,8 +16,12 @@ import {
   defaultStops,
   moveCard,
   addCounters,
+  attackOptions,
   canActivate,
   canAttack,
+  legalTargets,
+  pump,
+  scriptOf,
   canBlock,
   checkState,
   destroy,
@@ -745,6 +749,217 @@ describe('counters and attachments (122, 301.5, 303.4, 702.122)', () => {
       put(d, 0, 'Raging Goblin').sick = true;
     });
     expect(botAction(g, 0)).toMatchObject({ type: 'activate', crew: [byName(g, 0, 'Raging Goblin')!.id] });
+  });
+});
+
+describe('planeswalkers and battles (306, 310, 606)', () => {
+  const ref = (c: { id: string }) => ({ kind: 'card', id: c.id }) as const;
+  const player = (id: number) => ({ kind: 'player', id }) as const;
+  /** A planeswalker already on the battlefield, with `loyalty` loyalty counters. */
+  const walker = (d: Game, pid: number, name: string, loyalty: number) => {
+    const c = put(d, pid, name);
+    c.counters.loyalty = loyalty;
+    return c;
+  };
+  /** Invasion of Dominaria on `pid`'s battlefield, protected by `protector`. */
+  const siege = (d: Game, pid: number, protector: number, defense = 5) => {
+    const c = put(d, pid, 'Invasion of Dominaria');
+    c.counters.defense = defense;
+    c.protector = protector;
+    return c;
+  };
+
+  it('enters with its printed loyalty, and a loyalty ability adds or removes counters as its cost (306.5b, 606.4)', () => {
+    let g = emptyGame((d) => {
+      put(d, 0, 'Island', 'battlefield', 3);
+      put(d, 0, 'Jace Beleren', 'hand');
+    });
+    g = run(g, { type: 'cast', card: byName(g, 0, 'Jace Beleren', 'hand')!.id });
+    const jace = byName(g, 0, 'Jace Beleren')!;
+    expect(jace.counters).toEqual({ loyalty: 3 });
+    const hands = g.players.map((p) => p.hand.length);
+    g = run(g, { type: 'activate', card: jace.id, ability: 0 });
+    expect(byName(g, 0, 'Jace Beleren')!.counters.loyalty).toBe(5);
+    expect(g.players.map((p) => p.hand.length)).toEqual(hands.map((n) => n + 1));
+    expect(g.log.some((l) => l.text.includes("activates Jace Beleren's +2"))).toBe(true);
+  });
+
+  it('allows one loyalty ability a turn, only at sorcery speed (606.3)', () => {
+    let g = emptyGame((d) => walker(d, 0, 'Jace Beleren', 3));
+    const jace = byName(g, 0, 'Jace Beleren')!;
+    g = run(g, { type: 'activate', card: jace.id, ability: 1, targets: [player(0)] });
+    expect(canActivate(g, 0, byName(g, 0, 'Jace Beleren')!, 0)).toBe(false);
+    expect(applyAction(g, { type: 'activate', card: jace.id, ability: 0 })).toBe(g);
+    // Not in another player's turn.
+    const theirs = emptyGame((d) => {
+      walker(d, 1, 'Jace Beleren', 3);
+      d.priority = 1;
+    });
+    expect(canActivate(theirs, 1, byName(theirs, 1, 'Jace Beleren')!, 0)).toBe(false);
+  });
+
+  it("can't pay a minus cost with too little loyalty (606.6)", () => {
+    const g = emptyGame((d) => walker(d, 0, 'Jace Beleren', 3));
+    const jace = byName(g, 0, 'Jace Beleren')!;
+    expect(canActivate(g, 0, jace, 1)).toBe(true);
+    expect(canActivate(g, 0, jace, 2)).toBe(false); // −10
+  });
+
+  it('goes to the graveyard with no loyalty left (704.5i)', () => {
+    let g = emptyGame((d) => walker(d, 0, 'Jace Beleren', 1));
+    g = run(g, { type: 'activate', card: byName(g, 0, 'Jace Beleren')!.id, ability: 1, targets: [player(0)] });
+    expect(byName(g, 0, 'Jace Beleren', 'graveyard')).toBeDefined();
+    // The ability still resolves without its source (113.7a).
+    expect(g.players[0].hand).toHaveLength(1);
+  });
+
+  it('loses loyalty when dealt damage, and "any target" can name it (115.4, 120.3c)', () => {
+    let g = emptyGame((d) => {
+      put(d, 0, 'Mountain', 'battlefield', 5);
+      put(d, 0, 'Lightning Bolt', 'hand');
+      put(d, 0, 'Lava Axe', 'hand');
+      walker(d, 1, 'Jace Beleren', 4);
+      put(d, 1, 'Walking Corpse');
+    });
+    const jace = byName(g, 1, 'Jace Beleren')!;
+    const corpse = byName(g, 1, 'Walking Corpse')!;
+    const axe = scriptOf('Lava Axe').targets![0];
+    // "Target player or planeswalker" can't name a creature.
+    expect(legalTargets(g, 0, axe, jace)).toContainEqual(ref(jace));
+    expect(legalTargets(g, 0, axe, jace)).not.toContainEqual(ref(corpse));
+    g = run(g, { type: 'cast', card: byName(g, 0, 'Lightning Bolt', 'hand')!.id, targets: [ref(jace)] });
+    expect(byName(g, 1, 'Jace Beleren')!.counters.loyalty).toBe(1);
+    expect(byName(g, 1, 'Jace Beleren')!.damage).toBe(0);
+  });
+
+  it("is attacked: unblocked damage removes loyalty, not the controller's life (506.3, 508.1b, 510.1b)", () => {
+    let g = emptyGame((d) => {
+      put(d, 0, 'Kalonian Tusker'); // 3/3
+      walker(d, 1, 'Jace Beleren', 3);
+    });
+    const tusker = byName(g, 0, 'Kalonian Tusker')!;
+    const jace = byName(g, 1, 'Jace Beleren')!;
+    g = run(g, pass);
+    expect(attackOptions(g, 0)).toContainEqual({ defender: 1, target: jace.id });
+    // The defending player must be its controller.
+    expect(applyAction(g, { type: 'declareAttack', card: tusker.id, defender: 2, target: jace.id })).toBe(g);
+    g = run(g, { type: 'declareAttack', card: tusker.id, defender: 1, target: jace.id }, pass);
+    expect(byName(g, 1, 'Jace Beleren', 'graveyard')).toBeDefined();
+    expect(g.players[1].life).toBe(40);
+    expect(g.log.some((l) => l.text.includes('Kalonian Tusker → Jace Beleren'))).toBe(true);
+  });
+
+  it("lets only the planeswalker's controller block for it (509.1a)", () => {
+    let g = emptyGame((d) => {
+      put(d, 0, 'Kalonian Tusker');
+      walker(d, 1, 'Jace Beleren', 3);
+      put(d, 1, 'Walking Corpse');
+      put(d, 2, 'Walking Corpse');
+    });
+    const jace = byName(g, 1, 'Jace Beleren')!;
+    g = run(g, pass, { type: 'declareAttack', card: byName(g, 0, 'Kalonian Tusker')!.id, defender: 1, target: jace.id }, pass);
+    expect(g.decision?.type).toBe('blockers');
+    expect(g.combat!.toBlock).toEqual([1]);
+  });
+
+  it('deals trample damage over a blocker to the planeswalker attacked (702.19b)', () => {
+    let g = emptyGame((d) => {
+      put(d, 0, 'Kalonian Tusker');
+      walker(d, 1, 'Jace Beleren', 5);
+      put(d, 1, 'Walking Corpse'); // 2/2
+    });
+    const tusker = byName(g, 0, 'Kalonian Tusker')!;
+    g = produce(g, (d) => void pump(d, byName(d, 0, 'Kalonian Tusker'), 0, 0, ['trample']));
+    const jace = byName(g, 1, 'Jace Beleren')!;
+    g = run(
+      g,
+      pass,
+      { type: 'declareAttack', card: tusker.id, defender: 1, target: jace.id },
+      pass,
+      { type: 'declareBlock', blocker: byName(g, 1, 'Walking Corpse')!.id, attacker: tusker.id },
+      pass,
+    );
+    expect(byName(g, 1, 'Jace Beleren')!.counters.loyalty).toBe(4);
+    expect(g.players[1].life).toBe(40);
+  });
+
+  it('a battle enters with its printed defense, protected by the opponent chosen (310.4b, 310.12a)', () => {
+    let g = emptyGame((d) => {
+      put(d, 0, 'Plains', 'battlefield', 3);
+      put(d, 0, 'Invasion of Dominaria', 'hand');
+    });
+    const card = byName(g, 0, 'Invasion of Dominaria', 'hand')!;
+    // The caster can't protect their own Siege.
+    expect(canCast(g, 0, card, { protector: 0 })).toBe(false);
+    g = run(g, { type: 'cast', card: card.id, protector: 2 });
+    const battle = byName(g, 0, 'Invasion of Dominaria')!;
+    expect(battle.counters).toEqual({ defense: 5 });
+    expect(battle.protector).toBe(2);
+    expect(g.players[0].life).toBe(44); // its enters ability
+  });
+
+  it("can be attacked by its controller but not its protector, and the protector blocks (310.9b-c)", () => {
+    const g = emptyGame((d) => {
+      siege(d, 0, 1);
+      put(d, 0, 'Kalonian Tusker');
+    });
+    const battle = byName(g, 0, 'Invasion of Dominaria')!;
+    expect(attackOptions(g, 0)).toContainEqual({ defender: 1, target: battle.id });
+    expect(attackOptions(g, 2)).toContainEqual({ defender: 1, target: battle.id });
+    expect(attackOptions(g, 1).some((o) => o.target === battle.id)).toBe(false);
+  });
+
+  it('is exiled when defeated, staying until its defeat ability resolves (310.12b, 704.5v)', () => {
+    let g = emptyGame((d) => {
+      siege(d, 0, 1, 3);
+      put(d, 0, 'Kalonian Tusker');
+    });
+    const battle = byName(g, 0, 'Invasion of Dominaria')!;
+    while (g.step !== 'attackers') g = runWith({ autoPass: false }, g, pass);
+    g = runWith({ autoPass: false }, g, { type: 'declareAttack', card: byName(g, 0, 'Kalonian Tusker')!.id, defender: 1, target: battle.id }, pass);
+    while (g.step !== 'damage') g = runWith({ autoPass: false }, g, pass);
+    // Damaged to 0, it is defeated but waits on the stack's ability before leaving.
+    expect(byName(g, 0, 'Invasion of Dominaria')!.counters.defense).toBeUndefined();
+    expect(g.stack.map((x) => x.hook)).toEqual(['onDefeat']);
+    g = run(g, pass);
+    expect(byName(g, 0, 'Invasion of Dominaria', 'exile')).toBeDefined();
+    expect(g.log.some((l) => l.text === 'Invasion of Dominaria is defeated.')).toBe(true);
+  });
+
+  it('gets a new protector when its protector leaves the game (310.11)', () => {
+    let g = emptyGame((d) => siege(d, 0, 1));
+    g = produce(g, (d) => {
+      d.players[1].life = 0;
+      checkState(d);
+    });
+    const protector = byName(g, 0, 'Invasion of Dominaria')!.protector;
+    expect([2, 3]).toContain(protector);
+  });
+
+  it('bots attack a planeswalker they can kill', () => {
+    let g = emptyGame((d) => {
+      put(d, 0, 'Kalonian Tusker');
+      walker(d, 1, 'Jace Beleren', 3);
+    });
+    g = run(g, pass);
+    expect(botAction(g, 0)).toMatchObject({ type: 'declareAttack', defender: 1, target: byName(g, 1, 'Jace Beleren')!.id });
+  });
+
+  it('bots use loyalty abilities', () => {
+    const g = emptyGame((d) => walker(d, 0, 'Garruk Wildspeaker', 3));
+    expect(botAction(g, 0)).toMatchObject({ type: 'activate', card: byName(g, 0, 'Garruk Wildspeaker')!.id });
+    expect((botAction(g, 0) as { ability?: number }).ability).toBeDefined();
+  });
+
+  it('bots chump block to save a planeswalker the attack would kill', () => {
+    let g = emptyGame((d) => {
+      put(d, 0, 'Kalonian Tusker');
+      walker(d, 1, 'Jace Beleren', 3);
+      put(d, 1, 'Raging Goblin');
+    });
+    const jace = byName(g, 1, 'Jace Beleren')!;
+    g = run(g, pass, { type: 'declareAttack', card: byName(g, 0, 'Kalonian Tusker')!.id, defender: 1, target: jace.id }, pass);
+    expect(botAction(g, 1)).toMatchObject({ type: 'declareBlock', blocker: byName(g, 1, 'Raging Goblin')!.id });
   });
 });
 

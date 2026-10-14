@@ -1,11 +1,11 @@
 import { useRef, useState } from 'react';
 import type { CSSProperties, RefObject } from 'react';
 import { motion } from 'motion/react';
-import { attachmentsOf, data, isCreature, scriptOf, stats } from '../engine';
+import { attachmentsOf, data, defenseOf, isBattle, isCreature, isPlaneswalker, loyaltyOf, scriptOf, stats } from '../engine';
 import type { Card, CardData } from '../engine';
 import { useRem } from './rem';
 import { SEATS, cx, hoverProps } from './util';
-import { clickGroup, clickPermanent, playHandCard, useView } from './view';
+import { clickGroup, clickPermanent, loyaltyCost, playHandCard, useView } from './view';
 
 function frameOf(d: CardData): string {
   if (d.typeLine.includes('Land')) return 'land';
@@ -109,7 +109,8 @@ function fan(index: number, total: number, maxGap: number, span: number) {
  */
 /** Counters on a permanent (122): "+2" for +1/+1 counters, "-1" for -1/-1, "3 charge" for others. */
 function Counters({ card }: { card: Card }) {
-  const entries = Object.entries(card.counters).filter(([, n]) => n > 0);
+  // Loyalty and defense have their own badge, where a creature's P/T goes.
+  const entries = Object.entries(card.counters).filter(([kind, n]) => n > 0 && kind !== 'loyalty' && kind !== 'defense');
   if (!entries.length) return null;
   const text = ([kind, n]: [string, number]) => (kind === '+1/+1' ? `+${n}` : kind === '-1/-1' ? `-${n}` : `${n} ${kind}`);
   return (
@@ -150,6 +151,12 @@ function Attachments({ cards }: { cards: Card[] }) {
     </>
   );
 }
+
+/** The hover text for a permanent's activated abilities: its `activated` one, and each loyalty ability (606). */
+const abilityText = (card: Card) => {
+  const script = scriptOf(card.name);
+  return [script.activated?.text, ...(script.loyalty ?? []).map((ab) => `${loyaltyCost(ab.cost)}: ${ab.text}`)].filter(Boolean).join('\n');
+};
 
 export function Permanent({ card, badge }: { card: Card; badge?: Card[] }) {
   const v = useView();
@@ -215,9 +222,19 @@ export function Permanent({ card, badge }: { card: Card; badge?: Card[] }) {
             {s.power}/{s.toughness - card.damage}
           </div>
         )}
+        {isPlaneswalker(card) && !s && (
+          <div className="tile-pt tile-loyalty" title="Loyalty">
+            {loyaltyOf(card)}
+          </div>
+        )}
+        {isBattle(card) && (
+          <div className="tile-pt tile-defense" title={`Defense${card.protector !== null ? ` — protected by ${g.players[card.protector].name}` : ''}`}>
+            {defenseOf(card)}
+          </div>
+        )}
         <Counters card={card} />
         {sick && <i className="tile-sick ms ms-ability-summoning-sickness" title="Summoning sick" />}
-        {scriptOf(card.name).activated && <div className="tile-ability" title={scriptOf(card.name).activated!.text} />}
+        {(scriptOf(card.name).activated || scriptOf(card.name).loyalty) && <div className="tile-ability" title={abilityText(card)} />}
         {card.tapped && <div className="tile-tapmark" />}
         {badge && (
           <div
