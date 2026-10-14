@@ -1,0 +1,241 @@
+{
+  "shared": [
+    "Sol Ring",
+    "Arcane Signet",
+    "Worn Powerstone",
+    "Thran Dynamo",
+    "Manalith",
+    "Solemn Simulacrum",
+    "Meteor Golem"
+  ],
+  "decks": [
+    {
+      "id": "white",
+      "title": "Heaven's Host",
+      "blurb": "Angels, lifegain and a go-wide soldier army.",
+      "pilot": "Seraphine",
+      "color": "W",
+      "commander": "Lyra Dawnbringer",
+      "basic": "Plains",
+      "basics": 24,
+      "cards": [
+        "Serra Angel",
+        "Angel of Mercy",
+        "Seraph of Dawn",
+        "Archangel of Thune",
+        "Segovian Angel",
+        "Angel of the Dawn",
+        "Youthful Knight",
+        "Fencing Ace",
+        "Inspiring Overseer",
+        "Elite Vanguard",
+        "Attended Knight",
+        "Captain of the Watch",
+        "Sunblast Angel",
+        "Ajani's Pridemate",
+        "Soul Warden",
+        "Angelic Wall",
+        "Benalish Marshal",
+        "Victory's Herald",
+        "Shepherd of the Lost",
+        "Swords to Plowshares",
+        "Wrath of God",
+        "Path to Exile",
+        "Glorious Anthem",
+        "Raise the Alarm",
+        "Revitalize",
+        "Disenchant",
+        "Divine Verdict",
+        "Inspired Charge"
+      ]
+    },
+    {
+      "id": "black",
+      "title": "Whispers of the Pit",
+      "blurb": "Drain the table, kill everything, draw cards for life.",
+      "pilot": "Mortis",
+      "color": "B",
+      "commander": "Sheoldred, the Apocalypse",
+      "basic": "Swamp",
+      "basics": 24,
+      "cards": [
+        "Typhoid Rats",
+        "Vampire Nighthawk",
+        "Gray Merchant of Asphodel",
+        "Gifted Aetherborn",
+        "Vampire of the Dire Moon",
+        "Harvester of Souls",
+        "Zulaport Cutthroat",
+        "Ravenous Chupacabra",
+        "Nekrataal",
+        "Nantuko Shade",
+        "Kokusho, the Evening Star",
+        "Massacre Wurm",
+        "Vampire Sovereign",
+        "Dusk Legion Zealot",
+        "Phyrexian Rager",
+        "Walking Corpse",
+        "Child of Night",
+        "Grave Titan",
+        "Nightmare",
+        "Doom Blade",
+        "Murder",
+        "Sign in Blood",
+        "Night's Whisper",
+        "Damnation",
+        "Syphon Soul",
+        "Phyrexian Arena",
+        "Go for the Throat",
+        "Hero's Downfall"
+      ]
+    },
+    {
+      "id": "red",
+      "title": "Forge of the Thane",
+      "blurb": "Burn that hits harder, goblins and dragons.",
+      "pilot": "Cinder",
+      "color": "R",
+      "commander": "Torbran, Thane of Red Fell",
+      "basic": "Mountain",
+      "basics": 24,
+      "cards": [
+        "Goblin Piker",
+        "Raging Goblin",
+        "Goblin Chainwhirler",
+        "Beetleback Chief",
+        "Shivan Dragon",
+        "Thundermaw Hellkite",
+        "Flametongue Kavu",
+        "Lightning Elemental",
+        "Borderland Marauder",
+        "Guttersnipe",
+        "Thermo-Alchemist",
+        "Hellrider",
+        "Viashino Pyromancer",
+        "Fire Elemental",
+        "Furnace Whelp",
+        "Charging Monstrosaur",
+        "Balefire Dragon",
+        "Mogg Fanatic",
+        "Lightning Bolt",
+        "Shock",
+        "Lava Axe",
+        "Flame Rift",
+        "Pyroclasm",
+        "Blasphemous Act",
+        "Lightning Strike",
+        "Shatter",
+        "Fervor",
+        "Brute Strength"
+      ]
+    },
+    {
+      "id": "green",
+      "title": "Primal Hunger",
+      "blurb": "Ramp into enormous tramplers.",
+      "pilot": "Bramble",
+      "color": "G",
+      "commander": "Ghalta, Primal Hunger",
+      "basic": "Forest",
+      "basics": 24,
+      "cards": [
+        "Llanowar Elves",
+        "Elvish Mystic",
+        "Kalonian Tusker",
+        "Leatherback Baloth",
+        "Garruk's Companion",
+        "Colossal Dreadmaw",
+        "Rampaging Baloths",
+        "Terra Stomper",
+        "Acidic Slime",
+        "Reclamation Sage",
+        "Wood Elves",
+        "Farhaven Elf",
+        "Giant Spider",
+        "Thrashing Brontodon",
+        "Carnage Tyrant",
+        "Gigantosaurus",
+        "Pelakka Wurm",
+        "Avenger of Zendikar",
+        "Elvish Visionary",
+        "Beast Whisperer",
+        "Garruk's Packleader",
+        "Rampant Growth",
+        "Cultivate",
+        "Giant Growth",
+        "Overrun",
+        "Rabid Bite",
+        "Harmonize",
+        "Beast Within"
+      ]
+    }
+  ],
+  "tokens": {
+    "Soldier": {
+      "name": "Soldier",
+      "power": "1",
+      "toughness": "1",
+      "colors": [
+        "W"
+      ],
+      "typeLine": "Token Creature — Soldier",
+      "keywords": [],
+      "query": "t:token !\"Soldier\" c=w pow=1 tou=1"
+    },
+    "Goblin": {
+      "name": "Goblin",
+      "power": "1",
+      "toughness": "1",
+      "colors": [
+        "R"
+      ],
+      "typeLine": "Token Creature — Goblin",
+      "keywords": [],
+      "query": "t:token !\"Goblin\" c=r pow=1 tou=1"
+    },
+    "Zombie": {
+      "name": "Zombie",
+      "power": "2",
+      "toughness": "2",
+      "colors": [
+        "B"
+      ],
+      "typeLine": "Token Creature — Zombie",
+      "keywords": [],
+      "query": "t:token !\"Zombie\" c=b pow=2 tou=2"
+    },
+    "Plant": {
+      "name": "Plant",
+      "power": "0",
+      "toughness": "1",
+      "colors": [
+        "G"
+      ],
+      "typeLine": "Token Creature — Plant",
+      "keywords": [],
+      "query": "t:token !\"Plant\" c=g pow=0 tou=1"
+    },
+    "Beast 3/3": {
+      "name": "Beast",
+      "power": "3",
+      "toughness": "3",
+      "colors": [
+        "G"
+      ],
+      "typeLine": "Token Creature — Beast",
+      "keywords": [],
+      "query": "t:token !\"Beast\" c=g pow=3 tou=3"
+    },
+    "Beast 4/4": {
+      "name": "Beast",
+      "power": "4",
+      "toughness": "4",
+      "colors": [
+        "G"
+      ],
+      "typeLine": "Token Creature — Beast",
+      "keywords": [],
+      "query": "t:token !\"Beast\" c=g pow=4 tou=4"
+    }
+  }
+}
