@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import type { CSSProperties, ReactNode } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import { DECKS, cardData } from '../cards/db';
-import { data, findCard, label } from '../engine';
+import { data, findCard, label, triggerText } from '../engine';
 import type { Game, LogEntry, PlayerId, Step, StopKind } from '../engine';
 import { ManaCost } from './Card';
 import { useRem } from './rem';
@@ -622,6 +622,7 @@ export function StackPanel() {
             data-stack={item.id}
             className={cx('stack-item', i === g.stack.length - 1 && !paying && 'top', targetStack.has(item.id) && 'targetable')}
             onClick={() => clickStackItem(item.id)}
+            title={triggerText(item)}
             {...hoverProps(data(item.card).name)}
           >
             <img src={data(item.card).image} alt={label(item.card)} draggable={false} />

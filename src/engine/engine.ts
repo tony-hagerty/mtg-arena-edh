@@ -87,6 +87,7 @@ import {
   tap,
   tapForMana,
   targetSpecs,
+  triggerOf,
   trigger,
   turnOrder,
   untapMana,
@@ -110,7 +111,6 @@ import type {
   TargetSpec,
   RetargetChoice,
   ThenCtx,
-  Trigger,
   TriggerEvents,
   Zone,
 } from './types';
@@ -1258,10 +1258,10 @@ function resolveTop(g: Game) {
         moveCard(g, battle, 'exile');
         castTransformed(g, controller, battle);
       }
-      const t = script.onDefeat;
+      const t = triggerOf(item);
       if (t) (typeof t === 'function' ? t : t.resolve)(g, ctx);
     } else {
-      const t = script[item.hook!] as Trigger<object>;
+      const t = triggerOf(item)!;
       (typeof t === 'function' ? t : t.resolve)(g, { ...item.event, ...ctx });
     }
   }

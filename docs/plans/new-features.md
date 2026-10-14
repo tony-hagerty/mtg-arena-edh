@@ -4,8 +4,8 @@ Goal: the features the user asked for after the Commander-decks plan
 (`docs/plans/commander-decks.md`) was finished. Each is its own session, started only when
 the user says so, one at a time.
 
-**Status: not started. The user answered the first round of questions; the decisions are
-written into each session.**
+**Status: session 1 done. The user answered the first round of questions; the decisions
+are written into each session.**
 
 ## Rules every session follows
 
@@ -29,7 +29,7 @@ The same as in `commander-decks.md`, plus one:
 Order matters. 1, 2, 3 and 4 are mostly independent; 3 uses 2. 5 comes before 7, and 6
 before 7.
 
-### 1. Several triggered abilities for one event, and Dragon Tempest
+### 1. Several triggered abilities for one event, and Dragon Tempest (done)
 
 Today `CardScript` has one hook per event (`onEnter`, `onDies`, ...; `Triggers` in
 `src/engine/types.ts`), and a triggered `StackItem` records only its `hook`. A card with
@@ -56,6 +56,11 @@ two "whenever ... enters" abilities can't be scripted.
 - Tests: both abilities trigger from one Dragon with flying; each can be ordered; a
   non-flying Dragon triggers only the damage one; a flier that isn't a Dragon only the
   haste one.
+- Done. Dragon Tempest replaced Fire Elemental (Goblin Piker, the first pick, is used by
+  many tests). No Dragon without flying is in the pool, so that test is left out; an
+  opponent's Dragon is tested instead. `scripts/fetch-cards.mjs` now waits 500 ms between
+  Scryfall requests: at 150 ms Scryfall answered 429 (too many requests) and token art
+  came back empty.
 
 ### 2. Several activated abilities on one card
 

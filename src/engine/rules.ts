@@ -997,9 +997,10 @@ export function targetSpecs(item: StackItem): TargetSpec[] {
   const script = scriptFor(item.card);
   if (item.kind === 'activated') return (item.ability === undefined ? script.activated : script.loyalty?.[item.ability])?.targets ?? [];
   if (item.kind === 'triggered' && item.hook === 'onChapter') return script.chapters?.[(item.event as { chapter: number }).chapter - 1]?.targets ?? [];
-  if (item.kind === 'triggered' && item.hook === 'onEnter') return script.targets ?? [];
+  // A lone "enters" ability uses the card's `targets`; one in a list names its own.
+  if (item.kind === 'triggered' && item.hook === 'onEnter' && !Array.isArray(script.onEnter)) return script.targets ?? [];
   if (item.kind === 'triggered') {
-    const t = script[item.hook!] as Trigger<object> | undefined;
+    const t = triggerOf(item);
     return (t && typeof t !== 'function' && t.targets) || [];
   }
   return spellTargets(item.card, item.card.cast?.modes);
@@ -1293,19 +1294,35 @@ const isCard = (v: unknown): v is Card => typeof v === 'object' && v !== null &&
  * waits in `g.triggers` and goes on the stack the next time a player would get priority (603.3).
  */
 export function trigger<H extends TriggerHook>(g: Game, source: Card, hook: H, event: TriggerEvents[H]) {
-  const t = scriptFor(source)[hook] as Trigger<object> | undefined;
-  if (!t) return;
-  if (typeof t !== 'function' && !t.when(g, { self: source, ...event })) return;
-  const remembered = Object.fromEntries(Object.entries(event).map(([k, v]) => [k, isCard(v) ? snapshot(v) : v]));
-  g.triggers.push({
-    id: `s${g.nextId++}`,
-    kind: 'triggered',
-    controller: source.controller,
-    card: snapshot(source),
-    hook,
-    event: remembered,
-    targets: [],
+  const raw = scriptFor(source)[hook] as Trigger<object> | Trigger<object>[] | undefined;
+  // Each of a card's abilities for this event triggers on its own (603.2), in printed order.
+  (Array.isArray(raw) ? raw : raw ? [raw] : []).forEach((t, i) => {
+    if (typeof t !== 'function' && t.when && !t.when(g, { self: source, ...event })) return;
+    const remembered = Object.fromEntries(Object.entries(event).map(([k, v]) => [k, isCard(v) ? snapshot(v) : v]));
+    g.triggers.push({
+      id: `s${g.nextId++}`,
+      kind: 'triggered',
+      controller: source.controller,
+      card: snapshot(source),
+      hook,
+      ...(Array.isArray(raw) && { trigger: i }),
+      event: remembered,
+      targets: [],
+    });
   });
+}
+
+/** The triggered ability a stack item is: its hook's ability, or the one it names in the hook's list. */
+export function triggerOf(item: StackItem): Trigger<object> | undefined {
+  const raw = scriptFor(item.card)[item.hook!] as Trigger<object> | Trigger<object>[] | undefined;
+  return Array.isArray(raw) ? raw[item.trigger ?? 0] : raw;
+}
+
+/** The text of a triggered ability that has one (for a card with several for one event), or undefined. */
+export function triggerText(item: StackItem): string | undefined {
+  if (item.kind !== 'triggered' || !item.hook) return undefined;
+  const t = triggerOf(item);
+  return t && typeof t !== 'function' ? t.text : undefined;
 }
 
 /** Offers an event to every permanent on the battlefield. */

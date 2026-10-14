@@ -344,6 +344,8 @@ export interface StackItem {
   card: Card;
   /** Triggered abilities: the script hook that resolves it, and what it was told about the event. */
   hook?: TriggerHook;
+  /** Which of the hook's triggered abilities it is, when the hook holds a list. */
+  trigger?: number;
   /** A loyalty ability: its index in the script's `loyalty` list (606). */
   ability?: number;
   event?: object;
@@ -715,13 +717,25 @@ export type TriggerHook = keyof TriggerEvents;
  * A triggered ability. A plain function triggers on every event of its kind and runs when
  * the ability resolves. Use `{ when, resolve }` to trigger on only some events: `when` is
  * checked as the event happens (603.2), `resolve` runs later, from the stack. `targets`
- * are chosen as it goes on the stack (603.3d); an `onEnter` ability uses `CardScript.targets`.
+ * are chosen as it goes on the stack (603.3d); a lone `onEnter` ability uses `CardScript.targets`.
+ * `text` names the ability on the stack and when ordering triggers; left out, `when` means
+ * it triggers on every event.
  */
 export type Trigger<E> =
   | ((g: Game, e: Ctx & E) => void)
-  | { when: (g: Game, e: { self: Card } & E) => boolean; resolve: (g: Game, e: Ctx & E) => void; targets?: TargetSpec[] };
+  | {
+      when?: (g: Game, e: { self: Card } & E) => boolean;
+      resolve: (g: Game, e: Ctx & E) => void;
+      targets?: TargetSpec[];
+      text?: string;
+    };
 
-type Triggers = { [H in TriggerHook]?: Trigger<TriggerEvents[H]> };
+/**
+ * A hook holds one triggered ability, or a list when the card has several for the same
+ * kind of event (Dragon Tempest's two "enters" abilities). Each triggers on its own (603.2).
+ * In a list, every ability names its own `targets`, `onEnter` ones too.
+ */
+type Triggers = { [H in TriggerHook]?: Trigger<TriggerEvents[H]> | Trigger<TriggerEvents[H]>[] };
 
 /** One mode of a modal spell (700.2). */
 export interface Mode {
