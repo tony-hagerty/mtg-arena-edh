@@ -1,6 +1,8 @@
 /*
-  The whole UI is laid out on a fixed 192 x 108 grid of rem units (16:9) and the root
-  font-size scales that grid to the window. So 1rem = 10px on a 1920x1080 screen.
+  The whole UI is laid out in rem units and the root font-size scales them to the window,
+  so the window is always at least 192 x 108rem (16:9). 1rem = 10px on a 1920x1080 screen.
+  A wider or taller window gets more rem along that side, and the table spreads out to
+  fill it: everything is placed from an edge or the middle, never from a fixed 192 x 108.
 */
 html {
   font-size: min(calc(100vw / 192), calc(100vh / 108));
@@ -29,9 +31,6 @@ html {
 
 body {
   margin: 0;
-  height: 100vh;
-  display: grid;
-  place-items: center;
   overflow: clip;
   background: #05060a;
   color: #eef1f7;
@@ -45,8 +44,8 @@ button {
 
 .stage {
   position: relative;
-  width: 192rem;
-  height: 108rem;
+  width: 100vw;
+  height: 100vh;
   /* clip, not hidden: a hidden box can still be scrolled by focus or scrollIntoView */
   overflow: clip;
   font-size: 1.5rem;
@@ -97,8 +96,8 @@ button {
 .seat-left,
 .seat-right {
   top: 3rem;
+  bottom: 38rem;
   width: 36.5rem;
-  height: 67rem;
 }
 
 .seat-left {
@@ -652,7 +651,7 @@ button {
 .me-front {
   left: 37.5rem;
   right: 37.5rem;
-  top: 54.5rem;
+  bottom: 39rem;
   height: 14.5rem;
 }
 
@@ -663,7 +662,7 @@ button {
 .me-back {
   left: 30rem;
   right: 30rem;
-  top: 70rem;
+  bottom: 26.5rem;
   height: 11.5rem;
 }
 
@@ -909,7 +908,7 @@ button {
   z-index: 0;
   left: 0;
   right: 0;
-  top: 79.5rem;
+  top: calc(100% - 28.5rem);
   display: flex;
   justify-content: center;
   pointer-events: none;
@@ -986,7 +985,7 @@ button {
 .hand {
   position: absolute;
   left: 50%;
-  top: 96rem;
+  top: calc(100% - 12rem);
   width: 0;
   height: 0;
 }
@@ -1040,7 +1039,7 @@ button {
   position: absolute;
   left: 0;
   right: 0;
-  top: 43rem;
+  top: calc(50% - 11rem);
   width: fit-content;
   margin: 0 auto;
   padding: 0.5rem 9rem;
@@ -1171,7 +1170,7 @@ button {
 .log {
   position: absolute;
   left: 1.6rem;
-  top: 70.5rem;
+  top: calc(100% - 37.5rem);
   width: 27rem;
   z-index: 20;
 }
@@ -1373,7 +1372,7 @@ button {
   position: absolute;
   left: 0;
   right: 0;
-  top: 52rem;
+  top: calc(50% - 2rem);
   width: fit-content;
   margin: 0 auto;
   padding: 1rem 2.5rem;
