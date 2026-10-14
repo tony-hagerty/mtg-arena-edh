@@ -215,3 +215,21 @@ Builds on 5 and 6.
   working. A dev command (`npm run fetch-cards` with the deck added to
   `decklists.json`) stays as the other way to add cards.
 - Images keep coming from Scryfall's image server as now.
+- **Refused cards are written down for Claude to script later**, in
+  `docs/card-requests.json` (tracked in git, so a cloud session can read it once pushed).
+  Each entry: card name, Oracle text, the clause the parser couldn't read, how many times
+  it was refused, and when last. Repeats are merged, not added twice.
+  - While `npm run dev` runs: a small Vite dev-server endpoint receives each refusal from
+    the app and updates the file automatically.
+  - Anywhere else (a built or hosted version, no dev server): the deck-paste screen has a
+    **Download report** button with the same entries, for the user to save into the repo.
+    The session decides how a downloaded report merges into the file (likely the skill
+    reads both).
+  - `npm run parse-report` (session 6) writes its refusals to the same file.
+- **A project skill, `/script-requested-cards`** (`.claude/skills/`), that:
+  - reads `docs/card-requests.json` and groups the cards by the missing wording;
+  - adds a parser template for wording many cards share, and a hand script for one-off
+    cards, following `docs/card-scripting.md` and asking the user before any
+    approximation;
+  - runs `npm test` and `npm run build`, then removes the handled cards from the file;
+  - asks before committing, like every session.
