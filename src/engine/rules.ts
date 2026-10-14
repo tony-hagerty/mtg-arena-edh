@@ -457,6 +457,7 @@ export function makeCard(g: Game, name: string, owner: PlayerId, zone: Zone, ext
     deathtouched: false,
     counters: 0,
     mods: [],
+    mayReturn: false,
     ...extra,
   };
 }
@@ -467,7 +468,12 @@ export function removeFromCombat(g: Game, id: string) {
   for (const a of g.combat.attacks) a.blockers = a.blockers.filter((b) => b !== id);
 }
 
-/** Moves a card between zones. Tokens vanish; a commander goes to the command zone instead of dying. */
+/**
+ * Moves a card between zones. Tokens vanish. A commander really does go to a graveyard or
+ * exile, so "dies" abilities see it; the next state-based check offers to move it on to the
+ * command zone (903.9a). No card in the pool puts a permanent into a hand or library, so
+ * the replacement effect for those zones (903.9b) isn't implemented.
+ */
 export function moveCard(g: Game, c: Card, to: Zone) {
   if (c.zone === 'stack') {
     g.stack = g.stack.filter((x) => x.kind !== 'spell' || x.card.id !== c.id);
@@ -483,7 +489,7 @@ export function moveCard(g: Game, c: Card, to: Zone) {
   c.deathtouched = false;
   c.counters = 0;
   c.mods = [];
-  if (c.isCommander && (to === 'graveyard' || to === 'exile')) to = 'command';
+  c.mayReturn = c.isCommander && (to === 'graveyard' || to === 'exile');
   c.zone = to;
   if (c.isToken && to !== 'battlefield') return;
   g.players[c.owner][to].push(c);
@@ -686,6 +692,12 @@ export const searchable = (c: Card, subtype?: string) => hasType(c, 'Basic Land'
 
 // ---------- state-based actions ----------
 
+/** Moves a commander from its owner's graveyard or exile to the command zone (903.9a). */
+export function returnCommander(g: Game, c: Card) {
+  log(g, `${label(c)} goes to the command zone.`, c.owner, [c]);
+  moveCard(g, c, 'command');
+}
+
 /** A player leaves the game, and everything they own or control goes with them (800.4a). */
 function eliminate(g: Game, p: Player, reason: string) {
   p.lost = true;
@@ -741,6 +753,19 @@ export function checkState(g: Game) {
     if (dying.length) {
       dieMany(g, dying);
       changed = true;
+    }
+    // A commander just put into a graveyard or exile may go to the command zone (903.9a).
+    // Bots always send it. A human is asked, unless the game is already waiting on another
+    // decision: then the commander waits for the next check.
+    for (const c of g.players.flatMap((p) => [...p.graveyard, ...p.exile])) {
+      if (!c.mayReturn) continue;
+      if (g.players[c.owner].isBot) {
+        returnCommander(g, c);
+        changed = true;
+      } else if (!g.decision) {
+        g.decision = { type: 'commanderZone', card: c.id, resume: g.priority };
+        g.priority = c.owner;
+      }
     }
     if (!changed) break;
   }

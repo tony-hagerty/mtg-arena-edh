@@ -53,6 +53,8 @@ npm run build    # type-check and production build
   attack, then click your creatures. Different creatures can attack different players.
 - **Blocking:** when you are attacked, click your creature. If it could block more than
   one attacker, click the attacker next.
+- When your commander dies or is exiled, a window asks whether it goes to the
+  **Command Zone** (castable again, with tax) or stays where it went.
 - "When this enters" abilities that need a target ask for it once the creature is on the
   battlefield. That choice can't be cancelled: the ability has already triggered.
 - **Searching your library** (Rampant Growth, Cultivate, Path to Exile, ...) opens your whole
@@ -74,8 +76,10 @@ npm run build    # type-check and production build
 
 Rule numbers below are from the Comprehensive Rules in `docs/rules/`.
 
-- Commander rules: 40 life, command zone, commander tax, 21 commander damage,
-  commander returns to the command zone instead of dying or being exiled.
+- Commander rules: 40 life, command zone, commander tax, 21 commander damage.
+  A commander that dies or is exiled really goes there (so "dies" abilities see it),
+  then its owner may move it to the command zone (903.9a). You're asked; bots always do.
+  No card in the pool can put a commander into a hand or library (903.9b).
 - Turn structure (500-514): untap, upkeep, draw, main, beginning of combat, declare
   attackers, declare blockers, combat damage (twice with first strike), end of combat,
   second main, end step, cleanup. Mana empties as each step ends.
@@ -124,8 +128,7 @@ These are deliberate cuts for a prototype, roughly in the order I'd tackle them 
 - Cultivate asks for its two lands one at a time (battlefield, then hand), not as one pick
   of two. It is still one search with one shuffle (701.23h).
 - Combat damage is assigned automatically (lethal to each blocker in order).
-- Optional "you may" effects always happen when they are free upside, and a commander
-  always goes back to the command zone.
+- Optional "you may" effects always happen when they are free upside.
 
 ## Project layout
 

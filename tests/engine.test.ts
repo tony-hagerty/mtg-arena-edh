@@ -47,6 +47,43 @@ describe('commander rules', () => {
     expect(g.players[0].commanderCasts).toBe(2);
   });
 
+  // Player 0 is made human in these, since bots always send their commander home.
+  it('asks a human whether their dead commander goes to the command zone (903.9a)', () => {
+    let g = emptyGame((d) => {
+      d.players[0].isBot = false;
+      put(d, 0, 'Plains', 'battlefield', 12);
+      put(d, 0, 'Murder', 'hand');
+      put(d, 0, 'Swamp', 'battlefield', 3);
+    });
+    const lyra = g.players[0].command[0];
+    g = run(g, { type: 'cast', card: lyra.id });
+    g = run(g, { type: 'cast', card: byName(g, 0, 'Murder', 'hand')!.id, targets: [{ kind: 'card', id: lyra.id }] });
+    // It really is in the graveyard until the owner chooses.
+    expect(g.decision).toEqual({ type: 'commanderZone', card: lyra.id, resume: 0 });
+    expect(g.players[0].graveyard.map((c) => c.id)).toContain(lyra.id);
+    g = run(g, { type: 'commanderZone', toCommand: true });
+    expect(g.players[0].command.map((c) => c.id)).toEqual([lyra.id]);
+    expect([g.decision, g.priority]).toEqual([null, 0]);
+  });
+
+  it('lets a human leave their commander in exile, and asks only once', () => {
+    let g = emptyGame((d) => {
+      d.players[0].isBot = false;
+      put(d, 0, 'Plains', 'battlefield', 6);
+      put(d, 0, 'Swords to Plowshares', 'hand');
+    });
+    const lyra = g.players[0].command[0];
+    g = run(g, { type: 'cast', card: lyra.id });
+    g = run(g, { type: 'cast', card: byName(g, 0, 'Swords to Plowshares', 'hand')!.id, targets: [{ kind: 'card', id: lyra.id }] });
+    expect(g.decision).toMatchObject({ type: 'commanderZone', card: lyra.id });
+    g = run(g, { type: 'commanderZone', toCommand: false });
+    expect(g.players[0].exile.map((c) => c.id)).toEqual([lyra.id]);
+    expect(g.players[0].command).toEqual([]);
+    g = run(g, pass);
+    expect(g.decision?.type).not.toBe('commanderZone');
+    expect(g.players[0].exile.map((c) => c.id)).toEqual([lyra.id]);
+  });
+
   it('eliminates a player at 21 combat damage from one commander', () => {
     let g = emptyGame((d) => {
       const c = put(d, 0, 'Ghalta, Primal Hunger');

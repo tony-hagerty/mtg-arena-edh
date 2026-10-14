@@ -46,6 +46,8 @@ export interface Card {
   deathtouched: boolean; // damaged by a deathtouch source this turn
   counters: number; // +1/+1 counters
   mods: Mod[];
+  /** A commander put into a graveyard or exile since state-based actions were last checked (903.9a). */
+  mayReturn: boolean;
 }
 
 export interface Player {
@@ -165,12 +167,16 @@ export interface Mulligans {
  *  orderTriggers - a player puts several of their triggered abilities on the stack in the
  *                  order they choose (603.3b). Their waiting ones are in `Game.triggers`.
  *  chooseCards   - a player picks cards from a list (see `CardChoice`)
+ *  commanderZone - a player's commander was put into their graveyard or exile, and they
+ *                  choose whether it goes to the command zone (903.9a). `resume` is the
+ *                  player who gets priority afterwards.
  */
 export type Decision =
   | { type: 'mulligan' | 'attackers' | 'blockers' | 'discard' }
   | { type: 'targets'; item: StackItem; resume: PlayerId }
   | { type: 'orderTriggers'; resume: PlayerId }
-  | { type: 'chooseCards'; choice: CardChoice };
+  | { type: 'chooseCards'; choice: CardChoice }
+  | { type: 'commanderZone'; card: string; resume: PlayerId };
 
 export interface Game {
   players: Player[];
@@ -220,6 +226,8 @@ export type Action =
   | { type: 'chooseCards'; cards: string[] }
   /** Answers `orderTriggers`: every waiting trigger of yours, in the order they go on the stack (the last resolves first). */
   | { type: 'orderTriggers'; order: string[] }
+  /** Answers `commanderZone`: true moves the commander to the command zone, false leaves it where it is. */
+  | { type: 'commanderZone'; toCommand: boolean }
   /** Pass priority, or finish declaring attackers or blockers. */
   | { type: 'pass' };
 
