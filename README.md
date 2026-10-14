@@ -253,11 +253,11 @@ Rule numbers below are from the Comprehensive Rules in `docs/rules/`.
 - Keywords: flying, reach, first strike, double strike, deathtouch, lifelink, trample,
   vigilance, haste, defender, hexproof, indestructible, menace, flash, storm, cumulative
   upkeep, mobilize, ward, dash, bargain, gift, afterlife.
-- Every card in the pool works. On the menu: two 100-card two-colour decks
+- Every card in the pool works. On the menu: four 100-card two-colour starter decks
   (white-black "Heaven's Host" with Karlov of the Ghost Council, black-red "Whispers of
-  the Pit" with Judith, the Scourge Diva), two old 60-card mono-coloured "legacy" decks
-  (red and green, rebuilt in session 8b) and the Kraum and Tymna deck. The menu shows
-  each deck's colour pips.
+  the Pit" with Judith, the Scourge Diva, red-green "Fire and Fang" with Halana and Alena,
+  green-white "Conclave's Chorus" with Trostani, Selesnya's Voice) and the Kraum and
+  Tymna deck. The menu shows each deck's colour pips.
   `npm test` fails if a card has rules text the engine doesn't implement.
 - Control (110.2): a permanent sits on its controller's side and can change hands
   (Wishclaw Talisman). A spell is controlled by its caster, and a permanent spell enters
@@ -278,6 +278,11 @@ Rule numbers below are from the Comprehensive Rules in `docs/rules/`.
 - Ward (702.21), choosing new targets (115.7d), gift (702.174), bargain (702.166), dash
   (702.109), surveil (701.25), delirium, "attacks each combat if able" (508.1d: one left
   out attacks the next opponent), "skip your draw step", "whenever you discard".
+- "At the beginning of combat on your turn" (507), populate (701.36: you choose which
+  creature token to copy, and a token that is itself a copy copies what it copies), and
+  "whenever this becomes tapped" however it is tapped: for mana, to attack, for a cost or
+  by an effect. Bots sacrifice their least valuable permanent and discard the cards they
+  want least.
 - Mana: restricted mana that makes a spell uncounterable (106.6, Cavern of Souls), mana
   kept until end of turn (Birgi), mana abilities a land gains until end of turn (Rain of
   Filth), and Lion's Eye Diamond (discard your hand, only with priority). Activated
@@ -305,9 +310,6 @@ These are deliberate cuts for a prototype, roughly in the order I'd tackle them 
   remember another card across time check it (Necropotence, dash, Mnemonic Betrayal,
   Chrome Mox, Beseech the Mirror, Wishclaw Talisman, Underworld Breach), but targets don't:
   a spell aimed at a creature that left and came back before it resolved still finds it.
-- **The red and green starter decks are still 60 cards** (commander + 59). They are marked
-  `"legacy": true` in `src/cards/decklists.json`, get the shared artifacts added, and are
-  checked as 60-card decks. Session 8b rebuilds them.
 - Partner variants other than plain partner and "partner with" (Background, Doctor's
   companion, "partner—[text]") aren't recognised. Vehicles can't be commanders yet.
 - A defeated Siege's back face is always cast ("you may" is free upside); a back face
@@ -328,7 +330,9 @@ These are deliberate cuts for a prototype, roughly in the order I'd tackle them 
   `tests/fixtures.ts` (Jace Beleren, Garruk Wildspeaker, Invasion of Dominaria). A
   planeswalker that says it "can be your commander" is accepted as one (903.3a).
 - Auras can only enchant permanents, not players (702.5d). A card can have only one
-  activated ability, so an Equipment's equip is its only one. Proliferate, shield,
+  activated ability, so an Equipment's equip is its only one. It can also have only one
+  triggered ability for each kind of event, so a card with two "whenever ... enters"
+  abilities (Dragon Tempest) can't be scripted yet. Proliferate, shield,
   stun and other counters with their own rules (122.1c-j) do nothing special yet.
   The test-only cards are in `tests/fixtures.ts` (Pacifism, Holy Strength, Bonesplitter,
   Loxodon Warhammer, Untethered Express, Black Sun's Zenith).
@@ -359,8 +363,6 @@ These are deliberate cuts for a prototype, roughly in the order I'd tackle them 
   ever printed. Naming any card that isn't in your library does the same thing.
 - Auto-pay never uses a mana ability that costs a card (Simian Spirit Guide) or your
   hand (Lion's Eye Diamond): use them by hand.
-- City of Brass deals its damage only when it is tapped for mana: nothing in the pool taps
-  a land any other way.
 - Mana Vault doesn't ask about paying {4} while it is untapped, and Tymna doesn't ask
   with no opponent dealt combat damage: paying would change nothing. Both still trigger.
 - Bots: they win with Thassa's Oracle plus Demonic Consultation or Tainted Pact when they
@@ -380,7 +382,7 @@ These are deliberate cuts for a prototype, roughly in the order I'd tackle them 
 ## Project layout
 
 ```
-src/cards/      decklists.json        the decks, shared artifacts, tokens
+src/cards/      decklists.json        the decks and tokens
                 db.ts                 card lookup, deck colours, deck legality (deckProblems)
                 creature-types.json   every creature type (205.3m; npm run fetch-rules)
                 cards.generated.json  card data from Scryfall (npm run fetch-cards)
@@ -491,7 +493,9 @@ stack as `Game.resolving` until it is answered. What happens next is the script'
    a spec ("Sacrifice a creature:"); the resolve sees `sacrificed` and `sacrificedPower`
    (as it was, 608.2h), and so does a spell with a sacrifice cost. `entersTapped` can be a
    function (check lands). `chooseToSacrifice` and `chooseToDiscard` let a player choose;
-   `onSacrifice` and `onPlaneswalkerDies` trigger.
+   `onSacrifice`, `onPlaneswalkerDies` and `onBeginCombat` trigger. `populate(g, pid)`
+   copies a creature token the player chooses; `tap(g, card)` taps a permanent and
+   triggers `onTapped`.
 4. Run `npm test`. The card-pool test tells you if anything is still missing.
 
 ### Layout note

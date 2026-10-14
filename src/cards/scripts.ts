@@ -32,6 +32,7 @@ import {
   refPlayer,
   searchBasic,
   stats,
+  tap,
 } from '../engine/rules';
 import type { Card, CardScript, Ctx, Game, PlayerId, TargetSpec } from '../engine/types';
 
@@ -311,7 +312,7 @@ registerScripts({
         for (const c of creaturesOf(g, o.id)) {
           if (!stats(g, c).keywords.has('flying')) continue;
           damageCard(g, self, c, 1);
-          c.tapped = true;
+          tap(g, c);
         }
       }
     },

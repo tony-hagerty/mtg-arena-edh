@@ -1,11 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { ALL_CARD_NAMES, ALL_DECKS, DECKS, SHARED, cardData, deckColors, deckProblems } from '../src/cards/db';
+import { ALL_CARD_NAMES, ALL_DECKS, DECKS, cardData, deckColors, deckProblems } from '../src/cards/db';
 import type { DeckDef } from '../src/cards/db';
 import type { CardData } from '../src/engine';
 import { SUPPORTED_KEYWORDS, hasScript } from '../src/engine';
+import { MANA_ROCKS } from './helpers';
 
 // Ability words and keyword actions: they label a rule that the card's script implements.
-const ABILITY_WORDS = ['landfall', 'treasure', 'mill', 'threshold', 'metalcraft', 'recruit', "scions' secretary", 'delirium', 'surveil', 'imprint', 'channel'];
+const ABILITY_WORDS = ['landfall', 'treasure', 'mill', 'threshold', 'metalcraft', 'recruit', "scions' secretary", 'delirium', 'surveil', 'imprint', 'channel', 'ferocious', 'bloodrush', 'populate'];
 
 /** Oracle text split into abilities, with reminder text removed. */
 const abilities = (text: string) =>
@@ -69,14 +70,14 @@ const FIXTURES: Record<string, CardData> = {
 };
 const lookup = (name: string) => FIXTURES[name] ?? cardData(name);
 
-/** 28 nonland cards of exactly this colour identity from the pool, not counting the shared artifacts. */
+/** 28 nonland cards of exactly this colour identity from the pool. */
 const mono = (color: string) =>
   ALL_CARD_NAMES.filter((n) => {
     const d = cardData(n);
-    return d.colorIdentity.join('') === color && !d.typeLine.includes('Land') && !SHARED.includes(n);
+    return d.colorIdentity.join('') === color && !d.typeLine.includes('Land');
   }).slice(0, 28);
 
-/** A legal 100-card Naya deck: two partners, 28 cards of each colour, the shared artifacts and seven basics. */
+/** A legal 100-card Naya deck: two partners, 28 cards of each colour, seven artifacts and seven basics. */
 function naya(): DeckDef {
   return {
     id: 'naya',
@@ -85,7 +86,7 @@ function naya(): DeckDef {
     pilot: '',
     commanders: ['Red-White Partner', 'Green Partner'],
     basics: { Plains: 3, Mountain: 2, Forest: 2 },
-    cards: [...mono('W'), ...mono('R'), ...mono('G'), ...SHARED],
+    cards: [...mono('W'), ...mono('R'), ...mono('G'), ...MANA_ROCKS],
   };
 }
 
