@@ -135,3 +135,48 @@ describe('modes, stack targets and holding priority in the UI', () => {
     expect(game().log.some((l) => l.text === 'Lightning Bolt is countered.')).toBe(true);
   });
 });
+
+describe('Auras, Equipment and crew in the UI', () => {
+  it('picks the crew, then the Vehicle becomes a creature (702.122)', () => {
+    play((d) => {
+      put(d, 0, 'Untethered Express');
+      put(d, 0, 'Raging Goblin');
+      put(d, 0, 'Angelic Wall'); // 0 power
+    });
+    clickPermanent(byName(game(), 0, 'Untethered Express')!);
+    let v = buildView();
+    expect(v.prompt).toContain('Crew 1');
+    expect(v.primary?.disabled).toBe(true);
+    clickPermanent(byName(game(), 0, 'Angelic Wall')!);
+    expect(buildView().primary?.disabled).toBe(true); // 0 power isn't enough
+    clickPermanent(byName(game(), 0, 'Angelic Wall')!); // a second click takes it back out
+    clickPermanent(byName(game(), 0, 'Raging Goblin')!);
+    v = buildView();
+    expect(v.prompt).toContain('(1 so far)');
+    press(); // Crew: costs no mana, so it goes straight on the stack and resolves
+    expect(byName(game(), 0, 'Raging Goblin')!.tapped).toBe(true);
+    expect(byName(game(), 0, 'Angelic Wall')!.tapped).toBe(false);
+    expect(byName(game(), 0, 'Untethered Express')!.mods.some((m) => m.creature)).toBe(true);
+  });
+
+  it('casts an Aura on a target, and equips from the attached Equipment', () => {
+    play((d) => {
+      put(d, 0, 'Plains', 'battlefield', 3);
+      put(d, 0, 'Elite Vanguard');
+      put(d, 0, 'Raging Goblin');
+      put(d, 0, 'Bonesplitter').attachedTo = d.players[0].battlefield[1].id;
+      put(d, 0, 'Holy Strength', 'hand');
+    });
+    playHandCard(byName(game(), 0, 'Holy Strength', 'hand')!);
+    const goblin = byName(game(), 0, 'Raging Goblin')!;
+    expect(buildView().glow.get(goblin.id)).toBe('target');
+    clickPermanent(goblin);
+    press(); // Pay
+    expect(byName(game(), 0, 'Holy Strength')!.attachedTo).toBe(goblin.id);
+    // Move the Bonesplitter from the Vanguard to the Goblin.
+    clickPermanent(byName(game(), 0, 'Bonesplitter')!);
+    clickPermanent(byName(game(), 0, 'Raging Goblin')!);
+    press(); // Pay {1}
+    expect(byName(game(), 0, 'Bonesplitter')!.attachedTo).toBe(goblin.id);
+  });
+});
