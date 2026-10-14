@@ -1062,15 +1062,48 @@ button {
 }
 
 .phases {
+  --phase: #ffc163;
+  --phase-glow: var(--orange);
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.8rem;
   text-align: center;
+}
+
+.phase-main {
+  position: relative;
 }
 
 .phase-pips {
   display: flex;
   justify-content: center;
   align-items: center;
-  gap: 1.3rem;
-  height: 3.2rem;
+  gap: 0.4rem;
+  height: 3.6rem;
+}
+
+.pip-btn {
+  position: relative;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  width: 2.6rem;
+  height: 3.6rem;
+  padding: 0;
+  background: none;
+  border: none;
+  border-radius: 0.6rem;
+}
+
+.phases.editable .pip-btn {
+  cursor: pointer;
+}
+
+.phases.editable .pip-btn:hover,
+.pip-btn.open {
+  background: rgba(255, 255, 255, 0.08);
 }
 
 .pip {
@@ -1080,18 +1113,129 @@ button {
   transition: transform 0.2s, fill 0.2s;
 }
 
+.phases.editable .pip-btn:hover .pip:not(.on) {
+  fill: #8a93a5;
+}
+
 .pip.on {
-  fill: #ffc163;
+  fill: var(--phase);
   transform: scale(1.5);
-  filter: drop-shadow(0 0 0.6rem var(--orange));
+  filter: drop-shadow(0 0 0.6rem var(--phase-glow));
+}
+
+/* A stop: a ring for "stop if you can act", a dot for "always stop". */
+.stop-mark {
+  position: absolute;
+  left: calc(50% - 0.35rem);
+  bottom: -0.2rem;
+  width: 0.7rem;
+  height: 0.7rem;
+  border-radius: 50%;
+}
+
+.stop-mark.stop-ifAble {
+  border: 0.15rem solid var(--phase);
+}
+
+.stop-mark.stop-always {
+  background: var(--phase);
+  box-shadow: 0 0 0.4rem var(--phase-glow);
 }
 
 .phase-label {
-  margin-top: 0.3rem;
+  margin-top: 0.5rem;
   font-size: 1.25rem;
   color: #d4dbe9;
   text-shadow: 0 0.1rem 0.3rem #000;
 }
+
+.phases.editable .phase-label {
+  color: color-mix(in srgb, var(--phase) 45%, #d4dbe9);
+}
+
+/* A pip covering several steps, split into one button per step. */
+.step-split {
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% + 0.6rem);
+  transform: translateX(-50%);
+  display: flex;
+  gap: 0.4rem;
+  padding: 0.5rem;
+  background: rgba(10, 14, 22, 0.92);
+  border: 0.1rem solid color-mix(in srgb, var(--phase) 50%, transparent);
+  border-radius: 1rem;
+  box-shadow: 0 0.5rem 1.4rem rgba(0, 0, 0, 0.7);
+  white-space: nowrap;
+}
+
+.step-btn {
+  position: relative;
+  padding: 0.6rem 1rem 1rem;
+  font-size: 1.2rem;
+  font-weight: 600;
+  color: #d4dbe9;
+  background: rgba(255, 255, 255, 0.06);
+  border: 0.1rem solid transparent;
+  border-radius: 0.6rem;
+  cursor: pointer;
+}
+
+.step-btn:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.14);
+}
+
+.step-btn.on {
+  color: var(--phase);
+  border-color: var(--phase);
+}
+
+.step-btn:disabled {
+  color: #596171;
+  cursor: default;
+}
+
+/* Whose turns the stops are for: one arrow per seat, laid out like the table. */
+.seat-arrows {
+  display: grid;
+  grid-template: repeat(3, 1.6rem) / repeat(3, 1.6rem);
+  flex: none;
+}
+
+.seat-arrow {
+  display: flex;
+  padding: 0;
+  background: none;
+  border: none;
+  cursor: pointer;
+}
+
+.seat-arrow svg {
+  width: 100%;
+  height: 100%;
+  fill: color-mix(in srgb, var(--deck) 45%, #2a303b);
+  transition: fill 0.2s, transform 0.2s;
+}
+
+.seat-arrow:hover svg,
+.seat-arrow.active svg {
+  fill: color-mix(in srgb, var(--deck) 75%, #2a303b);
+}
+
+.seat-arrow.on svg {
+  fill: var(--deck);
+  transform: scale(1.25);
+  filter: drop-shadow(0 0 0.4rem var(--deck));
+}
+
+.seat-arrow:disabled {
+  visibility: hidden;
+}
+
+.seat-arrow.arrow-top { grid-area: 1 / 2; }
+.seat-arrow.arrow-left { grid-area: 2 / 1; }
+.seat-arrow.arrow-right { grid-area: 2 / 3; }
+.seat-arrow.arrow-bottom { grid-area: 3 / 2; }
 
 .btn {
   height: 6.4rem;

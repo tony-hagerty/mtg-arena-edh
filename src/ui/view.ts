@@ -274,11 +274,12 @@ function priorityView(view: View, g: Game, me: PlayerId) {
       : { label: 'End Turn', tone: 'go', onClick: endTurn };
   } else if (myTurn && g.step === 'main2') {
     view.primary = { label: 'End Turn', tone: 'go', onClick: pass };
-  } else if (myTurn) {
+  } else if (myTurn && g.step === 'blockers') {
     view.prompt = 'Blockers are declared. Cast instants, or continue to combat damage.';
     view.primary = { label: 'Next', sub: 'To Damage', tone: 'attack', onClick: pass };
   } else {
-    const turn = `${g.players[g.active].name}'s turn`;
+    // Any other step is one the human set a stop in.
+    const turn = myTurn ? 'Your turn' : `${g.players[g.active].name}'s turn`;
     const when = g.step === 'attackers' ? 'attackers are declared' : g.step === 'blockers' ? 'blockers are declared' : STEP_NAMES[g.step].toLowerCase();
     view.prompt = `${turn}, ${when}. Cast instants, or pass.`;
     view.primary = { label: 'Pass', tone: 'go', onClick: pass };

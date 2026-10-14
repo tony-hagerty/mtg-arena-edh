@@ -57,9 +57,11 @@ export interface NewGameOptions {
   seed: number;
   /** Deck index the human plays in seat 0, or null for four bots. */
   humanDeck: number | null;
+  /** Players' own stops, as in `ApplyOptions`. */
+  stops?: ApplyOptions['stops'];
 }
 
-export function newGame({ seed, humanDeck }: NewGameOptions): Game {
+export function newGame({ seed, humanDeck, stops }: NewGameOptions): Game {
   const g: Game = {
     players: [],
     active: 0,
@@ -112,7 +114,7 @@ export function newGame({ seed, humanDeck }: NewGameOptions): Game {
   });
   // In a multiplayer game nobody skips their first draw (103.8c).
   beginTurn(g, Math.floor(rand(g) * 4));
-  settle(g, true);
+  settle(g, true, stops);
   return g;
 }
 
@@ -199,27 +201,44 @@ export function canAct(g: Game, pid: PlayerId): boolean {
 // ---------- auto-pass ----------
 
 /**
+ * A stop: with the stack empty, the game stops for the player in that step instead of
+ * passing for them. `ifAble` stops only if they could do something besides pass;
+ * `always` stops even when passing is all they can do.
+ */
+export type StopKind = 'ifAble' | 'always';
+
+/** One player's stops on one player's turn. */
+export type TurnStops = Partial<Record<Step, StopKind>>;
+
+/** One player's stops, indexed by whose turn it is: `stops[g.active]`. */
+export type Stops = TurnStops[];
+
+/** Stops on your own turn: both main phases, and after blockers are declared. */
+export const OWN_TURN_STOPS: TurnStops = { main1: 'always', main2: 'ifAble', blockers: 'ifAble' };
+/** Stops on another player's turn: after attackers and blockers are declared, and the end step. */
+export const OTHER_TURN_STOPS: TurnStops = { attackers: 'ifAble', blockers: 'ifAble', end: 'ifAble' };
+
+/** The stops every player has unless told otherwise. */
+export const defaultStops = (pid: PlayerId, players = 4): Stops =>
+  Array.from({ length: players }, (_, turn) => ({ ...(turn === pid ? OWN_TURN_STOPS : OTHER_TURN_STOPS) }));
+
+/**
  * Should the game stop and ask this player, or pass priority for them?
  *
  * This is not a rule. Every player gets priority in every step (117.3), which in a
  * four-player game is dozens of passes a turn, so like Arena the engine passes for a
  * player unless they are likely to want to act:
- *  - never when passing is all they can do, except in their own first main phase
- *  - with something on the stack: when the top object is someone else's
- *  - with the stack empty, on their turn: both main phases, and after blockers are declared
- *  - with the stack empty, on another turn: after attackers and after blockers are
- *    declared, and in the end step
+ *  - with something on the stack: when the top object is someone else's and they could act
+ *  - with the stack empty: at their stops (see `StopKind`), `defaultStops` unless given.
+ *    A stop in declare attackers only counts once something attacks.
  * `applyAction(g, a, { autoPass: false })` turns it off.
  */
-export function wantsPriority(g: Game, pid: PlayerId): boolean {
+export function wantsPriority(g: Game, pid: PlayerId, stops?: Stops): boolean {
   const top = g.stack[g.stack.length - 1];
-  const myTurn = pid === g.active;
-  if (!top && myTurn && g.step === 'main1') return true;
-  if (!canAct(g, pid)) return false;
-  if (top) return top.controller !== pid;
-  if (myTurn) return g.step === 'main2' || g.step === 'blockers';
-  const inCombat = !!g.combat?.attacks.length && (g.step === 'attackers' || g.step === 'blockers');
-  return inCombat || g.step === 'end';
+  if (top) return top.controller !== pid && canAct(g, pid);
+  if (g.step === 'attackers' && !g.combat?.attacks.length) return false;
+  const stop = (stops?.[g.active] ?? (g.active === pid ? OWN_TURN_STOPS : OTHER_TURN_STOPS))[g.step];
+  return stop === 'always' || (stop === 'ifAble' && canAct(g, pid));
 }
 
 // ---------- turn structure ----------
@@ -690,7 +709,7 @@ function act(g: Game, a: Action): boolean {
  * neither does anything more (117.5). Then that player gets priority, or it is passed for
  * them (see `wantsPriority`).
  */
-function settle(g: Game, autoPass: boolean) {
+function settle(g: Game, autoPass: boolean, stops: ApplyOptions['stops'] = {}) {
   for (let guard = 0; guard < 5000; guard++) {
     checkState(g);
     if (g.winner !== null) {
@@ -702,7 +721,7 @@ function settle(g: Game, autoPass: boolean) {
     if (g.decision) return;
     if (putTriggerOnStack(g)) continue;
     if (g.players[g.priority].lost) g.priority = nextLiving(g, g.priority);
-    if (!autoPass || wantsPriority(g, g.priority)) return;
+    if (!autoPass || wantsPriority(g, g.priority, stops[g.priority])) return;
     passPriority(g);
   }
 }
@@ -710,10 +729,12 @@ function settle(g: Game, autoPass: boolean) {
 export interface ApplyOptions {
   /** Pass priority for players who have nothing they'd want to do (default true). See `wantsPriority`. */
   autoPass?: boolean;
+  /** Players' own stops, by player id. Anyone left out gets `defaultStops`. */
+  stops?: Partial<Record<PlayerId, Stops>>;
 }
 
-export function applyAction(g: Game, a: Action, { autoPass = true }: ApplyOptions = {}): Game {
+export function applyAction(g: Game, a: Action, { autoPass = true, stops }: ApplyOptions = {}): Game {
   return produce(g, (draft) => {
-    if (act(draft, a)) settle(draft, autoPass);
+    if (act(draft, a)) settle(draft, autoPass, stops);
   });
 }
