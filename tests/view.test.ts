@@ -475,3 +475,28 @@ describe('the Kraum and Tymna deck in the UI (session 7b)', () => {
     expect(game().stack.length + game().players[0].battlefield.filter((c) => c.name === 'Chrome Mox').length).toBeGreaterThan(0);
   });
 });
+
+describe('the two-colour decks in the UI (session 8a)', () => {
+  it('Goblin Bombardment: choose the target, then the creature to sacrifice', () => {
+    play((d) => {
+      put(d, 0, 'Goblin Bombardment');
+      put(d, 0, 'Goblin Piker');
+    });
+    clickPermanent(byName(game(), 0, 'Goblin Bombardment')!);
+    clickPlayer(1);
+    const piker = byName(game(), 0, 'Goblin Piker')!;
+    expect(buildView().glow.get(piker.id)).toBe('target');
+    clickPermanent(piker);
+    expect(game().players[1].life).toBe(39);
+  });
+
+  it('asks whether to pay 2 life for a shock land', () => {
+    play((d) => {
+      put(d, 0, 'Blood Crypt', 'hand');
+    });
+    playHandCard(byName(game(), 0, 'Blood Crypt', 'hand')!);
+    expect(game().decision?.type).toBe('ask');
+    useStore.getState().act({ type: 'answer', yes: false });
+    expect(byName(game(), 0, 'Blood Crypt')!.tapped).toBe(true);
+  });
+});

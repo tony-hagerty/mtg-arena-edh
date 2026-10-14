@@ -3101,3 +3101,263 @@ describe('graveyard, exile and odd cards (session 7b)', () => {
     });
   });
 });
+
+describe('the two-colour starter decks (session 8a)', () => {
+  const player = (id: number) => ({ kind: 'player', id }) as const;
+  const card = (c: { id: string }) => ({ kind: 'card', id: c.id }) as const;
+  const cast = (g: Game, pid: number, name: string, extra: object = {}) => run(g, { type: 'cast', card: byName(g, pid, name, 'hand')!.id, ...extra } as Action);
+  const yes = { type: 'answer', yes: true } as const;
+  const no = { type: 'answer', yes: false } as const;
+  const choose = (...cards: { id: string }[]) => ({ type: 'chooseCards', cards: cards.map((c) => c.id) }) as const;
+  const asking = (g: Game) => (g.decision && 'choice' in g.decision ? g.decision.choice : undefined);
+  const settle = (g: Game, done: (g: Game) => boolean) => {
+    for (let i = 0; i < 200 && !done(g); i++) g = run(g, pass);
+    return g;
+  };
+
+  it('Karlov: two +1/+1 counters whenever you gain life; remove six to exile a creature', () => {
+    let g = emptyGame((d) => {
+      put(d, 0, 'Karlov of the Ghost Council');
+      put(d, 0, 'Plains', 'battlefield', 4);
+      put(d, 0, 'Swamp', 'battlefield', 2);
+      put(d, 0, 'Revitalize', 'hand');
+      put(d, 1, 'Serra Angel');
+    });
+    const karlov = byName(g, 0, 'Karlov of the Ghost Council')!;
+    expect(canActivate(g, 0, karlov)).toBe(false);
+    g = produce(g, (d) => void addCounters(d, byName(d, 0, 'Karlov of the Ghost Council'), 4));
+    g = cast(g, 0, 'Revitalize');
+    expect(byName(g, 0, 'Karlov of the Ghost Council')!.counters['+1/+1']).toBe(6);
+    g = run(g, { type: 'activate', card: karlov.id, targets: [card(byName(g, 1, 'Serra Angel')!)] });
+    expect(byName(g, 1, 'Serra Angel', 'exile')).toBeDefined();
+    expect(byName(g, 0, 'Karlov of the Ghost Council')!.counters['+1/+1']).toBeUndefined();
+  });
+
+  it('Vito: whenever you gain life, the target opponent loses that much', () => {
+    let g = emptyGame((d) => {
+      put(d, 0, 'Vito, Thorn of the Dusk Rose');
+      put(d, 0, 'Plains', 'battlefield', 2);
+      put(d, 0, 'Revitalize', 'hand');
+    });
+    g = cast(g, 0, 'Revitalize');
+    expect(g.decision?.type).toBe('targets');
+    g = run(g, { type: 'chooseTargets', targets: [player(2)] });
+    expect([g.players[0].life, g.players[2].life]).toEqual([43, 37]);
+  });
+
+  it('Righteous Valkyrie: life from Angels and Clerics entering; +2/+2 at 47 life or more', () => {
+    let g = emptyGame((d) => {
+      put(d, 0, 'Righteous Valkyrie');
+      put(d, 0, 'Plains', 'battlefield', 4);
+      put(d, 0, 'Seraph of Dawn', 'hand');
+      d.players[0].life = 44;
+    });
+    const valkyrie = byName(g, 0, 'Righteous Valkyrie')!;
+    expect(stats(g, valkyrie).power).toBe(2);
+    g = cast(g, 0, 'Seraph of Dawn');
+    expect(g.players[0].life).toBe(48);
+    expect(stats(g, byName(g, 0, 'Righteous Valkyrie')!).power).toBe(4);
+    expect(stats(g, byName(g, 0, 'Seraph of Dawn')!).power).toBe(4);
+  });
+
+  it('Judith: other creatures get +1/+0; a nontoken creature of yours dying deals 1 damage', () => {
+    let g = emptyGame((d) => {
+      put(d, 0, 'Judith, the Scourge Diva');
+      put(d, 0, 'Goblin Piker');
+      put(d, 0, 'Swamp');
+      put(d, 0, 'Village Rites', 'hand');
+    });
+    const judith = byName(g, 0, 'Judith, the Scourge Diva')!;
+    expect([stats(g, judith).power, stats(g, byName(g, 0, 'Goblin Piker')!).power]).toEqual([2, 3]);
+    g = cast(g, 0, 'Village Rites', { sacrifice: [byName(g, 0, 'Goblin Piker')!.id] });
+    expect(g.decision?.type).toBe('targets');
+    g = run(g, { type: 'chooseTargets', targets: [player(1)] });
+    g = settle(g, (x) => !x.stack.length);
+    expect(g.players[1].life).toBe(39);
+  });
+
+  it('Fling deals the sacrificed creature\'s power as it was sacrificed (608.2h)', () => {
+    let g = emptyGame((d) => {
+      put(d, 0, 'Judith, the Scourge Diva');
+      put(d, 0, 'Shivan Dragon');
+      put(d, 0, 'Mountain', 'battlefield', 2);
+      put(d, 0, 'Fling', 'hand');
+    });
+    g = cast(g, 0, 'Fling', { sacrifice: [byName(g, 0, 'Shivan Dragon')!.id], targets: [player(2)] });
+    // Judith's trigger targets player 3.
+    g = run(g, { type: 'chooseTargets', targets: [player(3)] });
+    g = settle(g, (x) => !x.stack.length);
+    expect([g.players[2].life, g.players[3].life]).toEqual([40 - 6, 39]);
+  });
+
+  it('Goblin Bombardment sacrifices a creature as a cost, and Mayhem Devil sees every sacrifice', () => {
+    let g = emptyGame((d) => {
+      put(d, 0, 'Goblin Bombardment');
+      put(d, 0, 'Mayhem Devil');
+      put(d, 0, 'Goblin Piker');
+    });
+    const bombardment = byName(g, 0, 'Goblin Bombardment')!;
+    expect(applyAction(g, { type: 'activate', card: bombardment.id, targets: [player(1)] })).toBe(g); // the sacrifice is required
+    g = run(g, { type: 'activate', card: bombardment.id, targets: [player(1)], sacrifice: [byName(g, 0, 'Goblin Piker')!.id] });
+    expect(byName(g, 0, 'Goblin Piker', 'graveyard')).toBeDefined();
+    // Mayhem Devil's trigger goes on the stack above the ability.
+    expect(g.decision?.type).toBe('targets');
+    g = run(g, { type: 'chooseTargets', targets: [player(2)] });
+    g = settle(g, (x) => !x.stack.length);
+    expect([g.players[1].life, g.players[2].life]).toEqual([39, 39]);
+  });
+
+  it('Falkenrath Aristocrat gains indestructible, and a +1/+1 counter for a Human', () => {
+    let g = emptyGame((d) => {
+      put(d, 0, 'Falkenrath Aristocrat');
+      put(d, 0, 'Elite Vanguard');
+    });
+    const aristocrat = byName(g, 0, 'Falkenrath Aristocrat')!;
+    g = run(g, { type: 'activate', card: aristocrat.id, sacrifice: [byName(g, 0, 'Elite Vanguard')!.id] });
+    const after = byName(g, 0, 'Falkenrath Aristocrat')!;
+    expect(stats(g, after).keywords.has('indestructible')).toBe(true);
+    expect(after.counters['+1/+1']).toBe(1);
+  });
+
+  it('Butcher of Malakir: each opponent sacrifices a creature of their choice, in turn order', () => {
+    let g = emptyGame((d) => {
+      put(d, 0, 'Butcher of Malakir');
+      put(d, 0, 'Goblin Piker');
+      put(d, 0, 'Swamp');
+      put(d, 0, 'Village Rites', 'hand');
+      put(d, 1, 'Serra Angel');
+      put(d, 1, 'Elite Vanguard');
+      put(d, 3, 'Llanowar Elves');
+    });
+    g = cast(g, 0, 'Village Rites', { sacrifice: [byName(g, 0, 'Goblin Piker')!.id] });
+    g = settle(g, (x) => asking(x)?.kind === 'pick');
+    expect(g.priority).toBe(1);
+    g = run(g, choose(byName(g, 1, 'Elite Vanguard')!));
+    expect(g.priority).toBe(3); // player 2 has no creature
+    g = run(g, choose(byName(g, 3, 'Llanowar Elves')!));
+    expect(byName(g, 1, 'Serra Angel')).toBeDefined();
+    expect(byName(g, 3, 'Llanowar Elves', 'graveyard')).toBeDefined();
+  });
+
+  it("Blood Artist and Cruel Celebrant drain when creatures die; Ministrant leaves two Spirits", () => {
+    let g = emptyGame((d) => {
+      put(d, 0, 'Cruel Celebrant');
+      put(d, 0, 'Blood Artist');
+      put(d, 0, 'Ministrant of Obligation');
+      put(d, 0, 'Swamp');
+      put(d, 0, 'Village Rites', 'hand');
+    });
+    g = cast(g, 0, 'Village Rites', { sacrifice: [byName(g, 0, 'Ministrant of Obligation')!.id] });
+    g = settle(g, (x) => x.decision?.type === 'targets');
+    g = run(g, { type: 'chooseTargets', targets: [player(1)] });
+    g = settle(g, (x) => !x.stack.length);
+    expect(g.players.map((p) => p.life)).toEqual([42, 38, 39, 39]);
+    expect(g.players[0].battlefield.filter((c) => c.name === 'Spirit 1/1 flying WB')).toHaveLength(2);
+  });
+
+  it("Kolaghan's Command and Blightning make the player discard cards of their choice (701.9a)", () => {
+    let g = emptyGame((d) => {
+      put(d, 0, 'Swamp', 'battlefield', 3);
+      put(d, 0, 'Mountain', 'battlefield', 3);
+      put(d, 0, 'Blightning', 'hand');
+      put(d, 0, "Kolaghan's Command", 'hand');
+      put(d, 0, 'Goblin Piker', 'graveyard');
+      for (const n of ['Plains', 'Island', 'Swamp']) put(d, 1, n, 'hand');
+    });
+    g = cast(g, 0, 'Blightning', { targets: [player(1)] });
+    expect([asking(g)?.kind, g.priority]).toEqual(['pick', 1]);
+    g = run(g, choose(byName(g, 1, 'Plains', 'hand')!, byName(g, 1, 'Island', 'hand')!));
+    expect(g.players[1].hand.map((c) => c.name)).toEqual(['Swamp']);
+    expect(g.players[1].life).toBe(37);
+    g = cast(g, 0, "Kolaghan's Command", { modes: [0, 1], targets: [card(byName(g, 0, 'Goblin Piker', 'graveyard')!), player(1)] });
+    g = run(g, choose(byName(g, 1, 'Swamp', 'hand')!));
+    expect(byName(g, 0, 'Goblin Piker', 'hand')).toBeDefined();
+    expect(g.players[1].hand).toEqual([]);
+  });
+
+  it('Debt to the Deathless: each opponent loses 2X, you gain it all', () => {
+    let g = emptyGame((d) => {
+      put(d, 0, 'Plains', 'battlefield', 4);
+      put(d, 0, 'Swamp', 'battlefield', 4);
+      put(d, 0, 'Debt to the Deathless', 'hand');
+    });
+    g = cast(g, 0, 'Debt to the Deathless', { x: 3 });
+    expect(g.players.map((p) => p.life)).toEqual([58, 34, 34, 34]);
+  });
+
+  it('dual lands: gain lands, pain lands, check lands and shock lands', () => {
+    let g = emptyGame((d) => {
+      put(d, 0, 'Scoured Barrens', 'hand');
+      put(d, 0, 'Isolated Chapel', 'hand');
+      put(d, 0, 'Godless Shrine', 'hand');
+      put(d, 0, 'Caves of Koilos');
+    });
+    g = run(g, { type: 'playLand', card: byName(g, 0, 'Scoured Barrens', 'hand')!.id });
+    expect([byName(g, 0, 'Scoured Barrens')!.tapped, g.players[0].life]).toEqual([true, 41]);
+    // Pain land: colourless is free, a colour costs 1 damage.
+    expect(manaOf(g, byName(g, 0, 'Caves of Koilos')!)?.colors.sort()).toEqual(['B', 'C', 'W']);
+    g = run(g, { type: 'tapMana', card: byName(g, 0, 'Caves of Koilos')!.id, ability: 1, color: 'B' });
+    expect(g.players[0].life).toBe(40);
+    // Check land: no Plains or Swamp yet, so it enters tapped.
+    let h = produce(g, (d) => void (d.players[0].landsPlayed = 0));
+    h = run(h, { type: 'playLand', card: byName(h, 0, 'Isolated Chapel', 'hand')!.id });
+    expect(byName(h, 0, 'Isolated Chapel')!.tapped).toBe(true);
+    // Shock land: pay 2 life or it enters tapped. It has the types Plains and Swamp.
+    let k = produce(g, (d) => void (d.players[0].landsPlayed = 0));
+    k = run(k, { type: 'playLand', card: byName(k, 0, 'Godless Shrine', 'hand')!.id });
+    expect(asking(k)?.kind).toBe('ask');
+    k = run(k, yes);
+    expect([byName(k, 0, 'Godless Shrine')!.tapped, k.players[0].life]).toEqual([false, 38]);
+    let m = produce(g, (d) => void (d.players[0].landsPlayed = 0));
+    m = run(m, { type: 'playLand', card: byName(m, 0, 'Godless Shrine', 'hand')!.id }, no);
+    expect(byName(m, 0, 'Godless Shrine')!.tapped).toBe(true);
+    // Now a check land sees a Plains and enters untapped.
+    m = produce(m, (d) => void (d.players[0].landsPlayed = 0));
+    m = run(m, { type: 'playLand', card: byName(m, 0, 'Isolated Chapel', 'hand')!.id });
+    expect(byName(m, 0, 'Isolated Chapel')!.tapped).toBe(false);
+  });
+
+  it("a permanent sacrificed for a spell's cost can't also make mana for it (Deadly Dispute and a Treasure)", () => {
+    const g = emptyGame((d) => {
+      put(d, 0, 'Swamp');
+      put(d, 0, 'Deadly Dispute', 'hand');
+      createToken(d, 0, 'Treasure');
+    });
+    const dispute = byName(g, 0, 'Deadly Dispute', 'hand')!;
+    const treasure = byName(g, 0, 'Treasure')!;
+    expect(canCast(g, 0, dispute, { sacrifice: [treasure.id] })).toBe(false);
+    const h = produce(g, (d) => void put(d, 0, 'Swamp'));
+    const after = run(h, { type: 'cast', card: dispute.id, sacrifice: [treasure.id] });
+    expect(after.players[0].hand).toHaveLength(2);
+  });
+
+  it('Carrier Thrall leaves an Eldrazi Scion that sacrifices itself for {C}', () => {
+    let g = emptyGame((d) => {
+      put(d, 0, 'Carrier Thrall');
+      put(d, 0, 'Swamp');
+      put(d, 0, 'Village Rites', 'hand');
+    });
+    g = cast(g, 0, 'Village Rites', { sacrifice: [byName(g, 0, 'Carrier Thrall')!.id] });
+    const scion = byName(g, 0, 'Eldrazi Scion')!;
+    expect(scion.sick).toBe(true);
+    g = run(g, { type: 'tapMana', card: scion.id });
+    expect(g.players[0].pool.map((m) => m.sym)).toEqual(['C']);
+    expect(byName(g, 0, 'Eldrazi Scion')).toBeUndefined();
+  });
+
+  it('Zealous Persecution and Lingering Souls with flashback', () => {
+    let g = emptyGame((d) => {
+      put(d, 0, 'Plains', 'battlefield', 4);
+      put(d, 0, 'Swamp', 'battlefield', 2);
+      put(d, 0, 'Lingering Souls', 'graveyard');
+      put(d, 0, 'Zealous Persecution', 'hand');
+      put(d, 1, 'Llanowar Elves');
+    });
+    g = run(g, { type: 'cast', card: byName(g, 0, 'Lingering Souls', 'graveyard')!.id });
+    expect(g.players[0].battlefield.filter((c) => c.name === 'Spirit 1/1 flying')).toHaveLength(2);
+    expect(byName(g, 0, 'Lingering Souls', 'exile')).toBeDefined();
+    g = cast(g, 0, 'Zealous Persecution');
+    expect(byName(g, 1, 'Llanowar Elves', 'graveyard')).toBeDefined();
+    expect(stats(g, byName(g, 0, 'Spirit 1/1 flying')!).power).toBe(2);
+  });
+});

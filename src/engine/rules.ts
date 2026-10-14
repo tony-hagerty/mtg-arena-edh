@@ -78,6 +78,8 @@ export const SUPPORTED_KEYWORDS = [
   'dash',
   'bargain',
   'gift',
+  // Afterlife (702.135) by the card's script.
+  'afterlife',
 ];
 
 // ---------- card queries ----------
@@ -861,12 +863,16 @@ export interface Payment {
   uncounterable: boolean;
 }
 
-export function planPayment(g: Game, pid: PlayerId, cost: Cost, spell?: Card): Payment | null {
+/**
+ * `keep`: permanents already being used to pay another part of the cost, like the one
+ * sacrificed for an additional cost: they can't make mana too.
+ */
+export function planPayment(g: Game, pid: PlayerId, cost: Cost, spell?: Card, keep: string[] = []): Payment | null {
   const p = g.players[pid];
   // A player can pay life only if their life total is at least that much (119.4).
   if (cost.life > p.life) return null;
   // Mana with a restriction can be spent only on what it allows (106.6).
-  const all = manaSources(g, pid).filter((s) => spendable(s.only, spell));
+  const all = manaSources(g, pid).filter((s) => spendable(s.only, spell) && !keep.includes(s.id));
   const pool = p.pool.filter((m) => spendable(m.only, spell));
   const kept = p.pool.filter((m) => !spendable(m.only, spell));
   // Not enough mana in total, however it's spent: skip the search.
@@ -883,8 +889,8 @@ export function planPayment(g: Game, pid: PlayerId, cost: Cost, spell?: Card): P
 }
 
 /** Pays a cost, tapping and sacrificing what it has to. Returns how it was paid, or null if it can't be. */
-export function pay(g: Game, pid: PlayerId, cost: Cost, spell?: Card): Payment | null {
-  const plan = planPayment(g, pid, cost, spell);
+export function pay(g: Game, pid: PlayerId, cost: Cost, spell?: Card, keep: string[] = []): Payment | null {
+  const plan = planPayment(g, pid, cost, spell, keep);
   if (!plan) return null;
   g.players[pid].pool = plan.pool;
   // Every ability is activated before any of them is sacrificed or deals its damage.
@@ -1319,7 +1325,8 @@ export const canProtect = (g: Game, c: Card, pid: PlayerId) =>
 /** Sets up a permanent that was just put onto the battlefield, and triggers "enters" abilities (603.6a). */
 function arrive(g: Game, c: Card, opts: { tapped?: boolean; protector?: PlayerId }) {
   c.sick = true;
-  c.tapped = !!opts.tapped || !!scriptFor(c).entersTapped;
+  const tapped = scriptFor(c).entersTapped;
+  c.tapped = !!opts.tapped || (typeof tapped === 'function' ? tapped(g, c, c.controller) : !!tapped);
   // "This enters with [counters]" (614.1c).
   for (const [kind, n] of Object.entries(scriptFor(c).entersWith ?? {})) c.counters[kind] = (c.counters[kind] ?? 0) + n;
   // Dash: "return the permanent this spell becomes to its owner's hand at the beginning of the next end step" (702.109a).
@@ -1442,17 +1449,25 @@ export function dieMany(g: Game, cards: Card[], verb = 'dies') {
   const dying = cards.filter((c) => c.zone === 'battlefield');
   if (!dying.length) return;
   const listeners = battlefield(g)
-    .filter((c) => scriptFor(c).onCreatureDies)
+    .filter((c) => scriptFor(c).onCreatureDies || scriptFor(c).onPlaneswalkerDies)
     .map(snapshot);
+  // "Whenever a player sacrifices a permanent" looks back in time too, so a sacrificed Mayhem Devil sees itself.
+  const sacrificing = verb === 'is sacrificed';
+  const sacListeners = sacrificing ? battlefield(g).filter((c) => scriptFor(c).onSacrifice).map(snapshot) : [];
+  const gone = sacrificing ? dying.map(snapshot) : [];
   const dead = dying.filter(isCreature).map(snapshot);
+  const walkers = dying.filter((c) => isPlaneswalker(c) && !isCreature(c)).map(snapshot);
   for (const c of dying) {
-    log(g, `${label(c)} ${verb}.`, c.owner, [c]);
+    log(g, `${label(c)} ${verb}.`, c.controller, [c]);
     moveCard(g, c, 'graveyard');
   }
   for (const c of dead) {
     trigger(g, c, 'onDies', {});
     for (const l of listeners) trigger(g, l, 'onCreatureDies', { dead: c });
   }
+  for (const c of walkers) for (const l of listeners) trigger(g, l, 'onPlaneswalkerDies', { dead: c });
+  // The player who sacrifices a permanent is its controller (701.21a).
+  for (const c of gone) for (const l of sacListeners) trigger(g, l, 'onSacrifice', { card: c, player: c.controller });
 }
 
 export function destroyMany(g: Game, cards: Card[]) {
@@ -1827,6 +1842,23 @@ export function discardHand(g: Game, pid: PlayerId) {
   log(g, `${says(g.players[pid], 'discards')} ${g.players[pid].isBot ? 'their' : 'your'} hand: ${hand.map(label).join(', ')}.`, pid, hand);
   for (const c of hand) moveCard(g, c, 'graveyard');
   for (const c of hand) broadcast(g, 'onDiscard', { card: c, player: pid });
+}
+
+/**
+ * The player sacrifices one permanent of their choice that fits `spec` (701.21a), like
+ * "each opponent sacrifices a creature of their choice". Nothing happens if they have none.
+ */
+export function chooseToSacrifice(g: Game, pid: PlayerId, spec: TargetSpec, source: Card) {
+  const options = g.players[pid].battlefield.filter((c) => fitsSpec(g, c, spec, source));
+  if (options.length) pickCards(g, pid, options, { min: 1, max: 1, text: `sacrifice ${spec.label}`, button: 'Sacrifice', then: '@sacrifice' });
+}
+
+/** The player discards `n` cards of their choice (701.9a), or their whole hand if it has fewer. */
+export function chooseToDiscard(g: Game, pid: PlayerId, n: number) {
+  const hand = g.players[pid].hand;
+  if (!hand.length || n <= 0) return;
+  const count = Math.min(n, hand.length);
+  pickCards(g, pid, hand, { min: count, max: count, text: `discard ${count === 1 ? 'a card' : `${count} cards`}`, button: 'Discard', then: '@discard' });
 }
 
 /**

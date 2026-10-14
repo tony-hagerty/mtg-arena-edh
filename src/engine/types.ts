@@ -355,6 +355,9 @@ export interface StackItem {
    * exist once it leaves the stack (707.10a), or becomes a token permanent.
    */
   copy?: boolean;
+  /** Permanents sacrificed to pay its costs, as they last were on the battlefield, and their power then. */
+  sacrificed?: Card[];
+  sacrificedPower?: number[];
 }
 
 /**
@@ -568,8 +571,8 @@ export type Action =
   | ({ type: 'cast'; card: string; targets?: (TargetRef | null)[]; hold?: boolean } & CastChoices)
   /** `crew`: the creatures tapped to pay a crew cost (702.122a). */
   /** `ability`: which loyalty ability (606), by index into the script's `loyalty`. Left out, the `activated` ability. */
-  /** `discard`: the cards discarded to pay a "Discard a card" cost. */
-  | { type: 'activate'; card: string; ability?: number; targets?: (TargetRef | null)[]; hold?: boolean; crew?: string[]; discard?: string[] }
+  /** `discard`: the cards discarded to pay a "Discard a card" cost. `sacrifice`: the permanent for a "Sacrifice a creature" cost. */
+  | { type: 'activate'; card: string; ability?: number; targets?: (TargetRef | null)[]; hold?: boolean; crew?: string[]; discard?: string[]; sacrifice?: string[] }
   /**
    * `ability`: which of its mana abilities (`manaAbilities`). Left out, the one that suits
    * the player best. `color`: the colour to make, for an ability with a choice.
@@ -635,6 +638,10 @@ export interface Ctx {
   you: PlayerId;
   /** Chosen targets. One that is no longer legal on resolution becomes null (608.2b). */
   targets: (TargetRef | null)[];
+  /** Permanents sacrificed to pay its costs, as they last were (Fling, Falkenrath Aristocrat). */
+  sacrificed?: Card[];
+  /** Their power as they were sacrificed (608.2h: last known information). */
+  sacrificedPower?: number[];
 }
 
 export interface StaticBonus {
@@ -657,6 +664,8 @@ export interface TriggerEvents {
   // Table-wide triggers: every permanent on the battlefield that defines one is asked.
   onCreatureEnters: { entered: Card };
   onCreatureDies: { dead: Card };
+  /** A planeswalker that isn't also a creature dies (Cruel Celebrant). */
+  onPlaneswalkerDies: { dead: Card };
   onCreatureAttacks: { attacker: Card; defender: PlayerId; target: string | null };
   onCast: { card: Card; caster: PlayerId };
   onDraw: { player: PlayerId };
@@ -686,6 +695,8 @@ export interface TriggerEvents {
   onDrawStep: { player: PlayerId };
   /** "Whenever you discard a card." `card` is the discarded card, now in its owner's graveyard. */
   onDiscard: { card: Card; player: PlayerId };
+  /** "Whenever a player sacrifices a permanent." `card` is the permanent as it last was; `player` sacrificed it. */
+  onSacrifice: { card: Card; player: PlayerId };
   /** Ward (702.21a), which the engine resolves. `item` is the spell or ability to counter unless its controller pays. */
   onWard: { item: string; cost: WardCost };
 }
@@ -769,7 +780,8 @@ export interface LoyaltyAbility {
 export interface CardScript extends Triggers {
   /** Its mana abilities (605): "{T}: Add ...". `sacrifice`: the source is sacrificed as part of the cost, like a Treasure (111.10a). */
   mana?: ManaAbility | ManaAbility[];
-  entersTapped?: boolean;
+  /** "This enters tapped", or "... unless you control a Plains or a Swamp" as a function of who will control it (614.1c). */
+  entersTapped?: boolean | ((g: Game, c: Card, controller: PlayerId) => boolean);
   /** Targets of an instant or sorcery, or of a permanent's `onEnter` ability. */
   targets?: TargetSpec[];
   /**
@@ -839,7 +851,18 @@ export interface CardScript extends Triggers {
      * discarded from the hand, chosen by the player. `discardSelf`: this card is discarded
      * (channel, activated from the hand). `counters`: counters removed from it.
      */
-    cost: { tap?: boolean; mana?: string; sacrifice?: boolean; crew?: number; life?: number; discard?: number; discardSelf?: boolean; counters?: { kind: string; n: number } };
+    cost: {
+      tap?: boolean;
+      mana?: string;
+      sacrifice?: boolean;
+      crew?: number;
+      life?: number;
+      discard?: number;
+      discardSelf?: boolean;
+      counters?: { kind: string; n: number };
+      /** "Sacrifice a creature:": one permanent its controller controls that fits, chosen as it is activated. */
+      sacrificeOne?: TargetSpec;
+    };
     sorcery?: boolean;
     /** Activated from its owner's hand rather than the battlefield, like channel. */
     fromHand?: boolean;
