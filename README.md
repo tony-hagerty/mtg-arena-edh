@@ -72,6 +72,9 @@ npm run build    # type-check and production build
   card with an ability that works from the hand, like Otawara's channel, an **Or** chip
   beside playing it. A bargain sacrifice can be skipped with **No Sacrifice**.
 - **Lion's Eye Diamond** asks for the colour when you click it.
+- **Sacrifice costs** (Goblin Bombardment, Village Rites): after the targets, the
+  creatures you could sacrifice glow yellow; click one. A shock land asks whether you pay
+  2 life as you play it.
 - **New targets** (Deflecting Swat): click the new target for each slot, or press **Keep
   Target**. A card in a graveyard (Sevinne's Reclamation) is targeted from a window.
 - When a spell lets you cast a card as it resolves (Beseech the Mirror), a window offers
@@ -249,10 +252,12 @@ Rule numbers below are from the Comprehensive Rules in `docs/rules/`.
   had on the stack goes with them.
 - Keywords: flying, reach, first strike, double strike, deathtouch, lifelink, trample,
   vigilance, haste, defender, hexproof, indestructible, menace, flash, storm, cumulative
-  upkeep, mobilize, ward, dash, bargain, gift.
-- 123 real cards across four mono-coloured decks, every one fully working. The decks
-  shown on the menu are old 60-card "legacy" decks (see below); the menu shows each
-  deck's colour pips.
+  upkeep, mobilize, ward, dash, bargain, gift, afterlife.
+- Every card in the pool works. On the menu: two 100-card two-colour decks
+  (white-black "Heaven's Host" with Karlov of the Ghost Council, black-red "Whispers of
+  the Pit" with Judith, the Scourge Diva), two old 60-card mono-coloured "legacy" decks
+  (red and green, rebuilt in session 8b) and the Kraum and Tymna deck. The menu shows
+  each deck's colour pips.
   `npm test` fails if a card has rules text the engine doesn't implement.
 - Control (110.2): a permanent sits on its controller's side and can change hands
   (Wishclaw Talisman). A spell is controlled by its caster, and a permanent spell enters
@@ -300,10 +305,9 @@ These are deliberate cuts for a prototype, roughly in the order I'd tackle them 
   remember another card across time check it (Necropotence, dash, Mnemonic Betrayal,
   Chrome Mox, Beseech the Mirror, Wishclaw Talisman, Underworld Breach), but targets don't:
   a spell aimed at a creature that left and came back before it resolved still finds it.
-- **The four starter decks are still 60 cards** (commander + 59). They are marked
+- **The red and green starter decks are still 60 cards** (commander + 59). They are marked
   `"legacy": true` in `src/cards/decklists.json`, get the shared artifacts added, and are
-  checked as 60-card decks. The engine plays 100-card and partner decks, but none is on
-  the menu yet.
+  checked as 60-card decks. Session 8b rebuilds them.
 - Partner variants other than plain partner and "partner with" (Background, Doctor's
   companion, "partner—[text]") aren't recognised. Vehicles can't be commanders yet.
 - A defeated Siege's back face is always cast ("you may" is free upside); a back face
@@ -382,6 +386,7 @@ src/cards/      decklists.json        the decks, shared artifacts, tokens
                 cards.generated.json  card data from Scryfall (npm run fetch-cards)
                 scripts.ts            what each card does (starter decks)
                 kraum-tymna.ts        what the Kraum and Tymna deck's cards do
+                pairs.ts              what the two-colour starter decks' new cards do
 src/engine/     types.ts              game state, actions, card-script types
                 rules.ts              queries (stats, mana, targets) + effect primitives
                 engine.ts             setup, turn structure, priority, the stack, applyAction()
@@ -482,7 +487,11 @@ stack as `Game.resolving` until it is answered. What happens next is the script'
    `offerRetarget`, `choosePlayer`, `surveil`, `copyOf`, `abilitySource` (the source if
    it is still the same object). Mana abilities can be `discardHand`, `instant` or
    `chosenType`; `addMana(..., { keep: true })` lasts the turn. Bot hints: `ai: 'ritual'`
-   or `'extraTurn'`, `botActivate`.
+   or `'extraTurn'`, `botActivate`. An ability's cost can `sacrificeOne` permanent that fits
+   a spec ("Sacrifice a creature:"); the resolve sees `sacrificed` and `sacrificedPower`
+   (as it was, 608.2h), and so does a spell with a sacrifice cost. `entersTapped` can be a
+   function (check lands). `chooseToSacrifice` and `chooseToDiscard` let a player choose;
+   `onSacrifice` and `onPlaneswalkerDies` trigger.
 4. Run `npm test`. The card-pool test tells you if anything is still missing.
 
 ### Layout note
