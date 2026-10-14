@@ -39,6 +39,7 @@ import {
   planPayment,
   rand,
   refCards,
+  returnCommander,
   sameRef,
   says,
   searchable,
@@ -866,6 +867,22 @@ function act(g: Game, a: Action): boolean {
       for (const t of theirs) t.ordered = true;
       g.priority = g.decision.resume;
       g.decision = null;
+      return true;
+    }
+
+    case 'commanderZone': {
+      if (g.decision?.type !== 'commanderZone') return false;
+      const { card, resume } = g.decision;
+      const c = [...p.graveyard, ...p.exile].find((x) => x.id === card);
+      g.priority = resume;
+      g.decision = null;
+      if (!c) return true;
+      if (a.toCommand) {
+        returnCommander(g, c);
+      } else {
+        c.mayReturn = false; // not asked again until it changes zones (903.9a)
+        log(g, `${says(p, 'leaves')} ${label(c)} in ${c.zone === 'exile' ? 'exile' : 'the graveyard'}.`, pid, [c]);
+      }
       return true;
     }
 

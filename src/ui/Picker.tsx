@@ -1,5 +1,6 @@
 // Windows for the decisions where the human picks or orders cards: searching their library,
-// keeping or mulliganing a hand, putting cards on the bottom, and ordering their triggers.
+// keeping or mulliganing a hand, putting cards on the bottom, ordering their triggers, and
+// sending their commander to the command zone.
 // `CardPicker` is the reusable part; `Decisions` chooses which one the game is asking for.
 import { useState } from 'react';
 import { canMulligan, choiceOptions, data, label, nextMulliganBottom } from '../engine';
@@ -238,6 +239,24 @@ function TriggerOrder({ g, me }: { g: Game; me: PlayerId }) {
   );
 }
 
+/** Your commander went to your graveyard or exile: send it to the command zone, or leave it (903.9a). */
+function CommanderZone({ g, me, card }: { g: Game; me: PlayerId; card: Card }) {
+  const where = card.zone === 'exile' ? 'exile' : 'your graveyard';
+  const tax = 2 * g.players[me].commanderCasts; // commander tax (903.8)
+  const choose = (toCommand: boolean) => act({ type: 'commanderZone', toCommand });
+  return (
+    <CardPicker
+      title={`${label(card)} went to ${where}`}
+      hint={`Put it in the command zone to cast it again later${tax ? ` for ${tax} more` : ''}. Left in ${where}, it can't be cast.`}
+      cards={[card]}
+      buttons={() => [
+        { label: card.zone === 'exile' ? 'Leave in Exile' : 'Leave in Graveyard', tone: 'plain', onClick: () => choose(false) },
+        { label: 'Command Zone', tone: 'go', onClick: () => choose(true) },
+      ]}
+    />
+  );
+}
+
 /** The picker for whatever the game is asking the human, if it is a choice of cards. */
 export function Decisions() {
   const { g, me, mine } = useView();
@@ -251,6 +270,10 @@ export function Decisions() {
       return <ChoicePicker key={`${d.choice.kind}:${choiceOptions(g, d.choice).cards.map((c) => c.id).join()}`} g={g} choice={d.choice} />;
     case 'orderTriggers':
       return <TriggerOrder key={g.triggers.map((t) => t.id).join()} g={g} me={me} />;
+    case 'commanderZone': {
+      const card = [...g.players[me].graveyard, ...g.players[me].exile].find((c) => c.id === d.card);
+      return card ? <CommanderZone key={card.id} g={g} me={me} card={card} /> : null;
+    }
     default:
       return null;
   }

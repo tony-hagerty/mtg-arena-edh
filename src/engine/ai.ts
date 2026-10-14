@@ -117,11 +117,12 @@ const STEP_BY_STEP = { autoPass: false } as const;
 
 /**
  * A quick answer to a decision that comes up while the stack resolves: the first legal
- * targets, a bot's card choice, or the order triggers went on in.
+ * targets, a bot's card choice, the order triggers went on in, or a commander sent home.
  */
 function anyTargets(g: Game): Action {
   if (g.decision?.type === 'chooseCards') return cardChoice(g, g.priority);
   if (g.decision?.type === 'orderTriggers') return defaultOrder(g, g.priority);
+  if (g.decision?.type === 'commanderZone') return { type: 'commanderZone', toCommand: true };
   if (g.decision?.type !== 'targets') return PASS;
   const { item } = g.decision;
   const targets = targetSpecs(item).map((spec) => (spec.optional ? null : (legalTargets(g, g.priority, spec, item.card)[0] ?? null)));
@@ -154,7 +155,8 @@ function bestTargets(g: Game, pid: PlayerId, depth = 0): Action {
 function resolveStack(g: Game, pid: PlayerId, depth = 0): Game {
   for (let i = 0; i < 200 && g.step !== 'gameOver'; i++) {
     let action: Action;
-    if (g.decision?.type === 'chooseCards' || g.decision?.type === 'orderTriggers') action = anyTargets(g);
+    const deciding = g.decision?.type;
+    if (deciding === 'chooseCards' || deciding === 'orderTriggers' || deciding === 'commanderZone') action = anyTargets(g);
     else if (g.decision?.type === 'targets') action = g.priority === pid && depth < 2 ? bestTargets(g, pid, depth) : anyTargets(g);
     else if (g.stack.length && !g.decision) action = PASS;
     else break;
