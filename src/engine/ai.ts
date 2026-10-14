@@ -8,8 +8,10 @@ import {
   attackCandidates,
   canActivate,
   canCast,
+  canMulligan,
   canPlayLand,
   castTargets,
+  choiceOptions,
 } from './engine';
 import {
   COMMANDER_DAMAGE,
@@ -112,8 +114,13 @@ function candidateActions(g: Game, pid: PlayerId): { action: Action; spendsCard:
 // step. Positions being compared then always stop at the same point in the turn.
 const STEP_BY_STEP = { autoPass: false } as const;
 
-/** The first legal targets for the triggered ability that is waiting on them. */
+/**
+ * A quick answer to a decision that comes up while the stack resolves: the first legal
+ * targets, a bot's card choice, or the order triggers went on in.
+ */
 function anyTargets(g: Game): Action {
+  if (g.decision?.type === 'chooseCards') return cardChoice(g, g.priority);
+  if (g.decision?.type === 'orderTriggers') return defaultOrder(g, g.priority);
   if (g.decision?.type !== 'targets') return PASS;
   const { item } = g.decision;
   const targets = targetSpecs(item).map((spec) => (spec.optional ? null : (legalTargets(g, g.priority, spec, item.card)[0] ?? null)));
@@ -146,7 +153,8 @@ function bestTargets(g: Game, pid: PlayerId, depth = 0): Action {
 function resolveStack(g: Game, pid: PlayerId, depth = 0): Game {
   for (let i = 0; i < 200 && g.step !== 'gameOver'; i++) {
     let action: Action;
-    if (g.decision?.type === 'targets') action = g.priority === pid && depth < 2 ? bestTargets(g, pid, depth) : anyTargets(g);
+    if (g.decision?.type === 'chooseCards' || g.decision?.type === 'orderTriggers') action = anyTargets(g);
+    else if (g.decision?.type === 'targets') action = g.priority === pid && depth < 2 ? bestTargets(g, pid, depth) : anyTargets(g);
     else if (g.stack.length && !g.decision) action = PASS;
     else break;
     const next = applyAction(g, action, STEP_BY_STEP);
@@ -164,7 +172,7 @@ const fighting = (g: Game) =>
 function finishCombat(g: Game): Game {
   for (let i = 0; i < 300 && fighting(g); i++) {
     const deciding = g.decision?.type;
-    const action = deciding === 'blockers' ? blockAction(g, g.priority) : deciding === 'targets' ? anyTargets(g) : PASS;
+    const action = deciding === 'blockers' ? blockAction(g, g.priority) : deciding ? anyTargets(g) : PASS;
     const next = applyAction(g, action, STEP_BY_STEP);
     if (next === g) break;
     g = next;
@@ -327,8 +335,47 @@ function discardChoice(g: Game, pid: PlayerId): Action {
   return { type: 'discard', card: (spare ?? priciest).id };
 }
 
+// ---------- mulligans and card choices ----------
+
+/** Keep a hand with a workable number of lands, or any hand of five or fewer cards. */
+function mulliganChoice(g: Game, pid: PlayerId): Action {
+  const hand = g.players[pid].hand;
+  const lands = hand.filter(isLand).length;
+  const keep = hand.length <= 5 || (lands >= 2 && lands <= hand.length - 2) || !canMulligan(g, pid);
+  return { type: keep ? 'keep' : 'mulligan' };
+}
+
+/**
+ * Searches find the first land they can. After a mulligan, the cards kept are about three
+ * lands in seven with the cheapest spells, and the rest go on the bottom.
+ */
+function cardChoice(g: Game, pid: PlayerId): Action {
+  if (g.decision?.type !== 'chooseCards') return PASS;
+  const { choice } = g.decision;
+  const { cards, valid } = choiceOptions(g, choice);
+  if (choice.kind === 'search') return { type: 'chooseCards', cards: cards.filter((c) => valid.has(c.id)).slice(0, 1).map((c) => c.id) };
+  const hand = g.players[pid].hand;
+  const keepCount = hand.length - choice.count;
+  const lands = hand.filter(isLand);
+  const spells = hand.filter((c) => !isLand(c)).sort((a, b) => data(a).cmc - data(b).cmc);
+  const landsKept = Math.min(lands.length, Math.max(Math.round((keepCount * 3) / 7), keepCount - spells.length));
+  const kept = new Set([...lands.slice(0, landsKept), ...spells.slice(0, keepCount - landsKept)].map((c) => c.id));
+  return { type: 'chooseCards', cards: hand.filter((c) => !kept.has(c.id)).map((c) => c.id) };
+}
+
+/** Triggers go on the stack in the order they triggered. */
+function defaultOrder(g: Game, pid: PlayerId): Action {
+  return { type: 'orderTriggers', order: g.triggers.filter((t) => t.controller === pid).map((t) => t.id) };
+}
+
 export function botAction(g: Game, pid: PlayerId): Action {
   switch (g.decision?.type) {
+    case 'mulligan':
+      return mulliganChoice(g, pid);
+    case 'chooseCards':
+      return cardChoice(g, pid);
+    case 'orderTriggers':
+      return defaultOrder(g, pid);
     case 'attackers':
       return attackAction(g, pid);
     case 'blockers':
@@ -349,5 +396,7 @@ export function applyBotAction(g: Game, a: Action): Game {
   if (next === g && a.type !== 'pass') next = applyAction(g, PASS);
   if (next === g && g.decision?.type === 'discard') next = applyAction(g, discardChoice(g, g.priority));
   if (next === g && g.decision?.type === 'targets') next = applyAction(g, anyTargets(g));
+  if (next === g && g.decision?.type === 'chooseCards') next = applyAction(g, cardChoice(g, g.priority));
+  if (next === g && g.decision?.type === 'mulligan') next = applyAction(g, { type: 'keep' });
   return next;
 }

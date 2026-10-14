@@ -40,6 +40,7 @@ import {
   rand,
   sameRef,
   says,
+  searchable,
   shuffle,
   snapshot,
   stats,
@@ -49,7 +50,7 @@ import {
   turnOrder,
   untapMana,
 } from './rules';
-import type { Action, Card, Game, Player, PlayerId, StackItem, Step, TargetRef, TargetSpec, Trigger } from './types';
+import type { Action, Card, CardChoice, Game, Player, PlayerId, StackItem, Step, TargetRef, TargetSpec, Trigger } from './types';
 
 // ---------- setup ----------
 
@@ -69,6 +70,9 @@ export function newGame({ seed, humanDeck }: NewGameOptions): Game {
     decision: null,
     stack: [],
     triggers: [],
+    mulligan: null,
+    choices: [],
+    resolving: null,
     passes: 0,
     combat: null,
     winner: null,
@@ -103,17 +107,135 @@ export function newGame({ seed, humanDeck }: NewGameOptions): Game {
     };
     p.command.push(makeCard(g, deck.commander, seat, 'command', { isCommander: true }));
     p.library = deckLibrary(deck).map((name) => makeCard(g, name, seat, 'library'));
-    shuffle(g, p.library);
-    for (const c of p.library.splice(0, 7)) {
-      c.zone = 'hand';
-      p.hand.push(c);
-    }
+    shuffle(g, p.library); // 103.3
+    drawHand(p);
     g.players.push(p);
   });
-  // In a multiplayer game nobody skips their first draw (103.8c).
-  beginTurn(g, Math.floor(rand(g) * 4));
+  beginMulligans(g, Math.floor(rand(g) * 4));
   settle(g, true);
   return g;
+}
+
+// ---------- mulligans ----------
+
+const HAND_SIZE = 7;
+
+/** Draws a starting hand (103.5). Not a draw for "whenever you draw" abilities: nothing is on the battlefield yet. */
+function drawHand(p: Player) {
+  for (const c of p.library.splice(0, HAND_SIZE)) {
+    c.zone = 'hand';
+    p.hand.push(c);
+  }
+}
+
+/**
+ * In a multiplayer game a player's first mulligan is free: it doesn't count toward the
+ * cards they put on the bottom or the mulligans they may take (103.5c). Games always have
+ * four players for now, but a two-player game would make this false.
+ */
+const freeMulligan = (g: Game) => g.players.length > 2;
+
+/** Mulligans that count against the hand (103.5c). */
+const countedMulligans = (g: Game, taken: number) => Math.max(0, taken - (freeMulligan(g) ? 1 : 0));
+
+/** Can this player take another mulligan? Not once their hand would be zero cards (103.5). */
+export function canMulligan(g: Game, pid: PlayerId): boolean {
+  const m = g.mulligan;
+  return !!m && countedMulligans(g, m.taken[pid]) < HAND_SIZE;
+}
+
+/** How many cards the player would put on the bottom if they took one more mulligan. */
+export const nextMulliganBottom = (g: Game, pid: PlayerId) => countedMulligans(g, (g.mulligan?.taken[pid] ?? 0) + 1);
+
+/** The starting player is chosen (103.1), then everyone declares in turn order from them (103.5). */
+function beginMulligans(g: Game, starter: PlayerId) {
+  g.active = starter;
+  g.mulligan = { taken: g.players.map(() => 0), waiting: turnOrder(g, starter), taking: [] };
+  continueMulligans(g);
+}
+
+/**
+ * Moves the mulligan process on (103.5). Asks the next player to declare. Once everyone
+ * has, all who chose to mulligan do so at the same time: they shuffle their hand back,
+ * draw seven, and put cards on the bottom. Then those players declare again, until nobody
+ * takes a mulligan and the starting player takes the first turn (103.8).
+ */
+function continueMulligans(g: Game) {
+  const m = g.mulligan!;
+  if (m.waiting.length) {
+    g.decision = { type: 'mulligan' };
+    g.priority = m.waiting[0];
+    return;
+  }
+  if (!m.taking.length) {
+    g.mulligan = null;
+    g.decision = null;
+    // In a multiplayer game nobody skips their first draw (103.8c).
+    beginTurn(g, g.active);
+    return;
+  }
+  const taking = m.taking;
+  m.taking = [];
+  for (const pid of taking) {
+    const p = g.players[pid];
+    m.taken[pid]++;
+    for (const c of [...p.hand]) moveCard(g, c, 'library');
+    shuffle(g, p.library);
+    drawHand(p);
+    const bottom = countedMulligans(g, m.taken[pid]);
+    if (bottom > 0) g.choices.push({ kind: 'bottom', player: pid, count: Math.min(bottom, p.hand.length) });
+  }
+  // Those who just took a mulligan declare again, unless their hand is down to nothing.
+  m.waiting = taking.filter((pid) => canMulligan(g, pid));
+  if (!nextChoice(g)) continueMulligans(g);
+}
+
+// ---------- card choices ----------
+
+/** What a card choice shows the player: the cards, which of them can be picked, and how many. */
+export function choiceOptions(g: Game, choice: CardChoice): { cards: Card[]; valid: Set<string>; min: number; max: number } {
+  const p = g.players[choice.player];
+  if (choice.kind === 'bottom') {
+    return { cards: p.hand, valid: new Set(p.hand.map((c) => c.id)), min: choice.count, max: choice.count };
+  }
+  // The whole library is looked at (701.23a). Sorted, so the order of the library stays hidden (401.2).
+  const cards = [...p.library].sort((a, b) => label(a).localeCompare(label(b)));
+  const valid = new Set(cards.filter((c) => searchable(c, choice.subtype)).map((c) => c.id));
+  // A search for a card with a stated quality may find nothing, even if there is one (701.23b).
+  return { cards, valid, min: 0, max: 1 };
+}
+
+/** Asks the next waiting card choice, if there is one. */
+function nextChoice(g: Game): boolean {
+  while (g.choices.length) {
+    const choice = g.choices.shift()!;
+    if (g.players[choice.player].lost) continue;
+    g.decision = { type: 'chooseCards', choice };
+    g.priority = choice.player;
+    return true;
+  }
+  return false;
+}
+
+/** Carries out a card choice once the player has made it. */
+function doChoice(g: Game, choice: CardChoice, cards: Card[]) {
+  const p = g.players[choice.player];
+  if (choice.kind === 'bottom') {
+    for (const c of cards) moveCard(g, c, 'library'); // onto the bottom, in the chosen order (103.5)
+    log(g, `${says(p, 'puts')} ${cards.length} card${cards.length === 1 ? '' : 's'} on the bottom.`, p.id);
+    return;
+  }
+  const [land] = cards;
+  if (land) {
+    log(g, `${says(p, 'fetches')} ${label(land)}.`, p.id);
+    if (choice.to === 'battlefield') enterBattlefield(g, land, { tapped: choice.tapped });
+    else moveCard(g, land, 'hand');
+  } else {
+    log(g, `${says(p, 'finds')} nothing.`, p.id);
+  }
+  // Several searches of one library in a row are one search, and it is shuffled once (701.23h).
+  const next = g.choices[0];
+  if (!(next?.kind === 'search' && next.player === p.id)) shuffle(g, p.library);
 }
 
 // ---------- legality helpers (also used by the UI and bots) ----------
@@ -455,10 +577,14 @@ function passPriority(g: Game) {
   }
 }
 
-/** Resolves the top spell or ability of the stack (608). */
+/**
+ * Resolves the top spell or ability of the stack (608). It stays there until it has
+ * finished, which waits if its effect asked a player to choose cards.
+ */
 function resolveTop(g: Game) {
-  const item = g.stack.pop()!;
+  const item = g.stack[g.stack.length - 1];
   const { card, controller } = item;
+  g.resolving = item.id;
   const script = scriptOf(card.name);
   // Targets are checked again. Illegal ones are left alone, and if every target has
   // become illegal the spell or ability does nothing at all (608.2b).
@@ -474,7 +600,6 @@ function resolveTop(g: Game) {
       enterBattlefield(g, card); // 608.3
     } else {
       if (!fizzled) script.onResolve?.(g, { self: card, you: controller, targets });
-      moveCard(g, card, 'graveyard'); // the last part of resolving (608.2n)
     }
   } else if (!fizzled) {
     // An ability uses its source as it is now, or as it last was if it has gone (113.7a).
@@ -486,14 +611,26 @@ function resolveTop(g: Game) {
       (typeof t === 'function' ? t : t.resolve)(g, { ...item.event, ...ctx });
     }
   }
+  if (!nextChoice(g)) finishResolving(g);
+}
+
+/** The end of resolving: the item leaves the stack, and the active player gets priority (117.3b). */
+function finishResolving(g: Game) {
+  const item = g.stack.find((x) => x.id === g.resolving);
+  g.resolving = null;
+  // A permanent spell has already moved to the battlefield (608.3). An instant or sorcery
+  // goes to the graveyard as the last part of resolving (608.2n).
+  if (item?.kind === 'spell') moveCard(g, item.card, 'graveyard');
+  else if (item) g.stack = g.stack.filter((x) => x !== item);
   g.passes = 0;
-  g.priority = firstPriority(g); // 117.3b
+  g.priority = firstPriority(g);
 }
 
 /**
  * Puts the next waiting triggered ability on the stack (603.3). The active player's go
- * on first, then each other player's in turn order (603.3b), so they resolve in the
- * reverse order. Returns false if none are waiting.
+ * on first, then each other player's in turn order, so they resolve in the reverse order.
+ * Each player puts theirs on in the order they choose (603.3b). A human with two or more
+ * is asked for it; bots keep the order they triggered in. Returns false if none are waiting.
  */
 function putTriggerOnStack(g: Game): boolean {
   if (!g.triggers.length) return false;
@@ -502,6 +639,13 @@ function putTriggerOnStack(g: Game): boolean {
   g.triggers.forEach((t, i) => {
     if (order.indexOf(t.controller) < order.indexOf(g.triggers[next].controller)) next = i;
   });
+  const pid = g.triggers[next].controller;
+  const theirs = g.triggers.filter((t) => t.controller === pid);
+  if (!g.players[pid].isBot && theirs.length > 1 && theirs.some((t) => !t.ordered)) {
+    g.decision = { type: 'orderTriggers', resume: g.priority };
+    g.priority = pid;
+    return true;
+  }
   const [item] = g.triggers.splice(next, 1);
   const specs = targetSpecs(item);
   const options = specs.map((spec) => legalTargets(g, item.controller, spec, item.card));
@@ -657,6 +801,51 @@ function act(g: Game, a: Action): boolean {
       return true;
     }
 
+    case 'keep':
+    case 'mulligan': {
+      const m = g.mulligan;
+      if (deciding !== 'mulligan' || !m || (a.type === 'mulligan' && !canMulligan(g, pid))) return false;
+      m.waiting.shift();
+      if (a.type === 'mulligan') {
+        m.taking.push(pid);
+        log(g, `${says(p, 'mulligans')}.`, pid);
+      } else {
+        log(g, `${says(p, 'keeps')} ${p.hand.length} card${p.hand.length === 1 ? '' : 's'}.`, pid);
+      }
+      g.decision = null;
+      continueMulligans(g);
+      return true;
+    }
+
+    case 'chooseCards': {
+      if (g.decision?.type !== 'chooseCards') return false;
+      const { choice } = g.decision;
+      const { cards, valid, min, max } = choiceOptions(g, choice);
+      const picked = a.cards.map((id) => cards.find((c) => c.id === id));
+      if (new Set(a.cards).size !== a.cards.length || picked.length < min || picked.length > max) return false;
+      if (picked.some((c) => !c || !valid.has(c.id))) return false;
+      g.decision = null;
+      doChoice(g, choice, picked as Card[]);
+      if (nextChoice(g)) return true;
+      if (g.mulligan) continueMulligans(g);
+      else finishResolving(g);
+      return true;
+    }
+
+    case 'orderTriggers': {
+      if (g.decision?.type !== 'orderTriggers') return false;
+      const theirs = g.triggers.filter((t) => t.controller === pid);
+      const ordered = a.order.map((id) => theirs.find((t) => t.id === id));
+      if (new Set(a.order).size !== a.order.length || ordered.length !== theirs.length || ordered.some((t) => !t)) return false;
+      // Their triggers swap places among themselves, so they go on the stack in the chosen order.
+      let i = 0;
+      g.triggers = g.triggers.map((t) => (t.controller === pid ? ordered[i++]! : t));
+      for (const t of theirs) t.ordered = true;
+      g.priority = g.decision.resume;
+      g.decision = null;
+      return true;
+    }
+
     case 'pass': {
       switch (deciding) {
         case undefined:
@@ -692,6 +881,9 @@ function act(g: Game, a: Action): boolean {
  */
 function settle(g: Game, autoPass: boolean) {
   for (let guard = 0; guard < 5000; guard++) {
+    // A spell or ability is waiting on a choice partway through resolving. Nothing else
+    // happens until it has finished, not even state-based actions (608.2).
+    if (g.resolving) return;
     checkState(g);
     if (g.winner !== null) {
       g.step = 'gameOver';

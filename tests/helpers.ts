@@ -2,13 +2,17 @@ import { produce } from 'immer';
 import { applyAction, makeCard, newGame, permanent } from '../src/engine';
 import type { Action, ApplyOptions, Card, Game, PlayerId, Zone } from '../src/engine';
 
-/** A fresh game with empty boards and hands, player 0 active with priority in main phase 1. */
+/** A fresh game past the mulligans with empty boards and hands, player 0 active with priority in main phase 1. */
 export function emptyGame(setup: (g: Game) => void = () => {}): Game {
   return produce(newGame({ seed: 1, humanDeck: null }), (g) => {
     for (const p of g.players) {
       p.hand = [];
       p.battlefield = [];
     }
+    // Skip the mulligans: the game is already under way.
+    g.mulligan = null;
+    g.decision = null;
+    g.turn = 1;
     g.active = 0;
     g.priority = 0;
     g.step = 'main1';
