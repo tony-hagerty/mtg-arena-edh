@@ -9,6 +9,7 @@ import {
   canAttack,
   canBlock,
   canCast,
+  canCastAs,
   canPlayLand,
   canTapForMana,
   canUntapMana,
@@ -22,8 +23,10 @@ import {
   defaultProtector,
   findCard,
   illegalBlocks,
-  isLand,
   isSiege,
+  asSpell,
+  castFaces,
+  landFaces,
   label,
   legalTargets,
   loyaltyOf,
@@ -34,9 +37,9 @@ import {
   permanent,
   planPayment,
   sacrificeOptions,
-  scriptOf,
+  scriptFor,
   targetSpecs,
-  MAX_HAND,
+  maxHandSize,
 } from '../engine';
 import type { AttackOption, Card, CastChoices, Cost, Game, PlayerId, Step, TargetRef } from '../engine';
 import { useStore } from './store';
@@ -65,7 +68,7 @@ export interface View {
   targetStack: Set<string>;
   /** What the human's attackers go after (508.1b). */
   attackTarget: AttackOption | null;
-  /** The planeswalker whose loyalty ability the human is choosing (606), for the options panel. */
+  /** The planeswalker whose loyalty ability (606), or Class whose level (716.2), the human is choosing, for the options panel. */
   loyalty: { card: Card; options: { ability: number; cost: string; text: string; ok: boolean }[] } | null;
   /** The spell or ability the human is deciding whether to pay for (shown by the stack). */
   paying: { card: Card; kind: 'spell' | 'ability' } | null;
@@ -90,6 +93,11 @@ export interface Announce {
   modal: { min: number; max: number; repeat: boolean; modes: { text: string; picked: number; ok: boolean }[]; valid: boolean } | null;
   /** A Siege's possible protectors: the caster's opponents (310.12a). Null for any other spell. */
   protectors: { id: PlayerId; name: string }[] | null;
+  /**
+   * The faces it can be cast or played as, when there is a choice: a split card's halves
+   * (709.3), an Adventure (715.3), a modal double-faced card's faces (712.11b, 712.12).
+   */
+  faces: { face: number; name: string; land: boolean; ok: boolean }[] | null;
 }
 
 /** A loyalty cost written out: "+1", "0", "−3". */
@@ -152,14 +160,14 @@ function targetingOf(s: StoreState): Targeting | null {
 function isSacrificing(t: Targeting): boolean {
   if (t.mode !== 'cast' || t.announcing || t.chosen.length < t.specs.length || t.choices.sacrifice?.length) return false;
   const card = findCard(S().game!, t.cardId);
-  return !!card && !!scriptOf(card.name).additionalCost;
+  return !!card && !!scriptFor(asSpell(card, t.choices.face)).additionalCost;
 }
 
 /** Targets are chosen and a Vehicle's crew still has to be picked (702.122a). Returns the power needed, or 0. */
 function crewNeeded(t: Targeting): number {
   if (t.mode !== 'activate' || t.ability !== undefined || t.pickingAbility || t.crewDone || t.chosen.length < t.specs.length) return 0;
   const card = findCard(S().game!, t.cardId);
-  return (card && scriptOf(card.name).activated?.cost.crew) || 0;
+  return (card && scriptFor(card).activated?.cost.crew) || 0;
 }
 
 /** Everything is chosen and the spell or ability is waiting for its cost to be paid (601.2f-h). */
@@ -169,20 +177,25 @@ const isPaying = (t: Targeting) =>
 /** The mana a spell or ability costs, and the same thing written out ("{1}{B}{B}"), with any life to pay. */
 function costOf(g: Game, t: Targeting): { cost: Cost; text: string } {
   const card = findCard(g, t.cardId)!;
-  // A loyalty ability costs loyalty, not mana (606.4).
-  const mana = t.ability === undefined ? (scriptOf(card.name).activated?.cost.mana ?? '') : '';
+  // A loyalty ability costs loyalty, not mana (606.4). A Class level bar costs mana (716.2a).
+  const script = scriptFor(card);
+  const mana = t.ability === undefined ? (script.activated?.cost.mana ?? '') : (script.levels?.[t.ability].cost ?? '');
   const cost = t.mode === 'cast' ? castCost(g, card, t.choices) : parseCost(mana);
   return { cost, text: costText(cost) + (cost.life ? ` and ${cost.life} life` : '') };
 }
 
 /** The options panel for a spell being announced. */
 function announceOf(g: Game, me: PlayerId, card: Card, choices: CastChoices): Announce {
-  const script = scriptOf(card.name);
-  const hasX = parseCost(choices.alt === undefined ? data(card).manaCost : script.alternativeCosts![choices.alt].mana).x > 0;
+  const face = choices.face ?? 0;
+  const spell = asSpell(card, face);
+  const script = scriptFor(spell);
+  const land = landFaces(card).includes(face) && !castFaces(card).includes(face);
+  const hasX = !land && card.zone !== 'graveyard' && parseCost(choices.alt === undefined ? data(spell).manaCost : script.alternativeCosts![choices.alt].mana).x > 0;
   let most = 0;
   if (script.kicker) while (most < (script.kicker.multi ? 20 : 1) && planPayment(g, me, castCost(g, card, { ...choices, x: 0, kicked: most + 1 }))) most++;
-  const modal = script.modal;
-  const sets = modal ? modeChoices(g, me, card) : [];
+  const modal = land ? undefined : script.modal;
+  const sets = modal ? modeChoices(g, me, card, face) : [];
+  const options = playOptions(g, me, card);
   const modes = choices.modes ?? [];
   return {
     card,
@@ -197,14 +210,30 @@ function announceOf(g: Game, me: PlayerId, card: Card, choices: CastChoices): An
         }
       : null,
     maxX: hasX ? Math.max(0, maxX(g, me, card, { ...choices, x: 0 })) : null,
-    protectors: isSiege(card) ? opponentsOf(g, me).map((o) => ({ id: o.id, name: o.name })) : null,
-    kicker: script.kicker ? { text: costText(parseCost(script.kicker.mana)), most } : null,
-    costs: [undefined, ...altCostsOf(g, card)].map((alt) => ({
+    protectors: isSiege(spell) ? opponentsOf(g, me).map((o) => ({ id: o.id, name: o.name })) : null,
+    faces:
+      options.length > 1
+        ? options.map((o) => ({ face: o.face, name: data(asSpell(card, o.face)).name, land: o.land, ok: o.ok }))
+        : null,
+    kicker: script.kicker && !land ? { text: costText(parseCost(script.kicker.mana)), most } : null,
+    costs: (land ? [] : [undefined, ...altCostsOf(g, card, face)]).map((alt) => ({
       alt,
       label: alt === undefined ? costText(castCost(g, card, { ...choices, alt, kicked: 0, x: 0 })) : script.alternativeCosts![alt].label,
       payable: !!planPayment(g, me, castCost(g, card, { ...choices, alt, kicked: 0, x: 0 })),
     })),
   };
+}
+
+/**
+ * The ways the human could play `card` now: each face it can be cast as, and each land
+ * face it can be played as (712.12). `ok` says whether that way is possible right now.
+ */
+function playOptions(g: Game, me: PlayerId, card: Card): { face: number; land: boolean; ok: boolean }[] {
+  const lands = card.zone === 'hand' ? landFaces(card) : [];
+  return [
+    ...castFaces(card).filter((f) => !lands.includes(f)).map((face) => ({ face, land: false, ok: card.owner === me && canCastAs(g, me, card, face) })),
+    ...lands.map((face) => ({ face, land: true, ok: canPlayLand(g, me, card, face) })),
+  ];
 }
 
 /** The human's permanents that a click taps for mana, or untaps to take the mana back. */
@@ -271,9 +300,14 @@ export function buildView(): View {
     const { text } = costOf(g, t);
     view.glow.set(card.id, 'picked');
     view.announce = announceOf(g, me, card, t.choices);
-    view.prompt = `Choose how to cast ${label(card)}: ${text}.`;
-    const ready = !!planPayment(g, me, castCost(g, card, t.choices)) && (!view.announce.modal || view.announce.modal.valid);
-    view.primary = { label: 'Continue', sub: `Cast ${label(card)}`, tone: 'go', disabled: !ready, onClick: confirmAnnounce };
+    const face = t.choices.face ?? 0;
+    const playing = view.announce.faces?.find((f) => f.face === face)?.land;
+    const name = data(asSpell(card, face)).name;
+    view.prompt = playing ? `Play ${name} as a land.` : `Choose how to cast ${name}: ${text}.`;
+    const ready = playing
+      ? canPlayLand(g, me, card, face)
+      : !!planPayment(g, me, castCost(g, card, t.choices)) && (!view.announce.modal || view.announce.modal.valid);
+    view.primary = { label: 'Continue', sub: playing ? `Play ${name}` : `Cast ${name}`, tone: 'go', disabled: !ready, onClick: confirmAnnounce };
     view.secondary = { label: 'Cancel', tone: 'cancel', onClick: cancel };
     return view;
   }
@@ -282,12 +316,17 @@ export function buildView(): View {
   if (t && t.pickingAbility) {
     const card = findCard(g, t.cardId)!;
     const ok = new Set(activatable(g, me, card));
+    const script = scriptFor(card);
     view.glow.set(card.id, 'picked');
     view.loyalty = {
       card,
-      options: (scriptOf(card.name).loyalty ?? []).map((ab, i) => ({ ability: i, cost: loyaltyCost(ab.cost), text: ab.text, ok: ok.has(i) })),
+      options: script.levels
+        ? script.levels.map((bar, i) => ({ ability: i, cost: bar.cost, text: bar.text, ok: ok.has(i) }))
+        : (script.loyalty ?? []).map((ab, i) => ({ ability: i, cost: loyaltyCost(ab.cost), text: ab.text, ok: ok.has(i) })),
     };
-    view.prompt = `${label(card)} (loyalty ${loyaltyOf(card)}): choose an ability. Only one a turn.`;
+    view.prompt = script.levels
+      ? `${label(card)} (level ${card.level}): gain the next level.`
+      : `${label(card)} (loyalty ${loyaltyOf(card)}): choose an ability. Only one a turn.`;
     view.secondary = { label: 'Cancel', tone: 'cancel', onClick: cancel };
     return view;
   }
@@ -297,7 +336,7 @@ export function buildView(): View {
     const card = findCard(g, t.cardId)!;
     for (const c of sacrificeOptions(g, me, card)) view.glow.set(c.id, 'target');
     view.glow.set(card.id, 'picked');
-    view.prompt = `${label(card)}: choose ${scriptOf(card.name).additionalCost!.sacrifice.label}.`;
+    view.prompt = `${label(card)}: choose ${scriptFor(card).additionalCost!.sacrifice.label}.`;
     view.secondary = { label: 'Cancel', tone: 'cancel', onClick: cancel };
     return view;
   }
@@ -322,8 +361,8 @@ export function buildView(): View {
     const card = findCard(g, t.cardId)!;
     const { cost, text } = costOf(g, t);
     const plan = planPayment(g, me, cost);
-    const script = scriptOf(card.name);
-    const ability = t.mode !== 'activate' ? undefined : t.ability === undefined ? script.activated : script.loyalty?.[t.ability];
+    const script = scriptFor(card);
+    const ability = t.mode !== 'activate' ? undefined : t.ability === undefined ? script.activated : (script.loyalty ?? script.levels)?.[t.ability];
     view.glow.set(card.id, 'picked');
     view.paying = { card, kind: ability ? 'ability' : 'spell' };
     // The sources auto-pay would tap. Tapping others by hand first changes the plan.
@@ -355,7 +394,8 @@ export function buildView(): View {
   }
 
   // --- things you can play (only with priority: the engine says no while a declaration is going on) ---
-  for (const c of [...p.hand, ...p.command]) {
+  // A graveyard card with flashback, or an exiled adventurer card, can be cast too (702.34a, 715.3d).
+  for (const c of [...p.hand, ...p.command, ...p.graveyard, ...p.exile]) {
     if (canPlayLand(g, me, c) || canCast(g, me, c)) view.glow.set(c.id, 'play');
   }
   for (const c of p.battlefield) if (activatable(g, me, c).length) view.glow.set(c.id, 'play');
@@ -429,7 +469,7 @@ export function buildView(): View {
       break;
     }
     case 'discard': {
-      const n = p.hand.length - MAX_HAND;
+      const n = p.hand.length - maxHandSize(g, me);
       for (const c of p.hand) view.glow.set(c.id, 'discard');
       view.prompt = `Discard ${plural(n, 'card')} — drag ${n === 1 ? 'it' : 'them'} out of your hand.`;
       view.primary = { label: `Discard ${n}`, tone: 'plain', disabled: true, onClick: () => {} };
@@ -483,23 +523,48 @@ function endTurn() {
 function propose(mode: 'cast' | 'activate', card: Card) {
   const g = S().game!;
   const me = S().human!;
-  // A planeswalker: choose which loyalty ability first (606).
+  // A planeswalker or Class: choose which loyalty ability or level first (606, 716.2).
   if (mode === 'activate' && activatable(g, me, card).some((i) => i !== undefined)) {
     useStore.setState({ targeting: { mode, cardId: card.id, specs: [], chosen: [], tapped: [], choices: {}, announcing: false, pickingAbility: true }, hover: null });
     return;
   }
-  const specs = mode === 'cast' ? castTargets(card) : (scriptOf(card.name).activated?.targets ?? []);
-  const script = scriptOf(card.name);
-  const alts = mode === 'cast' ? altCostsOf(g, card) : [];
-  const hasX = mode === 'cast' && parseCost(data(card).manaCost).x > 0;
-  // Start from a way that can be paid: the mana cost if it can, else the first alternative.
-  const alt = planPayment(g, me, castCost(g, card)) ? undefined : alts.find((i) => planPayment(g, me, castCost(g, card, { alt: i })));
-  const choices: CastChoices = { alt, x: hasX && alt === undefined ? Math.max(0, maxX(g, me, card, { alt })) : 0, kicked: 0 };
-  // A Siege's protector is announced with the rest, when there is more than one opponent to choose (310.12a).
-  const siege = mode === 'cast' && isSiege(card);
-  if (siege) choices.protector = defaultProtector(g, card) ?? undefined;
-  const announcing = mode === 'cast' && (hasX || !!script.kicker || alts.length > 0 || !!script.modal || (siege && opponentsOf(g, me).length > 1));
+  // Start on the first face that can be cast now (a split card's left half, an adventurer's creature).
+  const options = mode === 'cast' ? playOptions(g, me, card) : [];
+  const face = options.find((o) => o.ok)?.face ?? 0;
+  const choices = mode === 'cast' ? defaultChoices(g, me, card, face) : {};
+  const specs = mode === 'cast' ? castTargets(card, undefined, face) : (scriptFor(card).activated?.targets ?? []);
+  const script = scriptFor(asSpell(card, face));
+  const hasX = mode === 'cast' && card.zone !== 'graveyard' && parseCost(data(asSpell(card, face)).manaCost).x > 0;
+  const siege = mode === 'cast' && isSiege(asSpell(card, face));
+  const announcing =
+    mode === 'cast' &&
+    (options.length > 1 || hasX || !!script.kicker || altCostsOf(g, card, face).length > 0 || !!script.modal || (siege && opponentsOf(g, me).length > 1));
   advance({ mode, cardId: card.id, specs, chosen: [], tapped: [], choices, announcing });
+}
+
+/**
+ * Where announcing starts for casting `card` as `face`: a cost that can be paid (the mana
+ * cost if it can, else the first alternative), X as high as it can pay, and for a Siege
+ * the protector the engine would pick (310.12a).
+ */
+function defaultChoices(g: Game, me: PlayerId, card: Card, face: number): CastChoices {
+  const alts = altCostsOf(g, card, face);
+  const alt = planPayment(g, me, castCost(g, card, { face })) ? undefined : alts.find((i) => planPayment(g, me, castCost(g, card, { alt: i, face })));
+  const hasX = card.zone !== 'graveyard' && parseCost(data(asSpell(card, face)).manaCost).x > 0;
+  const choices: CastChoices = { alt, x: hasX && alt === undefined ? Math.max(0, maxX(g, me, card, { alt, face })) : 0, kicked: 0 };
+  if (face) choices.face = face;
+  const spell = asSpell(card, face);
+  if (isSiege(spell)) choices.protector = defaultProtector(g, spell) ?? undefined;
+  return choices;
+}
+
+/** Switches the face being announced (709.3, 712.11b, 715.3): the other choices start over for it. */
+export function pickFace(face: number) {
+  const t = S().targeting;
+  const { game: g, human: me } = S();
+  if (!t || !t.announcing || !g || me === null) return;
+  const card = findCard(g, t.cardId)!;
+  useStore.setState({ targeting: { ...t, choices: defaultChoices(g, me, card, face) } });
 }
 
 /** Changes what the human is announcing for the spell: X, kicker, or which cost. X is kept within what can be paid. */
@@ -509,7 +574,7 @@ export function setChoices(change: CastChoices) {
   if (!t || !t.announcing || !g || me === null) return;
   const card = findCard(g, t.cardId)!;
   let choices = { ...t.choices, ...change };
-  const most = maxX(g, me, card, { ...choices, x: 0 });
+  const most = Math.max(0, maxX(g, me, card, { ...choices, x: 0 }));
   if (choices.x !== undefined) choices = { ...choices, x: Math.max(0, Math.min(choices.x, most)) };
   useStore.setState({ targeting: { ...t, choices } });
 }
@@ -523,7 +588,7 @@ export function pickMode(i: number, delta: 1 | -1 = 1) {
   const t = S().targeting;
   const g = S().game;
   if (!t || !t.announcing || !g) return;
-  const modal = scriptOf(findCard(g, t.cardId)!.name).modal!;
+  const modal = scriptFor(asSpell(findCard(g, t.cardId)!, t.choices.face)).modal!;
   let modes = [...(t.choices.modes ?? [])];
   if (delta < 0) modes.splice(modes.indexOf(i), 1);
   else if (!modal.repeat && modes.includes(i)) modes = modes.filter((x) => x !== i);
@@ -541,14 +606,23 @@ export function pickAbility(i: number) {
   if (!t || !t.pickingAbility || !g || me === null) return;
   const card = findCard(g, t.cardId)!;
   if (!activatable(g, me, card).includes(i)) return;
-  advance({ ...t, pickingAbility: false, ability: i, specs: scriptOf(card.name).loyalty![i].targets ?? [] });
+  advance({ ...t, pickingAbility: false, ability: i, specs: scriptFor(card).loyalty?.[i].targets ?? [] });
 }
 
 /** Done announcing: on to targets, which depend on the modes chosen (601.2c, 700.2c). */
 function confirmAnnounce() {
   const t = S().targeting;
-  const g = S().game;
-  if (t && g) advance({ ...t, announcing: false, specs: castTargets(findCard(g, t.cardId)!, t.choices.modes) });
+  const { game: g, human: me } = S();
+  if (!t || !g || me === null) return;
+  const card = findCard(g, t.cardId)!;
+  const face = t.choices.face ?? 0;
+  // A modal double-faced card's land face is played, not cast (712.12).
+  if (landFaces(card).includes(face) && !castFaces(card).includes(face)) {
+    useStore.setState({ targeting: null });
+    S().act({ type: 'playLand', card: card.id, face });
+    return;
+  }
+  advance({ ...t, announcing: false, specs: castTargets(card, t.choices.modes, face) });
 }
 
 /**
@@ -567,7 +641,7 @@ function advance(t: Targeting) {
   if (t.mode !== 'trigger' || chosen.length < t.specs.length) {
     useStore.setState({ targeting: { ...t, chosen }, hover: null });
     // A loyalty ability has nothing to pay in mana: it is activated as soon as its targets are chosen.
-    if (t.ability !== undefined && chosen.length === t.specs.length) pay();
+    if (t.ability !== undefined && chosen.length === t.specs.length && costOf(g, t).text === '{0}') pay();
     return;
   }
   useStore.setState({ targeting: null });
@@ -654,9 +728,11 @@ export function playHandCard(card: Card) {
   const ctx = myTurnToAct();
   if (!ctx || targetingOf(S())) return;
   const { g, me } = ctx;
-  if (g.decision?.type === 'discard') S().act({ type: 'discard', card: card.id });
-  else if (isLand(card)) S().act({ type: 'playLand', card: card.id });
-  else if (canCast(g, me, card)) propose('cast', card);
+  if (g.decision?.type === 'discard') return S().act({ type: 'discard', card: card.id });
+  const options = playOptions(g, me, card);
+  // A plain land is played; anything with a choice of faces, or a spell, is proposed.
+  if (options.length === 1 && options[0].land) S().act({ type: 'playLand', card: card.id, face: options[0].face });
+  else if (options.some((o) => o.ok)) propose('cast', card);
 }
 
 export function clickPermanent(card: Card) {

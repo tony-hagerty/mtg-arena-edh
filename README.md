@@ -59,6 +59,12 @@ npm run build    # type-check and production build
   right away (after any target): loyalty abilities cost loyalty, not mana. Loyalty is the
   shield in the corner; a battle's defense is the orange box. When you cast a Siege
   battle, the cast panel asks which opponent protects it.
+- **Cards with two faces:** a split card, an adventurer card or a modal double-faced card
+  opens the cast panel with a **Face** row: pick the half, the Adventure, or the face to
+  play. A modal card's land face says "(land)"; pressing Continue on it plays the land.
+- **Classes:** click yours to see its level bars; pick the next one and pay for it.
+- **Graveyard and exile:** a pile glows when something in it can be cast (flashback, or
+  an adventurer card whose Adventure you cast). Open it and click the glowing card.
 - **Blocking:** when you are attacked, click your creature. If it could block more than
   one attacker, click the attacker next.
 - **Piles:** identical lands, and identical creature tokens, pile up with a count (`x7`) on
@@ -156,8 +162,28 @@ Rule numbers below are from the Comprehensive Rules in `docs/rules/`.
   the cast panel; bots pick the opponent with the fewest untapped blockers). Anyone but
   the protector can attack it, including its controller; only the protector can block
   for it (310.9b-c). Damage removes defense (120.3h). A defeated Siege is exiled when its
-  defeat ability resolves (310.12b, 704.5v). A battle whose protector leaves the game gets
-  a new one (310.11).
+  defeat ability resolves, then cast transformed for free (310.12b, 704.5v). A battle
+  whose protector leaves the game gets a new one (310.11).
+- Double-faced cards (712): transforming cards turn over (701.27) and stay the same
+  object; modal double-faced cards are cast as either face, or played as a land face
+  (712.11b, 712.12). Off the battlefield and stack a card has its front face (712.8a); a
+  transformed permanent's mana value is its front face's (712.8e).
+- Split cards (709): cast either half; anywhere but the stack the card has both halves
+  combined (its mana value is the total). Adventurer cards (715): cast the creature, or
+  the Adventure, which goes to exile when it resolves and can be cast from there as the
+  creature (715.3d). A countered Adventure goes to the graveyard.
+- Sagas (714): a lore counter as one enters and in each of its controller's precombat
+  main phases; each chapter ability triggers as its counter arrives, and the Saga is
+  sacrificed after its last chapter has resolved (714.4).
+- Classes (716): level up one level at a time, as a sorcery; scripts read `self.level`.
+  "When this Class becomes level N" triggers. Tiles show "Lv 2".
+- Flashback (702.34): cast from your graveyard for the flashback cost, then exiled
+  whenever it leaves the stack (countered too).
+- Treasure, Food and Clue tokens (111.10). A Treasure is sacrificed for one mana of any
+  colour; auto-pay spends lands first and Treasures last.
+- Bots consider every face (split halves, Adventures, modal faces), cast from the
+  graveyard and from exile, play a modal card as a land only when they have no other land
+  and few on the battlefield, level Classes, and crack Food and Clues when it helps.
 - Attacking planeswalkers and battles (506.3, 508.1b): each attacker picks a player,
   planeswalker or battle. Unblocked damage, and trample damage past blockers, goes to
   it; if it has left, the attacker deals no damage (510.1b). Bots attack a planeswalker
@@ -208,10 +234,18 @@ These are deliberate cuts for a prototype, roughly in the order I'd tackle them 
   the menu yet.
 - Partner variants other than plain partner and "partner with" (Background, Doctor's
   companion, "partner—[text]") aren't recognised. Vehicles can't be commanders yet.
-- **Battles can't be defeated into their back face yet.** "Cast it transformed" needs
-  double-faced cards (session 6), so a defeated Siege is just exiled. A script can add
-  more with `onDefeat`. The protector is announced with the spell rather than chosen as
-  it enters. Only Siege battles exist in print; others are protected by their controller.
+- A defeated Siege's back face is always cast ("you may" is free upside); a back face
+  that needs targets gets the first legal ones. The protector is announced with the
+  spell rather than chosen as it enters. Only Siege battles exist in print; others are
+  protected by their controller.
+- Not supported yet among other frames: meld cards (712.4), fuse (702.102), aftermath,
+  split cards with a shared type line (709.5, "unlocking" rooms), Sagas with read ahead
+  (714.3b), disturb and other ways to cast a back face from a graveyard, and casting a
+  transformed card's back face any way but a defeated Siege. Tapping a Treasure by hand
+  sacrifices it at once, so Cancel can't take that mana back (mana abilities can't be
+  undone). The test-only cards are in `tests/fixtures.ts` (Delver of Secrets, Kazandu
+  Mammoth, Needleverge Pathway, Dead // Gone, Murderous Rider, History of Benalia, Wizard
+  Class, Think Twice, Strike It Rich, Thraben Inspector, Bake into a Pie).
 - Loyalty abilities with an X cost (−X) aren't supported, and "two target lands" can
   name the same land twice. Trample over planeswalkers (702.19c) isn't supported.
   No card on the menu is a planeswalker or battle yet; the test-only ones are in
@@ -229,8 +263,8 @@ These are deliberate cuts for a prototype, roughly in the order I'd tackle them 
   (Counterspell, Negate, Essence Scatter, Stifle, Cryptic Command, Boros Charm, Fiery
   Confluence, Reverberate).
 - **No card on the menu uses the new costs yet.** The engine supports them, and the tests
-  use real cards typed in by hand in `tests/fixtures.ts` (Blaze, Gut Shot, Burst
-  Lightning, Bone Splinters, Flawless Maneuver, Thalia, Ruby Medallion, Boros Recruit).
+  use real cards in `tests/fixtures.ts` (Blaze, Gut Shot, Burst Lightning, Bone
+  Splinters, Flawless Maneuver, Thalia, Ruby Medallion, Boros Recruit).
 - Phyrexian mana is always paid with mana when the mana is there; you can't choose to pay
   life instead. Tapping lands by hand first lets you steer it.
 - Not supported yet: X in activated abilities, targets that exist only when kicked
@@ -263,7 +297,9 @@ src/ui/         store.ts              Zustand store (game + what the player is s
                 styles.css            all styling
 tests/                                Vitest: card coverage, rules, the UI casting flow,
                                       bot-vs-bot games
-                fixtures.ts           cards not in the pool yet, for testing costs
+                fixtures.ts           scripts for cards not in the pool yet, for testing
+                fixture-cards.json    their names; fetch-cards writes their data to
+                                      fixtures.generated.json
 public/         cursor.png            the mouse cursor, and cursor-down.png while a
                                       button is held (see Credits)
 docs/rules/     INDEX.md              official Comprehensive Rules, one file per rule
@@ -310,6 +346,14 @@ has run; the spell stays on the stack as `Game.resolving` until it is answered.
    its `loyalty` abilities (`{ cost: -2, text, targets, resolve }`); a target spec of
    `'player or planeswalker'` or `'creature or planeswalker'` matches cards that say so.
    A Siege's script can add `onDefeat`.
+   A card with faces (double-faced, split, adventurer) gets one script per face, under
+   each face's name ("Delver of Secrets", "Insectile Aberration"); `transform(g, card)`
+   turns one over. A deck may list it by its first face's name. A Saga lists `chapters`
+   (`{ text, targets, resolve }`, chapter I first); a Class lists `levels` (`{ cost,
+   text }` for level 2, 3) and reads `self.level`, with `onLevel` for "when this Class
+   becomes level N". `flashback: '{2}{U}'` lets it be cast from a graveyard.
+   `createToken(g, pid, 'Treasure')` (or `'Food'`, `'Clue'`) makes the predefined tokens.
+   A `{ when, resolve }` trigger can take `targets`.
 4. Run `npm test`. The card-pool test tells you if anything is still missing.
 
 ### Layout note

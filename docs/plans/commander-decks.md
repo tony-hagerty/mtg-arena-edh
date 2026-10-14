@@ -3,7 +3,7 @@
 Goal: play real 100-card Commander decks of any colours, with partner commanders and
 every card type, and add the user's own deck to the menu.
 
-**Status: sessions 1-5 done. Don't start the next session until the user says so.**
+**Status: sessions 1-6 done. Don't start the next session until the user says so.**
 
 ## What "every card type" means here
 
@@ -78,7 +78,7 @@ Order matters: each one builds on the ones before it.
   for double-faced cards in session 6: it is only exiled for now.
 - Bots attack and defend them sensibly.
 
-### 6. Other card frames and graveyard casting
+### 6. Other card frames and graveyard casting (done)
 
 - Double-faced cards: transforming (712) and modal double-faced (MDFC) cards.
   `scripts/fetch-cards.mjs` must keep each face's data (Scryfall `card_faces`).
@@ -86,6 +86,9 @@ Order matters: each one builds on the ones before it.
 - Adventures (715), split cards (709), Sagas (714), Classes (716).
 - Casting from the graveyard: flashback (702.34), and similar.
 - Common tokens: Treasure, Food, Clue (111.10).
+- Done with flashback and Adventures from exile as the "graveyard casting". Not done:
+  meld, fuse, aftermath, rooms (709.5), read ahead, disturb. Test cards now come from
+  Scryfall (`tests/fixture-cards.json` → `tests/fixtures.generated.json`).
 
 ### 7. Add the user's deck
 

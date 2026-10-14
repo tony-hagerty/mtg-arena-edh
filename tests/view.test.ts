@@ -4,7 +4,7 @@ import { produce } from 'immer';
 import { describe, expect, it } from 'vitest';
 import './fixtures';
 import { useStore } from '../src/ui/store';
-import { buildView, clickPermanent, clickPlayer, clickStackItem, pickAbility, pickMode, playHandCard, setChoices } from '../src/ui/view';
+import { buildView, clickPermanent, clickPlayer, clickStackItem, pickAbility, pickFace, pickMode, playHandCard, setChoices } from '../src/ui/view';
 import type { Game } from '../src/engine';
 import { byName, emptyGame, put } from './helpers';
 
@@ -231,5 +231,68 @@ describe('planeswalkers and battles in the UI (306, 310, 606)', () => {
     press(); // Continue
     press(); // Pay
     expect(byName(game(), 0, 'Invasion of Dominaria')!.protector).toBe(3);
+  });
+});
+
+describe('card faces, Classes and graveyard casting in the UI (709, 712, 715, 716, 702.34)', () => {
+  it('chooses which half of a split card to cast (709.3)', () => {
+    play((d) => {
+      put(d, 0, 'Mountain', 'battlefield', 3);
+      put(d, 0, 'Dead', 'hand');
+      put(d, 1, 'Walking Corpse');
+    });
+    playHandCard(byName(game(), 0, 'Dead', 'hand')!);
+    expect(buildView().announce?.faces?.map((f) => f.name)).toEqual(['Dead', 'Gone']);
+    pickFace(1);
+    expect(buildView().prompt).toBe('Choose how to cast Gone: {2}{R}.');
+    press(); // Continue
+    clickPermanent(byName(game(), 1, 'Walking Corpse')!);
+    press(); // Pay
+    expect(byName(game(), 1, 'Walking Corpse', 'hand')).toBeDefined();
+  });
+
+  it("plays a modal double-faced card's land face from the cast panel (712.12)", () => {
+    play((d) => {
+      put(d, 0, 'Forest', 'battlefield', 3);
+      put(d, 0, 'Kazandu Mammoth', 'hand');
+    });
+    playHandCard(byName(game(), 0, 'Kazandu Mammoth', 'hand')!);
+    expect(buildView().announce?.faces).toEqual([
+      { face: 0, name: 'Kazandu Mammoth', land: false, ok: true },
+      { face: 1, name: 'Kazandu Valley', land: true, ok: true },
+    ]);
+    pickFace(1);
+    press(); // Continue: plays it
+    expect(useStore.getState().targeting).toBe(null);
+    expect(game().players[0].landsPlayed).toBe(1);
+  });
+
+  it('casts a flashback card from the graveyard (702.34a)', () => {
+    play((d) => {
+      put(d, 0, 'Island', 'battlefield', 3);
+      put(d, 0, 'Think Twice', 'graveyard');
+    });
+    const card = byName(game(), 0, 'Think Twice', 'graveyard')!;
+    expect(buildView().glow.get(card.id)).toBe('play');
+    playHandCard(card);
+    expect(buildView().prompt).toContain('Pay {2}{U}');
+    press();
+    expect(byName(game(), 0, 'Think Twice', 'exile')).toBeDefined();
+  });
+
+  it('gains a Class level from the ability panel, then pays for it (716.2a)', () => {
+    play((d) => {
+      put(d, 0, 'Island', 'battlefield', 3);
+      put(d, 0, 'Wizard Class');
+    });
+    clickPermanent(byName(game(), 0, 'Wizard Class')!);
+    expect(buildView().loyalty?.options.map((o) => [o.cost, o.ok])).toEqual([
+      ['{2}{U}', true],
+      ['{4}{U}', false],
+    ]);
+    pickAbility(0);
+    expect(buildView().prompt).toContain('Pay the cost');
+    press();
+    expect(byName(game(), 0, 'Wizard Class')!.level).toBe(2);
   });
 });

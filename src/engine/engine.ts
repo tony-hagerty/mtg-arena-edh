@@ -2,11 +2,9 @@
 // the only way a game changes: it returns a new Game, or the same object if the action
 // was illegal. Rule numbers in comments refer to docs/rules.
 import { produce } from 'immer';
-import { DECKS, deckColors, deckLibrary } from '../cards/db';
+import { DECKS, cardData, deckColors, deckLibrary } from '../cards/db';
 import type { DeckDef } from '../cards/db';
-import { scriptOf } from './registry';
 import {
-  MAX_HAND,
   STARTING_LIFE,
   broadcast,
   canAttack,
@@ -32,6 +30,13 @@ import {
   isCreature,
   isInstantSpeed,
   isPlaneswalker,
+  landFaces,
+  layoutOf,
+  isSaga,
+  addCounters,
+  maxHandSize,
+  facesOf,
+  asSpell,
   isLand,
   isPermanentCard,
   label,
@@ -63,6 +68,7 @@ import {
   trigger,
   turnOrder,
   untapMana,
+  scriptFor,
 } from './rules';
 import type { Action, Card, CardChoice, CastChoices, Game, Player, PlayerId, StackItem, Step, TargetRef, TargetSpec, Trigger } from './types';
 
@@ -276,27 +282,56 @@ function timingOk(g: Game, pid: PlayerId, instantSpeed: boolean): boolean {
 }
 
 /** Playing a land is a special action with sorcery timing, once a turn (305.1, 305.2). */
-export function canPlayLand(g: Game, pid: PlayerId, c: Card): boolean {
-  return c.owner === pid && c.zone === 'hand' && isLand(c) && g.players[pid].landsPlayed < 1 && timingOk(g, pid, false);
+export function canPlayLand(g: Game, pid: PlayerId, c: Card, face?: number): boolean {
+  const faces = landFaces(c);
+  if (face !== undefined ? !faces.includes(face) : !faces.length) return false;
+  return c.owner === pid && c.zone === 'hand' && g.players[pid].landsPlayed < 1 && timingOk(g, pid, false);
+}
+
+/**
+ * Can `c` be cast from the zone it's in? From a hand or the command zone; from a graveyard
+ * with flashback (702.34a); from exile after its Adventure resolved (715.3d).
+ */
+function castableFrom(c: Card): boolean {
+  if (c.zone === 'hand' || c.zone === 'command') return true;
+  if (c.zone === 'graveyard') return !!scriptFor(c).flashback;
+  return c.zone === 'exile' && c.adventure;
+}
+
+/**
+ * The faces `c` could be cast as from where it is: either half of a split card (709.3),
+ * an adventurer card normally or as its Adventure, but not as an Adventure again from
+ * exile (715.3, 715.3d), a modal double-faced card's non-land faces (712.11b), and
+ * otherwise its front face. Flashback casts only an instant or sorcery (702.34a).
+ */
+export function castFaces(c: Card): number[] {
+  const layout = layoutOf(c);
+  let faces = facesOf(c);
+  if (layout === 'transform') faces = [0];
+  if (layout === 'adventure' && c.zone === 'exile') faces = [0];
+  faces = faces.filter((f) => !isLand(asSpell(c, f)));
+  if (c.zone === 'graveyard') faces = faces.filter((f) => !isPermanentCard(asSpell(c, f)));
+  return faces;
 }
 
 /** Targets chosen as a spell is cast (601.2c). A permanent's `targets` are for its enters ability instead. */
-export const castTargets = (c: Card, modes?: number[]): TargetSpec[] => spellTargets(c, modes);
+export const castTargets = (c: Card, modes?: number[], face = 0): TargetSpec[] => spellTargets(asSpell(c, face), modes);
 
 /** Can mode `i` of modal spell `c` be chosen now? Not if a target it needs has no legal choice (700.2a). */
 function modeOk(g: Game, pid: PlayerId, c: Card, i: number): boolean {
-  const mode = scriptOf(c.name).modal?.modes[i];
+  const mode = scriptFor(c).modal?.modes[i];
   return !!mode && (mode.targets ?? []).every((spec) => spec.optional || legalTargets(g, pid, spec, c).length > 0);
 }
 
 /**
- * Every set of modes `pid` could choose for modal spell `c` now (700.2): `min` to `max` of
- * them, as sorted indexes, repeating one only if the spell allows it (700.2d).
+ * Every set of modes `pid` could choose for modal spell `c` (cast as `face`) now (700.2):
+ * `min` to `max` of them, as sorted indexes, repeating one only if the spell allows it (700.2d).
  */
-export function modeChoices(g: Game, pid: PlayerId, c: Card): number[][] {
-  const modal = scriptOf(c.name).modal;
+export function modeChoices(g: Game, pid: PlayerId, c: Card, face = 0): number[][] {
+  const spell = asSpell(c, face);
+  const modal = scriptFor(spell).modal;
   if (!modal) return [];
-  const legal = modal.modes.map((_, i) => i).filter((i) => modeOk(g, pid, c, i));
+  const legal = modal.modes.map((_, i) => i).filter((i) => modeOk(g, pid, spell, i));
   const out: number[][] = [];
   const grow = (picked: number[], from: number) => {
     if (picked.length >= modal.min) out.push(picked);
@@ -308,53 +343,67 @@ export function modeChoices(g: Game, pid: PlayerId, c: Card): number[][] {
 }
 
 /** Permanents `pid` could sacrifice to pay `c`'s additional cost (118.8), or [] if it has none. */
-export function sacrificeOptions(g: Game, pid: PlayerId, c: Card): Card[] {
-  const spec = scriptOf(c.name).additionalCost?.sacrifice;
+export function sacrificeOptions(g: Game, pid: PlayerId, c: Card, face = 0): Card[] {
+  const spec = scriptFor(asSpell(c, face)).additionalCost?.sacrifice;
   if (!spec) return [];
   return g.players[pid].battlefield.filter((p) => (spec.type !== 'creature' || isCreature(p)) && (spec.filter?.(g, p, c) ?? true));
 }
 
 /**
- * Are these choices legal for casting `c` (601.2b)? X can't be negative, kicker is paid at
- * most once unless it is multikicker, the alternative cost must be available, and a
- * sacrifice cost names exactly one of the player's permanents that fits it.
+ * Are these choices legal for casting `c` (601.2b)? A face it can be cast as, X can't be
+ * negative, kicker is paid at most once unless it is multikicker, the alternative cost
+ * must be available, and a sacrifice cost names exactly one of the player's permanents
+ * that fits it.
  */
 function choicesOk(g: Game, pid: PlayerId, c: Card, ch: CastChoices): boolean {
-  const script = scriptOf(c.name);
+  const face = ch.face ?? 0;
+  if (!castFaces(c).includes(face)) return false;
+  const spell = asSpell(c, face);
+  const script = scriptFor(spell);
   const x = ch.x ?? 0;
   const kicked = ch.kicked ?? 0;
   if (!Number.isInteger(x) || x < 0 || !Number.isInteger(kicked) || kicked < 0) return false;
   if (kicked > (script.kicker ? (script.kicker.multi ? Infinity : 1) : 0)) return false;
-  if (ch.alt !== undefined && !altCostsOf(g, c).includes(ch.alt)) return false;
-  if (ch.protector !== undefined && !(isBattle(c) && canProtect(g, c, ch.protector))) return false;
+  if (ch.alt !== undefined && !altCostsOf(g, c, face).includes(ch.alt)) return false;
+  if (ch.protector !== undefined && !(isBattle(spell) && canProtect(g, spell, ch.protector))) return false;
   // Modes: a set the spell allows, in printed order (700.2).
   const modes = ch.modes ?? [];
-  if (script.modal ? !modeChoices(g, pid, c).some((m) => m.join() === modes.join()) : modes.length) return false;
+  if (script.modal ? !modeChoices(g, pid, c, face).some((m) => m.join() === modes.join()) : modes.length) return false;
   const sacrifice = ch.sacrifice ?? [];
   if (!script.additionalCost) return sacrifice.length === 0;
-  const legal = new Set(sacrificeOptions(g, pid, c).map((p) => p.id));
+  const legal = new Set(sacrificeOptions(g, pid, c, face).map((p) => p.id));
   return sacrifice.length === 1 && legal.has(sacrifice[0]);
 }
 
 /**
  * Can `pid` cast `c` now? With `choices`, can they cast it that way. Without, is there
- * any way: X = 0, not kicked, and the mana cost or one of its alternative costs.
+ * any way: any face it can be cast as, X = 0, not kicked, and the mana cost or one of its
+ * alternative costs. Only the face being cast is checked (709.3a, 712.11c, 715.3a).
  */
 export function canCast(g: Game, pid: PlayerId, c: Card, choices?: CastChoices): boolean {
-  if (c.owner !== pid || (c.zone !== 'hand' && c.zone !== 'command') || isLand(c)) return false;
-  if (!timingOk(g, pid, isInstantSpeed(c))) return false;
-  for (const spec of castTargets(c, choices?.modes)) {
-    if (!spec.optional && legalTargets(g, pid, spec, c).length === 0) return false;
+  if (c.owner !== pid || !castableFrom(c)) return false;
+  if (choices) return canCastAs(g, pid, c, choices.face ?? 0, choices);
+  return castFaces(c).some((face) => canCastAs(g, pid, c, face));
+}
+
+/** Can `pid` cast `c` as `face` now: with these choices, or without them, any way at all? */
+export function canCastAs(g: Game, pid: PlayerId, c: Card, face: number, choices?: CastChoices): boolean {
+  if (c.owner !== pid || !castableFrom(c) || !castFaces(c).includes(face)) return false;
+  const spell = asSpell(c, face);
+  if (!timingOk(g, pid, isInstantSpeed(spell))) return false;
+  for (const spec of castTargets(c, choices?.modes, face)) {
+    if (!spec.optional && legalTargets(g, pid, spec, spell).length === 0) return false;
   }
   if (choices) return choicesOk(g, pid, c, choices) && !!planPayment(g, pid, castCost(g, c, choices));
-  if (scriptOf(c.name).additionalCost && !sacrificeOptions(g, pid, c).length) return false;
-  if (scriptOf(c.name).modal && !modeChoices(g, pid, c).length) return false;
-  return [undefined, ...altCostsOf(g, c)].some((alt) => planPayment(g, pid, castCost(g, c, { alt })));
+  const script = scriptFor(spell);
+  if (script.additionalCost && !sacrificeOptions(g, pid, c, face).length) return false;
+  if (script.modal && !modeChoices(g, pid, c, face).length) return false;
+  return [undefined, ...altCostsOf(g, c, face)].some((alt) => planPayment(g, pid, castCost(g, c, { alt, face })));
 }
 
 /** The highest X `pid` can pay for `c` with these other choices (107.3a), or -1 if it can't be cast at all. */
 export function maxX(g: Game, pid: PlayerId, c: Card, choices: CastChoices = {}): number {
-  if (!parseCost(data(c).manaCost).x || choices.alt !== undefined) return 0;
+  if (!parseCost(data(asSpell(c, choices.face ?? 0)).manaCost).x || choices.alt !== undefined || c.zone === 'graveyard') return 0;
   let x = -1;
   while (x < 99 && planPayment(g, pid, castCost(g, c, { ...choices, x: x + 1 }))) x++;
   return x;
@@ -365,8 +414,8 @@ export function maxX(g: Game, pid: PlayerId, c: Card, choices: CastChoices = {})
  * index; left out, it means the card's `activated` ability.
  */
 export function canActivate(g: Game, pid: PlayerId, c: Card, ability?: number): boolean {
-  if (ability !== undefined) return canActivateLoyalty(g, pid, c, ability);
-  const ab = scriptOf(c.name).activated;
+  if (ability !== undefined) return scriptFor(c).levels ? canLevelUp(g, pid, c, ability) : canActivateLoyalty(g, pid, c, ability);
+  const ab = scriptFor(c).activated;
   if (!ab || c.owner !== pid || c.zone !== 'battlefield' || !timingOk(g, pid, !ab.sorcery)) return false;
   // A summoning-sick creature can't pay a tap cost (302.6).
   if (ab.cost.tap && (c.tapped || (isCreature(c) && c.sick && !has(g, c, 'haste')))) return false;
@@ -384,16 +433,30 @@ export function canActivate(g: Game, pid: PlayerId, c: Card, ability?: number): 
  * needs that much loyalty (606.6).
  */
 function canActivateLoyalty(g: Game, pid: PlayerId, c: Card, i: number): boolean {
-  const ab = scriptOf(c.name).loyalty?.[i];
+  const ab = scriptFor(c).loyalty?.[i];
   if (!ab || c.owner !== pid || c.zone !== 'battlefield' || !timingOk(g, pid, false)) return false;
   if (c.loyaltyTurn === g.turn || loyaltyOf(c) + ab.cost < 0) return false;
   return (ab.targets ?? []).every((spec) => spec.optional || legalTargets(g, pid, spec, c).length > 0);
 }
 
-/** The abilities of `c` that `pid` could activate now: loyalty abilities by index, `undefined` for its `activated` ability. */
+/**
+ * A Class's level bar `i` makes it level i + 2. It can be activated only as a sorcery, and
+ * only while the Class is the level just below (716.2a).
+ */
+function canLevelUp(g: Game, pid: PlayerId, c: Card, i: number): boolean {
+  const bar = scriptFor(c).levels?.[i];
+  if (!bar || c.owner !== pid || c.zone !== 'battlefield' || !timingOk(g, pid, false)) return false;
+  return c.level === i + 1 && !!planPayment(g, pid, parseCost(bar.cost));
+}
+
+/**
+ * The abilities of `c` that `pid` could activate now: `undefined` for its `activated`
+ * ability, and its loyalty abilities (606) or Class level bars (716.2) by index.
+ */
 export function activatable(g: Game, pid: PlayerId, c: Card): (number | undefined)[] {
-  const loyalty = (scriptOf(c.name).loyalty ?? []).map((_, i) => i);
-  return [undefined, ...loyalty].filter((i) => canActivate(g, pid, c, i));
+  const script = scriptFor(c);
+  const numbered = (script.loyalty ?? script.levels ?? []).map((_, i) => i);
+  return [undefined, ...numbered].filter((i) => canActivate(g, pid, c, i));
 }
 
 /**
@@ -569,6 +632,10 @@ function beginStep(g: Game, step: Step) {
     case 'draw':
       draw(g, pid, 1); // 504.1
       break;
+    case 'main1':
+      // The active player puts a lore counter on each of their Sagas (714.3c).
+      for (const c of p.battlefield) if (isSaga(c) && scriptFor(c).chapters?.length) addCounters(g, c, 1, 'lore');
+      break;
     case 'beginCombat':
       g.combat = { attacks: [], toBlock: [], struckFirst: null, moreDamage: false };
       break;
@@ -594,7 +661,7 @@ function beginStep(g: Game, step: Step) {
       broadcast(g, 'onEndStep', { player: pid }); // 513.1
       break;
     case 'cleanup':
-      if (p.hand.length > MAX_HAND) g.decision = { type: 'discard' }; // 514.1
+      if (p.hand.length > maxHandSize(g, pid)) g.decision = { type: 'discard' }; // 514.1
       else cleanup(g);
       break;
   }
@@ -767,7 +834,7 @@ function resolveTop(g: Game) {
   const item = g.stack[g.stack.length - 1];
   const { card, controller } = item;
   g.resolving = item.id;
-  const script = scriptOf(card.name);
+  const script = scriptFor(card);
   // Targets are checked again. Illegal ones are left alone, and if every target has
   // become illegal the spell or ability does nothing at all (608.2b).
   const specs = targetSpecs(item);
@@ -800,14 +867,26 @@ function resolveTop(g: Game) {
   } else if (!fizzled) {
     // An ability uses its source as it is now, or as it last was if it has gone (113.7a).
     const ctx = { self: permanent(g, card.id) ?? card, you: controller, targets };
-    if (item.kind === 'activated') {
+    if (item.kind === 'activated' && item.ability !== undefined && script.levels) {
+      // The Class gains the level, and "when this Class becomes level N" triggers (716.2a).
+      const cls = permanent(g, card.id);
+      if (cls) {
+        cls.level = item.ability + 2;
+        log(g, `${label(cls)} is now level ${cls.level}.`, controller, [cls]);
+        trigger(g, cls, 'onLevel', { level: cls.level });
+      }
+    } else if (item.kind === 'activated') {
       (item.ability === undefined ? script.activated! : script.loyalty![item.ability]).resolve(g, ctx);
+    } else if (item.hook === 'onChapter') {
+      script.chapters?.[(item.event as { chapter: number }).chapter - 1]?.resolve(g, ctx);
     } else if (item.hook === 'onDefeat') {
-      // A defeated Siege is exiled (310.12b), then its script does anything more.
+      // A defeated Siege is exiled, then cast transformed without paying its mana cost
+      // (310.12b). Casting it is optional, but always worth it, so it always happens.
       const battle = permanent(g, card.id);
       if (battle) {
         log(g, `${label(battle)} is exiled.`, battle.owner, [battle]);
         moveCard(g, battle, 'exile');
+        castTransformed(g, controller, battle);
       }
       const t = script.onDefeat;
       if (t) (typeof t === 'function' ? t : t.resolve)(g, ctx);
@@ -819,13 +898,41 @@ function resolveTop(g: Game) {
   if (!nextChoice(g)) finishResolving(g);
 }
 
+/**
+ * Casts the back face of a double-faced card in exile without paying its mana cost, as a
+ * defeated Siege does (310.12b, 712.11a). Its mana value is still its front face's
+ * (712.8c). Targets, if it has any, are the first legal ones; with none it stays in exile.
+ */
+function castTransformed(g: Game, pid: PlayerId, c: Card) {
+  const back = cardData(c.name).faces?.[1];
+  if (!back || c.zone !== 'exile' || g.players[pid].lost) return;
+  const spell = asSpell(c, 1);
+  const specs = spellTargets(spell);
+  const targets = specs.map((spec) => (spec.optional ? null : (legalTargets(g, pid, spec, spell)[0] ?? null)));
+  if (specs.some((spec, i) => !spec.optional && !targets[i])) return;
+  const exile = g.players[c.owner].exile;
+  exile.splice(exile.findIndex((x) => x.id === c.id), 1);
+  c.zone = 'stack';
+  c.face = 1;
+  c.cast = { x: 0, kicked: 0, modes: [] };
+  g.stack.push({ id: `s${g.nextId++}`, kind: 'spell', controller: pid, card: c, targets });
+  log(g, `${says(g.players[pid], 'casts')} ${label(c)} transformed, without paying its mana cost.`, pid, [c]);
+  g.lastSpell = { seq: (g.lastSpell?.seq ?? 0) + 1, name: back.name, caster: pid };
+  broadcast(g, 'onCast', { card: c, caster: pid });
+}
+
 /** The end of resolving: the item leaves the stack, and the active player gets priority (117.3b). */
 function finishResolving(g: Game) {
   const item = g.stack.find((x) => x.id === g.resolving);
   g.resolving = null;
   // A permanent spell has already moved to the battlefield (608.3). An instant or sorcery
-  // goes to the graveyard as the last part of resolving (608.2n).
-  if (item?.kind === 'spell') moveCard(g, item.card, 'graveyard');
+  // goes to the graveyard as the last part of resolving (608.2n), or into exile if it was
+  // an Adventure, where its owner may cast it later (715.3d).
+  if (item?.kind === 'spell' && layoutOf(item.card) === 'adventure' && item.card.face === 1 && !item.copy) {
+    const c = item.card;
+    moveCard(g, c, 'exile');
+    c.adventure = true;
+  } else if (item?.kind === 'spell') moveCard(g, item.card, 'graveyard');
   else if (item) g.stack = g.stack.filter((x) => x !== item);
   g.passes = 0;
   g.priority = firstPriority(g);
@@ -872,13 +979,24 @@ function putTriggerOnStack(g: Game): boolean {
 
 // ---------- actions ----------
 
+/** Activates Class `c`'s level bar `i`: pay its cost, and it becomes level i + 2 when the ability resolves (716.2a). */
+function activateLevel(g: Game, pid: PlayerId, c: Card, i: number, a: Extract<Action, { type: 'activate' }>): boolean {
+  if (a.targets?.some(Boolean) || a.crew?.length) return false;
+  pay(g, pid, parseCost(scriptFor(c).levels![i].cost));
+  g.stack.push({ id: `s${g.nextId++}`, kind: 'activated', controller: pid, card: snapshot(c), targets: [], ability: i });
+  log(g, `${says(g.players[pid], 'activates')} ${label(c)}: Level ${i + 2}.`, pid, [c]);
+  g.passes = 0;
+  g.holding = a.hold ? pid : null;
+  return true;
+}
+
 /**
  * Activates loyalty ability `i` of planeswalker `c`. Its cost is putting on or removing
  * loyalty counters (606.4), and none of its other loyalty abilities can be activated
  * this turn (606.3).
  */
 function activateLoyalty(g: Game, pid: PlayerId, c: Card, i: number, a: Extract<Action, { type: 'activate' }>): boolean {
-  const ab = scriptOf(c.name).loyalty![i];
+  const ab = scriptFor(c).loyalty![i];
   const specs = ab.targets ?? [];
   const targets = specs.map((_, k) => a.targets?.[k] ?? null);
   if (!targetsOk(g, pid, c, specs, targets) || a.crew?.length) return false;
@@ -904,10 +1022,12 @@ function act(g: Game, a: Action): boolean {
   switch (a.type) {
     case 'playLand': {
       const c = p.hand.find((x) => x.id === a.card);
-      if (!c || !canPlayLand(g, pid, c)) return false;
+      if (!c || !canPlayLand(g, pid, c, a.face)) return false;
       p.landsPlayed++;
+      // A modal double-faced card is played as one of its land faces (712.12).
+      const face = a.face ?? landFaces(c)[0];
+      enterBattlefield(g, c, { face });
       log(g, `${says(p, 'plays')} ${label(c)}.`, pid, [c]);
-      enterBattlefield(g, c);
       g.passes = 0; // the player keeps priority after a special action (117.3c)
       return true;
     }
@@ -916,38 +1036,48 @@ function act(g: Game, a: Action): boolean {
     // choose targets, then pay) are collected by the UI first, so backing out of any of
     // them leaves the game as if the spell was never started (733.1).
     case 'cast': {
-      const c = p.hand.find((x) => x.id === a.card) ?? p.command.find((x) => x.id === a.card);
-      const choices: CastChoices = { x: a.x, kicked: a.kicked, alt: a.alt, sacrifice: a.sacrifice, modes: a.modes, protector: a.protector };
+      const c = [p.hand, p.command, p.graveyard, p.exile].flatMap((z) => z).find((x) => x.id === a.card);
+      const choices: CastChoices = { x: a.x, kicked: a.kicked, alt: a.alt, sacrifice: a.sacrifice, modes: a.modes, protector: a.protector, face: a.face };
       if (!c || !canCast(g, pid, c, choices)) return false;
-      const specs = castTargets(c, choices.modes);
+      const face = choices.face ?? 0;
+      const specs = castTargets(c, choices.modes, face);
       const targets = specs.map((_, i) => a.targets?.[i] ?? null);
       if (!targetsOk(g, pid, c, specs, targets)) return false;
+      const spell = asSpell(c, face);
+      const flashback = c.zone === 'graveyard';
+      const fromExile = c.zone === 'exile';
       // An alternative cost without {X} makes X 0 (107.3b).
-      const hasX = parseCost(choices.alt === undefined ? data(c).manaCost : scriptOf(c.name).alternativeCosts![choices.alt].mana).x > 0;
-      c.cast = { x: hasX ? (choices.x ?? 0) : 0, kicked: choices.kicked ?? 0, modes: choices.modes ?? [], protector: choices.protector };
-      pay(g, pid, castCost(g, c, choices)); // 601.2f-h
+      const hasX = !flashback && parseCost(choices.alt === undefined ? data(spell).manaCost : scriptFor(spell).alternativeCosts![choices.alt].mana).x > 0;
+      const cost = castCost(g, c, choices);
+      c.cast = { x: hasX ? (choices.x ?? 0) : 0, kicked: choices.kicked ?? 0, modes: choices.modes ?? [], protector: choices.protector, flashback };
+      pay(g, pid, cost); // 601.2f-h
       const sacrificed = (choices.sacrifice ?? []).map((id) => permanent(g, id)!);
-      const from = c.zone === 'command' ? p.command : p.hand;
       if (c.zone === 'command') p.commanderCasts[commanderIndex(g, c)]++; // commander tax (903.8, 702.124d)
+      const from = p[c.zone as 'hand' | 'command' | 'graveyard' | 'exile'];
       from.splice(from.findIndex((x) => x.id === c.id), 1);
       c.zone = 'stack'; // 601.2a
+      c.face = face; // only the face being cast is on the stack (709.3b, 712.11c, 715.3b)
+      c.adventure = false;
       g.stack.push({ id: `s${g.nextId++}`, kind: 'spell', controller: pid, card: c, targets });
       const chosen = targets.filter((t): t is TargetRef => !!t).map((t) => describeRef(g, t));
       const how = [
         hasX && `X = ${c.cast.x}`,
+        flashback && 'flashback',
+        fromExile && 'from exile',
+        layoutOf(c) === 'adventure' && face === 1 && 'an Adventure',
         c.cast.kicked && (c.cast.kicked > 1 ? `kicked ${c.cast.kicked} times` : 'kicked'),
-        choices.alt !== undefined && scriptOf(c.name).alternativeCosts![choices.alt].label,
+        choices.alt !== undefined && scriptFor(c).alternativeCosts![choices.alt].label,
         c.cast.modes.length > 0 &&
           [...new Set(c.cast.modes)]
             .map((i) => {
               const times = c.cast!.modes.filter((m) => m === i).length;
-              return `“${scriptOf(c.name).modal!.modes[i].text}”${times > 1 ? ` ×${times}` : ''}`;
+              return `“${scriptFor(c).modal!.modes[i].text}”${times > 1 ? ` ×${times}` : ''}`;
             })
             .join(', '),
       ].filter(Boolean);
       const details = (how.length ? ` (${how.join(', ')})` : '') + (chosen.length ? ` targeting ${chosen.join(' and ')}` : '');
       log(g, `${says(p, 'casts')} ${label(c)}${details}.`, pid, [c, ...refCards(g, targets)]);
-      g.lastSpell = { seq: (g.lastSpell?.seq ?? 0) + 1, name: c.name, caster: pid };
+      g.lastSpell = { seq: (g.lastSpell?.seq ?? 0) + 1, name: data(c).name, caster: pid };
       if (sacrificed.length) dieMany(g, sacrificed, 'is sacrificed'); // an additional cost, paid with the rest (601.2h)
       broadcast(g, 'onCast', { card: c, caster: pid }); // 601.2i
       g.passes = 0; // the caster keeps priority (117.3c)
@@ -958,8 +1088,9 @@ function act(g: Game, a: Action): boolean {
     case 'activate': {
       const c = p.battlefield.find((x) => x.id === a.card);
       if (!c || !canActivate(g, pid, c, a.ability)) return false;
+      if (a.ability !== undefined && scriptFor(c).levels) return activateLevel(g, pid, c, a.ability, a);
       if (a.ability !== undefined) return activateLoyalty(g, pid, c, a.ability, a);
-      const ab = scriptOf(c.name).activated!;
+      const ab = scriptFor(c).activated!;
       const specs = ab.targets ?? [];
       const targets = specs.map((_, i) => a.targets?.[i] ?? null);
       if (!targetsOk(g, pid, c, specs, targets)) return false;
@@ -1041,7 +1172,7 @@ function act(g: Game, a: Action): boolean {
       if (deciding !== 'discard' || !c) return false;
       log(g, `${says(p, 'discards')} ${label(c)}.`, pid, [c]);
       moveCard(g, c, 'graveyard');
-      if (p.hand.length <= MAX_HAND) {
+      if (p.hand.length <= maxHandSize(g, pid)) {
         g.decision = null;
         cleanup(g);
       }

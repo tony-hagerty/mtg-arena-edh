@@ -8,7 +8,7 @@ import { ManaCost } from './Card';
 import { useRem } from './rem';
 import { useStore } from './store';
 import { SEATS, cx, deckColor, hoverProps } from './util';
-import { STEP_NAMES, cancel, clickStackItem, pickAbility, pickMode, setChoices, useView } from './view';
+import { STEP_NAMES, cancel, clickStackItem, pickAbility, pickFace, pickMode, playHandCard, setChoices, useView } from './view';
 import type { Btn } from './view';
 
 // ---------- phase tracker + buttons (bottom right) ----------
@@ -247,6 +247,17 @@ export function CastOptions() {
   const modal = a.modal;
   return (
     <div className="cast-options">
+      {a.faces && (
+        <div className="cast-row">
+          <span className="cast-label">Face</span>
+          {a.faces.map((f) => (
+            <button key={f.face} className={cx('chip', (choices.face ?? 0) === f.face && 'on')} disabled={!f.ok} onClick={() => pickFace(f.face)}>
+              {f.name}
+              {f.land && ' (land)'}
+            </button>
+          ))}
+        </div>
+      )}
       {modal && (
         <div className="cast-modes">
           <span className="cast-label">
@@ -336,7 +347,7 @@ export function CastOptions() {
   );
 }
 
-/** A planeswalker's loyalty abilities (606): click one to activate it. */
+/** A planeswalker's loyalty abilities (606), or a Class's level bars (716.2): click one to activate it. */
 function LoyaltyOptions({ options }: { options: { ability: number; cost: string; text: string; ok: boolean }[] }) {
   return (
     <div className="cast-options">
@@ -344,7 +355,7 @@ function LoyaltyOptions({ options }: { options: { ability: number; cost: string;
         {options.map((o) => (
           <div key={o.ability} className="cast-row">
             <button className="chip mode" disabled={!o.ok} onClick={() => pickAbility(o.ability)}>
-              <b className="loyalty-cost">{o.cost}</b> {o.text}
+              <b className="loyalty-cost">{o.cost.startsWith('{') ? <ManaCost cost={o.cost} /> : o.cost}</b> {o.text}
             </button>
           </div>
         ))}
@@ -552,7 +563,7 @@ export function StackPanel() {
             data-stack={item.id}
             className={cx('stack-item', i === g.stack.length - 1 && !paying && 'top', targetStack.has(item.id) && 'targetable')}
             onClick={() => clickStackItem(item.id)}
-            {...hoverProps(item.card.name)}
+            {...hoverProps(data(item.card).name)}
           >
             <img src={data(item.card).image} alt={label(item.card)} draggable={false} />
             <span className="stack-tag">
@@ -562,7 +573,7 @@ export function StackPanel() {
         );
       })}
       {paying && (
-        <div key={`paying-${paying.card.id}`} className="stack-item top paying" {...hoverProps(paying.card.name)}>
+        <div key={`paying-${paying.card.id}`} className="stack-item top paying" {...hoverProps(data(paying.card).name)}>
           <img src={data(paying.card).image} alt={label(paying.card)} draggable={false} />
           <span className="stack-tag">Pay to {paying.kind === 'spell' ? 'cast' : 'activate'}</span>
         </div>
@@ -677,6 +688,7 @@ export function ZoneViewer() {
   if (!viewer) return null;
   const p = g.players[viewer.pid];
   const cards = [...p[viewer.zone]].reverse();
+  const glow = useView().glow;
   return (
     <div className="modal" onClick={() => useStore.setState({ viewer: null })}>
       <div className="viewer">
@@ -684,9 +696,26 @@ export function ZoneViewer() {
           {p.name === 'You' ? 'Your' : `${p.name}'s`} {viewer.zone} ({cards.length})
         </h2>
         <div className="viewer-cards">
-          {cards.map((c) => (
-            <img key={c.id} src={data(c).image} alt={data(c).name} draggable={false} />
-          ))}
+          {cards.map((c) => {
+            // A flashback card or an exiled adventurer card can be cast from here (702.34a, 715.3d).
+            const castable = glow.get(c.id) === 'play';
+            return (
+              <img
+                key={c.id}
+                src={data(c).image}
+                alt={data(c).name}
+                className={cx(castable && 'glow-play')}
+                title={castable ? `Cast ${data(c).name}` : undefined}
+                draggable={false}
+                onClick={(e) => {
+                  if (!castable) return;
+                  e.stopPropagation();
+                  useStore.setState({ viewer: null });
+                  playHandCard(c);
+                }}
+              />
+            );
+          })}
         </div>
       </div>
     </div>
