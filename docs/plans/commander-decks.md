@@ -3,7 +3,7 @@
 Goal: play real 100-card Commander decks of any colours, with partner commanders and
 every card type, and add the user's own deck to the menu.
 
-**Status: sessions 1-7 done. Don't start the next session until the user says so.**
+**Status: sessions 1-7 and 8a done. Don't start the next session until the user says so.**
 
 ## What "every card type" means here
 
@@ -142,10 +142,34 @@ Order matters: each one builds on the ones before it.
   mana (106.6), opening-hand actions (103.6). The simulation test timeout went up to 120
   seconds: one starter-deck game was already near the old 60.
 
-### 8. (Optional) Rebuild the four starter decks to 100 cards
+### 8. Rebuild the four starter decks to 100 cards
 
 - Bring the existing decks up to 100 cards, possibly two-colour, so every seat is a real
   Commander deck. Roughly 160 new cards to script, so likely two sessions.
+- The user chose two-colour decks, two sessions, and left the card picks to Claude (they
+  review the PR). Each deck keeps its old mono-coloured cards, adds the shared artifacts,
+  some already-scripted cards of its second colour, new cards and dual lands. The pairs go
+  round the colours, so each colour is in two decks: white-black, black-red, red-green,
+  green-white. Cards with mechanics the engine lacks (scry, persist, extort, raid) were
+  left out rather than approximated.
+
+#### 8a. White-black and black-red (done)
+
+- White-black "Heaven's Host": Karlov of the Ghost Council, angels, lifelink and drain
+  (Vito, Cliffhaven Vampire, Righteous Valkyrie), removal and Spirits.
+- Black-red "Whispers of the Pit": Judith, the Scourge Diva, sacrifice (Goblin
+  Bombardment, Mayhem Devil, Fling, Village Rites) and burn.
+- Engine: "Sacrifice a creature:" ability costs, "whenever a player sacrifices",
+  "each opponent sacrifices a creature of their choice", "discards a card" chosen by the
+  player, last known power of a sacrificed creature (608.2h), check lands and shock lands,
+  "whenever a planeswalker you control dies".
+- Rules tests keep Lyra as player 0's commander (`emptyGame` in tests/helpers.ts).
+
+#### 8b. Red-green and green-white
+
+- The red and green decks become red-green and green-white, the same way.
+- Then nothing is a 60-card "legacy" deck any more: remove `legacy` and `shared` from
+  `decklists.json` and `db.ts`.
 
 ## Not planned unless asked
 

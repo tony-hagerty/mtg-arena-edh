@@ -12,6 +12,7 @@ import {
   castableCards,
   discardOptions,
   escapeOptions,
+  activationSacrificeOptions,
   canMulligan,
   canSayYes,
   canPlayLand,
@@ -163,18 +164,42 @@ export function evaluate(g: Game, pid: PlayerId): number {
 
 const PASS: Action = { type: 'pass' };
 
+/** What a permanent is worth, for picking which targets to try. */
+const worth = (g: Game, c: Card) => (isCreature(c) ? threat(g, c) : isPlaneswalker(c) ? walkerValue(c) : 1 + data(c).cmc * 0.5);
+
+/**
+ * The targets worth trying for one target slot, so a wide board stays cheap to look ahead
+ * on, most promising first: spells and abilities, opponents, their four most valuable
+ * permanents, the three graveyard cards the bot wants most, its own two most valuable
+ * permanents, and itself. With `limit`, only that many.
+ */
+function shortlist(g: Game, pid: PlayerId, legal: TargetRef[], limit = Infinity): TargetRef[] {
+  const cards = legal.filter((t) => t.kind === 'card').map((t) => ({ t, c: findCard(g, t.id as string)! }));
+  const onField = cards.filter((x) => x.c.zone === 'battlefield');
+  const best = (xs: typeof cards, n: number) => [...xs].sort((a, b) => worth(g, b.c) - worth(g, a.c)).slice(0, n).map((x) => x.t);
+  return [
+    ...legal.filter((t) => t.kind === 'stack'),
+    ...legal.filter((t) => t.kind === 'player' && t.id !== pid),
+    ...best(onField.filter((x) => x.c.controller !== pid), 4),
+    ...cards.filter((x) => x.c.zone !== 'battlefield').sort((a, b) => cardWant(g, pid, b.c) - cardWant(g, pid, a.c)).slice(0, 3).map((x) => x.t),
+    ...best(onField.filter((x) => x.c.controller === pid), 2),
+    ...legal.filter((t) => t.kind === 'player' && t.id === pid),
+  ].slice(0, limit);
+}
+
 /** Every way of choosing targets for `specs` (capped so wide boards stay cheap). */
 function targetChoices(g: Game, pid: PlayerId, specs: TargetSpec[], source: Card): (TargetRef | null)[][] {
   let combos: (TargetRef | null)[][] = [[]];
   for (const spec of specs) {
-    const legal: (TargetRef | null)[] = legalTargets(g, pid, spec, source);
+    // With several targets to choose, fewer options each, so the combinations stay few.
+    const legal: (TargetRef | null)[] = shortlist(g, pid, legalTargets(g, pid, spec, source), specs.length > 1 ? 4 : 6);
     if (spec.optional || legal.length === 0) legal.push(null);
     // A target that must differ from an earlier one can't repeat it (115.3).
     const fits = (c: (TargetRef | null)[], t: TargetRef | null) => {
       const other = spec.distinctFrom === undefined ? null : c[spec.distinctFrom];
       return !t || !other || t.kind !== other.kind || t.id !== other.id;
     };
-    combos = combos.flatMap((c) => legal.filter((t) => fits(c, t)).map((t) => [...c, t])).slice(0, 80);
+    combos = combos.flatMap((c) => legal.filter((t) => fits(c, t)).map((t) => [...c, t])).slice(0, 40);
   }
   return combos;
 }
@@ -210,9 +235,9 @@ function castChoices(g: Game, pid: PlayerId, c: Card): CastChoices[] {
         ways.push({ alt, ...(pitch.length ? { exile: [pitch[0].id] } : {}), ...(altSac.length ? { sacrifice: [altSac[0].id] } : {}) });
       }
     }
-    // The additional cost's sacrifice: the two least valuable, or none if it is optional (bargain).
+    // The additional cost's sacrifice: the least valuable, or none if it is optional (bargain).
     const extra = script.additionalCost
-      ? [...(script.additionalCost.optional ? [undefined] : []), ...cheapest(sacrificeOptions(g, pid, c, face)).slice(0, 2).map((x) => x.id)]
+      ? [...(script.additionalCost.optional ? [undefined] : []), ...cheapest(sacrificeOptions(g, pid, c, face)).slice(0, 1).map((x) => x.id)]
       : [undefined];
     const gifts = script.gift ? [undefined, ...opponentsOf(g, pid).map((o) => o.id)] : [undefined];
     const modeSets = script.modal ? modeChoices(g, pid, c, face) : [undefined];
@@ -252,8 +277,11 @@ function candidateActions(g: Game, pid: PlayerId): { action: Action; spendsCard:
     const script = scriptFor(c);
     // Cards with their own rule for when to cast them are left to it.
     if (!canCast(g, pid, c) || script.botCast?.(g, pid, c) === false || script.ai === 'extraTurn' || script.ai === 'ritual') continue;
-    for (const choices of castChoices(g, pid, c)) {
-      for (const targets of targetChoices(g, pid, castTargets(c, choices.modes, choices.face, choices.gift), c)) {
+    // About 36 ways per card at most, shared out among its ways of casting it (a modal spell's mode sets).
+    const ways = castChoices(g, pid, c);
+    const each = Math.max(4, Math.floor(36 / Math.max(1, ways.length)));
+    for (const choices of ways) {
+      for (const targets of targetChoices(g, pid, castTargets(c, choices.modes, choices.face, choices.gift), c).slice(0, each)) {
         out.push({ action: { type: 'cast', card: c.id, targets, ...choices }, spendsCard: c.zone === 'hand' || c.zone === 'command' });
       }
     }
@@ -279,7 +307,10 @@ function activations(g: Game, pid: PlayerId, c: Card, ability: number | undefine
   if (crew === null) return [];
   const n = ability === undefined ? (script.activated!.cost.discard ?? 0) : 0;
   const discard = n ? [...discardOptions(g, pid, c)].sort((a, b) => cardWant(g, pid, a) - cardWant(g, pid, b)).slice(0, n).map((x) => x.id) : undefined;
-  return targetChoices(g, pid, specs, c).map((targets) => ({ type: 'activate', card: c.id, ability, targets, crew, ...(discard ? { discard } : {}) }));
+  // "Sacrifice a creature": the least valuable one, and not the source itself if there is another.
+  const fodder = ability === undefined && script.activated!.cost.sacrificeOne ? [...activationSacrificeOptions(g, pid, c)].sort((a, b) => sacrificeWorth(g, a) - sacrificeWorth(g, b)) : [];
+  const victim = fodder.find((x) => x.id !== c.id) ?? fodder[0];
+  return targetChoices(g, pid, specs, c).map((targets) => ({ type: 'activate', card: c.id, ability, targets, crew, ...(discard ? { discard } : {}), ...(victim ? { sacrifice: [victim.id] } : {}) }));
 }
 
 // Look-ahead turns auto-pass off, so that passing only ever resolves the stack or ends one
@@ -299,7 +330,13 @@ function anyTargets(g: Game): Action {
   if (g.decision?.type === 'commanderZone') return { type: 'commanderZone', toCommand: true };
   if (g.decision?.type !== 'targets') return PASS;
   const { item } = g.decision;
-  const targets = targetSpecs(item).map((spec) => (spec.optional ? null : (legalTargets(g, g.priority, spec, item.card)[0] ?? null)));
+  // An opponent or something of theirs if there is one: most triggered abilities that target harm.
+  const mine = (t: TargetRef) => (t.kind === 'player' ? t.id === g.priority : t.kind === 'card' && findCard(g, t.id)?.controller === g.priority);
+  const targets = targetSpecs(item).map((spec) => {
+    if (spec.optional) return null;
+    const legal = legalTargets(g, g.priority, spec, item.card);
+    return legal.find((t) => !mine(t)) ?? legal[0] ?? null;
+  });
   return { type: 'chooseTargets', targets };
 }
 
@@ -339,7 +376,7 @@ function resolveStack(g: Game, pid: PlayerId, depth = 0): Game {
     const deciding = g.decision?.type;
     if (deciding === 'chooseCards' || deciding === 'orderTriggers' || deciding === 'commanderZone' || deciding === 'ask' || deciding === 'name' || deciding === 'player' || deciding === 'cast' || deciding === 'retarget') {
       action = anyTargets(g);
-    } else if (g.decision?.type === 'targets') action = g.priority === pid && depth < 2 ? bestTargets(g, pid, depth) : anyTargets(g);
+    } else if (g.decision?.type === 'targets') action = g.priority === pid && depth < 1 ? bestTargets(g, pid, depth) : anyTargets(g);
     else if (g.stack.length && !g.decision) action = PASS;
     else break;
     const next = applyAction(g, action, STEP_BY_STEP);
@@ -372,8 +409,10 @@ function finishCombat(g: Game): Game {
  */
 function bestPlay(g: Game, pid: PlayerId): Action | null {
   const throughCombat = fighting(g);
+  // Triggered abilities the play sets off take quick targets here: searching theirs too for
+  // every candidate costs too much. The bot searches properly when it really chooses.
   const outcome = (s: Game) => {
-    s = resolveStack(s, pid);
+    s = resolveStack(s, pid, 1);
     return evaluate(throughCombat ? finishCombat(s) : s, pid);
   };
   const baseline = outcome(g);
@@ -546,7 +585,7 @@ function bestLand(g: Game, pid: PlayerId, lands: Card[]): Action | null {
   // Each land face it could be played as (712.12), looked at as it would be on the battlefield.
   const options = lands.flatMap((card) => landFaces(card).map((face) => ({ card, face, as: { ...card, zone: 'battlefield' as const, face } })));
   const score = ({ card, as }: (typeof options)[number]) => {
-    let v = Math.max(0, ...(manaOf(g, as)?.colors ?? []).map(short)) - (scriptFor(as).entersTapped ? 0.5 : 0);
+    let v = Math.max(0, ...(manaOf(g, as)?.colors ?? []).map(short)) - (entersTappedFor(g, as, pid) ? 0.5 : 0);
     // A modal card whose front is a spell is a land only when nothing else is, and mana is short.
     if (!isLand(card)) v -= landsOut >= 5 ? 100 : 2;
     return v;
@@ -554,6 +593,12 @@ function bestLand(g: Game, pid: PlayerId, lands: Card[]): Action | null {
   const best = options.reduce((a, b) => (score(b) > score(a) ? b : a));
   if (score(best) < -50) return null;
   return { type: 'playLand', card: best.card.id, ...(best.face ? { face: best.face } : {}) };
+}
+
+/** Would land `c` enter tapped for `pid` now (614.1c)? */
+function entersTappedFor(g: Game, c: Card, pid: PlayerId): boolean {
+  const tapped = scriptFor(c).entersTapped;
+  return typeof tapped === 'function' ? tapped(g, c, pid) : !!tapped;
 }
 
 function mainAction(g: Game, pid: PlayerId): Action {

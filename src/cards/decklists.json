@@ -12,14 +12,14 @@
     {
       "id": "white",
       "title": "Heaven's Host",
-      "blurb": "Angels, lifegain and a go-wide soldier army.",
+      "blurb": "White-black angels and lifelink: every life you gain drains the table.",
       "pilot": "Seraphine",
-      "legacy": true,
       "commanders": [
-        "Lyra Dawnbringer"
+        "Karlov of the Ghost Council"
       ],
       "basics": {
-        "Plains": 24
+        "Plains": 18,
+        "Swamp": 14
       },
       "cards": [
         "Serra Angel",
@@ -49,20 +49,59 @@
         "Revitalize",
         "Disenchant",
         "Divine Verdict",
-        "Inspired Charge"
+        "Inspired Charge",
+        "Sol Ring",
+        "Arcane Signet",
+        "Worn Powerstone",
+        "Thran Dynamo",
+        "Manalith",
+        "Solemn Simulacrum",
+        "Meteor Golem",
+        "Vampire Nighthawk",
+        "Gifted Aetherborn",
+        "Vampire of the Dire Moon",
+        "Child of Night",
+        "Zulaport Cutthroat",
+        "Gray Merchant of Asphodel",
+        "Vampire Sovereign",
+        "Kokusho, the Evening Star",
+        "Doom Blade",
+        "Night's Whisper",
+        "Phyrexian Arena",
+        "Syphon Soul",
+        "Lyra Dawnbringer",
+        "Vito, Thorn of the Dusk Rose",
+        "Cliffhaven Vampire",
+        "Blood Artist",
+        "Cruel Celebrant",
+        "Righteous Valkyrie",
+        "Ministrant of Obligation",
+        "Butcher of Malakir",
+        "Mortify",
+        "Anguished Unmaking",
+        "Vindicate",
+        "Utter End",
+        "Lingering Souls",
+        "Zealous Persecution",
+        "Debt to the Deathless",
+        "Command Tower",
+        "Scoured Barrens",
+        "Caves of Koilos",
+        "Isolated Chapel",
+        "Godless Shrine"
       ]
     },
     {
       "id": "black",
       "title": "Whispers of the Pit",
-      "blurb": "Drain the table, kill everything, draw cards for life.",
+      "blurb": "Black-red sacrifice: creatures die, opponents burn.",
       "pilot": "Mortis",
-      "legacy": true,
       "commanders": [
-        "Sheoldred, the Apocalypse"
+        "Judith, the Scourge Diva"
       ],
       "basics": {
-        "Swamp": 24
+        "Swamp": 17,
+        "Mountain": 15
       },
       "cards": [
         "Typhoid Rats",
@@ -92,7 +131,46 @@
         "Syphon Soul",
         "Phyrexian Arena",
         "Go for the Throat",
-        "Hero's Downfall"
+        "Hero's Downfall",
+        "Sol Ring",
+        "Arcane Signet",
+        "Worn Powerstone",
+        "Thran Dynamo",
+        "Manalith",
+        "Solemn Simulacrum",
+        "Meteor Golem",
+        "Lightning Bolt",
+        "Shock",
+        "Lightning Strike",
+        "Goblin Chainwhirler",
+        "Beetleback Chief",
+        "Mogg Fanatic",
+        "Flametongue Kavu",
+        "Viashino Pyromancer",
+        "Hellrider",
+        "Thundermaw Hellkite",
+        "Guttersnipe",
+        "Torbran, Thane of Red Fell",
+        "Sheoldred, the Apocalypse",
+        "Mayhem Devil",
+        "Falkenrath Aristocrat",
+        "Bloodthrone Vampire",
+        "Goblin Bombardment",
+        "Blood Artist",
+        "Carrier Thrall",
+        "Terminate",
+        "Bedevil",
+        "Dreadbore",
+        "Kolaghan's Command",
+        "Blightning",
+        "Village Rites",
+        "Fling",
+        "Deadly Dispute",
+        "Command Tower",
+        "Bloodfell Caves",
+        "Sulfurous Springs",
+        "Dragonskull Summit",
+        "Blood Crypt"
       ]
     },
     {
@@ -443,6 +521,43 @@
       "typeLine": "Token Creature — Warrior",
       "keywords": [],
       "query": "t:token !\"Warrior\" c=r pow=1 tou=1"
+    },
+    "Spirit 1/1 flying": {
+      "name": "Spirit",
+      "power": "1",
+      "toughness": "1",
+      "colors": [
+        "W"
+      ],
+      "typeLine": "Token Creature — Spirit",
+      "keywords": [
+        "Flying"
+      ],
+      "query": "t:token !\"Spirit\" c=w pow=1 tou=1 kw:flying"
+    },
+    "Spirit 1/1 flying WB": {
+      "name": "Spirit",
+      "power": "1",
+      "toughness": "1",
+      "colors": [
+        "W",
+        "B"
+      ],
+      "typeLine": "Token Creature — Spirit",
+      "keywords": [
+        "Flying"
+      ],
+      "query": "t:token !\"Spirit\" c=wb pow=1 tou=1 kw:flying"
+    },
+    "Eldrazi Scion": {
+      "name": "Eldrazi Scion",
+      "power": "1",
+      "toughness": "1",
+      "colors": [],
+      "typeLine": "Token Creature — Eldrazi Scion",
+      "oracleText": "Sacrifice this token: Add {C}.",
+      "keywords": [],
+      "query": "t:token !\"Eldrazi Scion\""
     }
   }
 }

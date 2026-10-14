@@ -51,6 +51,7 @@ import {
   has,
   manaAbilities,
   maxModes,
+  activationSacrificeOptions,
 } from '../engine';
 import type { Action, AttackOption, Card, CastChoices, Cost, Game, ManaSym, PlayerId, StackItem, Step, TargetRef, TargetSpec } from '../engine';
 import { useStore } from './store';
@@ -199,6 +200,9 @@ function retargetItem(g: Game): StackItem | undefined {
  */
 function sacrificeNeeds(t: Targeting): { spec: TargetSpec; alt: number | undefined; optional: boolean }[] {
   const card = findCard(S().game!, t.cardId);
+  // An ability's "Sacrifice a creature" cost (Goblin Bombardment).
+  const one = t.mode === 'activate' && t.ability === undefined && !t.pickingAbility && card ? scriptFor(card).activated?.cost.sacrificeOne : undefined;
+  if (one) return [{ spec: one, alt: undefined, optional: false }];
   if (!card || t.mode !== 'cast') return [];
   const script = scriptFor(asSpell(card, t.choices.face));
   const alt = t.choices.alt === undefined ? undefined : script.alternativeCosts?.[t.choices.alt];
@@ -210,7 +214,7 @@ function sacrificeNeeds(t: Targeting): { spec: TargetSpec; alt: number | undefin
 
 /** Targets are chosen and the spell still needs a permanent to sacrifice for a cost (118.8, 118.9). */
 function isSacrificing(t: Targeting): boolean {
-  if (t.mode !== 'cast' || t.announcing || t.chosen.length < t.specs.length || t.sacrificeDone) return false;
+  if ((t.mode !== 'cast' && t.mode !== 'activate') || t.announcing || t.pickingAbility || t.chosen.length < t.specs.length || t.sacrificeDone) return false;
   return (t.choices.sacrifice?.length ?? 0) < sacrificeNeeds(t).length;
 }
 
@@ -459,7 +463,7 @@ export function buildView(): View {
   if (t && isSacrificing(t)) {
     const card = findCard(g, t.cardId)!;
     const need = sacrificeNeeds(t)[t.choices.sacrifice?.length ?? 0];
-    for (const c of sacrificeOptions(g, me, card, t.choices.face ?? 0, need.alt)) if (!t.choices.sacrifice?.includes(c.id)) view.glow.set(c.id, 'target');
+    for (const c of sacrificeOptionsFor(g, me, t, card, need.alt)) if (!t.choices.sacrifice?.includes(c.id)) view.glow.set(c.id, 'target');
     view.glow.set(card.id, 'picked');
     view.prompt = `${label(card)}: choose ${need.spec.label}${need.optional ? ', or none' : ''}.`;
     if (need.optional) view.primary = { label: 'No Sacrifice', tone: 'plain', onClick: skipSacrifice };
@@ -861,7 +865,7 @@ function pay() {
   const action: Action =
     t.mode === 'cast'
       ? { type: 'cast', card: t.cardId, targets: t.chosen, hold, ...t.choices }
-      : { type: 'activate', card: t.cardId, ability: t.ability, targets: t.chosen, hold, crew: t.crew, discard: t.discard };
+      : { type: 'activate', card: t.cardId, ability: t.ability, targets: t.chosen, hold, crew: t.crew, discard: t.discard, sacrifice: t.choices.sacrifice };
   if (!S().act(action)) cancel();
 }
 
@@ -912,12 +916,16 @@ function chooseSacrifice(g: Game, me: PlayerId, t: Targeting, card: Card) {
   const spell = findCard(g, t.cardId)!;
   const picked = t.choices.sacrifice ?? [];
   const need = sacrificeNeeds(t)[picked.length];
-  if (!need || picked.includes(card.id) || !sacrificeOptions(g, me, spell, t.choices.face ?? 0, need.alt).some((c) => c.id === card.id)) return;
+  if (!need || picked.includes(card.id) || !sacrificeOptionsFor(g, me, t, spell, need.alt).some((c) => c.id === card.id)) return;
   const next = { ...t, choices: { ...t.choices, sacrifice: [...picked, card.id] } };
   useStore.setState({ targeting: next });
   // A cost that is only a sacrifice, like Flare of Duplication's, is paid as soon as it is picked.
   if (isPaying(next) && planPayment(g, me, costOf(g, next).cost)?.tap.length === 0) pay();
 }
+
+/** What the next sacrifice cost can take: a spell's (118.8, 118.9) or an ability's. */
+const sacrificeOptionsFor = (g: Game, me: PlayerId, t: Targeting, card: Card, alt: number | undefined) =>
+  t.mode === 'activate' ? activationSacrificeOptions(g, me, card) : sacrificeOptions(g, me, card, t.choices.face ?? 0, alt);
 
 /** Doesn't pay an optional sacrifice, like bargain (702.166a). */
 function skipSacrifice() {
