@@ -79,10 +79,12 @@ import {
   manaValue,
   permission,
   ask,
+  copyToken,
   createToken,
   MUST_ATTACK,
   RETURN_TO_HAND,
   stats,
+  tap,
   tapForMana,
   targetSpecs,
   trigger,
@@ -384,6 +386,8 @@ const ENGINE_THEN: Record<string, (g: Game, ctx: ThenCtx) => void> = {
     const c = picked[0] && permanent(g, picked[0].id);
     if (c) dieMany(g, [c], 'is sacrificed');
   },
+  // Populate (701.36a): copy the creature token the player chose.
+  '@populate': (g, { chooser, picked }) => copyToken(g, chooser, picked[0]),
   // "Discards a card" (701.9a): the player chose which.
   '@discard': (g, { picked }) => {
     for (const c of picked) discard(g, c);
@@ -933,6 +937,7 @@ function beginStep(g: Game, step: Step) {
       break;
     case 'beginCombat':
       g.combat = { attacks: [], toBlock: [], struckFirst: null, moreDamage: false };
+      broadcast(g, 'onBeginCombat', { player: pid }); // 507
       break;
     case 'attackers':
       if (attackCandidates(g, pid).length) g.decision = { type: 'attackers' }; // 508.1
@@ -1028,7 +1033,7 @@ function attackersDeclared(g: Game) {
   const attackers: Card[] = [];
   for (const a of combat.attacks) {
     const c = permanent(g, a.id)!;
-    if (!has(g, c, 'vigilance')) c.tapped = true;
+    if (!has(g, c, 'vigilance')) tap(g, c);
     const target = a.target ? permanent(g, a.target) : undefined;
     names.push(`${label(c)} → ${target ? label(target) : g.players[a.defender].name}`);
     attackers.push(c, ...(target ? [target] : []));
@@ -1614,9 +1619,9 @@ function act(g: Game, a: Action): boolean {
       // Nothing tapped or sacrificed for the rest of the cost makes mana for it.
       const busy = [...(ab.cost.tap || ab.cost.sacrifice ? [c.id] : []), ...(a.sacrifice ?? [])];
       if ((ab.cost.mana || ab.cost.life) && !pay(g, pid, abilityCost(ab, g, c), undefined, busy)) return false;
-      if (ab.cost.tap) c.tapped = true;
+      if (ab.cost.tap) tap(g, c);
       if (ab.cost.counters) removeCounters(c, ab.cost.counters.n, ab.cost.counters.kind);
-      for (const x of crewing) x!.tapped = true;
+      for (const x of crewing) tap(g, x!);
       if (crewing.length) log(g, `${crewing.map((x) => label(x!)).join(' and ')} crew${crewing.length === 1 ? 's' : ''} ${label(c)}.`, pid, [...(crewing as Card[]), c]);
       const chosen = targets.filter((t): t is TargetRef => !!t).map((t) => describeRef(g, t));
       log(g, `${says(p, 'activates')} ${label(c)}${chosen.length ? ` targeting ${chosen.join(' and ')}` : ''}.`, pid, [c, ...refCards(g, targets)]);

@@ -689,6 +689,8 @@ export interface TriggerEvents {
   onDelayed: { key: string; data: Record<string, unknown> };
   /** "Whenever this becomes tapped." */
   onTapped: object;
+  /** "At the beginning of combat on your turn" (507): `player` is the active player. */
+  onBeginCombat: { player: PlayerId };
   /** "At the beginning of each of your postcombat main phases" (505.1). */
   onPostcombatMain: { player: PlayerId };
   /** "At the beginning of your draw step", after the draw (504.2). */

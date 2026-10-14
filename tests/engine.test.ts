@@ -175,11 +175,13 @@ describe('commander rules', () => {
   });
 
   it('reduces Ghalta by the power you control', () => {
-    // Seat 3 plays the green deck. {10}{G}{G} minus 10 power = {G}{G}.
+    // Seat 3's commander is Ghalta here. {10}{G}{G} minus 10 power = {G}{G}.
     const setup = (withDino: boolean) =>
       emptyGame((d) => {
         d.active = 3;
         d.priority = 3;
+        d.players[3].commanders = ['Ghalta, Primal Hunger'];
+        d.players[3].command = [makeCard(d, 'Ghalta, Primal Hunger', 3, 'command', { isCommander: true })];
         put(d, 3, 'Forest', 'battlefield', 2);
         if (withDino) put(d, 3, 'Gigantosaurus');
       });
@@ -1763,7 +1765,7 @@ describe('mulligans (103.5)', () => {
     // The first mulligan in a multiplayer game is free: seven new cards, none to the bottom (103.5c).
     expect([g.decision?.type, g.priority]).toEqual(['mulligan', first]);
     expect(g.players[first].hand.length).toBe(7);
-    expect(g.players[first].library.length).toBe(52);
+    expect(g.players[first].library.length).toBe(92); // 99 cards besides the commander
     // The second costs a card.
     g = run(g, { type: 'mulligan' });
     expect(g.decision?.type === 'chooseCards' && g.decision.choice).toEqual({ kind: 'bottom', player: first, count: 1 });
@@ -3359,5 +3361,323 @@ describe('the two-colour starter decks (session 8a)', () => {
     g = cast(g, 0, 'Zealous Persecution');
     expect(byName(g, 1, 'Llanowar Elves', 'graveyard')).toBeDefined();
     expect(stats(g, byName(g, 0, 'Spirit 1/1 flying')!).power).toBe(2);
+  });
+});
+
+describe('the red-green and green-white starter decks (session 8b)', () => {
+  const player = (id: number) => ({ kind: 'player', id }) as const;
+  const card = (c: { id: string }) => ({ kind: 'card', id: c.id }) as const;
+  const cast = (g: Game, pid: number, name: string, extra: object = {}) => run(g, { type: 'cast', card: byName(g, pid, name, 'hand')!.id, ...extra } as Action);
+  const choose = (...cards: { id: string }[]) => ({ type: 'chooseCards', cards: cards.map((c) => c.id) }) as const;
+  const asking = (g: Game) => (g.decision && 'choice' in g.decision ? g.decision.choice : undefined);
+  const tokens = (g: Game, pid: number, name: string) => g.players[pid].battlefield.filter((c) => c.name === name);
+  const attack = (g: Game, ...names: string[]) =>
+    run(g, ...names.map((n) => ({ type: 'declareAttack', card: byName(g, 0, n)!.id, defender: 1 }) as Action));
+
+  it('Halana and Alena: at the beginning of combat on your turn, X counters and haste for another creature (507)', () => {
+    let g = emptyGame((d) => {
+      put(d, 0, 'Halana and Alena, Partners');
+      put(d, 0, 'Raging Goblin').sick = true;
+    });
+    g = run(g, pass);
+    expect([g.step, g.decision?.type]).toEqual(['beginCombat', 'targets']);
+    // "Another" target creature: not Halana and Alena themselves.
+    expect(applyAction(g, { type: 'chooseTargets', targets: [card(byName(g, 0, 'Halana and Alena, Partners')!)] })).toBe(g);
+    g = run(g, { type: 'chooseTargets', targets: [card(byName(g, 0, 'Raging Goblin')!)] });
+    const goblin = byName(g, 0, 'Raging Goblin')!;
+    expect(goblin.counters['+1/+1']).toBe(2);
+    expect(stats(g, goblin).keywords.has('haste')).toBe(true);
+    expect(canAttack(g, goblin)).toBe(true);
+  });
+
+  it("Halana and Alena don't trigger on an opponent's turn", () => {
+    let g = emptyGame((d) => {
+      d.active = 1;
+      d.priority = 1;
+      put(d, 0, 'Halana and Alena, Partners');
+      put(d, 0, 'Raging Goblin');
+    });
+    g = run(g, pass);
+    expect(g.stack).toEqual([]);
+    expect(byName(g, 0, 'Raging Goblin')!.counters['+1/+1']).toBeUndefined();
+  });
+
+  it('Savage Ventmaw adds mana that lasts the turn; Atarka gives attacking Dragons double strike; Utvara makes a Dragon', () => {
+    let g = emptyGame((d) => {
+      put(d, 0, 'Savage Ventmaw');
+      put(d, 0, 'Atarka, World Render');
+      put(d, 0, 'Utvara Hellkite');
+    });
+    g = run(g, pass);
+    g = attack(g, 'Savage Ventmaw');
+    // Pass by hand, so the turn stops in the second main phase.
+    for (let i = 0; i < 100 && g.step !== 'main2'; i++) g = runWith({ autoPass: false }, g, g.decision?.type === 'orderTriggers' ? { type: 'orderTriggers', order: g.triggers.map((t) => t.id) } : pass);
+    expect(stats(g, byName(g, 0, 'Savage Ventmaw')!).keywords.has('double strike')).toBe(true);
+    expect(tokens(g, 0, 'Dragon 6/6 flying')).toHaveLength(1);
+    expect(g.players[1].life).toBe(32); // 4 first-strike damage, then 4 regular
+    // The mana stays as steps and phases end, until the end of the turn.
+    expect(g.players[0].pool.map((m) => m.sym).sort()).toEqual(['G', 'G', 'G', 'R', 'R', 'R']);
+  });
+
+  it('Emmara makes a Soldier whenever she becomes tapped, by attacking too', () => {
+    let g = emptyGame((d) => void put(d, 0, 'Emmara, Soul of the Accord'));
+    g = run(g, pass);
+    g = attack(g, 'Emmara, Soul of the Accord');
+    g = run(g, pass);
+    for (let i = 0; i < 10 && g.stack.length; i++) g = run(g, pass);
+    expect(tokens(g, 0, 'Soldier 1/1 lifelink')).toHaveLength(1);
+  });
+
+  it('Ghor-Clan Rampager: bloodrush from the hand on an attacking creature', () => {
+    let g = emptyGame((d) => {
+      put(d, 0, 'Goblin Piker');
+      put(d, 0, 'Mountain');
+      put(d, 0, 'Forest');
+      put(d, 0, 'Ghor-Clan Rampager', 'hand');
+    });
+    const rampager = byName(g, 0, 'Ghor-Clan Rampager', 'hand')!;
+    const piker = byName(g, 0, 'Goblin Piker')!;
+    expect(canActivate(g, 0, rampager)).toBe(false); // nothing is attacking
+    g = run(g, pass);
+    g = attack(g, 'Goblin Piker');
+    g = runWith({ autoPass: false }, g, pass);
+    expect([g.step, g.priority]).toEqual(['attackers', 0]);
+    g = runWith({ autoPass: false }, g, { type: 'activate', card: rampager.id, targets: [card(piker)] });
+    expect(byName(g, 0, 'Ghor-Clan Rampager', 'graveyard')).toBeDefined();
+    for (let i = 0; i < 10 && g.stack.length; i++) g = runWith({ autoPass: false }, g, pass);
+    const after = stats(g, byName(g, 0, 'Goblin Piker')!);
+    expect([after.power, after.toughness, after.keywords.has('trample')]).toEqual([6, 5, true]);
+  });
+
+  it("Domri's Ambush: a counter, then damage equal to the creature's power", () => {
+    let g = emptyGame((d) => {
+      put(d, 0, 'Goblin Piker');
+      put(d, 0, 'Mountain');
+      put(d, 0, 'Forest');
+      put(d, 0, "Domri's Ambush", 'hand');
+      put(d, 1, 'Serra Angel');
+    });
+    g = cast(g, 0, "Domri's Ambush", { targets: [card(byName(g, 0, 'Goblin Piker')!), card(byName(g, 1, 'Serra Angel')!)] });
+    expect(byName(g, 0, 'Goblin Piker')!.counters['+1/+1']).toBe(1);
+    expect(byName(g, 1, 'Serra Angel')!.damage).toBe(3); // the Piker is 3/2 now
+  });
+
+  it('Decimate needs all four targets, and one object may be two of them (115.3)', () => {
+    let g = emptyGame((d) => {
+      put(d, 0, 'Mountain', 'battlefield', 2);
+      put(d, 0, 'Forest', 'battlefield', 2);
+      put(d, 0, 'Decimate', 'hand');
+      put(d, 1, 'Solemn Simulacrum');
+    });
+    const decimate = byName(g, 0, 'Decimate', 'hand')!;
+    const golem = byName(g, 1, 'Solemn Simulacrum')!;
+    expect(canCast(g, 0, decimate)).toBe(false); // no enchantment to target
+    g = produce(g, (d) => {
+      put(d, 1, 'Glorious Anthem');
+      put(d, 1, 'Plains');
+    });
+    const anthem = byName(g, 1, 'Glorious Anthem')!;
+    const land = byName(g, 1, 'Plains')!;
+    expect(canCast(g, 0, decimate)).toBe(true);
+    g = cast(g, 0, 'Decimate', { targets: [card(golem), card(golem), card(anthem), card(land)] });
+    expect([byName(g, 1, 'Solemn Simulacrum', 'graveyard'), byName(g, 1, 'Glorious Anthem', 'graveyard'), byName(g, 1, 'Plains', 'graveyard')].every(Boolean)).toBe(true);
+  });
+
+  it("ferocious: Crater's Claws deals X plus 2, Temur Battle Rage adds trample, Shamanic Revelation gains life", () => {
+    let g = emptyGame((d) => {
+      put(d, 0, 'Mountain', 'battlefield', 6);
+      put(d, 0, 'Forest', 'battlefield', 5);
+      put(d, 0, 'Goblin Piker');
+      put(d, 0, "Crater's Claws", 'hand');
+      put(d, 0, 'Temur Battle Rage', 'hand');
+      put(d, 0, 'Shamanic Revelation', 'hand');
+    });
+    g = cast(g, 0, "Crater's Claws", { x: 2, targets: [player(1)] });
+    expect(g.players[1].life).toBe(38);
+    g = cast(g, 0, 'Temur Battle Rage', { targets: [card(byName(g, 0, 'Goblin Piker')!)] });
+    expect([...stats(g, byName(g, 0, 'Goblin Piker')!).keywords].sort()).toEqual(['double strike']);
+    g = produce(g, (d) => void put(d, 0, 'Colossal Dreadmaw'));
+    g = cast(g, 0, 'Shamanic Revelation');
+    expect(g.players[0].hand).toHaveLength(2);
+    expect(g.players[0].life).toBe(44);
+  });
+
+  it('Dragonmaster Outcast: a Dragon each upkeep only with six or more lands (603.4)', () => {
+    const upkeep = (lands: number) => {
+      let g = emptyGame((d) => {
+        put(d, 0, 'Dragonmaster Outcast');
+        put(d, 0, 'Mountain', 'battlefield', lands);
+        d.step = 'end';
+      });
+      for (let i = 0; i < 40 && !(g.active === 0 && g.step === 'main1' && g.turn > 1); i++) g = run(g, pass);
+      return tokens(g, 0, 'Dragon 5/5 flying').length;
+    };
+    expect(upkeep(5)).toBe(0);
+    expect(upkeep(6)).toBe(1);
+  });
+
+  it('Verix Bladewing makes Karox only if kicked; Dragonlord\'s Servant makes Dragons cheaper', () => {
+    let g = emptyGame((d) => {
+      put(d, 0, 'Mountain', 'battlefield', 6);
+      put(d, 0, "Dragonlord's Servant");
+      put(d, 0, 'Verix Bladewing', 'hand');
+    });
+    expect(castCost(g, byName(g, 0, 'Verix Bladewing', 'hand')!).generic).toBe(1);
+    g = cast(g, 0, 'Verix Bladewing', { kicked: 1 });
+    expect(tokens(g, 0, 'Karox Bladewing')).toHaveLength(1);
+    let h = emptyGame((d) => {
+      put(d, 0, 'Mountain', 'battlefield', 4);
+      put(d, 0, 'Verix Bladewing', 'hand');
+    });
+    h = cast(h, 0, 'Verix Bladewing');
+    expect(tokens(h, 0, 'Karox Bladewing')).toHaveLength(0);
+  });
+
+  it('Raging Swordtooth deals 1 damage to each other creature', () => {
+    let g = emptyGame((d) => {
+      put(d, 0, 'Mountain', 'battlefield', 3);
+      put(d, 0, 'Forest', 'battlefield', 2);
+      put(d, 0, 'Raging Swordtooth', 'hand');
+      put(d, 0, 'Llanowar Elves');
+      put(d, 1, 'Serra Angel');
+    });
+    g = cast(g, 0, 'Raging Swordtooth');
+    expect(byName(g, 0, 'Llanowar Elves', 'graveyard')).toBeDefined();
+    expect(byName(g, 1, 'Serra Angel')!.damage).toBe(1);
+    expect(byName(g, 0, 'Raging Swordtooth')!.damage).toBe(0);
+  });
+
+  it('Return of the Wildspeaker counts only non-Human creatures', () => {
+    let g = emptyGame((d) => {
+      put(d, 0, 'Forest', 'battlefield', 5);
+      put(d, 0, 'Goblin Piker'); // a Goblin Warrior: 2/1
+      put(d, 0, 'Halana and Alena, Partners'); // Humans: not counted
+      put(d, 0, 'Return of the Wildspeaker', 'hand');
+    });
+    g = cast(g, 0, 'Return of the Wildspeaker', { modes: [0] });
+    expect(g.players[0].hand).toHaveLength(2);
+  });
+
+  it("Trostani, Selesnya's Voice: life equal to toughness; populate copies the token you choose (701.36)", () => {
+    let g = emptyGame((d) => {
+      put(d, 0, "Trostani, Selesnya's Voice");
+      put(d, 0, 'Forest', 'battlefield', 5);
+      put(d, 0, 'Plains', 'battlefield', 4);
+      put(d, 0, 'Call of the Conclave', 'hand');
+      put(d, 0, 'Advent of the Wurm', 'hand');
+    });
+    const trostani = byName(g, 0, "Trostani, Selesnya's Voice")!;
+    expect(canActivate(g, 0, trostani)).toBe(true); // with no token, populate does nothing (701.36b)
+    g = cast(g, 0, 'Call of the Conclave');
+    expect(g.players[0].life).toBe(43);
+    g = cast(g, 0, 'Advent of the Wurm');
+    expect(g.players[0].life).toBe(48);
+    g = run(g, { type: 'activate', card: trostani.id });
+    expect(asking(g)?.kind).toBe('pick');
+    g = run(g, choose(tokens(g, 0, 'Wurm 5/5 trample')[0]));
+    expect(tokens(g, 0, 'Wurm 5/5 trample')).toHaveLength(2);
+    expect(g.players[0].life).toBe(53);
+  });
+
+  it('populate copies a token that is itself a copy, and needs no choice when the tokens are alike', () => {
+    let g = emptyGame((d) => {
+      put(d, 0, 'Plains', 'battlefield', 3);
+      put(d, 0, 'Rootborn Defenses', 'hand');
+      createToken(d, 0, 'Soldier', 2);
+    });
+    g = cast(g, 0, 'Rootborn Defenses');
+    expect(tokens(g, 0, 'Soldier')).toHaveLength(3);
+    // Every creature, the new token too, is indestructible (populate comes first).
+    expect(tokens(g, 0, 'Soldier').every((c) => stats(g, c).keywords.has('indestructible'))).toBe(true);
+    // Two kinds of token: the player chooses, then the rest of the spell happens.
+    let h = emptyGame((d) => {
+      put(d, 0, 'Plains', 'battlefield', 3);
+      put(d, 0, 'Rootborn Defenses', 'hand');
+      createToken(d, 0, 'Soldier');
+      createToken(d, 0, 'Centaur')[0].copy = { name: 'Serra Angel', face: 0, subtypes: [], keywords: [] };
+    });
+    h = cast(h, 0, 'Rootborn Defenses');
+    const copy = h.players[0].battlefield.find((c) => c.copy?.name === 'Serra Angel')!;
+    h = run(h, choose(copy));
+    const angels = h.players[0].battlefield.filter((c) => c.copy?.name === 'Serra Angel');
+    expect(angels).toHaveLength(2);
+    expect(stats(h, angels[1]).keywords.has('flying')).toBe(true);
+    expect(stats(h, angels[1]).keywords.has('indestructible')).toBe(true);
+  });
+
+  it('Scion of Vitu-Ghazi: a Bird and populate only when cast from the hand', () => {
+    let g = emptyGame((d) => {
+      put(d, 0, 'Plains', 'battlefield', 5);
+      put(d, 0, 'Scion of Vitu-Ghazi', 'hand');
+    });
+    g = cast(g, 0, 'Scion of Vitu-Ghazi');
+    expect(tokens(g, 0, 'Bird 1/1 flying')).toHaveLength(2);
+    const h = produce(emptyGame(), (d) => {
+      const c = put(d, 0, 'Scion of Vitu-Ghazi', 'hand');
+      moveCard(d, c, 'battlefield');
+    });
+    expect(tokens(h, 0, 'Bird 1/1 flying')).toHaveLength(0);
+  });
+
+  it('Trostani Discordant: +1/+1 to others, two Soldiers, and creatures go home at your end step', () => {
+    let g = emptyGame((d) => {
+      put(d, 0, 'Forest', 'battlefield', 3);
+      put(d, 0, 'Plains', 'battlefield', 2);
+      put(d, 0, 'Trostani Discordant', 'hand');
+      const borrowed = put(d, 1, 'Serra Angel');
+      d.players[1].battlefield.pop();
+      borrowed.controller = 0;
+      d.players[0].battlefield.push(borrowed);
+    });
+    g = cast(g, 0, 'Trostani Discordant');
+    const soldiers = tokens(g, 0, 'Soldier 1/1 lifelink');
+    expect(soldiers.map((c) => stats(g, c).power)).toEqual([2, 2]);
+    expect(stats(g, byName(g, 0, 'Trostani Discordant')!).power).toBe(1);
+    for (let i = 0; i < 20 && g.step !== 'cleanup' && g.active === 0; i++) g = run(g, pass);
+    expect(byName(g, 1, 'Serra Angel')).toBeDefined();
+  });
+
+  it('Selesnya Charm exiles only a creature with power 5 or greater; Unflinching Courage', () => {
+    let g = emptyGame((d) => {
+      put(d, 0, 'Forest', 'battlefield', 3);
+      put(d, 0, 'Plains', 'battlefield', 2);
+      put(d, 0, 'Selesnya Charm', 'hand');
+      put(d, 0, 'Unflinching Courage', 'hand');
+      put(d, 0, 'Llanowar Elves');
+      put(d, 1, 'Serra Angel');
+      put(d, 1, 'Colossal Dreadmaw');
+    });
+    const charm = byName(g, 0, 'Selesnya Charm', 'hand')!;
+    expect(applyAction(g, { type: 'cast', card: charm.id, modes: [1], targets: [card(byName(g, 1, 'Serra Angel')!)] })).toBe(g);
+    g = cast(g, 0, 'Selesnya Charm', { modes: [1], targets: [card(byName(g, 1, 'Colossal Dreadmaw')!)] });
+    expect(byName(g, 1, 'Colossal Dreadmaw', 'exile')).toBeDefined();
+    g = cast(g, 0, 'Unflinching Courage', { targets: [card(byName(g, 0, 'Llanowar Elves')!)] });
+    const elves = stats(g, byName(g, 0, 'Llanowar Elves')!);
+    expect([elves.power, elves.toughness, elves.keywords.has('trample'), elves.keywords.has('lifelink')]).toEqual([3, 3, true, true]);
+  });
+
+  it('Growing Ranks populates at the beginning of your upkeep', () => {
+    let g = emptyGame((d) => {
+      put(d, 0, 'Growing Ranks');
+      createToken(d, 0, 'Centaur');
+      d.step = 'end';
+    });
+    for (let i = 0; i < 40 && !(g.active === 0 && g.step === 'main1' && g.turn > 1); i++) g = run(g, pass);
+    expect(tokens(g, 0, 'Centaur')).toHaveLength(2);
+  });
+
+  it('a bot sacrifices its least valuable creature and discards the card it wants least', () => {
+    let g = emptyGame((d) => {
+      put(d, 0, 'Butcher of Malakir');
+      put(d, 0, 'Goblin Piker');
+      put(d, 0, 'Swamp');
+      put(d, 0, 'Village Rites', 'hand');
+      put(d, 1, 'Serra Angel');
+      put(d, 1, 'Llanowar Elves');
+    });
+    g = cast(g, 0, 'Village Rites', { sacrifice: [byName(g, 0, 'Goblin Piker')!.id] });
+    for (let i = 0; i < 20 && asking(g)?.kind === 'pick' && g.priority === 1; i++) g = applyBotAction(g, botAction(g, 1));
+    expect(byName(g, 1, 'Serra Angel')).toBeDefined();
+    expect(byName(g, 1, 'Llanowar Elves', 'graveyard')).toBeDefined();
   });
 });

@@ -19,7 +19,7 @@ const HEADERS = {
 };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-const names = new Set(lists.shared);
+const names = new Set();
 for (const d of lists.decks) {
   d.commanders.forEach((n) => names.add(n));
   Object.keys(d.basics).forEach((n) => names.add(n));
