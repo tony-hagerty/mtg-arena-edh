@@ -192,7 +192,7 @@ function targetChoices(g: Game, pid: PlayerId, specs: TargetSpec[], source: Card
   let combos: (TargetRef | null)[][] = [[]];
   for (const spec of specs) {
     // With several targets to choose, fewer options each, so the combinations stay few.
-    const legal: (TargetRef | null)[] = shortlist(g, pid, legalTargets(g, pid, spec, source), specs.length > 1 ? 5 : Infinity);
+    const legal: (TargetRef | null)[] = shortlist(g, pid, legalTargets(g, pid, spec, source), specs.length > 1 ? 4 : 6);
     if (spec.optional || legal.length === 0) legal.push(null);
     // A target that must differ from an earlier one can't repeat it (115.3).
     const fits = (c: (TargetRef | null)[], t: TargetRef | null) => {
@@ -235,9 +235,9 @@ function castChoices(g: Game, pid: PlayerId, c: Card): CastChoices[] {
         ways.push({ alt, ...(pitch.length ? { exile: [pitch[0].id] } : {}), ...(altSac.length ? { sacrifice: [altSac[0].id] } : {}) });
       }
     }
-    // The additional cost's sacrifice: the two least valuable, or none if it is optional (bargain).
+    // The additional cost's sacrifice: the least valuable, or none if it is optional (bargain).
     const extra = script.additionalCost
-      ? [...(script.additionalCost.optional ? [undefined] : []), ...cheapest(sacrificeOptions(g, pid, c, face)).slice(0, 2).map((x) => x.id)]
+      ? [...(script.additionalCost.optional ? [undefined] : []), ...cheapest(sacrificeOptions(g, pid, c, face)).slice(0, 1).map((x) => x.id)]
       : [undefined];
     const gifts = script.gift ? [undefined, ...opponentsOf(g, pid).map((o) => o.id)] : [undefined];
     const modeSets = script.modal ? modeChoices(g, pid, c, face) : [undefined];
