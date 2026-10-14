@@ -22,6 +22,7 @@ import {
   label,
   legalTargets,
   maxX,
+  modeChoices,
   opponentsOf,
   parseCost,
   permanent,
@@ -54,6 +55,8 @@ export interface View {
   /** The human's permanents that a click taps for mana, or untaps to take the mana back. */
   mana: Set<string>;
   targetPlayers: Set<PlayerId>;
+  /** Spells and abilities on the stack the human can target now, by stack item id. */
+  targetStack: Set<string>;
   attackTarget: PlayerId | null;
   /** The spell or ability the human is deciding whether to pay for (shown by the stack). */
   paying: { card: Card; kind: 'spell' | 'ability' } | null;
@@ -74,6 +77,8 @@ export interface Announce {
   kicker: { text: string; most: number } | null;
   /** The mana cost (alt undefined) and each available alternative cost, and whether each can be paid now. */
   costs: { alt: number | undefined; label: string; payable: boolean }[];
+  /** A modal spell's modes (700.2): how many to choose, and each mode's text, times picked and whether it can be picked. */
+  modal: { min: number; max: number; repeat: boolean; modes: { text: string; picked: number; ok: boolean }[]; valid: boolean } | null;
 }
 
 export const STEP_NAMES: Record<Step, string> = {
@@ -135,9 +140,21 @@ function announceOf(g: Game, me: PlayerId, card: Card, choices: CastChoices): An
   const hasX = parseCost(choices.alt === undefined ? data(card).manaCost : script.alternativeCosts![choices.alt].mana).x > 0;
   let most = 0;
   if (script.kicker) while (most < (script.kicker.multi ? 20 : 1) && planPayment(g, me, castCost(g, card, { ...choices, x: 0, kicked: most + 1 }))) most++;
+  const modal = script.modal;
+  const sets = modal ? modeChoices(g, me, card) : [];
+  const modes = choices.modes ?? [];
   return {
     card,
     choices,
+    modal: modal
+      ? {
+          min: modal.min,
+          max: modal.max,
+          repeat: !!modal.repeat,
+          modes: modal.modes.map((m, i) => ({ text: m.text, picked: modes.filter((x) => x === i).length, ok: sets.some((set) => set.includes(i)) })),
+          valid: sets.some((set) => set.join() === modes.join()),
+        }
+      : null,
     maxX: hasX ? Math.max(0, maxX(g, me, card, { ...choices, x: 0 })) : null,
     kicker: script.kicker ? { text: costText(parseCost(script.kicker.mana)), most } : null,
     costs: [undefined, ...altCostsOf(g, card)].map((alt) => ({
@@ -175,6 +192,7 @@ export function buildView(): View {
     glow: new Map(),
     mana: new Set(),
     targetPlayers: new Set(),
+    targetStack: new Set(),
     attackTarget: null,
     paying: null,
     announce: null,
@@ -211,7 +229,8 @@ export function buildView(): View {
     view.glow.set(card.id, 'picked');
     view.announce = announceOf(g, me, card, t.choices);
     view.prompt = `Choose how to cast ${label(card)}: ${text}.`;
-    view.primary = { label: 'Continue', sub: `Cast ${label(card)}`, tone: 'go', disabled: !planPayment(g, me, castCost(g, card, t.choices)), onClick: confirmAnnounce };
+    const ready = !!planPayment(g, me, castCost(g, card, t.choices)) && (!view.announce.modal || view.announce.modal.valid);
+    view.primary = { label: 'Continue', sub: `Cast ${label(card)}`, tone: 'go', disabled: !ready, onClick: confirmAnnounce };
     view.secondary = { label: 'Cancel', tone: 'cancel', onClick: cancel };
     return view;
   }
@@ -252,6 +271,7 @@ export function buildView(): View {
     const spec = t.specs[t.chosen.length];
     for (const ref of currentTargets(g, me, t)) {
       if (ref.kind === 'card') view.glow.set(ref.id, 'target');
+      else if (ref.kind === 'stack') view.targetStack.add(ref.id);
       else view.targetPlayers.add(ref.id);
     }
     const source = sourceOf(g, t);
@@ -393,7 +413,7 @@ function propose(mode: 'cast' | 'activate', card: Card) {
   // Start from a way that can be paid: the mana cost if it can, else the first alternative.
   const alt = planPayment(g, me, castCost(g, card)) ? undefined : alts.find((i) => planPayment(g, me, castCost(g, card, { alt: i })));
   const choices: CastChoices = { alt, x: hasX && alt === undefined ? Math.max(0, maxX(g, me, card, { alt })) : 0, kicked: 0 };
-  const announcing = mode === 'cast' && (hasX || !!script.kicker || alts.length > 0);
+  const announcing = mode === 'cast' && (hasX || !!script.kicker || alts.length > 0 || !!script.modal);
   advance({ mode, cardId: card.id, specs, chosen: [], tapped: [], choices, announcing });
 }
 
@@ -409,10 +429,31 @@ export function setChoices(change: CastChoices) {
   useStore.setState({ targeting: { ...t, choices } });
 }
 
-/** Done announcing: on to targets (601.2c). */
+/**
+ * Picks a mode of a modal spell, or another copy of it if the spell allows repeats
+ * (700.2d); `-1` takes one back. Picking past the most allowed drops the first mode
+ * picked, so "choose one" works like radio buttons.
+ */
+export function pickMode(i: number, delta: 1 | -1 = 1) {
+  const t = S().targeting;
+  const g = S().game;
+  if (!t || !t.announcing || !g) return;
+  const modal = scriptOf(findCard(g, t.cardId)!.name).modal!;
+  let modes = [...(t.choices.modes ?? [])];
+  if (delta < 0) modes.splice(modes.indexOf(i), 1);
+  else if (!modal.repeat && modes.includes(i)) modes = modes.filter((x) => x !== i);
+  else {
+    if (modes.length >= modal.max) modes.shift();
+    modes.push(i);
+  }
+  setChoices({ modes: [...modes].sort((a, b) => a - b) });
+}
+
+/** Done announcing: on to targets, which depend on the modes chosen (601.2c, 700.2c). */
 function confirmAnnounce() {
   const t = S().targeting;
-  if (t) advance({ ...t, announcing: false });
+  const g = S().game;
+  if (t && g) advance({ ...t, announcing: false, specs: castTargets(findCard(g, t.cardId)!, t.choices.modes) });
 }
 
 /**
@@ -440,7 +481,9 @@ function advance(t: Targeting) {
 function pay() {
   const t = S().targeting;
   if (!t || !isPaying(t) || t.mode === 'trigger') return;
-  const action = t.mode === 'cast' ? { type: t.mode, card: t.cardId, targets: t.chosen, ...t.choices } : { type: t.mode, card: t.cardId, targets: t.chosen };
+  const hold = S().hold;
+  useStore.setState({ hold: false });
+  const action = t.mode === 'cast' ? { type: t.mode, card: t.cardId, targets: t.chosen, hold, ...t.choices } : { type: t.mode, card: t.cardId, targets: t.chosen, hold };
   if (!S().act(action)) cancel();
 }
 
@@ -479,7 +522,7 @@ function chooseTarget(ref: TargetRef | null) {
 export function cancel() {
   const t = S().targeting;
   for (const id of [...(t?.tapped ?? [])].reverse()) S().act({ type: 'untapMana', card: id });
-  useStore.setState({ targeting: null, pickedBlockers: [] });
+  useStore.setState({ targeting: null, pickedBlockers: [], hold: false });
 }
 
 function myTurnToAct(): { g: Game; me: PlayerId } | null {
@@ -607,6 +650,11 @@ export function clickGroup(cards: Card[]) {
     if (untappable.length) return untappable.forEach((c) => S().act({ type: 'untapMana', card: c.id }));
   }
   clickPermanent(top);
+}
+
+/** A click on a spell or ability on the stack: it is a target if one is being chosen. */
+export function clickStackItem(id: string) {
+  if (targetingOf(S())) chooseTarget({ kind: 'stack', id });
 }
 
 export function clickPlayer(pid: PlayerId) {
