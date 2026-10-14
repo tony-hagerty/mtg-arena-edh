@@ -1,10 +1,19 @@
 // Real cards that aren't in the card pool yet, with scripts, so tests can try out rules
 // the pool doesn't use: X, hybrid, Phyrexian, kicker, sacrifice and alternative costs,
-// cost changes, counterspells, modal spells and copying spells. Importing this file registers them. Their data is typed in by hand
+// cost changes, counterspells, modal spells, copying spells, counters, Auras, Equipment
+// and Vehicles. Importing this file registers them. Their data is typed in by hand
 // (Scryfall can't be reached from every machine), without images.
 import { registerCards } from '../src/cards/db';
 import {
+  CANT_ATTACK,
+  CANT_BLOCK,
+  addCounters,
   allCreatures,
+  attachedBonus,
+  crew,
+  equip,
+  permanent,
+  shuffle,
   battlefield,
   copySpell,
   counter,
@@ -69,6 +78,18 @@ registerCards({
   'Cryptic Command': card('Cryptic Command', '{1}{U}{U}{U}', 4, ['U'], 'Instant', 'Choose two —\n• Counter target spell.\n• Return target permanent to its owner\'s hand.\n• Tap all creatures your opponents control.\n• Draw a card.'),
   'Boros Charm': card('Boros Charm', '{R}{W}', 2, ['R', 'W'], 'Instant', 'Choose one —\n• Boros Charm deals 4 damage to target player or planeswalker.\n• Permanents you control gain indestructible until end of turn.\n• Target creature gains double strike until end of turn.'),
   'Fiery Confluence': card('Fiery Confluence', '{2}{R}{R}', 4, ['R'], 'Sorcery', 'Choose three. You may choose the same mode more than once.\n• Fiery Confluence deals 1 damage to each creature.\n• Fiery Confluence deals 2 damage to each opponent.\n• Destroy target artifact.'),
+  Pacifism: card('Pacifism', '{1}{W}', 2, ['W'], 'Enchantment — Aura', "Enchant creature\nEnchanted creature can't attack or block.", { keywords: ['Enchant'] }),
+  'Holy Strength': card('Holy Strength', '{W}', 1, ['W'], 'Enchantment — Aura', 'Enchant creature\nEnchanted creature gets +1/+2.', { keywords: ['Enchant'] }),
+  Bonesplitter: card('Bonesplitter', '{1}', 1, [], 'Artifact — Equipment', 'Equipped creature gets +2/+0.\nEquip {1}', { keywords: ['Equip'] }),
+  'Loxodon Warhammer': card('Loxodon Warhammer', '{3}', 3, [], 'Artifact — Equipment', 'Equipped creature gets +3/+0 and has trample and lifelink.\nEquip {3}', {
+    keywords: ['Equip'],
+  }),
+  'Untethered Express': card('Untethered Express', '{4}', 4, [], 'Legendary Artifact — Vehicle', 'Trample\nWhenever Untethered Express attacks, put a +1/+1 counter on it.\nCrew 1', {
+    power: '4',
+    toughness: '4',
+    keywords: ['Trample', 'Crew'],
+  }),
+  "Black Sun's Zenith": card("Black Sun's Zenith", '{X}{B}{B}', 2, ['B'], 'Sorcery', "Put X -1/-1 counters on each creature. Shuffle Black Sun's Zenith into its owner's library."),
   Reverberate: card('Reverberate', '{R}{R}', 2, ['R'], 'Instant', 'Copy target instant or sorcery spell. You may choose new targets for the copy.'),
 });
 
@@ -190,6 +211,21 @@ registerScripts({
   Reverberate: {
     targets: [{ type: 'spell', label: 'target instant or sorcery spell', filter: (_g, c) => hasType(c, 'Instant') || hasType(c, 'Sorcery') }],
     onResolve: (g, { you, targets }) => copySpell(g, targets[0], you),
+  },
+  Pacifism: {
+    enchant: { type: 'creature', label: 'target creature' },
+    static: attachedBonus({ keywords: [CANT_ATTACK, CANT_BLOCK] }),
+  },
+  'Holy Strength': { enchant: { type: 'creature', label: 'target creature' }, static: attachedBonus({ power: 1, toughness: 2 }) },
+  Bonesplitter: { static: attachedBonus({ power: 2 }), activated: equip('{1}') },
+  'Loxodon Warhammer': { static: attachedBonus({ power: 3, keywords: ['trample', 'lifelink'] }), activated: equip('{3}') },
+  'Untethered Express': { onAttack: (g, { self }) => addCounters(g, permanent(g, self.id)), activated: crew(1) },
+  "Black Sun's Zenith": {
+    onResolve: (g, { self }) => {
+      for (const c of allCreatures(g)) addCounters(g, c, self.cast?.x ?? 0, '-1/-1');
+      moveCard(g, self, 'library');
+      shuffle(g, g.players[self.owner].library);
+    },
   },
   'Ruby Medallion': { costModifier: (_g, self, spell, caster) => (caster === self.owner && isColor(spell, 'R') ? -1 : 0) },
 });

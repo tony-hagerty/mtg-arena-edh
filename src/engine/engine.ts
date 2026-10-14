@@ -42,6 +42,7 @@ import {
   permanent,
   planPayment,
   rand,
+  refCard,
   refCards,
   returnCommander,
   sameRef,
@@ -354,15 +355,26 @@ export function maxX(g: Game, pid: PlayerId, c: Card, choices: CastChoices = {})
 
 export function canActivate(g: Game, pid: PlayerId, c: Card): boolean {
   const ab = scriptOf(c.name).activated;
-  if (!ab || c.owner !== pid || c.zone !== 'battlefield' || !timingOk(g, pid, true)) return false;
+  if (!ab || c.owner !== pid || c.zone !== 'battlefield' || !timingOk(g, pid, !ab.sorcery)) return false;
   // A summoning-sick creature can't pay a tap cost (302.6).
   if (ab.cost.tap && (c.tapped || (isCreature(c) && c.sick && !has(g, c, 'haste')))) return false;
+  if (ab.cost.crew && crewPower(g, pid, c, crewOptions(g, pid, c)) < ab.cost.crew) return false;
   if (ab.cost.mana && !planPayment(g, pid, parseCost(ab.cost.mana))) return false;
   for (const spec of ab.targets ?? []) {
     if (!spec.optional && legalTargets(g, pid, spec, c).length === 0) return false;
   }
   return true;
 }
+
+/**
+ * Creatures that could crew Vehicle `v`: other untapped creatures `pid` controls. Summoning
+ * sickness doesn't stop a creature from crewing: crew taps it as a cost of the Vehicle's
+ * ability, not its own {T} ability (702.122a).
+ */
+export const crewOptions = (g: Game, pid: PlayerId, v: Card) => creaturesOf(g, pid).filter((c) => c.id !== v.id && !c.tapped);
+
+/** Total power of some crew. */
+export const crewPower = (g: Game, _pid: PlayerId, _v: Card, cards: Card[]) => cards.reduce((n, c) => n + Math.max(0, stats(g, c).power), 0);
 
 /** Every slot has a legal target, or is an optional one left empty. */
 function targetsOk(g: Game, pid: PlayerId, c: Card, specs: TargetSpec[], targets: (TargetRef | null)[]) {
@@ -702,7 +714,12 @@ function resolveTop(g: Game) {
   if (fizzled) log(g, `${label(card)} has no legal target left and does nothing.`, controller, [card]);
 
   if (item.kind === 'spell') {
-    if (isPermanentCard(card)) {
+    if (script.enchant) {
+      // An Aura whose target has gone is put into its owner's graveyard (608.3b, 303.4g).
+      const host = refCard(g, targets[0]);
+      if (host) enterBattlefield(g, card, { attachTo: host.id });
+      else moveCard(g, card, 'graveyard');
+    } else if (isPermanentCard(card)) {
       enterBattlefield(g, card); // 608.3
     } else if (!fizzled && script.modal) {
       // Each chosen mode in printed order, with its own share of the targets (700.2).
@@ -849,8 +866,16 @@ function act(g: Game, a: Action): boolean {
       const specs = ab.targets ?? [];
       const targets = specs.map((_, i) => a.targets?.[i] ?? null);
       if (!targetsOk(g, pid, c, specs, targets)) return false;
+      // Crew: the chosen creatures must be able to crew and have enough power (702.122a).
+      const crewing = (a.crew ?? []).map((id) => crewOptions(g, pid, c).find((x) => x.id === id));
+      if (ab.cost.crew) {
+        if (crewing.some((x) => !x) || new Set(a.crew).size !== crewing.length) return false;
+        if (crewPower(g, pid, c, crewing as Card[]) < ab.cost.crew) return false;
+      } else if (crewing.length) return false;
       if (ab.cost.mana) pay(g, pid, parseCost(ab.cost.mana));
       if (ab.cost.tap) c.tapped = true;
+      for (const x of crewing) x!.tapped = true;
+      if (crewing.length) log(g, `${crewing.map((x) => label(x!)).join(' and ')} crew${crewing.length === 1 ? 's' : ''} ${label(c)}.`, pid, [...(crewing as Card[]), c]);
       // The ability goes on the stack as its own object, apart from its source (602.2a).
       const item: StackItem = { id: `s${g.nextId++}`, kind: 'activated', controller: pid, card: snapshot(c), targets };
       const chosen = targets.filter((t): t is TargetRef => !!t).map((t) => describeRef(g, t));
