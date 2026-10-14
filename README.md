@@ -13,6 +13,9 @@ npm run build    # type-check and production build
 ## How to play
 
 - Pick a deck on the menu (or "watch four bots play").
+- **Mulligan:** before the first turn you see your seven cards. Press **Keep**, or
+  **Mulligan** to shuffle them away and draw seven new ones. Your first mulligan is free;
+  after that you pick one card per extra mulligan to put on the bottom of your library.
 - **Glowing cyan** cards can be played. Drag one from your hand up toward the table and let
   go to play a land or cast a spell. Mana is tapped for you (auto-pay, like Arena).
 - To pay by hand, click your lands and mana rocks to tap them: the mana shows in a pill
@@ -50,6 +53,12 @@ npm run build    # type-check and production build
   one attacker, click the attacker next.
 - "When this enters" abilities that need a target ask for it once the creature is on the
   battlefield. That choice can't be cancelled: the ability has already triggered.
+- **Searching your library** (Rampant Growth, Cultivate, Path to Exile, ...) opens your whole
+  library. Cards you could find glow; click one and press **Choose**, or **Find Nothing**.
+- When two or more of your triggered abilities happen at once, you choose their order:
+  the one on the left resolves first. Use the arrows to move them.
+- These windows can't be closed, since the game is waiting on you, but **View table**
+  folds one away so you can look at the board.
 - `Space` / `Enter` = the big button. `Esc` = cancel.
 - Click a graveyard or exile pile to look through it. Hover any card for a full-size view.
 - Drag a card sideways in your hand to rearrange it. The order is only for you: it never
@@ -72,6 +81,13 @@ Rule numbers below are from the Comprehensive Rules in `docs/rules/`.
   are all gone does nothing. Mana abilities and playing a land don't use the stack.
 - Triggered abilities (603): they trigger when the event happens, go on the stack the
   next time a player would get priority (active player's first), and choose targets then.
+  You choose the order of your own that go on together (603.3b); bots keep the order they
+  triggered in.
+- Mulligans (103.5): players declare in turn order from the starting player, then
+  everyone who chose to mulligan does so at once and puts cards on the bottom. The first
+  mulligan is free in multiplayer (103.5c). Bots keep a hand with 2 to 5 lands.
+- Searching a library (701.23): the player looks at every card and picks a valid one, or
+  may find nothing (701.23b). The spell stays on the stack until the choice is made.
 - State-based actions (704) are checked every time a player would get priority.
 - Timing: instants, flash and abilities any time you have priority; everything else, and
   lands, only in your own main phase with the stack empty.
@@ -93,15 +109,15 @@ These are deliberate cuts for a prototype, roughly in the order I'd tackle them 
   passes them in `applyAction(g, a, { stops })`). Bots always use the defaults. The
   engine itself follows the rules: `applyAction(g, a, { autoPass: false })` asks every
   player every time.
-- **A player's triggers go on the stack in the order they triggered.** The rules let the
-  player choose (603.3b).
 - **No priority in the cleanup step.** An ability that triggers there waits for the next
   upkeep instead (514.3a). No card in the pool can trigger then.
 - **A card keeps its identity when it changes zones.** By the rules it becomes a new
   object (400.7), so a spell aimed at a creature that left and came back should miss it.
 - **Decks are 60 cards, not 100** (commander + 59, singleton apart from basics).
   Lists live in `src/cards/decklists.json`.
-- No mulligans, no planeswalkers, no equipment/auras, no X spells, no counterspells.
+- No planeswalkers, no equipment/auras, no X spells, no counterspells.
+- Cultivate asks for its two lands one at a time (battlefield, then hand), not as one pick
+  of two. It is still one search with one shuffle (701.23h).
 - Combat damage is assigned automatically (lethal to each blocker in order).
 - Optional "you may" effects always happen when they are free upside, and a commander
   always goes back to the command zone.
@@ -119,6 +135,7 @@ src/engine/     types.ts              game state, actions, card-script types
 src/ui/         store.ts              Zustand store (game + what the player is selecting)
                 view.ts               highlights, prompt, buttons, click handlers
                 Card/Board/Hud.tsx    components
+                Picker.tsx            card picker: search, mulligan, bottom, trigger order
                 styles.css            all styling
 tests/                                Vitest: card coverage, rules, bot-vs-bot games
 docs/rules/     INDEX.md              official Comprehensive Rules, one file per rule
@@ -139,7 +156,10 @@ Three ideas hold it together:
 
 `Game.priority` is always the player the game is waiting on. If `Game.decision` is null
 they have priority and can cast, activate or pass. Otherwise they are making that
-decision: declaring attackers or blockers, discarding, or choosing targets for a trigger.
+decision: a mulligan, declaring attackers or blockers, discarding, choosing targets for a
+trigger, ordering their triggers, or picking cards from a list (`CardChoice`). A choice in
+the middle of a spell's effect, like a search, waits in `Game.choices` until the effect
+has run; the spell stays on the stack as `Game.resolving` until it is answered.
 
 ### Adding a card
 

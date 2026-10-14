@@ -1,5 +1,20 @@
+import { produce } from 'immer';
 import { describe, expect, it } from 'vitest';
-import { applyAction, availableMana, canCast, canPlayLand, defaultStops, stats } from '../src/engine';
+import {
+  applyAction,
+  applyBotAction,
+  availableMana,
+  botAction,
+  canCast,
+  canMulligan,
+  canPlayLand,
+  choiceOptions,
+  data,
+  defaultStops,
+  newGame,
+  stats,
+  turnOrder,
+} from '../src/engine';
 import type { ApplyOptions, Game, TurnStops } from '../src/engine';
 import { byName, emptyGame, onBattlefield, put, run, runWith } from './helpers';
 
@@ -545,5 +560,151 @@ describe('stops', () => {
   it('matches the defaults when no stops are given', () => {
     expect(defaultStops(0)[0]).toEqual({ main1: 'always', main2: 'ifAble', blockers: 'ifAble' });
     expect(defaultStops(0)[1]).toEqual({ attackers: 'ifAble', blockers: 'ifAble', end: 'ifAble' });
+  });
+});
+
+describe('searching a library (701.23)', () => {
+  /** Player 0 is the human, with a search spell to cast and a small library to search. */
+  const searchGame = (spell: string) =>
+    emptyGame((d) => {
+      d.players[0].isBot = false;
+      d.players[0].library = [];
+      put(d, 0, 'Forest', 'battlefield', 3);
+      put(d, 0, spell, 'hand');
+      put(d, 0, 'Kalonian Tusker', 'library');
+      put(d, 0, 'Forest', 'library', 2);
+      put(d, 0, 'Plains', 'library');
+    });
+  const cast = (g: Game, name: string) => run(g, { type: 'cast', card: byName(g, 0, name, 'hand')!.id });
+
+  it('shows the whole library and lets the player pick only a valid card', () => {
+    let g = cast(searchGame('Rampant Growth'), 'Rampant Growth');
+    expect([g.decision?.type, g.priority]).toEqual(['chooseCards', 0]);
+    // The spell is still resolving: it stays on the stack until the choice is made (608.2).
+    expect(g.stack.map((x) => x.card.name)).toEqual(['Rampant Growth']);
+    if (g.decision?.type !== 'chooseCards') throw new Error('no choice');
+    const { cards, valid, max } = choiceOptions(g, g.decision.choice);
+    expect(cards.map((c) => c.name)).toEqual(['Forest', 'Forest', 'Kalonian Tusker', 'Plains']);
+    expect(cards.filter((c) => valid.has(c.id)).map((c) => c.name)).toEqual(['Forest', 'Forest', 'Plains']);
+    expect(max).toBe(1);
+    expect(applyAction(g, { type: 'chooseCards', cards: [byName(g, 0, 'Kalonian Tusker', 'library')!.id] })).toBe(g);
+    const plains = byName(g, 0, 'Plains', 'library')!;
+    g = run(g, { type: 'chooseCards', cards: [plains.id] });
+    expect(byName(g, 0, 'Plains')!.tapped).toBe(true);
+    expect(g.players[0].library.length).toBe(3);
+    expect(g.players[0].graveyard.map((c) => c.name)).toEqual(['Rampant Growth']);
+    expect([g.stack, g.decision, g.priority]).toEqual([[], null, 0]);
+  });
+
+  it('may find nothing, even when a valid card is there (701.23b)', () => {
+    let g = cast(searchGame('Rampant Growth'), 'Rampant Growth');
+    g = run(g, { type: 'chooseCards', cards: [] });
+    expect(g.players[0].battlefield.length).toBe(3);
+    expect(g.players[0].library.length).toBe(4);
+    expect(g.log.at(-1)!.text).toMatch(/find nothing\.$/);
+  });
+
+  it('asks once per land for Cultivate: one to the battlefield, then one to hand', () => {
+    let g = cast(searchGame('Cultivate'), 'Cultivate');
+    const [first, second] = g.players[0].library.filter((c) => c.name === 'Forest');
+    g = run(g, { type: 'chooseCards', cards: [first.id] });
+    expect(g.decision?.type === 'chooseCards' && g.decision.choice).toMatchObject({ kind: 'search', to: 'hand', source: 'Cultivate' });
+    expect(g.stack.length).toBe(1);
+    g = run(g, { type: 'chooseCards', cards: [second.id] });
+    expect(byName(g, 0, 'Forest', 'hand')?.id).toBe(second.id);
+    expect(onBattlefield(g, first.id)).toBe(true);
+    expect(g.stack).toEqual([]);
+  });
+
+  it("lets a bot search too, for an opponent's Path to Exile", () => {
+    let g = emptyGame((d) => {
+      put(d, 0, 'Plains');
+      put(d, 0, 'Path to Exile', 'hand');
+      put(d, 1, 'Kalonian Tusker');
+    });
+    const tusker = byName(g, 1, 'Kalonian Tusker')!;
+    g = run(g, { type: 'cast', card: byName(g, 0, 'Path to Exile', 'hand')!.id, targets: [{ kind: 'card', id: tusker.id }] });
+    expect([g.decision?.type === 'chooseCards' && g.decision.choice.player, g.priority]).toEqual([1, 1]);
+    g = applyBotAction(g, botAction(g, 1));
+    expect(g.players[1].exile.map((c) => c.name)).toEqual(['Kalonian Tusker']);
+    expect(g.players[1].battlefield.map((c) => data(c).typeLine)).toEqual([expect.stringContaining('Basic Land')]);
+    expect([g.decision, g.stack]).toEqual([null, []]);
+  });
+});
+
+describe('mulligans (103.5)', () => {
+  it('asks each player in turn order from the starting player, then takes the mulligans together', () => {
+    let g = newGame({ seed: 7, humanDeck: null });
+    const [first, ...rest] = turnOrder(g, g.active);
+    expect([g.turn, g.decision?.type, g.priority]).toEqual([0, 'mulligan', first]);
+    const oldHand = g.players[first].hand.map((c) => c.id);
+    g = run(g, { type: 'mulligan' });
+    // Nothing happens until everyone has declared.
+    expect(g.players[first].hand.map((c) => c.id)).toEqual(oldHand);
+    g = run(g, { type: 'keep' }, { type: 'keep' }, { type: 'keep' });
+    // The first mulligan in a multiplayer game is free: seven new cards, none to the bottom (103.5c).
+    expect([g.decision?.type, g.priority]).toEqual(['mulligan', first]);
+    expect(g.players[first].hand.length).toBe(7);
+    expect(g.players[first].library.length).toBe(52);
+    // The second costs a card.
+    g = run(g, { type: 'mulligan' });
+    expect(g.decision?.type === 'chooseCards' && g.decision.choice).toEqual({ kind: 'bottom', player: first, count: 1 });
+    expect(applyAction(g, { type: 'chooseCards', cards: [] })).toBe(g);
+    const bottom = g.players[first].hand[3];
+    g = run(g, { type: 'chooseCards', cards: [bottom.id] });
+    expect(g.players[first].hand.length).toBe(6);
+    expect(g.players[first].library.at(-1)!.id).toBe(bottom.id);
+    // The others kept, so only this player declares again.
+    expect([g.decision?.type, g.priority]).toEqual(['mulligan', first]);
+    g = run(g, { type: 'keep' });
+    expect(g.mulligan).toBe(null);
+    expect([g.turn, g.active]).toEqual([1, first]);
+    expect(rest.every((pid) => g.players[pid].hand.length === 7)).toBe(true);
+    // In multiplayer the starting player draws on their first turn too (103.8c).
+    expect(g.players[first].hand.length).toBe(7);
+  });
+
+  it('stops offering mulligans once the hand would be zero cards', () => {
+    const g = produce(newGame({ seed: 7, humanDeck: null }), (d) => {
+      d.mulligan!.taken[d.priority] = 8; // 7 counted, after the free one
+    });
+    expect(canMulligan(g, g.priority)).toBe(false);
+    expect(applyAction(g, { type: 'mulligan' })).toBe(g);
+  });
+
+  it('lets bots mulligan and keep on their own', () => {
+    let g = newGame({ seed: 3, humanDeck: null });
+    for (let i = 0; i < 40 && g.mulligan; i++) g = applyBotAction(g, botAction(g, g.priority));
+    expect([g.mulligan, g.turn]).toEqual([null, 1]);
+  });
+});
+
+describe('ordering triggers (603.3b)', () => {
+  const wardens = (pid: number, human: boolean) =>
+    emptyGame((d) => {
+      d.players[pid].isBot = !human;
+      put(d, pid, 'Soul Warden', 'battlefield', 2);
+      put(d, 0, 'Forest', 'battlefield', 2);
+      put(d, 0, 'Kalonian Tusker', 'hand');
+    });
+  const byHand = { autoPass: false };
+  const castTusker = (g: Game) =>
+    runWith(byHand, g, { type: 'cast', card: byName(g, 0, 'Kalonian Tusker', 'hand')!.id }, pass, pass, pass, pass);
+
+  it('asks a human with two or more triggers for their order', () => {
+    let g = castTusker(wardens(0, true));
+    expect([g.decision?.type, g.priority]).toEqual(['orderTriggers', 0]);
+    const ids = g.triggers.map((t) => t.id);
+    expect(ids.length).toBe(2);
+    expect(applyAction(g, { type: 'orderTriggers', order: [ids[0]] })).toBe(g); // every one of them must be placed
+    g = runWith(byHand, g, { type: 'orderTriggers', order: [ids[1], ids[0]] });
+    expect(g.stack.map((x) => x.id)).toEqual([ids[1], ids[0]]);
+    expect([g.decision, g.priority]).toEqual([null, 0]);
+  });
+
+  it('keeps the order they triggered in for a bot', () => {
+    const g = castTusker(wardens(1, false));
+    expect(g.decision).toBe(null);
+    expect(g.stack.map((x) => x.card.name)).toEqual(['Soul Warden', 'Soul Warden']);
   });
 });
