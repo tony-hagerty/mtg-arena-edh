@@ -33,8 +33,10 @@ npm run build    # type-check and production build
 - The game passes for you whenever you have nothing you could do, so most of an opponent's
   turn goes by on its own. It also stops for you after attackers and after blockers are
   declared, and in each opponent's end step, if you could do something then.
-- Your commander sits bottom-left in the command zone. Click it to cast it.
-  Each recast costs 2 more (the `+2` badge).
+- Every portrait is that player's commander; hover it to read the card. To cast yours,
+  click the **crown** on the top left of your portrait. It glows when you can cast it and
+  is dimmed while your commander is anywhere but the command zone. The badge on the top
+  right of a portrait is that player's commander tax: each recast costs 2 more (`+2`, `+4`, …).
 - **Attacking:** press Next → To Combat, click an opponent's portrait to choose who to
   attack, then click your creatures. Different creatures can attack different players.
 - **Blocking:** when you are attacked, click your creature. If it could block more than
@@ -43,6 +45,9 @@ npm run build    # type-check and production build
   battlefield. That choice can't be cancelled: the ability has already triggered.
 - `Space` / `Enter` = the big button. `Esc` = cancel.
 - Click a graveyard or exile pile to look through it. Hover any card for a full-size view.
+- The log is bottom-left. Hover a card name in it (dashed underline) to see the card.
+  **Hide log** folds it away, **Speed** changes how fast the bots play, and **Exit** asks
+  before leaving the game for the deck menu.
 - Drag a card sideways in your hand to rearrange it. The order is only for you: it never
   reaches the game engine, so it changes nothing about play. Clicking a hand card does
   nothing, so you can't play one by accident while sorting.

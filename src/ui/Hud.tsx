@@ -3,7 +3,7 @@ import type { CSSProperties, ReactNode } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import { DECKS, cardData } from '../cards/db';
 import { data, findCard, label } from '../engine';
-import type { Game, Step } from '../engine';
+import type { Game, LogEntry, Step } from '../engine';
 import { ManaCost } from './Card';
 import { useRem } from './rem';
 import { useStore } from './store';
@@ -67,6 +67,11 @@ export function ActionBar() {
   // Space/Enter = main button, Escape = cancel, like Arena.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      // While the exit dialog is open the keys belong to it: Esc stays, Enter presses the focused button.
+      if (useStore.getState().confirmExit) {
+        if (e.code === 'Escape') useStore.setState({ confirmExit: false });
+        return;
+      }
       const { primary, secondary } = latest.current;
       if ((e.code === 'Space' || e.code === 'Enter') && primary && !primary.disabled) {
         // Drop focus first, or a button that was just clicked would also fire natively.
@@ -109,6 +114,30 @@ export function Prompt() {
 
 const SPEEDS = [1, 2, 4];
 
+const escapeRegExp = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+/** A log line with the cards it names underlined. Hover one to see the card. */
+function LogText({ entry }: { entry: LogEntry }) {
+  if (!entry.cards?.length) return <>{entry.text}</>;
+  // Longest names first, so a name that contains another is matched whole.
+  const names = [...entry.cards].sort((a, b) => b.length - a.length).map(escapeRegExp);
+  // Splitting on a capture group keeps the matches: they land at the odd indexes.
+  const parts = entry.text.split(new RegExp(`(${names.join('|')})`));
+  return (
+    <>
+      {parts.map((part, i) =>
+        i % 2 ? (
+          <span key={i} className="log-card" {...hoverProps(part)}>
+            {part}
+          </span>
+        ) : (
+          part
+        ),
+      )}
+    </>
+  );
+}
+
 export function LogPanel() {
   const g = useView().g;
   const show = useStore((s) => s.showLog);
@@ -118,28 +147,77 @@ export function LogPanel() {
     lines.current?.scrollTo({ top: lines.current.scrollHeight });
   }, [g.log.length, show]);
   const start = Math.max(0, g.log.length - 80);
+  // The panel hangs from the bottom-left corner, so as the lines fold away the buttons ride down with them.
   return (
     <aside className="log">
       <div className="log-bar">
-        <button onClick={() => useStore.setState({ showLog: !show })}>{show ? 'Hide log' : 'Show log'}</button>
+        <button onClick={() => useStore.setState({ showLog: !show })} aria-expanded={show}>
+          {show ? 'Hide log' : 'Show log'}
+        </button>
         <button onClick={() => useStore.setState({ speed: SPEEDS[(SPEEDS.indexOf(speed) + 1) % SPEEDS.length] })} title="Bot speed">
           Speed {speed}×
         </button>
-        <button onClick={() => useStore.getState().quit()}>Menu</button>
+        <button onClick={() => useStore.setState({ confirmExit: true })}>Exit</button>
       </div>
-      {show && (
-        <div className="log-lines" ref={lines}>
-          {g.log.slice(start).map((l, i) => {
-            const color = l.player === undefined ? '#fff' : `var(--f-${DECKS.find((d) => d.id === g.players[l.player!].deckId)!.color})`;
-            return (
-              <div key={start + i} className={cx('log-line', l.text.startsWith('Turn ') && 'turn')} style={{ '--deck': color } as CSSProperties}>
-                {l.text}
-              </div>
-            );
-          })}
-        </div>
-      )}
+      <AnimatePresence initial={false}>
+        {show && (
+          <motion.div
+            key="log"
+            className="log-body"
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: 'auto', opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.28, ease: [0.25, 1, 0.5, 1] }}
+          >
+            <div className="log-lines" ref={lines}>
+              {g.log.slice(start).map((l, i) => {
+                const color = l.player === undefined ? '#fff' : `var(--f-${DECKS.find((d) => d.id === g.players[l.player!].deckId)!.color})`;
+                return (
+                  <div key={start + i} className={cx('log-line', l.text.startsWith('Turn ') && 'turn')} style={{ '--deck': color } as CSSProperties}>
+                    <LogText entry={l} />
+                  </div>
+                );
+              })}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </aside>
+  );
+}
+
+/** Asks before leaving a game in progress. */
+export function ExitConfirm() {
+  const open = useStore((s) => s.confirmExit);
+  const stay = () => useStore.setState({ confirmExit: false });
+  return (
+    <AnimatePresence>
+      {open && (
+        <motion.div className="modal" onClick={stay} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+          <motion.div
+            className="confirm"
+            role="alertdialog"
+            aria-modal="true"
+            aria-labelledby="exit-title"
+            onClick={(e) => e.stopPropagation()}
+            initial={{ scale: 0.92 }}
+            animate={{ scale: 1 }}
+            exit={{ scale: 0.96 }}
+          >
+            <h2 id="exit-title">Leave this game?</h2>
+            <p>The game ends here and you go back to the deck menu.</p>
+            <div className="confirm-buttons">
+              <button className="btn btn-plain small" onClick={stay} autoFocus>
+                <span className="btn-label">Keep playing</span>
+              </button>
+              <button className="btn btn-attack small" onClick={() => useStore.getState().quit()}>
+                <span className="btn-label">Exit</span>
+              </button>
+            </div>
+          </motion.div>
+        </motion.div>
+      )}
+    </AnimatePresence>
   );
 }
 

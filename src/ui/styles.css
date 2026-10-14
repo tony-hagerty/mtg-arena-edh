@@ -167,7 +167,6 @@ button {
   gap: 1.5rem;
   --av: 8.2rem;
   --pile-w: 4.6rem;
-  --cmd-w: 7.2rem;
 }
 
 .seat-top .avatar {
@@ -287,7 +286,7 @@ button {
   box-shadow: 0 0.2rem 0.5rem rgba(0, 0, 0, 0.7);
 }
 
-/* ---------- zones: command, library, graveyard ---------- */
+/* ---------- zones: library, graveyard, exile ---------- */
 
 .pile {
   position: relative;
@@ -295,7 +294,7 @@ button {
   aspect-ratio: 5 / 7;
 }
 
-/* At the side seats, cards in the piles and the command zone are turned like permanents (see .tile). */
+/* At the side seats, cards in the piles are turned like permanents (see .tile). */
 .seat-left .pile,
 .seat-right .pile {
   width: calc(var(--pile-w) * 1.4);
@@ -370,72 +369,6 @@ button {
   border: 0.1rem solid #aeb7c8;
   border-radius: 50%;
   z-index: 3;
-}
-
-.command-slot {
-  width: var(--cmd-w);
-  aspect-ratio: 5 / 4;
-}
-
-.seat-left .command-slot,
-.seat-right .command-slot {
-  width: calc(var(--cmd-w) * 0.8);
-  aspect-ratio: 4 / 5;
-}
-
-.cmd-card,
-.cmd-empty {
-  position: relative;
-  width: 100%;
-  height: 100%;
-  border-radius: 0.5rem;
-}
-
-.cmd-card {
-  font-size: calc(var(--cmd-w) / 10);
-  box-shadow: 0 0.3rem 0.8rem rgba(0, 0, 0, 0.8);
-}
-
-.cmd-face {
-  position: absolute;
-  left: 50%;
-  top: 50%;
-  width: var(--cmd-w);
-  aspect-ratio: 5 / 4;
-  translate: -50% -50%;
-  rotate: var(--face);
-  border-radius: 0.5rem;
-  background-size: cover;
-  background-position: center 20%;
-  border: 0.2rem solid var(--f-gold);
-}
-
-.cmd-card .crown {
-  position: absolute;
-  left: 0.3em;
-  top: 0.1em;
-  font-size: 1.8em;
-  color: var(--f-gold);
-  text-shadow: 0 0 0.3em #000;
-}
-
-.cmd-card .tax {
-  position: absolute;
-  right: -0.4em;
-  bottom: -0.4em;
-  padding: 0 0.4em;
-  font: 700 1.5em/1.5em 'Segoe UI', sans-serif;
-  background: #1a1d24;
-  border: 0.08em solid var(--f-gold);
-  border-radius: 0.8em;
-}
-
-.cmd-empty {
-  display: grid;
-  place-items: center;
-  font-size: calc(var(--cmd-w) / 3);
-  color: rgba(210, 170, 66, 0.35);
-  border: 0.15rem dashed rgba(210, 170, 66, 0.4);
 }
 
 /* ---------- avatars ---------- */
@@ -527,6 +460,62 @@ button {
 
 .avatar.lost .avatar-art {
   filter: grayscale(1) brightness(0.5);
+}
+
+/*
+  Round badges on the portrait's rim: the crown at 10 o'clock and the commander tax at 2.
+  0.146 x the diameter is where a 45-degree line from the centre crosses the circle.
+*/
+.avatar-crown,
+.avatar-tax {
+  --badge: max(2.8rem, calc(var(--av) * 0.27));
+  position: absolute;
+  top: calc(var(--av) * 0.146 - var(--badge) / 2);
+  z-index: 3;
+  min-width: var(--badge);
+  height: var(--badge);
+  display: grid;
+  place-items: center;
+  border-radius: calc(var(--badge) / 2);
+  border: 0.15rem solid var(--f-gold);
+  background: radial-gradient(circle at 50% 30%, #3a3324, #14161c 70%);
+  box-shadow: 0 0.3rem 0.7rem rgba(0, 0, 0, 0.85);
+}
+
+.avatar-crown {
+  left: calc(var(--av) * 0.146 - var(--badge) / 2);
+  width: var(--badge);
+  padding: 0;
+  /* The glow-* highlights are sized in em. */
+  font-size: calc(var(--badge) * 0.3);
+  color: var(--f-gold);
+  cursor: default;
+}
+
+/* The glyph itself is drawn bigger than the em the glows are measured in. */
+.avatar-crown span {
+  font-size: calc(var(--badge) * 0.58);
+  line-height: 1;
+}
+
+.avatar-crown.glow-play,
+.avatar-crown.glow-picked {
+  color: #ffe08a;
+  cursor: pointer;
+}
+
+.avatar-crown.away {
+  color: rgba(210, 170, 66, 0.4);
+  border-style: dashed;
+  border-color: rgba(210, 170, 66, 0.45);
+  background: rgba(14, 16, 22, 0.85);
+}
+
+.avatar-tax {
+  right: calc(var(--av) * 0.146 - var(--badge) / 2);
+  padding: 0 0.5rem;
+  font: 700 calc(var(--badge) * 0.48) / 1 'Segoe UI', sans-serif;
+  color: #fff;
 }
 
 .cmd-dmg {
@@ -963,23 +952,18 @@ button {
   margin-right: 0.35rem;
 }
 
+/*
+  Library, graveyard and exile, just right of the log and its buttons (.log ends at 26.6rem).
+  They end at 48.2rem, clear of the hand until it holds a dozen cards.
+*/
 .me-zones {
   position: absolute;
-  left: 2.2rem;
+  left: 28.2rem;
   bottom: 2.2rem;
   display: flex;
   align-items: flex-end;
-  gap: 1.4rem;
-  --pile-w: 7rem;
-  --cmd-w: 12rem;
-}
-
-.me-zones .cmd-card {
-  cursor: default;
-}
-
-.me-zones .cmd-card.glow-play {
-  cursor: pointer;
+  gap: 1rem;
+  --pile-w: 6rem;
 }
 
 .hand {
@@ -1167,18 +1151,31 @@ button {
 
 /* ---------- log + controls ---------- */
 
+/*
+  Bottom-left corner: the buttons, with the log under them reaching down to the bottom
+  edge. The panel is anchored at the bottom, so with the log hidden the buttons sit in
+  the corner. Your piles start just right of it (see .me-zones).
+*/
 .log {
   position: absolute;
   left: 1.6rem;
-  top: calc(100% - 37.5rem);
-  width: 27rem;
+  bottom: 1.6rem;
+  width: 25rem;
   z-index: 20;
 }
 
 .log-bar {
   display: flex;
   gap: 0.5rem;
-  margin-bottom: 0.6rem;
+}
+
+/* Clips the lines while they fold open or shut. The gap under the buttons folds with them. */
+.log-body {
+  overflow: hidden;
+}
+
+.log-body .log-lines {
+  margin-top: 0.6rem;
 }
 
 .log-bar button {
@@ -1197,7 +1194,7 @@ button {
 }
 
 .log-lines {
-  height: 20.5rem;
+  height: 32.6rem;
   padding: 0.6rem 0.9rem;
   overflow-y: auto;
   font-size: 1.2rem;
@@ -1220,6 +1217,20 @@ button {
   margin-top: 0.9rem;
   font-weight: 700;
   color: #fff;
+}
+
+/* A card named in the log: hover it for the full card. */
+.log-card {
+  color: #eef1f7;
+  text-decoration: underline dashed rgba(238, 241, 247, 0.55);
+  text-decoration-thickness: 0.1rem;
+  text-underline-offset: 0.25rem;
+  cursor: help;
+}
+
+.log-card:hover {
+  color: #fff;
+  text-decoration-color: var(--deck);
 }
 
 /* ---------- overlays ---------- */
@@ -1429,6 +1440,34 @@ button {
 }
 
 .game-over-buttons {
+  display: flex;
+  justify-content: center;
+  gap: 2rem;
+}
+
+.confirm {
+  max-width: 56rem;
+  padding: 3.5rem 5rem 4rem;
+  text-align: center;
+  background: radial-gradient(circle at 50% 0%, #2a3040, #0d0f14 75%);
+  border: 0.2rem solid #5d6472;
+  border-radius: 2rem;
+  box-shadow: 0 2rem 8rem #000;
+}
+
+.confirm h2 {
+  margin: 0;
+  font: 700 4rem var(--serif);
+  color: #f2e6c9;
+}
+
+.confirm p {
+  margin: 1rem 0 3rem;
+  font-size: 1.8rem;
+  color: #c6cedd;
+}
+
+.confirm-buttons {
   display: flex;
   justify-content: center;
   gap: 2rem;

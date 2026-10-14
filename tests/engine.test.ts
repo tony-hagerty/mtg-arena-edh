@@ -485,3 +485,20 @@ describe('eliminations', () => {
     expect(g.active).toBe(2);
   });
 });
+
+describe('log', () => {
+  it('records the cards each line names, so the UI can link them', () => {
+    let g = emptyGame((d) => {
+      put(d, 0, 'Swamp', 'battlefield', 3);
+      put(d, 0, 'Murder', 'hand');
+      put(d, 1, 'Mogg Fanatic');
+    });
+    const fanatic = byName(g, 1, 'Mogg Fanatic')!;
+    g = run(g, { type: 'cast', card: byName(g, 0, 'Murder', 'hand')!.id, targets: [{ kind: 'card', id: fanatic.id }] });
+    const cast = g.log.find((l) => l.text.includes('Murder targeting'))!;
+    expect(cast.cards).toEqual(['Murder', 'Mogg Fanatic']);
+    while (g.stack.length) g = run(g, pass);
+    expect(g.log.find((l) => l.text === 'Mogg Fanatic is destroyed.')?.cards).toEqual(['Mogg Fanatic']);
+    expect(g.log.find((l) => l.text.startsWith('Turn '))?.cards).toBeUndefined();
+  });
+});
