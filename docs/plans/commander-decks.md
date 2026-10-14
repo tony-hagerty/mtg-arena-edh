@@ -3,7 +3,7 @@
 Goal: play real 100-card Commander decks of any colours, with partner commanders and
 every card type, and add the user's own deck to the menu.
 
-**Status: session 1 done. Don't start the next session until the user says so.**
+**Status: sessions 1-2 done. Don't start the next session until the user says so.**
 
 ## What "every card type" means here
 
@@ -42,7 +42,7 @@ Order matters: each one builds on the ones before it.
   (pick a blend or the first colour); the menu shows the colour pips.
 - Existing 60-card mono decks keep working until session 8 rebuilds them.
 
-### 2. Costs: X, hybrid, Phyrexian, kicker, alternative costs
+### 2. Costs: X, hybrid, Phyrexian, kicker, alternative costs (done)
 
 - Parse `{X}`, hybrid (`{W/U}`, `{2/W}`), Phyrexian (`{W/P}`) costs (107.4, 202.1).
 - X spells: the caster picks X when casting (601.2b, 107.3). UI needs a number picker.

@@ -13,11 +13,13 @@ import {
   canBlock,
   canTapForMana,
   canUntapMana,
+  altCostsOf,
   castCost,
   checkState,
   commanderIndex,
   creaturesOf,
   damageCard,
+  data,
   damagePlayer,
   describeRef,
   dieMany,
@@ -54,7 +56,7 @@ import {
   turnOrder,
   untapMana,
 } from './rules';
-import type { Action, Card, CardChoice, Game, Player, PlayerId, StackItem, Step, TargetRef, TargetSpec, Trigger } from './types';
+import type { Action, Card, CardChoice, CastChoices, Game, Player, PlayerId, StackItem, Step, TargetRef, TargetSpec, Trigger } from './types';
 
 // ---------- setup ----------
 
@@ -272,14 +274,52 @@ export function canPlayLand(g: Game, pid: PlayerId, c: Card): boolean {
 /** Targets chosen as a spell is cast (601.2c). A permanent's `targets` are for its enters ability instead. */
 export const castTargets = (c: Card): TargetSpec[] => (isPermanentCard(c) ? [] : (scriptOf(c.name).targets ?? []));
 
-export function canCast(g: Game, pid: PlayerId, c: Card): boolean {
+/** Permanents `pid` could sacrifice to pay `c`'s additional cost (118.8), or [] if it has none. */
+export function sacrificeOptions(g: Game, pid: PlayerId, c: Card): Card[] {
+  const spec = scriptOf(c.name).additionalCost?.sacrifice;
+  if (!spec) return [];
+  return g.players[pid].battlefield.filter((p) => (spec.type !== 'creature' || isCreature(p)) && (spec.filter?.(g, p, c) ?? true));
+}
+
+/**
+ * Are these choices legal for casting `c` (601.2b)? X can't be negative, kicker is paid at
+ * most once unless it is multikicker, the alternative cost must be available, and a
+ * sacrifice cost names exactly one of the player's permanents that fits it.
+ */
+function choicesOk(g: Game, pid: PlayerId, c: Card, ch: CastChoices): boolean {
+  const script = scriptOf(c.name);
+  const x = ch.x ?? 0;
+  const kicked = ch.kicked ?? 0;
+  if (!Number.isInteger(x) || x < 0 || !Number.isInteger(kicked) || kicked < 0) return false;
+  if (kicked > (script.kicker ? (script.kicker.multi ? Infinity : 1) : 0)) return false;
+  if (ch.alt !== undefined && !altCostsOf(g, c).includes(ch.alt)) return false;
+  const sacrifice = ch.sacrifice ?? [];
+  if (!script.additionalCost) return sacrifice.length === 0;
+  const legal = new Set(sacrificeOptions(g, pid, c).map((p) => p.id));
+  return sacrifice.length === 1 && legal.has(sacrifice[0]);
+}
+
+/**
+ * Can `pid` cast `c` now? With `choices`, can they cast it that way. Without, is there
+ * any way: X = 0, not kicked, and the mana cost or one of its alternative costs.
+ */
+export function canCast(g: Game, pid: PlayerId, c: Card, choices?: CastChoices): boolean {
   if (c.owner !== pid || (c.zone !== 'hand' && c.zone !== 'command') || isLand(c)) return false;
   if (!timingOk(g, pid, isInstantSpeed(c))) return false;
-  if (!planPayment(g, pid, castCost(g, c))) return false;
   for (const spec of castTargets(c)) {
     if (!spec.optional && legalTargets(g, pid, spec, c).length === 0) return false;
   }
-  return true;
+  if (choices) return choicesOk(g, pid, c, choices) && !!planPayment(g, pid, castCost(g, c, choices));
+  if (scriptOf(c.name).additionalCost && !sacrificeOptions(g, pid, c).length) return false;
+  return [undefined, ...altCostsOf(g, c)].some((alt) => planPayment(g, pid, castCost(g, c, { alt })));
+}
+
+/** The highest X `pid` can pay for `c` with these other choices (107.3a), or -1 if it can't be cast at all. */
+export function maxX(g: Game, pid: PlayerId, c: Card, choices: CastChoices = {}): number {
+  if (!parseCost(data(c).manaCost).x || choices.alt !== undefined) return 0;
+  let x = -1;
+  while (x < 99 && planPayment(g, pid, castCost(g, c, { ...choices, x: x + 1 }))) x++;
+  return x;
 }
 
 export function canActivate(g: Game, pid: PlayerId, c: Card): boolean {
@@ -717,19 +757,31 @@ function act(g: Game, a: Action): boolean {
     // them leaves the game as if the spell was never started (733.1).
     case 'cast': {
       const c = p.hand.find((x) => x.id === a.card) ?? p.command.find((x) => x.id === a.card);
-      if (!c || !canCast(g, pid, c)) return false;
+      const choices: CastChoices = { x: a.x, kicked: a.kicked, alt: a.alt, sacrifice: a.sacrifice };
+      if (!c || !canCast(g, pid, c, choices)) return false;
       const specs = castTargets(c);
       const targets = specs.map((_, i) => a.targets?.[i] ?? null);
       if (!targetsOk(g, pid, c, specs, targets)) return false;
-      pay(g, pid, castCost(g, c)); // 601.2f-h
+      // An alternative cost without {X} makes X 0 (107.3b).
+      const hasX = parseCost(choices.alt === undefined ? data(c).manaCost : scriptOf(c.name).alternativeCosts![choices.alt].mana).x > 0;
+      c.cast = { x: hasX ? (choices.x ?? 0) : 0, kicked: choices.kicked ?? 0 };
+      pay(g, pid, castCost(g, c, choices)); // 601.2f-h
+      const sacrificed = (choices.sacrifice ?? []).map((id) => permanent(g, id)!);
       const from = c.zone === 'command' ? p.command : p.hand;
       if (c.zone === 'command') p.commanderCasts[commanderIndex(g, c)]++; // commander tax (903.8, 702.124d)
       from.splice(from.findIndex((x) => x.id === c.id), 1);
       c.zone = 'stack'; // 601.2a
       g.stack.push({ id: `s${g.nextId++}`, kind: 'spell', controller: pid, card: c, targets });
       const chosen = targets.filter((t): t is TargetRef => !!t).map((t) => describeRef(g, t));
-      log(g, `${says(p, 'casts')} ${label(c)}${chosen.length ? ` targeting ${chosen.join(' and ')}` : ''}.`, pid, [c, ...refCards(g, targets)]);
+      const how = [
+        hasX && `X = ${c.cast.x}`,
+        c.cast.kicked && (c.cast.kicked > 1 ? `kicked ${c.cast.kicked} times` : 'kicked'),
+        choices.alt !== undefined && scriptOf(c.name).alternativeCosts![choices.alt].label,
+      ].filter(Boolean);
+      const details = (how.length ? ` (${how.join(', ')})` : '') + (chosen.length ? ` targeting ${chosen.join(' and ')}` : '');
+      log(g, `${says(p, 'casts')} ${label(c)}${details}.`, pid, [c, ...refCards(g, targets)]);
       g.lastSpell = { seq: (g.lastSpell?.seq ?? 0) + 1, name: c.name, caster: pid };
+      if (sacrificed.length) dieMany(g, sacrificed, 'is sacrificed'); // an additional cost, paid with the rest (601.2h)
       broadcast(g, 'onCast', { card: c, caster: pid }); // 601.2i
       g.passes = 0; // the caster keeps priority (117.3c)
       return true;

@@ -53,6 +53,14 @@ export function cardData(name: string): CardData {
 
 export const ALL_CARD_NAMES = Object.keys(cards);
 
+/**
+ * Adds cards that aren't in cards.generated.json. Tests use it to try out rules on cards
+ * the pool doesn't have yet. `ALL_CARD_NAMES` doesn't list them.
+ */
+export function registerCards(extra: Record<string, CardData>) {
+  Object.assign(cards, extra);
+}
+
 const WUBRG: Color[] = ['W', 'U', 'B', 'R', 'G'];
 
 /**

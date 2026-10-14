@@ -11,22 +11,27 @@ import {
   canPlayLand,
   canTapForMana,
   canUntapMana,
+  altCostsOf,
   castCost,
   castTargets,
+  costText,
+  data,
   findCard,
   illegalBlocks,
   isLand,
   label,
   legalTargets,
+  maxX,
   opponentsOf,
   parseCost,
   permanent,
   planPayment,
+  sacrificeOptions,
   scriptOf,
   targetSpecs,
   MAX_HAND,
 } from '../engine';
-import type { Card, Cost, Game, PlayerId, Step, TargetRef } from '../engine';
+import type { Card, CastChoices, Cost, Game, PlayerId, Step, TargetRef } from '../engine';
 import { useStore } from './store';
 import type { Targeting } from './store';
 
@@ -52,9 +57,23 @@ export interface View {
   attackTarget: PlayerId | null;
   /** The spell or ability the human is deciding whether to pay for (shown by the stack). */
   paying: { card: Card; kind: 'spell' | 'ability' } | null;
+  /** A spell whose X, kicker or alternative cost the human is announcing (601.2b), for the options panel. */
+  announce: Announce | null;
   prompt: string | null;
   primary: Btn | null;
   secondary: Btn | null;
+}
+
+/** What the cast-options panel shows and can change. */
+export interface Announce {
+  card: Card;
+  choices: CastChoices;
+  /** The highest X that can be paid with the other choices, or null if the spell has no X. */
+  maxX: number | null;
+  /** The kicker cost, and how many times it can be paid (more than once only for multikicker). */
+  kicker: { text: string; most: number } | null;
+  /** The mana cost (alt undefined) and each available alternative cost, and whether each can be paid now. */
+  costs: { alt: number | undefined; label: string; payable: boolean }[];
 }
 
 export const STEP_NAMES: Record<Step, string> = {
@@ -88,20 +107,45 @@ function targetingOf(s: StoreState): Targeting | null {
   if (g?.decision?.type === 'targets' && g.priority === s.human) {
     const { item } = g.decision;
     const chosen = s.targeting?.mode === 'trigger' ? s.targeting.chosen : [];
-    return { mode: 'trigger', cardId: item.card.id, specs: targetSpecs(item), chosen, tapped: [] };
+    return { mode: 'trigger', cardId: item.card.id, specs: targetSpecs(item), chosen, tapped: [], choices: {}, announcing: false };
   }
   return s.targeting?.mode === 'trigger' ? null : s.targeting;
 }
 
-/** Targets are done and the spell or ability is waiting for its cost to be paid (601.2f-h). */
-const isPaying = (t: Targeting) => t.mode !== 'trigger' && t.chosen.length === t.specs.length;
+/** Targets are chosen and the spell still needs a permanent to sacrifice for its additional cost (118.8). */
+function isSacrificing(t: Targeting): boolean {
+  if (t.mode !== 'cast' || t.announcing || t.chosen.length < t.specs.length || t.choices.sacrifice?.length) return false;
+  const card = findCard(S().game!, t.cardId);
+  return !!card && !!scriptOf(card.name).additionalCost;
+}
 
-/** The mana a spell or ability costs, and the same thing written out ("{1}{B}{B}"). */
+/** Everything is chosen and the spell or ability is waiting for its cost to be paid (601.2f-h). */
+const isPaying = (t: Targeting) => t.mode !== 'trigger' && !t.announcing && t.chosen.length === t.specs.length && !isSacrificing(t);
+
+/** The mana a spell or ability costs, and the same thing written out ("{1}{B}{B}"), with any life to pay. */
 function costOf(g: Game, t: Targeting): { cost: Cost; text: string } {
   const card = findCard(g, t.cardId)!;
-  const cost = t.mode === 'cast' ? castCost(g, card) : parseCost(scriptOf(card.name).activated?.cost.mana ?? '');
-  const text = (cost.generic || !cost.pips.length ? `{${cost.generic}}` : '') + cost.pips.map((p) => `{${p}}`).join('');
-  return { cost, text };
+  const cost = t.mode === 'cast' ? castCost(g, card, t.choices) : parseCost(scriptOf(card.name).activated?.cost.mana ?? '');
+  return { cost, text: costText(cost) + (cost.life ? ` and ${cost.life} life` : '') };
+}
+
+/** The options panel for a spell being announced. */
+function announceOf(g: Game, me: PlayerId, card: Card, choices: CastChoices): Announce {
+  const script = scriptOf(card.name);
+  const hasX = parseCost(choices.alt === undefined ? data(card).manaCost : script.alternativeCosts![choices.alt].mana).x > 0;
+  let most = 0;
+  if (script.kicker) while (most < (script.kicker.multi ? 20 : 1) && planPayment(g, me, castCost(g, card, { ...choices, x: 0, kicked: most + 1 }))) most++;
+  return {
+    card,
+    choices,
+    maxX: hasX ? Math.max(0, maxX(g, me, card, { ...choices, x: 0 })) : null,
+    kicker: script.kicker ? { text: costText(parseCost(script.kicker.mana)), most } : null,
+    costs: [undefined, ...altCostsOf(g, card)].map((alt) => ({
+      alt,
+      label: alt === undefined ? costText(castCost(g, card, { ...choices, alt, kicked: 0, x: 0 })) : script.alternativeCosts![alt].label,
+      payable: !!planPayment(g, me, castCost(g, card, { ...choices, alt, kicked: 0, x: 0 })),
+    })),
+  };
 }
 
 /** The human's permanents that a click taps for mana, or untaps to take the mana back. */
@@ -133,6 +177,7 @@ export function buildView(): View {
     targetPlayers: new Set(),
     attackTarget: null,
     paying: null,
+    announce: null,
     prompt: null,
     primary: null,
     secondary: null,
@@ -159,6 +204,28 @@ export function buildView(): View {
 
   const t = targetingOf(s);
 
+  // --- announcing X, kicker or an alternative cost (601.2b) ---
+  if (t && t.announcing) {
+    const card = findCard(g, t.cardId)!;
+    const { text } = costOf(g, t);
+    view.glow.set(card.id, 'picked');
+    view.announce = announceOf(g, me, card, t.choices);
+    view.prompt = `Choose how to cast ${label(card)}: ${text}.`;
+    view.primary = { label: 'Continue', sub: `Cast ${label(card)}`, tone: 'go', disabled: !planPayment(g, me, castCost(g, card, t.choices)), onClick: confirmAnnounce };
+    view.secondary = { label: 'Cancel', tone: 'cancel', onClick: cancel };
+    return view;
+  }
+
+  // --- choosing what to sacrifice for an additional cost (118.8) ---
+  if (t && isSacrificing(t)) {
+    const card = findCard(g, t.cardId)!;
+    for (const c of sacrificeOptions(g, me, card)) view.glow.set(c.id, 'target');
+    view.glow.set(card.id, 'picked');
+    view.prompt = `${label(card)}: choose ${scriptOf(card.name).additionalCost!.sacrifice.label}.`;
+    view.secondary = { label: 'Cancel', tone: 'cancel', onClick: cancel };
+    return view;
+  }
+
   // --- paying for a spell or ability ---
   if (t && isPaying(t)) {
     const card = findCard(g, t.cardId)!;
@@ -170,9 +237,11 @@ export function buildView(): View {
     // The sources auto-pay would tap. Tapping others by hand first changes the plan.
     for (const id of plan?.tap ?? []) view.glow.set(id, 'play');
     markMana(view, g, me);
+    // Phyrexian mana is paid with life only when the mana isn't there (107.4f).
+    const life = plan?.life ? ` (auto-pay uses ${plan.life} life)` : '';
     view.prompt = ability
-      ? `${label(card)} — ${ability.text}. Pay the cost, or cancel.`
-      : `Pay ${text} to cast ${label(card)}, or cancel.`;
+      ? `${label(card)} — ${ability.text}. Pay the cost${life}, or cancel.`
+      : `Pay ${text}${life} to cast ${label(card)}, or cancel.`;
     view.primary = { label: 'Pay', sub: ability ? 'Activate' : `Cast ${label(card)}`, tone: 'go', disabled: !plan, onClick: pay };
     view.secondary = { label: 'Cancel', tone: 'cancel', onClick: cancel };
     return view;
@@ -315,8 +384,35 @@ function endTurn() {
  * the game as if the spell was never started (733.1).
  */
 function propose(mode: 'cast' | 'activate', card: Card) {
+  const g = S().game!;
+  const me = S().human!;
   const specs = mode === 'cast' ? castTargets(card) : (scriptOf(card.name).activated?.targets ?? []);
-  advance({ mode, cardId: card.id, specs, chosen: [], tapped: [] });
+  const script = scriptOf(card.name);
+  const alts = mode === 'cast' ? altCostsOf(g, card) : [];
+  const hasX = mode === 'cast' && parseCost(data(card).manaCost).x > 0;
+  // Start from a way that can be paid: the mana cost if it can, else the first alternative.
+  const alt = planPayment(g, me, castCost(g, card)) ? undefined : alts.find((i) => planPayment(g, me, castCost(g, card, { alt: i })));
+  const choices: CastChoices = { alt, x: hasX && alt === undefined ? Math.max(0, maxX(g, me, card, { alt })) : 0, kicked: 0 };
+  const announcing = mode === 'cast' && (hasX || !!script.kicker || alts.length > 0);
+  advance({ mode, cardId: card.id, specs, chosen: [], tapped: [], choices, announcing });
+}
+
+/** Changes what the human is announcing for the spell: X, kicker, or which cost. X is kept within what can be paid. */
+export function setChoices(change: CastChoices) {
+  const t = S().targeting;
+  const { game: g, human: me } = S();
+  if (!t || !t.announcing || !g || me === null) return;
+  const card = findCard(g, t.cardId)!;
+  let choices = { ...t.choices, ...change };
+  const most = maxX(g, me, card, { ...choices, x: 0 });
+  if (choices.x !== undefined) choices = { ...choices, x: Math.max(0, Math.min(choices.x, most)) };
+  useStore.setState({ targeting: { ...t, choices } });
+}
+
+/** Done announcing: on to targets (601.2c). */
+function confirmAnnounce() {
+  const t = S().targeting;
+  if (t) advance({ ...t, announcing: false });
 }
 
 /**
@@ -326,6 +422,10 @@ function propose(mode: 'cast' | 'activate', card: Card) {
 function advance(t: Targeting) {
   const { game: g, human: me } = S();
   if (!g || me === null) return;
+  if (t.announcing) {
+    useStore.setState({ targeting: t, hover: null });
+    return;
+  }
   let chosen = t.chosen;
   while (chosen.length < t.specs.length && currentTargets(g, me, { ...t, chosen }).length === 0) chosen = [...chosen, null];
   if (t.mode !== 'trigger' || chosen.length < t.specs.length) {
@@ -340,7 +440,8 @@ function advance(t: Targeting) {
 function pay() {
   const t = S().targeting;
   if (!t || !isPaying(t) || t.mode === 'trigger') return;
-  if (!S().act({ type: t.mode, card: t.cardId, targets: t.chosen })) cancel();
+  const action = t.mode === 'cast' ? { type: t.mode, card: t.cardId, targets: t.chosen, ...t.choices } : { type: t.mode, card: t.cardId, targets: t.chosen };
+  if (!S().act(action)) cancel();
 }
 
 /** Taps or untaps a mana source while paying. Once the pool covers the whole cost, the spell is paid for. */
@@ -355,11 +456,18 @@ function payByHand(g: Game, me: PlayerId, t: Targeting, card: Card) {
   }
 }
 
+/** Picks the permanent to sacrifice for the spell's additional cost (118.8). Paying comes next. */
+function chooseSacrifice(g: Game, me: PlayerId, t: Targeting, card: Card) {
+  const spell = findCard(g, t.cardId)!;
+  if (!sacrificeOptions(g, me, spell).some((c) => c.id === card.id)) return;
+  useStore.setState({ targeting: { ...t, choices: { ...t.choices, sacrifice: [card.id] } } });
+}
+
 function chooseTarget(ref: TargetRef | null) {
   const s = S();
   const { game: g, human: me } = s;
   const t = targetingOf(s);
-  if (!g || me === null || !t) return;
+  if (!g || me === null || !t || t.announcing || isSacrificing(t)) return;
   if (ref && !currentTargets(g, me, t).some((x) => x.kind === ref.kind && x.id === ref.id)) return;
   advance({ ...t, chosen: [...t.chosen, ref] });
 }
@@ -392,7 +500,9 @@ export function playHandCard(card: Card) {
 export function clickPermanent(card: Card) {
   const t = targetingOf(S());
   const ctx = myTurnToAct();
+  if (t && t.announcing) return;
   if (t && isPaying(t)) return ctx && payByHand(ctx.g, ctx.me, t, card);
+  if (t && isSacrificing(t)) return ctx && chooseSacrifice(ctx.g, ctx.me, t, card);
   if (t) return chooseTarget({ kind: 'card', id: card.id });
   if (!ctx) return;
   const { g, me } = ctx;
