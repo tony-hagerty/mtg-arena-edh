@@ -3,6 +3,7 @@ import { applyBotAction, botAction, newGame } from '../src/engine';
 import type { Game } from '../src/engine';
 import { DECKS } from '../src/cards/db';
 import type { DeckDef } from '../src/cards/db';
+import './fixtures';
 import { twoCommanderDeck } from './helpers';
 
 /** Checks things that must hold after every single action. `sizes` is each player's deck size. */
@@ -74,6 +75,20 @@ describe('a 100-card two-commander deck', () => {
   for (const seed of [7, 8, 9]) {
     it(`seed ${seed}: bots play it to a finish against the starter decks`, () => {
       const { g } = playOut(seed, [twoCommanderDeck(), DECKS[1], DECKS[3], DECKS[0]]);
+      expect(g.winner).not.toBe(null);
+    });
+  }
+});
+
+describe('decks with X, hybrid, Phyrexian, kicker, sacrifice and alternative costs', () => {
+  // Cards from tests/fixtures.ts, swapped in for basic lands and one black card.
+  const boros = twoCommanderDeck();
+  boros.cards.push('Blaze', 'Boros Recruit', 'Gut Shot', 'Burst Lightning', 'Flawless Maneuver', 'Thalia, Guardian of Thraben', 'Ruby Medallion');
+  boros.basics = { Plains: 14, Mountain: 14 };
+  const black = { ...DECKS[1], cards: [...DECKS[1].cards.slice(1), 'Bone Splinters'] };
+  for (const seed of [4, 5, 6]) {
+    it(`seed ${seed}: bots play them to a finish`, () => {
+      const { g } = playOut(seed, [boros, black, DECKS[3], DECKS[0]]);
       expect(g.winner).not.toBe(null);
     });
   }

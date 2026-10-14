@@ -30,7 +30,8 @@ const KEYWORD_ICONS = [
 ];
 
 export function ManaCost({ cost }: { cost: string }) {
-  const symbols = [...cost.matchAll(/\{([^}]+)\}/g)].map((m) => m[1].toLowerCase());
+  // Hybrid and Phyrexian symbols drop the slash: {R/W} is ms-rw, {W/P} is ms-wp.
+  const symbols = [...cost.matchAll(/\{([^}]+)\}/g)].map((m) => m[1].toLowerCase().replaceAll('/', ''));
   return (
     <span className="mana-cost">
       {symbols.map((s, i) => (

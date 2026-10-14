@@ -1,7 +1,7 @@
 import { useEffect, useMemo } from 'react';
 import { botAction } from '../engine';
 import { OpponentPanel, PlayerField } from './Board';
-import { ActionBar, ArrowLayer, ExitConfirm, GameOver, LogPanel, Preview, Prompt, SpellFlash, StackPanel, ZoneViewer } from './Hud';
+import { ActionBar, ArrowLayer, CastOptions, ExitConfirm, GameOver, LogPanel, Preview, Prompt, SpellFlash, StackPanel, ZoneViewer } from './Hud';
 import { Decisions } from './Picker';
 import { useStore } from './store';
 import { ViewContext, buildView } from './view';
@@ -36,6 +36,7 @@ export function GameScreen() {
         ))}
         <PlayerField player={bottom} />
         <Prompt />
+        <CastOptions />
         <LogPanel />
         <ActionBar />
         <StackPanel />
