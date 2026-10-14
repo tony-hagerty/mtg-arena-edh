@@ -25,7 +25,7 @@ function CreatureRow({ player, width, max, className, wrap }: { player: Player; 
   const v = useView();
   const g = v.g;
   const fighting = new Set((g.combat?.attacks ?? []).flatMap((a) => [a.id, ...a.blockers]));
-  const choosing = v.mine && player.id === v.me && (g.step === 'attackers' || g.step === 'blockers');
+  const choosing = v.mine && player.id === v.me && (g.decision?.type === 'attackers' || g.decision?.type === 'blockers');
   const groups = new Map<string, Card[]>();
   for (const c of creaturesOf(g, player.id)) {
     const stackable = c.isToken && !choosing && !fighting.has(c.id);

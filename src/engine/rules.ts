@@ -12,8 +12,12 @@ import type {
   ManaSym,
   Player,
   PlayerId,
+  StackItem,
   TargetRef,
   TargetSpec,
+  Trigger,
+  TriggerEvents,
+  TriggerHook,
   Zone,
 } from './types';
 
@@ -73,6 +77,15 @@ export function nextLiving(g: Game, pid: PlayerId): PlayerId {
   return pid;
 }
 
+/**
+ * Living players in turn order, starting with `from`. From the active player this is
+ * APNAP order: the order players make choices that come up at the same time (101.4).
+ */
+export function turnOrder(g: Game, from: PlayerId): PlayerId[] {
+  const n = g.players.length;
+  return Array.from({ length: n }, (_, i) => (from + i) % n).filter((pid) => !g.players[pid].lost);
+}
+
 export function permanent(g: Game, id: string): Card | undefined {
   for (const p of g.players) {
     const c = p.battlefield.find((x) => x.id === id);
@@ -88,7 +101,8 @@ export function findCard(g: Game, id: string): Card | undefined {
       if (c) return c;
     }
   }
-  return undefined;
+  // A spell on the stack, or the remembered source of an ability whose source is gone.
+  return g.stack.find((x) => x.card.id === id)?.card;
 }
 
 export const refCard = (g: Game, ref: TargetRef | null | undefined) =>
@@ -358,6 +372,15 @@ export function legalTargets(g: Game, pid: PlayerId, spec: TargetSpec, source: C
 
 export const sameRef = (a: TargetRef, b: TargetRef) => a.kind === b.kind && a.id === b.id;
 
+/** The targets a spell or ability on the stack has to choose. */
+export function targetSpecs(item: StackItem): TargetSpec[] {
+  const script = scriptOf(item.card.name);
+  if (item.kind === 'activated') return script.activated?.targets ?? [];
+  if (item.kind === 'triggered') return item.hook === 'onEnter' ? (script.targets ?? []) : [];
+  // A permanent spell has no targets of its own: `targets` belongs to its enters ability.
+  return isPermanentCard(item.card) ? [] : (script.targets ?? []);
+}
+
 export function describeRef(g: Game, ref: TargetRef): string {
   if (ref.kind === 'player') return g.players[ref.id].name;
   const c = permanent(g, ref.id);
@@ -432,9 +455,13 @@ export function removeFromCombat(g: Game, id: string) {
 
 /** Moves a card between zones. Tokens vanish; a commander goes to the command zone instead of dying. */
 export function moveCard(g: Game, c: Card, to: Zone) {
-  const from = g.players[c.owner][c.zone];
-  const i = from.findIndex((x) => x.id === c.id);
-  if (i >= 0) from.splice(i, 1);
+  if (c.zone === 'stack') {
+    g.stack = g.stack.filter((x) => x.kind !== 'spell' || x.card.id !== c.id);
+  } else {
+    const from = g.players[c.owner][c.zone];
+    const i = from.findIndex((x) => x.id === c.id);
+    if (i >= 0) from.splice(i, 1);
+  }
   if (c.zone === 'battlefield') removeFromCombat(g, c.id);
   c.tapped = false;
   c.sick = false;
@@ -448,28 +475,46 @@ export function moveCard(g: Game, c: Card, to: Zone) {
   g.players[c.owner][to].push(c);
 }
 
-export function broadcast(g: Game, hook: BroadcastHook, payload: object) {
-  const listeners = battlefield(g)
-    .filter((c) => scriptOf(c.name)[hook])
-    .map((c) => c.id);
-  for (const id of listeners) {
-    const self = permanent(g, id);
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    if (self) (scriptOf(self.name)[hook] as any)(g, { self, ...payload });
-  }
+/** A copy of a card as it is right now, for an ability or event to remember (113.7a, 603.10a). */
+export const snapshot = (c: Card): Card => ({ ...c, mods: c.mods.map((m) => ({ ...m, keywords: [...m.keywords] })) });
+
+const isCard = (v: unknown): v is Card => typeof v === 'object' && v !== null && 'zone' in v && 'owner' in v;
+
+/**
+ * Checks whether `source`'s ability triggers on an event (603.2). If it does, the ability
+ * waits in `g.triggers` and goes on the stack the next time a player would get priority (603.3).
+ */
+export function trigger<H extends TriggerHook>(g: Game, source: Card, hook: H, event: TriggerEvents[H]) {
+  const t = scriptOf(source.name)[hook] as Trigger<object> | undefined;
+  if (!t) return;
+  if (typeof t !== 'function' && !t.when(g, { self: source, ...event })) return;
+  const remembered = Object.fromEntries(Object.entries(event).map(([k, v]) => [k, isCard(v) ? snapshot(v) : v]));
+  g.triggers.push({
+    id: `s${g.nextId++}`,
+    kind: 'triggered',
+    controller: source.owner,
+    card: snapshot(source),
+    hook,
+    event: remembered,
+    targets: [],
+  });
 }
 
-/** Fires enters-the-battlefield triggers for a permanent that was just put there. */
-function arrive(g: Game, c: Card, opts: { tapped?: boolean; targets?: (TargetRef | null)[] }) {
-  const script = scriptOf(c.name);
+/** Offers an event to every permanent on the battlefield. */
+export function broadcast<H extends BroadcastHook>(g: Game, hook: H, event: TriggerEvents[H]) {
+  for (const c of battlefield(g)) trigger(g, c, hook, event);
+}
+
+/** Sets up a permanent that was just put onto the battlefield, and triggers "enters" abilities (603.6a). */
+function arrive(g: Game, c: Card, opts: { tapped?: boolean }) {
   c.sick = true;
-  c.tapped = !!opts.tapped || !!script.entersTapped;
-  script.onEnter?.(g, { self: c, you: c.owner, targets: opts.targets ?? [] });
+  c.tapped = !!opts.tapped || !!scriptOf(c.name).entersTapped;
+  trigger(g, c, 'onEnter', {});
   if (isCreature(c)) broadcast(g, 'onCreatureEnters', { entered: c });
   if (isLand(c)) broadcast(g, 'onLandfall', { land: c });
 }
 
-export function enterBattlefield(g: Game, c: Card, opts: { tapped?: boolean; targets?: (TargetRef | null)[] } = {}) {
+export function enterBattlefield(g: Game, c: Card, opts: { tapped?: boolean } = {}) {
   moveCard(g, c, 'battlefield');
   arrive(g, c, opts);
 }
@@ -485,23 +530,25 @@ export function createToken(g: Game, pid: PlayerId, key: string, count = 1) {
 }
 
 /**
- * Puts permanents into their owners' graveyards at the same time, then fires "dies"
- * triggers. Listeners are collected first so creatures that die together see each other die.
+ * Puts permanents into their owners' graveyards at the same time, then triggers "dies"
+ * abilities. These look back in time (603.10a): the dying cards and the permanents
+ * watching are copied first, so creatures that die together see each other die.
  */
 export function dieMany(g: Game, cards: Card[], verb = 'dies') {
   const dying = cards.filter((c) => c.zone === 'battlefield');
   if (!dying.length) return;
-  const listeners = battlefield(g).filter((c) => scriptOf(c.name).onCreatureDies);
-  const wasCreature = dying.map(isCreature);
+  const listeners = battlefield(g)
+    .filter((c) => scriptOf(c.name).onCreatureDies)
+    .map(snapshot);
+  const dead = dying.filter(isCreature).map(snapshot);
   for (const c of dying) {
     log(g, `${label(c)} ${verb}.`, c.owner);
     moveCard(g, c, 'graveyard');
   }
-  dying.forEach((c, i) => {
-    if (!wasCreature[i]) return;
-    scriptOf(c.name).onDies?.(g, { self: c, you: c.owner, targets: [] });
-    for (const l of listeners) scriptOf(l.name).onCreatureDies!(g, { self: l, dead: c });
-  });
+  for (const c of dead) {
+    trigger(g, c, 'onDies', {});
+    for (const l of listeners) trigger(g, l, 'onCreatureDies', { dead: c });
+  }
 }
 
 export function destroyMany(g: Game, cards: Card[]) {
@@ -567,7 +614,7 @@ export function damagePlayer(g: Game, source: Card, pid: PlayerId, n: number, co
   log(g, `${label(source)} deals ${n} damage to ${p.name}.`, source.owner);
   if (combat && source.isCommander) p.commanderDamage[source.owner] += n;
   if (has(g, source, 'lifelink')) gainLife(g, source.owner, n);
-  if (combat) scriptOf(source.name).onCombatDamageToPlayer?.(g, { self: source, player: pid, amount: n });
+  if (combat) trigger(g, source, 'onCombatDamageToPlayer', { player: pid, amount: n });
   return n;
 }
 
@@ -617,9 +664,13 @@ export function searchBasic(
 
 // ---------- state-based actions ----------
 
+/** A player leaves the game, and everything they own or control goes with them (800.4a). */
 function eliminate(g: Game, p: Player, reason: string) {
   p.lost = true;
   log(g, `${says(p, 'is')} eliminated (${reason}).`, p.id);
+  const theirs = (x: StackItem) => x.controller === p.id || x.card.owner === p.id;
+  g.stack = g.stack.filter((x) => !theirs(x));
+  g.triggers = g.triggers.filter((x) => !theirs(x));
   if (g.combat) {
     const theirs = new Set(p.battlefield.map((c) => c.id));
     g.combat.attacks = g.combat.attacks.filter((a) => !theirs.has(a.id) && a.defender !== p.id);
@@ -635,7 +686,11 @@ function eliminate(g: Game, p: Player, reason: string) {
   p.pool = [];
 }
 
-/** Kills what should be dead, eliminates players who have lost, and sets the winner. */
+/**
+ * State-based actions (704): kills what should be dead, eliminates players who have lost,
+ * and sets the winner. Each pass does everything that applies at once, and passes repeat
+ * until nothing changes (704.3).
+ */
 export function checkState(g: Game) {
   for (let guard = 0; guard < 50; guard++) {
     let changed = false;
@@ -643,17 +698,18 @@ export function checkState(g: Game) {
       if (p.lost) continue;
       const reason =
         p.life <= 0
-          ? 'life total 0'
+          ? 'life total 0' // 704.5a
           : p.commanderDamage.some((d) => d >= COMMANDER_DAMAGE)
-            ? `${COMMANDER_DAMAGE} commander damage`
+            ? `${COMMANDER_DAMAGE} commander damage` // 903.10a
             : p.drewFromEmpty
-              ? 'drew from an empty library'
+              ? 'drew from an empty library' // 704.5b
               : null;
       if (reason) {
         eliminate(g, p, reason);
         changed = true;
       }
     }
+    // Toughness 0 or less (704.5f) ignores indestructible; lethal and deathtouch damage (704.5g-h) destroy.
     const dying: Card[] = [];
     for (const c of allCreatures(g)) {
       const s = stats(g, c);

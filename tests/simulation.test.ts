@@ -18,12 +18,21 @@ function checkInvariants(g: Game) {
         if (!c.isToken) real++;
       }
     });
-    if (!p.lost && real !== 60) throw new Error(`${p.name} has ${real} cards instead of 60`);
-    if (!p.lost && p.command.length + p.battlefield.filter((c) => c.isCommander).length + p.hand.filter((c) => c.isCommander).length !== 1) {
-      throw new Error(`${p.name}'s commander is missing`);
+    // A spell on the stack is a card too (601.2a).
+    const casting = g.stack.filter((x) => x.kind === 'spell' && x.card.owner === p.id).map((x) => x.card);
+    for (const c of casting) {
+      if (seen.has(c.id)) throw new Error(`card ${c.name} (${c.id}) is on the stack and somewhere else`);
+      seen.add(c.id);
+      if (c.zone !== 'stack') throw new Error(`${c.name} thinks it is in ${c.zone} but is on the stack`);
     }
+    real += casting.length;
+    if (!p.lost && real !== 60) throw new Error(`${p.name} has ${real} cards instead of 60`);
+    const commanders = [...p.command, ...p.battlefield, ...p.hand, ...casting].filter((c) => c.isCommander).length;
+    if (!p.lost && commanders !== 1) throw new Error(`${p.name}'s commander is missing`);
   }
   if (g.step !== 'gameOver' && g.players[g.priority].lost) throw new Error('a dead player has priority');
+  if (g.triggers.length && !g.decision && g.step !== 'gameOver') throw new Error('a triggered ability was left waiting');
+  if (g.stack.some((x) => g.players[x.controller].lost)) throw new Error('a dead player has something on the stack');
   for (const a of g.combat?.attacks ?? []) {
     if (g.players[a.defender].lost) throw new Error('attacking a dead player');
   }

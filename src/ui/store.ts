@@ -2,12 +2,19 @@ import { create } from 'zustand';
 import { applyAction, applyBotAction, newGame } from '../engine';
 import type { Action, Game, PlayerId, TargetRef, TargetSpec, Zone } from '../engine';
 
-/** A spell or ability the human is part-way through choosing targets for. */
+/**
+ * A spell or ability the human is part-way through. `cast` and `activate` are proposals
+ * (601.2): targets are chosen first, then the cost is paid, and until it is paid nothing
+ * has reached the game. `trigger` is a triggered ability the game is already waiting on
+ * for targets (see `targetingOf` in view.ts).
+ */
 export interface Targeting {
-  mode: 'cast' | 'activate';
+  mode: 'cast' | 'activate' | 'trigger';
   cardId: string;
   specs: TargetSpec[];
   chosen: (TargetRef | null)[];
+  /** Mana sources tapped by hand while paying, so cancelling can untap them again (733.1). */
+  tapped: string[];
 }
 
 export interface Hover {

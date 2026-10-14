@@ -1,6 +1,7 @@
 // Bot players. Because the engine is pure, the bot evaluates most choices by simply
-// trying them (`applyAction`) and scoring the resulting position. Attacks and blocks use
-// hand-written heuristics, since their outcome depends on what other players do next.
+// trying them (`applyAction`), letting the stack resolve, and scoring the resulting
+// position. Attacks and blocks use hand-written heuristics, since their outcome depends
+// on what other players do next.
 import { scriptOf } from './registry';
 import {
   applyAction,
@@ -18,12 +19,12 @@ import {
   fight,
   isCreature,
   isLand,
-  isPermanentCard,
   legalTargets,
   manaOf,
   opponentsOf,
   permanent,
   stats,
+  targetSpecs,
 } from './rules';
 import type { Action, Card, Game, Player, PlayerId, TargetRef, TargetSpec } from './types';
 
@@ -76,12 +77,14 @@ export function evaluate(g: Game, pid: PlayerId): number {
 
 // ---------- trying out casts and abilities ----------
 
+const PASS: Action = { type: 'pass' };
+
 /** Every way of choosing targets for `specs` (capped so wide boards stay cheap). */
-function targetChoices(g: Game, pid: PlayerId, specs: TargetSpec[], source: Card, allowSkip: boolean): (TargetRef | null)[][] {
+function targetChoices(g: Game, pid: PlayerId, specs: TargetSpec[], source: Card): (TargetRef | null)[][] {
   let combos: (TargetRef | null)[][] = [[]];
   for (const spec of specs) {
     const legal: (TargetRef | null)[] = legalTargets(g, pid, spec, source);
-    if (allowSkip || spec.optional || legal.length === 0) legal.push(null);
+    if (spec.optional || legal.length === 0) legal.push(null);
     combos = combos.flatMap((c) => legal.map((t) => [...c, t])).slice(0, 80);
   }
   return combos;
@@ -92,32 +95,101 @@ function candidateActions(g: Game, pid: PlayerId): { action: Action; spendsCard:
   const out: { action: Action; spendsCard: boolean }[] = [];
   for (const c of [...p.hand, ...p.command]) {
     if (!canCast(g, pid, c)) continue;
-    for (const targets of targetChoices(g, pid, castTargets(c), c, isPermanentCard(c))) {
+    for (const targets of targetChoices(g, pid, castTargets(c), c)) {
       out.push({ action: { type: 'cast', card: c.id, targets }, spendsCard: true });
     }
   }
   for (const c of p.battlefield) {
     if (!canActivate(g, pid, c)) continue;
-    for (const targets of targetChoices(g, pid, scriptOf(c.name).activated!.targets ?? [], c, false)) {
+    for (const targets of targetChoices(g, pid, scriptOf(c.name).activated!.targets ?? [], c)) {
       out.push({ action: { type: 'activate', card: c.id, targets }, spendsCard: false });
     }
   }
   return out;
 }
 
+// Look-ahead turns auto-pass off, so that passing only ever resolves the stack or ends one
+// step. Positions being compared then always stop at the same point in the turn.
+const STEP_BY_STEP = { autoPass: false } as const;
+
+/** The first legal targets for the triggered ability that is waiting on them. */
+function anyTargets(g: Game): Action {
+  if (g.decision?.type !== 'targets') return PASS;
+  const { item } = g.decision;
+  const targets = targetSpecs(item).map((spec) => (spec.optional ? null : (legalTargets(g, g.priority, spec, item.card)[0] ?? null)));
+  return { type: 'chooseTargets', targets };
+}
+
+/** The targets for a waiting triggered ability that leave `pid` best off. */
+function bestTargets(g: Game, pid: PlayerId, depth = 0): Action {
+  if (g.decision?.type !== 'targets') return PASS;
+  const { item } = g.decision;
+  let best = anyTargets(g);
+  let bestScore = -Infinity;
+  for (const targets of targetChoices(g, pid, targetSpecs(item), item.card)) {
+    const action: Action = { type: 'chooseTargets', targets };
+    const after = applyAction(g, action, STEP_BY_STEP);
+    if (after === g) continue;
+    const score = evaluate(resolveStack(after, pid, depth + 1), pid);
+    if (score > bestScore) {
+      bestScore = score;
+      best = action;
+    }
+  }
+  return best;
+}
+
+/**
+ * Plays on with everyone passing until the stack is empty, to see what a play leads to.
+ * `pid` picks good targets for their own triggered abilities; other players take the first legal ones.
+ */
+function resolveStack(g: Game, pid: PlayerId, depth = 0): Game {
+  for (let i = 0; i < 200 && g.step !== 'gameOver'; i++) {
+    let action: Action;
+    if (g.decision?.type === 'targets') action = g.priority === pid && depth < 2 ? bestTargets(g, pid, depth) : anyTargets(g);
+    else if (g.stack.length && !g.decision) action = PASS;
+    else break;
+    const next = applyAction(g, action, STEP_BY_STEP);
+    if (next === g) break;
+    g = next;
+  }
+  return g;
+}
+
+/** Are attackers declared and combat damage still to come? */
+const fighting = (g: Game) =>
+  !!g.combat?.attacks.length && g.decision?.type !== 'attackers' && ['attackers', 'blockers', 'damage'].includes(g.step);
+
+/** Plays on to the end of combat: everyone passes, and defenders block the way a bot would. */
+function finishCombat(g: Game): Game {
+  for (let i = 0; i < 300 && fighting(g); i++) {
+    const deciding = g.decision?.type;
+    const action = deciding === 'blockers' ? blockAction(g, g.priority) : deciding === 'targets' ? anyTargets(g) : PASS;
+    const next = applyAction(g, action, STEP_BY_STEP);
+    if (next === g) break;
+    g = next;
+  }
+  return g;
+}
+
 /**
  * The cast/ability that improves the position most, or null if nothing is worth it.
- * `throughCombat` scores positions after combat damage, for tricks in the damage window.
+ * Once attackers are declared, positions are scored after combat damage, so tricks and
+ * removal are judged by what they do to the combat.
  */
-function bestPlay(g: Game, pid: PlayerId, throughCombat: boolean): Action | null {
-  const finish = (s: Game) => (throughCombat && s.step === 'damage' && s.priority === pid ? applyAction(s, { type: 'pass' }) : s);
-  const baseline = evaluate(finish(g), pid);
+function bestPlay(g: Game, pid: PlayerId): Action | null {
+  const throughCombat = fighting(g);
+  const outcome = (s: Game) => {
+    s = resolveStack(s, pid);
+    return evaluate(throughCombat ? finishCombat(s) : s, pid);
+  };
+  const baseline = outcome(g);
   let best: Action | null = null;
   let bestGain = 0;
   for (const { action, spendsCard } of candidateActions(g, pid)) {
-    const after = applyAction(g, action);
+    const after = applyAction(g, action, STEP_BY_STEP);
     if (after === g) continue;
-    const gain = evaluate(finish(after), pid) - baseline - (spendsCard ? 0.25 : 0.05);
+    const gain = outcome(after) - baseline - (spendsCard ? 0.25 : 0.05);
     if (gain > bestGain) {
       bestGain = gain;
       best = action;
@@ -223,8 +295,6 @@ function planBlocks(g: Game, pid: PlayerId): Map<string, string> {
 }
 
 function blockAction(g: Game, pid: PlayerId): Action {
-  const play = bestPlay(g, pid, false);
-  if (play) return play;
   const declared = new Map<string, string>();
   for (const a of g.combat?.attacks ?? []) for (const b of a.blockers) declared.set(b, a.id);
   for (const [blocker, attacker] of planBlocks(g, pid)) {
@@ -239,7 +309,7 @@ function mainAction(g: Game, pid: PlayerId): Action {
   const p = g.players[pid];
   const land = p.hand.find((c) => canPlayLand(g, pid, c));
   if (land) return { type: 'playLand', card: land.id };
-  const play = bestPlay(g, pid, false);
+  const play = bestPlay(g, pid);
   if (play) return play;
   // Team pumps look worthless to `evaluate` (they wear off), so cast them by rule.
   if (g.step === 'main1' && attackCandidates(g, pid).length >= 3) {
@@ -258,27 +328,26 @@ function discardChoice(g: Game, pid: PlayerId): Action {
 }
 
 export function botAction(g: Game, pid: PlayerId): Action {
-  switch (g.step) {
-    case 'main1':
-    case 'main2':
-      return mainAction(g, pid);
+  switch (g.decision?.type) {
     case 'attackers':
       return attackAction(g, pid);
     case 'blockers':
       return blockAction(g, pid);
-    case 'damage':
-      return bestPlay(g, pid, true) ?? { type: 'pass' };
     case 'discard':
       return discardChoice(g, pid);
-    default:
-      return { type: 'pass' };
+    case 'targets':
+      return bestTargets(g, pid);
   }
+  // With priority: sorcery-speed plays in the bot's own main phase, otherwise responses and tricks.
+  const myMain = pid === g.active && !g.stack.length && (g.step === 'main1' || g.step === 'main2');
+  return myMain ? mainAction(g, pid) : (bestPlay(g, pid) ?? PASS);
 }
 
-/** Applies a bot action, falling back to a pass so a bad plan can never stall the game. */
+/** Applies a bot action, falling back to a legal default so a bad plan can never stall the game. */
 export function applyBotAction(g: Game, a: Action): Game {
   let next = applyAction(g, a);
-  if (next === g && a.type !== 'pass') next = applyAction(g, { type: 'pass' });
-  if (next === g && g.step === 'discard') next = applyAction(g, discardChoice(g, g.priority));
+  if (next === g && a.type !== 'pass') next = applyAction(g, PASS);
+  if (next === g && g.decision?.type === 'discard') next = applyAction(g, discardChoice(g, g.priority));
+  if (next === g && g.decision?.type === 'targets') next = applyAction(g, anyTargets(g));
   return next;
 }

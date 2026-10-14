@@ -1,5 +1,9 @@
 // Card behaviour. A card with only printed keywords (Flying, Trample, ...) needs no entry;
 // everything else does, and tests/cards.test.ts fails if one is missing.
+//
+// Triggered abilities (`onEnter`, `onCreatureDies`, ...) don't run on the spot: they go on
+// the stack and run when they resolve. An ability that only triggers on some events must
+// say which in `when`, or it would go on the stack for every one of them.
 import { registerScripts } from '../engine/registry';
 import {
   addCounters,
@@ -70,6 +74,9 @@ const drawAndLose = (cards: number, life: number) => (g: Game, { you }: Ctx) => 
   loseLife(g, you, life);
 };
 const isSpell = (c: Card) => hasType(c, 'Instant') || hasType(c, 'Sorcery');
+// Trigger conditions shared by several cards.
+const youCastASpell = (_g: Game, e: { self: Card; card: Card; caster: PlayerId }) => e.caster === e.self.owner && isSpell(e.card);
+const yourLand = (_g: Game, e: { self: Card; land: Card }) => e.land.owner === e.self.owner;
 const teamPump = (g: Game, you: PlayerId, power: number, toughness: number, keywords: string[] = []) => {
   for (const c of creaturesOf(g, you)) pump(g, c, power, toughness, keywords);
 };
@@ -97,8 +104,11 @@ registerScripts({
   },
   'Angel of Mercy': { onEnter: (g, { you }) => gainLife(g, you, 3) },
   'Archangel of Thune': {
-    onLifeGain: (g, { self, player }) => {
-      if (player === self.owner) for (const c of creaturesOf(g, self.owner)) addCounters(g, c);
+    onLifeGain: {
+      when: (_g, { self, player }) => player === self.owner,
+      resolve: (g, { you }) => {
+        for (const c of creaturesOf(g, you)) addCounters(g, c);
+      },
     },
   },
   'Angel of the Dawn': { onEnter: (g, { you }) => teamPump(g, you, 1, 1, ['vigilance']) },
@@ -116,13 +126,15 @@ registerScripts({
   },
   'Sunblast Angel': { onEnter: (g) => destroyMany(g, allCreatures(g).filter((c) => c.tapped)) },
   "Ajani's Pridemate": {
-    onLifeGain: (g, { self, player }) => {
-      if (player === self.owner) addCounters(g, self);
+    onLifeGain: {
+      when: (_g, { self, player }) => player === self.owner,
+      resolve: (g, { self }) => addCounters(g, self),
     },
   },
   'Soul Warden': {
-    onCreatureEnters: (g, { self, entered }) => {
-      if (entered.id !== self.id) gainLife(g, self.owner, 1);
+    onCreatureEnters: {
+      when: (_g, { self, entered }) => entered.id !== self.id,
+      resolve: (g, { you }) => gainLife(g, you, 1),
     },
   },
   'Benalish Marshal': {
@@ -180,15 +192,18 @@ registerScripts({
     onEnter: (g, { you }) => gainLife(g, you, eachOpponentLoses(g, you, devotion(g, you, 'B'))),
   },
   'Harvester of Souls': {
-    onCreatureDies: (g, { self, dead }) => {
-      if (dead.id !== self.id && !dead.isToken) draw(g, self.owner);
+    onCreatureDies: {
+      when: (_g, { self, dead }) => dead.id !== self.id && !dead.isToken,
+      resolve: (g, { you }) => draw(g, you),
     },
   },
   'Zulaport Cutthroat': {
-    onCreatureDies: (g, { self, dead }) => {
-      if (dead.owner !== self.owner) return;
-      eachOpponentLoses(g, self.owner, 1);
-      gainLife(g, self.owner, 1);
+    onCreatureDies: {
+      when: (_g, { self, dead }) => dead.owner === self.owner,
+      resolve: (g, { you }) => {
+        eachOpponentLoses(g, you, 1);
+        gainLife(g, you, 1);
+      },
     },
   },
   'Ravenous Chupacabra': {
@@ -211,8 +226,9 @@ registerScripts({
     onEnter: (g, { you }) => {
       for (const o of opponentsOf(g, you)) for (const c of creaturesOf(g, o.id)) pump(g, c, -2, -2);
     },
-    onCreatureDies: (g, { self, dead }) => {
-      if (dead.owner !== self.owner) loseLife(g, dead.owner, 2);
+    onCreatureDies: {
+      when: (_g, { self, dead }) => dead.owner !== self.owner,
+      resolve: (g, { dead }) => void loseLife(g, dead.owner, 2),
     },
   },
   'Vampire Sovereign': {
@@ -260,10 +276,12 @@ registerScripts({
       ),
   },
   'Phyrexian Arena': {
-    onUpkeep: (g, { self, player }) => {
-      if (player !== self.owner) return;
-      draw(g, player);
-      loseLife(g, player, 1);
+    onUpkeep: {
+      when: (_g, { self, player }) => player === self.owner,
+      resolve: (g, { you }) => {
+        draw(g, you);
+        loseLife(g, you, 1);
+      },
     },
   },
 
@@ -299,8 +317,11 @@ registerScripts({
   },
   'Borderland Marauder': { onAttack: (g, { self }) => pump(g, self, 2, 0) },
   Guttersnipe: {
-    onCast: (g, { self, card, caster }) => {
-      if (caster === self.owner && isSpell(card)) for (const o of opponentsOf(g, caster)) damagePlayer(g, self, o.id, 2);
+    onCast: {
+      when: youCastASpell,
+      resolve: (g, { self, you }) => {
+        for (const o of opponentsOf(g, you)) damagePlayer(g, self, o.id, 2);
+      },
     },
   },
   'Thermo-Alchemist': {
@@ -311,13 +332,17 @@ registerScripts({
         for (const o of opponentsOf(g, you)) damagePlayer(g, self, o.id, 1);
       },
     },
-    onCast: (_g, { self, card, caster }) => {
-      if (caster === self.owner && isSpell(card)) self.tapped = false;
+    onCast: {
+      when: youCastASpell,
+      resolve: (_g, { self }) => {
+        self.tapped = false;
+      },
     },
   },
   Hellrider: {
-    onCreatureAttacks: (g, { self, attacker, defender }) => {
-      if (attacker.owner === self.owner) damagePlayer(g, self, defender, 1);
+    onCreatureAttacks: {
+      when: (_g, { self, attacker }) => attacker.owner === self.owner,
+      resolve: (g, { self, defender }) => void damagePlayer(g, self, defender, 1),
     },
   },
   'Viashino Pyromancer': {
@@ -371,11 +396,9 @@ registerScripts({
   'Llanowar Elves': { mana: { amount: 1, colors: ['G'] } },
   'Elvish Mystic': { mana: { amount: 1, colors: ['G'] } },
   'Rampaging Baloths': {
-    onLandfall: (g, { self, land }) => {
-      if (land.owner === self.owner) createToken(g, self.owner, 'Beast 4/4');
-    },
+    onLandfall: { when: yourLand, resolve: (g, { you }) => createToken(g, you, 'Beast 4/4') },
   },
-  // "Can't be countered" is always true here: the prototype has no counterspells.
+  // "Can't be countered" is always true here: the card pool has no counterspells.
   'Terra Stomper': {},
   'Carnage Tyrant': {},
   'Acidic Slime': {
@@ -408,20 +431,24 @@ registerScripts({
   },
   'Avenger of Zendikar': {
     onEnter: (g, { you }) => createToken(g, you, 'Plant', g.players[you].battlefield.filter(isLand).length),
-    onLandfall: (g, { self, land }) => {
-      if (land.owner !== self.owner) return;
-      for (const c of creaturesOf(g, self.owner)) if (hasType(c, 'Plant')) addCounters(g, c);
+    onLandfall: {
+      when: yourLand,
+      resolve: (g, { you }) => {
+        for (const c of creaturesOf(g, you)) if (hasType(c, 'Plant')) addCounters(g, c);
+      },
     },
   },
   'Elvish Visionary': { onEnter: (g, { you }) => draw(g, you) },
   'Beast Whisperer': {
-    onCast: (g, { self, card, caster }) => {
-      if (caster === self.owner && isCreature(card)) draw(g, caster);
+    onCast: {
+      when: (_g, { self, card, caster }) => caster === self.owner && isCreature(card),
+      resolve: (g, { you }) => draw(g, you),
     },
   },
   "Garruk's Packleader": {
-    onCreatureEnters: (g, { self, entered }) => {
-      if (entered.id !== self.id && entered.owner === self.owner && stats(g, entered).power >= 3) draw(g, self.owner);
+    onCreatureEnters: {
+      when: (g, { self, entered }) => entered.id !== self.id && entered.owner === self.owner && stats(g, entered).power >= 3,
+      resolve: (g, { you }) => draw(g, you),
     },
   },
   'Rampant Growth': { onResolve: (g, { you }) => void searchBasic(g, you, 'battlefield') },
