@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { applyAction, availableMana, canCast, canPlayLand, stats } from '../src/engine';
-import type { Game } from '../src/engine';
+import { applyAction, availableMana, canCast, canPlayLand, defaultStops, stats } from '../src/engine';
+import type { ApplyOptions, Game, TurnStops } from '../src/engine';
 import { byName, emptyGame, onBattlefield, put, run, runWith } from './helpers';
 
 const pass = { type: 'pass' } as const;
@@ -483,5 +483,67 @@ describe('eliminations', () => {
     g = run(g, { type: 'cast', card: byName(g, 0, 'Shock', 'hand')!.id, targets: [{ kind: 'player', id: 1 }] }, pass);
     expect(g.players[1].lost).toBe(true);
     expect(g.active).toBe(2);
+  });
+});
+
+describe('stops', () => {
+  // Player 1's stops: none at all, then whatever a test adds for player 0's turn.
+  const stopsFor1 = (onTurn0: TurnStops): ApplyOptions => ({ stops: { 1: [onTurn0, {}, {}, {}] } });
+
+  it('stops a player at an "always" stop even when all they can do is pass', () => {
+    let g = emptyGame();
+    g = runWith(stopsFor1({ beginCombat: 'always' }), g, pass);
+    expect([g.step, g.priority]).toEqual(['beginCombat', 1]);
+  });
+
+  it('skips an "ifAble" stop when the player can only pass', () => {
+    let g = emptyGame();
+    const turn = g.turn;
+    g = runWith(stopsFor1({ beginCombat: 'ifAble' }), g, pass);
+    // Player 1 has no stops on their own turn either, so it goes by; player 2 stops in main 1 by default.
+    expect([g.turn, g.active, g.step, g.priority]).toEqual([turn + 2, 2, 'main1', 2]);
+  });
+
+  it('stops at an "ifAble" stop when the player could act', () => {
+    let g = emptyGame((d) => {
+      put(d, 1, 'Mountain');
+      put(d, 1, 'Shock', 'hand');
+    });
+    g = runWith(stopsFor1({ beginCombat: 'ifAble' }), g, pass);
+    expect([g.step, g.priority]).toEqual(['beginCombat', 1]);
+  });
+
+  it("still stops for an opponent's spell on the stack, whatever the stops", () => {
+    let g = emptyGame((d) => {
+      put(d, 0, 'Mountain');
+      put(d, 0, 'Shock', 'hand');
+      put(d, 1, 'Mountain');
+      put(d, 1, 'Shock', 'hand');
+    });
+    const shock = byName(g, 0, 'Shock', 'hand')!;
+    g = runWith(stopsFor1({}), g, { type: 'cast', card: shock.id, targets: [{ kind: 'player', id: 1 }] });
+    expect([g.stack.length, g.priority]).toEqual([1, 1]);
+  });
+
+  it('ignores a declare attackers stop when nothing attacks (508.8)', () => {
+    let g = emptyGame();
+    g = runWith(stopsFor1({ attackers: 'always', endCombat: 'always' }), g, pass);
+    expect([g.step, g.priority]).toEqual(['endCombat', 1]);
+  });
+
+  it('only changes the player whose stops they are', () => {
+    let g = emptyGame((d) => {
+      put(d, 0, 'Mountain');
+      put(d, 0, 'Shock', 'hand');
+    });
+    // Player 0 would stop in main 2 by default, holding Shock. With no stops they don't,
+    // but player 1 keeps the default stop in their own main 1.
+    g = runWith({ stops: { 0: [{}, {}, {}, {}] } }, g, pass);
+    expect([g.active, g.step, g.priority]).toEqual([1, 'main1', 1]);
+  });
+
+  it('matches the defaults when no stops are given', () => {
+    expect(defaultStops(0)[0]).toEqual({ main1: 'always', main2: 'ifAble', blockers: 'ifAble' });
+    expect(defaultStops(0)[1]).toEqual({ attackers: 'ifAble', blockers: 'ifAble', end: 'ifAble' });
   });
 });

@@ -30,9 +30,18 @@ npm run build    # type-check and production build
 - A spell or ability waits on **the stack** before it does anything. When an opponent's is
   there and you could respond, the game stops for you: cast an instant or use an ability,
   or press **Resolve** to let it happen. The newest thing on the stack happens first.
-- The game passes for you whenever you have nothing you could do, so most of an opponent's
-  turn goes by on its own. It also stops for you after attackers and after blockers are
-  declared, and in each opponent's end step, if you could do something then.
+- With the stack empty, the game passes for you except at your **stops**. The tracker in
+  the bottom right shows them: a **ring** under a step means "stop if I can act", a
+  **dot** means "always stop". Click a step to cycle it: no stop, ring, dot, no stop.
+  A pip that covers several steps (beginning, combat, end) opens one button per step.
+  The untap and cleanup steps can't hold a stop: nobody gets priority there (502.4, 514.3).
+- The four arrows beside the tracker are the four seats (down is you). Click one to see
+  and edit the stops for that player's turns; the tracker takes their deck colour. Click
+  it again to go back to the current turn. Your turns show orange, everyone else's blue.
+- The defaults: on your turn, always in main 1, and if you can act in main 2 and after
+  blockers are declared. On other turns, if you can act, after attackers (only once
+  something attacks) and blockers are declared, and in the end step. Stops are saved in
+  the browser.
 - Your commander sits bottom-left in the command zone. Click it to cast it.
   Each recast costs 2 more (the `+2` badge).
 - **Attacking:** press Next → To Combat, click an opponent's portrait to choose who to
@@ -78,8 +87,10 @@ Rule numbers below are from the Comprehensive Rules in `docs/rules/`.
 
 These are deliberate cuts for a prototype, roughly in the order I'd tackle them next:
 
-- **The game passes priority for you** (see `wantsPriority` in `engine.ts`). You can't
-  hold priority to respond to your own spell, and you aren't stopped in every step. The
+- **You can't hold priority** to respond to your own spell: with something on the stack,
+  the game stops for you only when the top object is an opponent's and you could act.
+  Outside that, auto-pass follows your stops (`wantsPriority` in `engine.ts`; the UI
+  passes them in `applyAction(g, a, { stops })`). Bots always use the defaults. The
   engine itself follows the rules: `applyAction(g, a, { autoPass: false })` asks every
   player every time.
 - **A player's triggers go on the stack in the order they triggered.** The rules let the

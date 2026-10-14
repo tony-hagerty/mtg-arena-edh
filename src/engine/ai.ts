@@ -26,6 +26,7 @@ import {
   stats,
   targetSpecs,
 } from './rules';
+import type { ApplyOptions } from './engine';
 import type { Action, Card, Game, Player, PlayerId, TargetRef, TargetSpec } from './types';
 
 // ---------- position evaluation ----------
@@ -344,10 +345,10 @@ export function botAction(g: Game, pid: PlayerId): Action {
 }
 
 /** Applies a bot action, falling back to a legal default so a bad plan can never stall the game. */
-export function applyBotAction(g: Game, a: Action): Game {
-  let next = applyAction(g, a);
-  if (next === g && a.type !== 'pass') next = applyAction(g, PASS);
-  if (next === g && g.decision?.type === 'discard') next = applyAction(g, discardChoice(g, g.priority));
-  if (next === g && g.decision?.type === 'targets') next = applyAction(g, anyTargets(g));
+export function applyBotAction(g: Game, a: Action, opts?: ApplyOptions): Game {
+  let next = applyAction(g, a, opts);
+  if (next === g && a.type !== 'pass') next = applyAction(g, PASS, opts);
+  if (next === g && g.decision?.type === 'discard') next = applyAction(g, discardChoice(g, g.priority), opts);
+  if (next === g && g.decision?.type === 'targets') next = applyAction(g, anyTargets(g), opts);
   return next;
 }
