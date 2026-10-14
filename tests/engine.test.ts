@@ -10,6 +10,8 @@ import {
   canPlayLand,
   castCost,
   choiceOptions,
+  costText,
+  maxX,
   data,
   defaultStops,
   moveCard,
@@ -23,6 +25,7 @@ import {
 } from '../src/engine';
 import type { ApplyOptions, Game, TurnStops } from '../src/engine';
 import { DECKS } from '../src/cards/db';
+import './fixtures';
 import { byName, emptyGame, onBattlefield, put, run, runWith, twoCommanderDeck } from './helpers';
 
 const pass = { type: 'pass' } as const;
@@ -254,6 +257,188 @@ describe('two commanders (702.124) and multicolour decks', () => {
     const action = botAction(g, 0);
     expect(action.type).toBe('playLand');
     expect(action.type === 'playLand' && g.players[0].hand.find((c) => c.id === action.card)?.name).toBe('Mountain');
+  });
+});
+
+describe('costs (107.3, 107.4, 118, 601.2f)', () => {
+  const opp = { kind: 'player', id: 1 } as const;
+  const cast = (g: Game, name: string, extra: object = {}) => ({ type: 'cast', card: byName(g, 0, name, 'hand')!.id, ...extra }) as const;
+
+  it('parses X, hybrid, monocoloured hybrid and Phyrexian symbols', () => {
+    const c = parseCost('{X}{1}{R/G}{2/W}{B/P}{G/U/P}{C}');
+    expect(c).toEqual({ generic: 1, pips: ['C'], hybrid: [['R', 'G'], ['W', '2'], ['B', 'life'], ['G', 'U', 'life']], x: 1, life: 0 });
+    expect(costText(parseCost('{2}{R/G}{W/P}'))).toBe('{2}{R/G}{W/P}');
+  });
+
+  it('lets the caster choose X and pay it as generic mana (107.3a)', () => {
+    let g = emptyGame((d) => {
+      put(d, 0, 'Mountain', 'battlefield', 4);
+      put(d, 0, 'Blaze', 'hand');
+    });
+    const blaze = byName(g, 0, 'Blaze', 'hand')!;
+    expect(maxX(g, 0, blaze)).toBe(3);
+    expect(canCast(g, 0, blaze, { x: 4, targets: [opp] } as never)).toBe(false);
+    expect(applyAction(g, cast(g, 'Blaze', { x: 4, targets: [opp] }))).toBe(g);
+    g = run(g, cast(g, 'Blaze', { x: 3, targets: [opp] }), pass);
+    expect(g.players[1].life).toBe(37);
+    expect(g.log.some((l) => l.text.includes('Blaze (X = 3)'))).toBe(true);
+    // Off the stack, X is gone again (107.3g).
+    expect(byName(g, 0, 'Blaze', 'graveyard')!.cast).toBe(null);
+  });
+
+  it('pays a hybrid symbol with either colour (107.4e)', () => {
+    for (const land of ['Plains', 'Mountain']) {
+      const g = emptyGame((d) => {
+        put(d, 0, land);
+        put(d, 0, 'Boros Recruit', 'hand');
+      });
+      expect(canCast(g, 0, byName(g, 0, 'Boros Recruit', 'hand')!), land).toBe(true);
+    }
+    const g = emptyGame((d) => {
+      put(d, 0, 'Forest');
+      put(d, 0, 'Boros Recruit', 'hand');
+    });
+    expect(canCast(g, 0, byName(g, 0, 'Boros Recruit', 'hand')!)).toBe(false);
+  });
+
+  it('pays {2/W} with one white mana or two of any type (107.4e)', () => {
+    const lands = (plains: number, mountains: number) =>
+      emptyGame((d) => {
+        put(d, 0, 'Plains', 'battlefield', plains);
+        put(d, 0, 'Mountain', 'battlefield', mountains);
+      });
+    const procession = parseCost('{2/W}{2/W}{2/W}');
+    expect(planPayment(lands(3, 0), 0, procession)?.tap).toHaveLength(3);
+    expect(planPayment(lands(0, 6), 0, procession)?.tap).toHaveLength(6);
+    expect(planPayment(lands(1, 4), 0, procession)?.tap).toHaveLength(5);
+    expect(planPayment(lands(1, 3), 0, procession)).toBe(null);
+  });
+
+  it('pays a Phyrexian symbol with mana if it can, otherwise 2 life (107.4f, 119.4)', () => {
+    let g = emptyGame((d) => put(d, 0, 'Gut Shot', 'hand'));
+    g = run(g, cast(g, 'Gut Shot', { targets: [opp] }), pass);
+    expect(g.players[0].life).toBe(38);
+    expect(g.players[1].life).toBe(39);
+    g = emptyGame((d) => {
+      put(d, 0, 'Mountain');
+      put(d, 0, 'Gut Shot', 'hand');
+    });
+    g = run(g, cast(g, 'Gut Shot', { targets: [opp] }), pass);
+    expect(g.players[0].life).toBe(40);
+    // With 1 life, 2 life can't be paid.
+    g = emptyGame((d) => {
+      d.players[0].life = 1;
+      put(d, 0, 'Gut Shot', 'hand');
+    });
+    expect(canCast(g, 0, byName(g, 0, 'Gut Shot', 'hand')!)).toBe(false);
+  });
+
+  it('adds the kicker cost when the spell is kicked (702.33)', () => {
+    const setup = (mountains: number) =>
+      emptyGame((d) => {
+        put(d, 0, 'Mountain', 'battlefield', mountains);
+        put(d, 0, 'Burst Lightning', 'hand');
+      });
+    let g = setup(5);
+    g = run(g, cast(g, 'Burst Lightning', { kicked: 1, targets: [opp] }), pass);
+    expect(g.players[1].life).toBe(36);
+    expect(g.log.some((l) => l.text.includes('Burst Lightning (kicked)'))).toBe(true);
+    g = setup(4);
+    expect(applyAction(g, cast(g, 'Burst Lightning', { kicked: 1, targets: [opp] }))).toBe(g);
+    // Kicker without multikicker is paid at most once (702.33d).
+    g = setup(9);
+    expect(applyAction(g, cast(g, 'Burst Lightning', { kicked: 2, targets: [opp] }))).toBe(g);
+    g = run(g, cast(g, 'Burst Lightning', { targets: [opp] }), pass);
+    expect(g.players[1].life).toBe(38);
+  });
+
+  it('sacrifices a creature as an additional cost (118.8)', () => {
+    let g = emptyGame((d) => {
+      put(d, 0, 'Swamp');
+      put(d, 0, 'Elite Vanguard');
+      put(d, 1, 'Serra Angel');
+      put(d, 0, 'Bone Splinters', 'hand');
+    });
+    const angel = { kind: 'card', id: byName(g, 1, 'Serra Angel')!.id } as const;
+    const vanguard = byName(g, 0, 'Elite Vanguard')!.id;
+    // The sacrifice must be chosen.
+    expect(applyAction(g, cast(g, 'Bone Splinters', { targets: [angel] }))).toBe(g);
+    expect(applyAction(g, cast(g, 'Bone Splinters', { targets: [angel], sacrifice: [angel.id] }))).toBe(g);
+    g = run(g, cast(g, 'Bone Splinters', { targets: [angel], sacrifice: [vanguard] }));
+    expect(onBattlefield(g, vanguard)).toBe(false); // paid on casting, before it resolves
+    g = run(g, pass);
+    expect(onBattlefield(g, angel.id)).toBe(false);
+    // With no creature to sacrifice, it can't be cast at all.
+    g = emptyGame((d) => {
+      put(d, 0, 'Swamp');
+      put(d, 1, 'Serra Angel');
+      put(d, 0, 'Bone Splinters', 'hand');
+    });
+    expect(canCast(g, 0, byName(g, 0, 'Bone Splinters', 'hand')!)).toBe(false);
+  });
+
+  it('allows an alternative cost only when its condition holds (118.9)', () => {
+    const setup = (commander: boolean) =>
+      emptyGame((d) => {
+        const lyra = put(d, 0, 'Lyra Dawnbringer');
+        lyra.isCommander = commander;
+        put(d, 0, 'Flawless Maneuver', 'hand');
+      });
+    let g = setup(false);
+    expect(canCast(g, 0, byName(g, 0, 'Flawless Maneuver', 'hand')!)).toBe(false);
+    g = setup(true);
+    expect(canCast(g, 0, byName(g, 0, 'Flawless Maneuver', 'hand')!)).toBe(true);
+    g = run(g, cast(g, 'Flawless Maneuver', { alt: 0 }), pass);
+    expect(stats(g, byName(g, 0, 'Lyra Dawnbringer')!).keywords.has('indestructible')).toBe(true);
+  });
+
+  it('adds cost increases and takes off reductions together, generic mana only (601.2f)', () => {
+    const g = emptyGame((d) => {
+      put(d, 1, 'Thalia, Guardian of Thraben');
+      put(d, 0, 'Ruby Medallion');
+      put(d, 0, 'Lightning Bolt', 'hand');
+      put(d, 0, 'Blaze', 'hand');
+      put(d, 0, 'Boros Recruit', 'hand');
+    });
+    const cost = (name: string, choices = {}) => costText(castCost(g, byName(g, 0, name, 'hand')!, choices));
+    expect(cost('Lightning Bolt')).toBe('{R}'); // +1 from Thalia, -1 from the Medallion
+    expect(cost('Blaze', { x: 2 })).toBe('{2}{R}');
+    expect(cost('Boros Recruit')).toBe('{R/W}'); // a creature, and red: -1 can't go below {0}
+    const noThalia = produce(g, (d) => {
+      d.players[1].battlefield = [];
+    });
+    expect(costText(castCost(noThalia, byName(noThalia, 0, 'Lightning Bolt', 'hand')!))).toBe('{R}'); // coloured mana isn't reduced
+  });
+
+  it('bots choose X, kicker and what to sacrifice', () => {
+    let g = emptyGame((d) => {
+      d.players[1].life = 3;
+      put(d, 0, 'Mountain', 'battlefield', 5);
+      put(d, 0, 'Blaze', 'hand');
+    });
+    const blaze = botAction(g, 0);
+    expect(blaze).toMatchObject({ type: 'cast', targets: [opp] });
+    expect(blaze.type === 'cast' && blaze.x! >= 3).toBe(true);
+
+    g = emptyGame((d) => {
+      put(d, 0, 'Mountain', 'battlefield', 5);
+      put(d, 1, 'Serra Angel');
+      put(d, 0, 'Burst Lightning', 'hand');
+    });
+    expect(botAction(g, 0)).toMatchObject({ type: 'cast', kicked: 1, targets: [{ kind: 'card', id: byName(g, 1, 'Serra Angel')!.id }] });
+
+    g = emptyGame((d) => {
+      put(d, 0, 'Swamp');
+      put(d, 0, 'Elite Vanguard');
+      put(d, 0, 'Serra Angel');
+      put(d, 1, 'Shivan Dragon');
+      put(d, 0, 'Bone Splinters', 'hand');
+    });
+    expect(botAction(g, 0)).toMatchObject({
+      type: 'cast',
+      sacrifice: [byName(g, 0, 'Elite Vanguard')!.id],
+      targets: [{ kind: 'card', id: byName(g, 1, 'Shivan Dragon')!.id }],
+    });
   });
 });
 

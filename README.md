@@ -98,6 +98,19 @@ Rule numbers below are from the Comprehensive Rules in `docs/rules/`.
   A commander that dies or is exiled really goes there (so "dies" abilities see it),
   then its owner may move it to the command zone (903.9a). One headed for a hand or
   library may go to the command zone instead (903.9b). You're asked; bots always do.
+- Costs (107.3, 107.4, 118, 601.2b, 601.2f):
+  - {X}: the caster picks X before choosing targets; it is paid as generic mana. Scripts
+    read it as `self.cast.x`.
+  - Hybrid ({R/W}), monocoloured hybrid ({2/W}) and Phyrexian ({W/P}) symbols. Auto-pay
+    tries coloured mana first, then {2}, then 2 life, and backs up if a choice leaves
+    the rest unpayable.
+  - Kicker and multikicker (702.33), "sacrifice a creature" additional costs (118.8) and
+    alternative costs such as "cast without paying its mana cost" (118.9). Commander tax
+    applies to alternative costs too (118.9d).
+  - Cost increases and reductions from permanents (Thalia-style) and from the spell
+    itself, added up together; reductions only take off generic mana (601.2f).
+  - When you cast a spell with any of these, a small panel asks for X, kicker and which
+    cost before you choose targets. A sacrifice is picked after the targets.
 - Turn structure (500-514): untap, upkeep, draw, main, beginning of combat, declare
   attackers, declare blockers, combat damage (twice with first strike), end of combat,
   second main, end step, cleanup. Mana empties as each step ends.
@@ -148,7 +161,16 @@ These are deliberate cuts for a prototype, roughly in the order I'd tackle them 
   the menu yet.
 - Partner variants other than plain partner and "partner with" (Background, Doctor's
   companion, "partner—[text]") aren't recognised. Vehicles can't be commanders yet.
-- No planeswalkers, no equipment/auras, no X spells, no counterspells.
+- No planeswalkers, no equipment/auras, no counterspells.
+- **No card on the menu uses the new costs yet.** The engine supports them, and the tests
+  use real cards typed in by hand in `tests/fixtures.ts` (Blaze, Gut Shot, Burst
+  Lightning, Bone Splinters, Flawless Maneuver, Thalia, Ruby Medallion, Boros Recruit),
+  because Scryfall couldn't be reached to fetch them.
+- Phyrexian mana is always paid with mana when the mana is there; you can't choose to pay
+  life instead. Tapping lands by hand first lets you steer it.
+- Not supported yet: X in activated abilities, targets that exist only when kicked
+  (702.33g), snow mana {S}, and a spell's mana value counting X while on the stack
+  (202.3e).
 - Cultivate asks for its two lands one at a time (battlefield, then hand), not as one pick
   of two. It is still one search with one shuffle (701.23h).
 - Combat damage is assigned automatically (lethal to each blocker in order).
@@ -174,7 +196,9 @@ src/ui/         store.ts              Zustand store (game + what the player is s
                 Card/Board/Hud.tsx    components
                 Picker.tsx            card picker: search, mulligan, bottom, trigger order
                 styles.css            all styling
-tests/                                Vitest: card coverage, rules, bot-vs-bot games
+tests/                                Vitest: card coverage, rules, the UI casting flow,
+                                      bot-vs-bot games
+                fixtures.ts           cards not in the pool yet, for testing costs
 public/         cursor.png            the mouse cursor, and cursor-down.png while a
                                       button is held (see Credits)
 docs/rules/     INDEX.md              official Comprehensive Rules, one file per rule
@@ -209,6 +233,9 @@ has run; the spell stays on the stack as `Game.resolving` until it is answered.
 3. If it does more than its printed keywords, add an entry to `src/cards/scripts.ts`.
    A trigger that only fires on some events ("whenever *another* creature enters") needs
    `{ when, resolve }`, so it doesn't go on the stack for the events it ignores.
+   Costs printed in rules text go in the script too: `kicker`, `additionalCost` (a
+   sacrifice), `alternativeCosts`, and `costModifier` for "spells cost {1} more/less".
+   An X or kicked spell reads `self.cast.x` and `self.cast.kicked`.
 4. Run `npm test`. The card-pool test tells you if anything is still missing.
 
 ### Layout note

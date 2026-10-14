@@ -1057,6 +1057,62 @@ button {
 
 /* ---------- prompt, buttons, phases ---------- */
 
+/* X, kicker and alternative costs, announced before targets (601.2b). Sits under the prompt. */
+.cast-options {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: calc(50% - 7.5rem);
+  width: fit-content;
+  margin: 0 auto;
+  padding: 1rem 2rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.8rem;
+  background: rgba(10, 12, 18, 0.92);
+  border: 0.15rem solid var(--f-gold);
+  border-radius: 1.2rem;
+  box-shadow: 0 0.8rem 2rem rgba(0, 0, 0, 0.8);
+  z-index: 21;
+}
+
+.cast-row {
+  display: flex;
+  align-items: center;
+  gap: 0.8rem;
+}
+
+.cast-label {
+  min-width: 6rem;
+  font: 600 1.7rem var(--serif);
+  color: #ffdf9a;
+}
+
+.cast-x {
+  min-width: 4rem;
+  font: 700 2.4rem var(--serif);
+  text-align: center;
+}
+
+.cast-options .chip {
+  min-width: 4rem;
+  padding: 0.4rem 1.2rem;
+  font: 600 1.6rem 'Segoe UI', sans-serif;
+  color: #fff;
+  background: #262c38;
+  border: 0.15rem solid #4a5366;
+  border-radius: 0.8rem;
+}
+
+.cast-options .chip.on {
+  border-color: var(--f-gold);
+  background: #3a3324;
+}
+
+.cast-options .chip:disabled {
+  opacity: 0.4;
+}
+
 .prompt {
   position: absolute;
   left: 0;

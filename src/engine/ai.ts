@@ -12,9 +12,12 @@ import {
   canPlayLand,
   castTargets,
   choiceOptions,
+  maxX,
+  sacrificeOptions,
 } from './engine';
 import {
   COMMANDER_DAMAGE,
+  altCostsOf,
   canBlock,
   commanderDamageFrom,
   creaturesOf,
@@ -31,7 +34,7 @@ import {
   targetSpecs,
 } from './rules';
 import type { ApplyOptions } from './engine';
-import type { Action, Card, Game, ManaSym, Player, PlayerId, TargetRef, TargetSpec } from './types';
+import type { Action, Card, CastChoices, Game, ManaSym, Player, PlayerId, TargetRef, TargetSpec } from './types';
 
 // ---------- position evaluation ----------
 
@@ -95,13 +98,50 @@ function targetChoices(g: Game, pid: PlayerId, specs: TargetSpec[], source: Card
   return combos;
 }
 
+/**
+ * A few sensible ways to cast `c` (601.2b), for the look-ahead to compare: each available
+ * cost (mana cost or alternative), X as high as it can pay and about half that, kicked
+ * as many times as it can pay or not at all, and the two least valuable permanents to
+ * sacrifice.
+ */
+function castChoices(g: Game, pid: PlayerId, c: Card): CastChoices[] {
+  const script = scriptOf(c.name);
+  const out: CastChoices[] = [];
+  const sacrifices = script.additionalCost
+    ? [...sacrificeOptions(g, pid, c)]
+        .sort((a, b) => (isCreature(a) ? threat(g, a) : 0) - (isCreature(b) ? threat(g, b) : 0))
+        .slice(0, 2)
+        .map((x) => [x.id])
+    : [undefined];
+  for (const alt of [undefined, ...altCostsOf(g, c)]) {
+    for (const sacrifice of sacrifices) {
+      const kicks = [0];
+      if (script.kicker) {
+        let k = 0;
+        while (k < (script.kicker.multi ? 10 : 1) && canCast(g, pid, c, { alt, sacrifice, kicked: k + 1 })) k++;
+        if (k) kicks.push(k);
+      }
+      for (const kicked of kicks) {
+        const most = maxX(g, pid, c, { alt, sacrifice, kicked });
+        for (const x of new Set([most, Math.floor(most / 2)])) {
+          const choices: CastChoices = { x, kicked, alt, sacrifice };
+          if (x >= 0 && canCast(g, pid, c, choices)) out.push(choices);
+        }
+      }
+    }
+  }
+  return out;
+}
+
 function candidateActions(g: Game, pid: PlayerId): { action: Action; spendsCard: boolean }[] {
   const p = g.players[pid];
   const out: { action: Action; spendsCard: boolean }[] = [];
   for (const c of [...p.hand, ...p.command]) {
     if (!canCast(g, pid, c)) continue;
-    for (const targets of targetChoices(g, pid, castTargets(c), c)) {
-      out.push({ action: { type: 'cast', card: c.id, targets }, spendsCard: true });
+    for (const choices of castChoices(g, pid, c)) {
+      for (const targets of targetChoices(g, pid, castTargets(c), c)) {
+        out.push({ action: { type: 'cast', card: c.id, targets, ...choices }, spendsCard: true });
+      }
     }
   }
   for (const c of p.battlefield) {

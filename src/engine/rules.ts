@@ -6,6 +6,7 @@ import type {
   BroadcastHook,
   Card,
   CardData,
+  CastChoices,
   Color,
   Game,
   Mana,
@@ -41,6 +42,9 @@ export const SUPPORTED_KEYWORDS = [
   'hexproof',
   'indestructible',
   'flash',
+  // Cost keywords: the card's script gives the cost (702.33).
+  'kicker',
+  'multikicker',
 ];
 
 // ---------- card queries ----------
@@ -190,19 +194,59 @@ export function fight(g: Game, a: Card, b: Card): { aDies: boolean; bDies: boole
 
 // ---------- mana ----------
 
+/**
+ * One way to pay a hybrid or Phyrexian symbol: one mana of a colour, `'2'` for two
+ * generic mana ({2/W}), or `'life'` for 2 life ({W/P}) (107.4e-f).
+ */
+export type HybridOption = ManaSym | '2' | 'life';
+
 export interface Cost {
   generic: number;
+  /** Mana symbols that need one mana of exactly that type. */
   pips: ManaSym[];
+  /** Hybrid and Phyrexian symbols: each is paid one of the ways listed (107.4e-f). */
+  hybrid: HybridOption[][];
+  /** How many {X} symbols the cost has (107.3). Their value is chosen when casting. */
+  x: number;
+  /** Life to pay on top of the mana (119.4: a player can pay it only if their life total is at least that). */
+  life: number;
 }
 
+const NO_COST: Cost = { generic: 0, pips: [], hybrid: [], x: 0, life: 0 };
+
+/** Parses a mana cost like "{X}{1}{R/G}{W/P}" (107.4). Snow mana {S} isn't supported. */
 export function parseCost(cost: string): Cost {
-  const out: Cost = { generic: 0, pips: [] };
+  const out: Cost = { ...NO_COST, pips: [], hybrid: [] };
   for (const m of cost.matchAll(/\{([^}]+)\}/g)) {
     const sym = m[1];
     if (/^\d+$/.test(sym)) out.generic += parseInt(sym, 10);
-    else if ('WUBRGC'.includes(sym) && sym.length === 1) out.pips.push(sym as ManaSym);
+    else if (sym === 'X') out.x++;
+    else if (/^[WUBRGC]$/.test(sym)) out.pips.push(sym as ManaSym);
+    else if (sym.includes('/')) {
+      // {W/U}, {2/W}, {C/W}, {W/P}, {W/U/P}. Mana comes first: it is the way auto-pay tries first.
+      const parts = sym.split('/').map((part): HybridOption => (part === 'P' ? 'life' : part === '2' ? '2' : (part as ManaSym)));
+      out.hybrid.push([...parts.filter((o) => o !== '2' && o !== 'life'), ...parts.filter((o) => o === '2' || o === 'life')]);
+    }
   }
   return out;
+}
+
+/** Two costs paid together, e.g. a mana cost plus a kicker cost (601.2f). */
+export const addCosts = (a: Cost, b: Cost): Cost => ({
+  generic: a.generic + b.generic,
+  pips: [...a.pips, ...b.pips],
+  hybrid: [...a.hybrid, ...b.hybrid],
+  x: a.x + b.x,
+  life: a.life + b.life,
+});
+
+/** A cost written out in mana symbols, e.g. "{2}{R/G}{W/P}". Life is left out. */
+export function costText(cost: Cost): string {
+  // Printed order: {2/W} and {W/P}.
+  const shard = (h: HybridOption[]) => [...(h.includes('2') ? ['2'] : []), ...h.filter((o) => o !== '2' && o !== 'life'), ...(h.includes('life') ? ['P'] : [])];
+  const shards = cost.hybrid.map((h) => `{${shard(h).join('/')}}`).join('');
+  const colored = cost.pips.map((p) => `{${p}}`).join('') + shards;
+  return (cost.generic || !colored ? `{${cost.generic}}` : '') + colored;
 }
 
 /** Which of its owner's commanders `c` is: its index in `commanderCasts` and `commanderDamage`, or -1. */
@@ -218,12 +262,34 @@ export const commanderTax = (g: Game, c: Card) => 2 * (g.players[c.owner].comman
 export const commanderDamageFrom = (g: Game, victim: Player, commander: Card) =>
   victim.commanderDamage[commander.owner]?.[commanderIndex(g, commander)] ?? 0;
 
-/** What it costs `c` to be cast right now: printed cost + commander tax - cost reductions. */
-export function castCost(g: Game, c: Card): Cost {
-  const cost = parseCost(data(c).manaCost);
+/** The alternative costs a spell's caster could choose right now (118.9), by index into its script's list. */
+export function altCostsOf(g: Game, c: Card): number[] {
+  const alts = scriptOf(c.name).alternativeCosts ?? [];
+  return alts.map((_, i) => i).filter((i) => alts[i].when?.(g, c) ?? true);
+}
+
+/**
+ * What it costs `c` to be cast right now with these choices (601.2f): the mana cost, or
+ * the chosen alternative cost (118.9), with X filled in, plus kicker and commander tax,
+ * plus cost increases, minus reductions. Reductions only take off generic mana, and
+ * never below {0}. The returned `x` is 0: X has already been added to `generic`.
+ */
+export function castCost(g: Game, c: Card, choices: CastChoices = {}): Cost {
+  const script = scriptOf(c.name);
+  const alt = choices.alt === undefined ? undefined : script.alternativeCosts?.[choices.alt];
+  let cost = parseCost(alt ? alt.mana : data(c).manaCost);
+  cost.life += alt?.life ?? 0;
+  // X counts as generic mana (107.4b). An alternative cost without {X} makes X 0 (107.3b).
+  cost.generic += cost.x * (choices.x ?? 0);
+  cost.x = 0;
+  for (let k = 0; k < (choices.kicked ?? 0) && script.kicker; k++) cost = addCosts(cost, parseCost(script.kicker.mana));
+  // Commander tax is an additional cost, so it applies to alternative costs too (903.8, 118.9d).
   if (c.zone === 'command') cost.generic += commanderTax(g, c);
-  const reduction = scriptOf(c.name).costReduction?.(g, c) ?? 0;
-  cost.generic = Math.max(0, cost.generic - reduction);
+  // 601.2f: all increases are added and all reductions taken off together, so the order
+  // they apply in doesn't matter. Only generic mana is reduced.
+  let change = -(script.costReduction?.(g, c) ?? 0);
+  for (const p of battlefield(g)) change += scriptOf(p.name).costModifier?.(g, p, c, c.owner) ?? 0;
+  cost.generic = Math.max(0, cost.generic + change);
   return cost;
 }
 
@@ -309,10 +375,13 @@ export function untapMana(g: Game, pid: PlayerId, c: Card) {
 export const availableMana = (g: Game, pid: PlayerId) =>
   manaSources(g, pid).reduce((n, s) => n + s.amount, 0) + g.players[pid].pool.length;
 
-interface PipPlan {
+interface Plan {
   pool: Mana[];
   sources: Source[];
   tap: string[];
+  /** Generic mana still to pay: the cost's own plus any {2/W} paid the generic way. */
+  generic: number;
+  life: number;
 }
 
 /** Mana a source makes beyond the one it is tapped to pay for. It goes to the pool. */
@@ -320,57 +389,39 @@ const extraMana = (s: Source, paying: ManaSym | null): Mana[] =>
   Array.from({ length: s.amount - 1 }, () => ({ sym: s.colors.length === 1 ? s.colors[0] : (paying ?? s.colors[0]), source: s.id }));
 
 /**
- * Pays coloured pips, or returns null if they can't all be paid. Each pip comes from the
- * pool if it can, otherwise from a source that makes that colour, least flexible first. A
- * multicolour deck can paint itself into a corner (a W/U land spent on {W} leaves nothing
- * for {U}), so when a choice fails the next kind of source is tried instead.
+ * The ways to pay one mana of `sym`: from the pool if it has one (always the best way),
+ * otherwise from each kind of source that makes it, least flexible first.
  */
-function payPips(pips: ManaSym[], plan: PipPlan): PipPlan | null {
-  if (!pips.length) return plan;
-  const [pip, ...rest] = pips;
-  const inPool = plan.pool.findIndex((m) => m.sym === pip);
-  if (inPool >= 0) return payPips(rest, { ...plan, pool: plan.pool.filter((_, i) => i !== inPool) });
+function payMana(sym: ManaSym, plan: Plan): Plan[] {
+  const inPool = plan.pool.findIndex((m) => m.sym === sym);
+  if (inPool >= 0) return [{ ...plan, pool: plan.pool.filter((_, i) => i !== inPool) }];
   const rank = (s: Source) => s.amount * 10 + s.colors.length;
   const options = plan.sources
     .map((s, i) => ({ s, i }))
-    .filter(({ s }) => s.colors.includes(pip))
+    .filter(({ s }) => s.colors.includes(sym))
     .sort((a, b) => rank(a.s) - rank(b.s));
   const tried = new Set<string>(); // sources that make the same mana are interchangeable
+  const out: Plan[] = [];
   for (const { s, i } of options) {
     const kind = `${s.amount}:${s.colors.join('')}`;
     if (tried.has(kind)) continue;
     tried.add(kind);
-    const next = payPips(rest, {
-      pool: [...plan.pool, ...extraMana(s, pip)],
+    out.push({
+      ...plan,
+      pool: [...plan.pool, ...extraMana(s, sym)],
       sources: plan.sources.filter((_, j) => j !== i),
       tap: [...plan.tap, s.id],
     });
-    if (next) return next;
   }
-  return null;
+  return out;
 }
 
-/**
- * Works out how to pay `cost`, or null if it can't be paid. Mana already in the pool is
- * spent first; permanents are tapped (Arena-style auto-pay) only for what the pool can't
- * cover. Coloured pips are paid first, scarcest colour first; mana left over from a
- * multi-mana source (e.g. Sol Ring) stays in the pool until the step ends.
- */
-export function planPayment(g: Game, pid: PlayerId, cost: Cost): { tap: string[]; pool: Mana[] } | null {
-  const all = manaSources(g, pid);
-  const makers = (pip: ManaSym) => all.filter((s) => s.colors.includes(pip)).length;
-  const pips = [...cost.pips].sort((a, b) => makers(a) - makers(b));
-  const paid = payPips(pips, { pool: [...g.players[pid].pool], sources: all, tap: [] });
-  if (!paid) return null;
-  const { pool, sources, tap } = paid;
-
-  const use = (i: number) => {
-    const s = sources.splice(i, 1)[0];
-    tap.push(s.id);
-    pool.push(...extraMana(s, null));
-  };
-
-  let remaining = cost.generic;
+/** Pays the generic part from whatever is left: pool first, then the sources that fit it best. */
+function payGeneric(plan: Plan): Plan | null {
+  const pool = [...plan.pool];
+  const sources = [...plan.sources];
+  const tap = [...plan.tap];
+  let remaining = plan.generic;
   while (remaining > 0) {
     if (pool.length) {
       const c = pool.findIndex((m) => m.sym === 'C');
@@ -386,10 +437,61 @@ export function planPayment(g: Game, pid: PlayerId, cost: Cost): { tap: string[]
     sources.forEach((s, i) => {
       if (score(s) > score(sources[best])) best = i;
     });
-    use(best);
+    const s = sources.splice(best, 1)[0];
+    tap.push(s.id);
+    pool.push(...extraMana(s, null));
     remaining--;
   }
-  return { tap, pool };
+  return { ...plan, pool, sources, tap, generic: 0 };
+}
+
+/**
+ * Pays each symbol in turn, then the generic mana. A choice that leaves something later
+ * unpayable is undone and the next one tried: a multicolour deck can paint itself into a
+ * corner (a W/U land spent on {W} leaves nothing for {U}), and a {2/W} paid with two
+ * generic may leave too little for the rest. Hybrid symbols try mana first, then {2},
+ * then 2 life.
+ */
+function payShards(shards: HybridOption[][], plan: Plan, life: number): Plan | null {
+  if (!shards.length) return payGeneric(plan);
+  const [shard, ...rest] = shards;
+  for (const option of shard) {
+    const nexts =
+      option === '2'
+        ? [{ ...plan, generic: plan.generic + 2 }]
+        : option === 'life'
+          ? plan.life + 2 <= life
+            ? [{ ...plan, life: plan.life + 2 }]
+            : []
+          : payMana(option, plan);
+    for (const next of nexts) {
+      const done = payShards(rest, next, life);
+      if (done) return done;
+    }
+  }
+  return null;
+}
+
+/**
+ * Works out how to pay `cost`, or null if it can't be paid. Mana already in the pool is
+ * spent first; permanents are tapped (Arena-style auto-pay) only for what the pool can't
+ * cover. Coloured symbols are paid first, scarcest colour first; mana left over from a
+ * multi-mana source (e.g. Sol Ring) stays in the pool until the step ends. `life` is
+ * what Phyrexian symbols and the cost itself take.
+ */
+export function planPayment(g: Game, pid: PlayerId, cost: Cost): { tap: string[]; pool: Mana[]; life: number } | null {
+  const p = g.players[pid];
+  // A player can pay life only if their life total is at least that much (119.4).
+  if (cost.life > p.life) return null;
+  const all = manaSources(g, pid);
+  // Not enough mana in total, however it's spent: skip the search.
+  const most = p.pool.length + all.reduce((n, s) => n + s.amount, 0);
+  if (most < cost.generic + cost.pips.length + cost.hybrid.filter((h) => !h.includes('life')).length) return null;
+  const makers = (sym: HybridOption) => all.filter((s) => s.colors.includes(sym as ManaSym)).length;
+  const pips = [...cost.pips].sort((a, b) => makers(a) - makers(b)).map((pip): HybridOption[] => [pip]);
+  const start: Plan = { pool: [...p.pool], sources: all, tap: [], generic: cost.generic, life: cost.life };
+  const paid = payShards([...pips, ...cost.hybrid], start, p.life);
+  return paid && { tap: paid.tap, pool: paid.pool, life: paid.life };
 }
 
 export function pay(g: Game, pid: PlayerId, cost: Cost): boolean {
@@ -397,13 +499,21 @@ export function pay(g: Game, pid: PlayerId, cost: Cost): boolean {
   if (!plan) return false;
   for (const id of plan.tap) permanent(g, id)!.tapped = true;
   g.players[pid].pool = plan.pool;
+  if (plan.life) {
+    g.players[pid].life -= plan.life; // paying life (119.4)
+    log(g, `${says(g.players[pid], 'pays')} ${plan.life} life.`, pid);
+  }
   return true;
 }
 
 /** Number of `color` pips among mana costs of permanents the player controls. */
 export function devotion(g: Game, pid: PlayerId, color: Color): number {
   let n = 0;
-  for (const c of g.players[pid].battlefield) n += parseCost(data(c).manaCost).pips.filter((p) => p === color).length;
+  // A hybrid symbol counts toward each of its colours (700.5).
+  for (const c of g.players[pid].battlefield) {
+    const cost = parseCost(data(c).manaCost);
+    n += cost.pips.filter((p) => p === color).length + cost.hybrid.filter((h) => h.includes(color)).length;
+  }
   return n;
 }
 
@@ -474,6 +584,8 @@ export function shuffle<T>(g: Game, arr: T[]) {
 
 const SECOND_PERSON: Record<string, string> = {
   plays: 'play',
+  pays: 'pay',
+  sacrifices: 'sacrifice',
   casts: 'cast',
   activates: 'activate',
   attacks: 'attack',
@@ -514,6 +626,7 @@ export function makeCard(g: Game, name: string, owner: PlayerId, zone: Zone, ext
     deathtouched: false,
     counters: 0,
     mods: [],
+    cast: null,
     mayReturn: false,
     ...extra,
   };
@@ -549,6 +662,8 @@ export function moveCard(g: Game, c: Card, to: Zone) {
   c.deathtouched = false;
   c.counters = 0;
   c.mods = [];
+  // A spell keeps what it was cast with as it becomes a permanent (107.3m), and loses it after.
+  if (c.zone !== 'stack' || to !== 'battlefield') c.cast = null;
   if (c.isCommander && (to === 'hand' || to === 'library') && g.players[c.owner].isBot) {
     log(g, `${label(c)} goes to the command zone instead.`, c.owner, [c]);
     to = 'command';

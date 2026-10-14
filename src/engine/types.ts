@@ -32,6 +32,27 @@ export interface Mod {
   keywords: string[];
 }
 
+/** What was chosen for a spell as it was cast (601.2b). */
+export interface CastInfo {
+  x: number;
+  kicked: number;
+}
+
+/**
+ * The choices a player announces before paying for a spell (601.2b): X, kicker, which
+ * alternative cost, and which permanents pay a sacrifice cost (118.8).
+ */
+export interface CastChoices {
+  /** The value of X, for a spell with {X} in the cost it is paying (107.3a). */
+  x?: number;
+  /** Times the kicker cost is paid: 0 or 1, or any number for multikicker (702.33c-d). */
+  kicked?: number;
+  /** Index into the script's `alternativeCosts`, or undefined to pay the mana cost (118.9). */
+  alt?: number;
+  /** Permanents sacrificed for the script's `additionalCost` (118.8). */
+  sacrifice?: string[];
+}
+
 /** One physical card (or token) in a game. `name` is the key into the card database. */
 export interface Card {
   id: string;
@@ -46,6 +67,12 @@ export interface Card {
   deathtouched: boolean; // damaged by a deathtouch source this turn
   counters: number; // +1/+1 counters
   mods: Mod[];
+  /**
+   * How this card was cast: the X chosen (107.3) and how many times it was kicked
+   * (702.33d). Kept while it is a spell and when it enters the battlefield from the stack,
+   * so its enters ability can read them (107.3m, 702.33e). Null anywhere else.
+   */
+  cast: CastInfo | null;
   /**
    * A commander that may still go to the command zone: put into a graveyard or exile since
    * state-based actions were last checked (903.9a), or a human's just put into a hand or
@@ -221,7 +248,7 @@ export interface Game {
 
 export type Action =
   | { type: 'playLand'; card: string }
-  | { type: 'cast'; card: string; targets?: (TargetRef | null)[] }
+  | ({ type: 'cast'; card: string; targets?: (TargetRef | null)[] } & CastChoices)
   | { type: 'activate'; card: string; targets?: (TargetRef | null)[] }
   | { type: 'tapMana'; card: string }
   | { type: 'untapMana'; card: string }
@@ -318,6 +345,20 @@ export interface CardScript extends Triggers {
   basePT?: (g: Game, self: Card) => { power: number; toughness: number };
   /** Generic mana this spell costs less. */
   costReduction?: (g: Game, self: Card) => number;
+  /**
+   * While this permanent is on the battlefield, generic mana that `spell` costs more
+   * (positive) or less (negative), e.g. "noncreature spells cost {1} more" (601.2f).
+   */
+  costModifier?: (g: Game, self: Card, spell: Card, caster: PlayerId) => number;
+  /** Kicker (702.33): an optional additional cost. `multi` is multikicker, paid any number of times (702.33c). */
+  kicker?: { mana: string; multi?: boolean };
+  /** "As an additional cost to cast this spell, sacrifice a ..." (118.8). The spec says what can be sacrificed. */
+  additionalCost?: { sacrifice: TargetSpec };
+  /**
+   * Costs the caster may pay rather than the mana cost (118.9), such as "you may cast this
+   * spell without paying its mana cost" (`mana: ''`). `when` says if it is available now.
+   */
+  alternativeCosts?: { label: string; mana: string; life?: number; when?: (g: Game, self: Card) => boolean }[];
   /** Extra damage added when `source` (controlled by self's owner) damages `targetOwner` or their permanent. */
   damageBonus?: (g: Game, self: Card, source: Card, targetOwner: PlayerId) => number;
   activated?: {
