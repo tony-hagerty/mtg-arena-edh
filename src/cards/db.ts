@@ -26,9 +26,21 @@ export const SHARED: string[] = lists.shared;
 const cards = generated.cards as Record<string, CardData>;
 const tokenImages = generated.tokens as Record<string, { art: string; image: string }>;
 
+/** A token's definition in decklists.json. `query` finds its art on Scryfall. */
+interface TokenDef {
+  name: string;
+  power?: string;
+  toughness?: string;
+  colors: string[];
+  typeLine: string;
+  oracleText?: string;
+  keywords: string[];
+  query: string;
+}
+
 // Tokens are keyed by e.g. "Beast 3/3" so two different Beast tokens can coexist.
 const tokens: Record<string, CardData> = {};
-for (const [key, t] of Object.entries(lists.tokens)) {
+for (const [key, t] of Object.entries(lists.tokens as Record<string, TokenDef>)) {
   tokens[key] = {
     name: t.name,
     manaCost: '',
@@ -36,7 +48,7 @@ for (const [key, t] of Object.entries(lists.tokens)) {
     colors: t.colors as Color[],
     colorIdentity: t.colors as Color[],
     typeLine: t.typeLine,
-    oracleText: '',
+    oracleText: t.oracleText ?? '',
     power: t.power,
     toughness: t.toughness,
     keywords: t.keywords,
@@ -45,8 +57,21 @@ for (const [key, t] of Object.entries(lists.tokens)) {
   };
 }
 
+/**
+ * Face names that aren't keys. A deck may list a double-faced, split or adventurer card by
+ * its first face's name ("Delver of Secrets"), which finds the whole card. Any other face's
+ * name finds that face, so a log line or tile naming it can show it.
+ */
+const faceNames = new Map<string, CardData>();
+function indexFaces(all: Record<string, CardData>) {
+  for (const d of Object.values(all)) {
+    d.faces?.forEach((f, i) => faceNames.set(f.name, i === 0 ? d : f));
+  }
+}
+indexFaces(cards);
+
 export function cardData(name: string): CardData {
-  const d = cards[name] ?? tokens[name];
+  const d = cards[name] ?? tokens[name] ?? faceNames.get(name);
   if (!d) throw new Error(`Unknown card: ${name}`);
   return d;
 }
@@ -59,6 +84,7 @@ export const ALL_CARD_NAMES = Object.keys(cards);
  */
 export function registerCards(extra: Record<string, CardData>) {
   Object.assign(cards, extra);
+  indexFaces(extra);
 }
 
 const WUBRG: Color[] = ['W', 'U', 'B', 'R', 'G'];

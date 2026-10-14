@@ -28,6 +28,9 @@ export const STARTING_LIFE = 40;
 export const COMMANDER_DAMAGE = 21;
 export const MAX_HAND = 7;
 
+/** A player's maximum hand size (402.2): seven, unless something they control removes it. */
+export const maxHandSize = (g: Game, pid: PlayerId) => (g.players[pid].battlefield.some((c) => scriptFor(c).noMaxHandSize) ? Infinity : MAX_HAND);
+
 /** Keywords the engine actually enforces. tests/cards.test.ts fails on anything else. */
 export const SUPPORTED_KEYWORDS = [
   'flying',
@@ -44,17 +47,52 @@ export const SUPPORTED_KEYWORDS = [
   'hexproof',
   'indestructible',
   'flash',
-  // Keywords the card's script spells out: kicker (702.33), enchant (702.5), equip (702.6), crew (702.122).
+  // Keywords the card's script spells out: kicker (702.33), enchant (702.5), equip (702.6),
+  // crew (702.122), flashback (702.34), and transform (701.27, a double-faced card's).
   'kicker',
   'multikicker',
   'enchant',
   'equip',
   'crew',
+  'flashback',
+  'transform',
 ];
 
 // ---------- card queries ----------
 
-export const data = (c: Card): CardData => cardData(c.name);
+/**
+ * The characteristics of one face of a card in a zone. A double-faced card has its front
+ * face's everywhere but the stack and battlefield, where it has the face that's up
+ * (712.8a, 712.8d-f). A split card has both halves combined everywhere but the stack, where
+ * it has the half being cast (709.3b, 709.4). An adventurer card has its normal ones
+ * except while it's an Adventure spell (715.3b, 715.4).
+ */
+export function faceData(d: CardData, zone: Card['zone'], face: number): CardData {
+  if (!d.faces) return d;
+  const up = zone === 'stack' || (zone === 'battlefield' && d.layout !== 'adventure' && d.layout !== 'split') ? face : 0;
+  if (d.layout === 'split' && zone !== 'stack') return d;
+  return d.faces[up] ?? d.faces[0];
+}
+
+export const data = (c: Card): CardData => faceData(cardData(c.name), c.zone, c.face);
+
+/**
+ * The script for the face of `c` that's up, or that would be in `zone` with `face` up.
+ * Scripts of cards with faces are registered under each face's name.
+ */
+export function scriptFor(c: Card, zone = c.zone, face = c.face): CardScript {
+  const d = cardData(c.name);
+  return scriptOf(d.faces ? faceData(d, zone, face).name : c.name);
+}
+
+/** `c` as it would be as a spell cast with face `face` up, for checking what that spell would be (601.2, 709.3a, 712.11c). */
+export const asSpell = (c: Card, face = 0): Card => ({ ...c, zone: 'stack', face });
+
+/** The faces of `c` (indexes into `CardData.faces`), or [0] for a card with one face. */
+export const facesOf = (c: Card): number[] => (cardData(c.name).faces ?? [cardData(c.name)]).map((_, i) => i);
+
+/** The layout of the card `c` is: double-faced, split, adventurer, or undefined for a normal card. */
+export const layoutOf = (c: Card) => cardData(c.name).layout;
 /** Display name (token keys like "Beast 3/3" differ from the printed name). */
 export const label = (c: Card) => data(c).name;
 export const hasType = (c: Card, t: string) => data(c).typeLine.includes(t);
@@ -70,6 +108,16 @@ export const isLand = (c: Card) => hasType(c, 'Land');
 export const isPlaneswalker = (c: Card) => hasType(c, 'Planeswalker');
 export const isBattle = (c: Card) => hasType(c, 'Battle');
 export const isSiege = (c: Card) => isBattle(c) && hasType(c, 'Siege');
+export const isSaga = (c: Card) => hasType(c, 'Saga');
+/**
+ * The faces of `c` that are lands, which it could be played as (305.1, 712.12): [0] for a
+ * normal land, the land faces of a modal double-faced card, or none.
+ */
+export function landFaces(c: Card): number[] {
+  const d = cardData(c.name);
+  if (d.layout !== 'modal_dfc') return isLand(c) ? [0] : [];
+  return d.faces!.map((f, i) => (f.typeLine.includes('Land') ? i : -1)).filter((i) => i >= 0);
+}
 /** A planeswalker's loyalty on the battlefield: its loyalty counters (306.5c). Elsewhere, its printed loyalty (306.5a). */
 export const loyaltyOf = (c: Card) => (c.zone === 'battlefield' ? counterCount(c, 'loyalty') : num(data(c).loyalty));
 /** A battle's defense on the battlefield: its defense counters (310.4c). Elsewhere, its printed defense (310.4a). */
@@ -150,7 +198,7 @@ export function stats(g: Game, c: Card, opts: { base?: boolean } = {}): Stats {
   let power = num(d.power);
   let toughness = num(d.toughness);
   const keywords = new Set(d.keywords.map((k) => k.toLowerCase()));
-  const basePT = scriptOf(c.name).basePT;
+  const basePT = scriptFor(c).basePT;
   if (basePT) ({ power, toughness } = basePT(g, c));
   if (c.zone !== 'battlefield' || !isCreature(c)) return { power, toughness, keywords };
 
@@ -169,7 +217,7 @@ export function stats(g: Game, c: Card, opts: { base?: boolean } = {}): Stats {
   for (const p of g.players) {
     if (p.lost) continue;
     for (const src of p.battlefield) {
-      const fn = scriptOf(src.name).static;
+      const fn = scriptFor(src).static;
       if (!fn) continue;
       const b = fn(g, src, c);
       if (!b) continue;
@@ -294,8 +342,10 @@ export const commanderDamageFrom = (g: Game, victim: Player, commander: Card) =>
   victim.commanderDamage[commander.owner]?.[commanderIndex(g, commander)] ?? 0;
 
 /** The alternative costs a spell's caster could choose right now (118.9), by index into its script's list. */
-export function altCostsOf(g: Game, c: Card): number[] {
-  const alts = scriptOf(c.name).alternativeCosts ?? [];
+export function altCostsOf(g: Game, c: Card, face = 0): number[] {
+  // Flashback is already an alternative cost, and only one can be paid (118.9a, 702.34a).
+  if (c.zone === 'graveyard') return [];
+  const alts = scriptFor(c, 'stack', face).alternativeCosts ?? [];
   return alts.map((_, i) => i).filter((i) => alts[i].when?.(g, c) ?? true);
 }
 
@@ -306,9 +356,13 @@ export function altCostsOf(g: Game, c: Card): number[] {
  * never below {0}. The returned `x` is 0: X has already been added to `generic`.
  */
 export function castCost(g: Game, c: Card, choices: CastChoices = {}): Cost {
-  const script = scriptOf(c.name);
+  // Only the face being cast counts: a split card's half, an Adventure (709.3a, 715.3a).
+  const spell = asSpell(c, choices.face ?? 0);
+  const script = scriptFor(spell);
   const alt = choices.alt === undefined ? undefined : script.alternativeCosts?.[choices.alt];
-  let cost = parseCost(alt ? alt.mana : data(c).manaCost);
+  // Cast from a graveyard, a flashback card pays its flashback cost instead (702.34a).
+  const flashback = c.zone === 'graveyard' ? scriptFor(c).flashback : undefined;
+  let cost = parseCost(flashback ?? (alt ? alt.mana : data(spell).manaCost));
   cost.life += alt?.life ?? 0;
   // X counts as generic mana (107.4b). An alternative cost without {X} makes X 0 (107.3b).
   cost.generic += cost.x * (choices.x ?? 0);
@@ -319,7 +373,7 @@ export function castCost(g: Game, c: Card, choices: CastChoices = {}): Cost {
   // 601.2f: all increases are added and all reductions taken off together, so the order
   // they apply in doesn't matter. Only generic mana is reduced.
   let change = -(script.costReduction?.(g, c) ?? 0);
-  for (const p of battlefield(g)) change += scriptOf(p.name).costModifier?.(g, p, c, c.owner) ?? 0;
+  for (const p of battlefield(g)) change += scriptFor(p).costModifier?.(g, p, spell, c.owner) ?? 0;
   cost.generic = Math.max(0, cost.generic + change);
   return cost;
 }
@@ -327,13 +381,13 @@ export function castCost(g: Game, c: Card, choices: CastChoices = {}): Cost {
 const BASIC_MANA: Record<string, ManaSym> = { Plains: 'W', Island: 'U', Swamp: 'B', Mountain: 'R', Forest: 'G' };
 
 /** What a permanent taps for, or null if it isn't a mana source. */
-export function manaOf(g: Game, c: Card): { amount: number; colors: ManaSym[] } | null {
+export function manaOf(g: Game, c: Card): { amount: number; colors: ManaSym[]; sacrifice?: boolean } | null {
   if (isLand(c)) {
     for (const [type, sym] of Object.entries(BASIC_MANA)) if (hasType(c, type)) return { amount: 1, colors: [sym] };
   }
-  const m = scriptOf(c.name).mana;
+  const m = scriptFor(c).mana;
   if (!m) return null;
-  if (m.colors === 'any') return { amount: m.amount, colors: ['W', 'U', 'B', 'R', 'G'] };
+  if (m.colors === 'any') return { amount: m.amount, colors: ['W', 'U', 'B', 'R', 'G'], sacrifice: m.sacrifice };
   if (m.colors === 'identity') {
     // Both partners' colours count as "your commander's colour identity" (702.124c).
     const identity = g.players[c.owner].colors;
@@ -346,6 +400,8 @@ interface Source {
   id: string;
   amount: number;
   colors: ManaSym[];
+  /** Sacrificed to make its mana, like a Treasure: auto-pay uses it last. */
+  sacrifice?: boolean;
 }
 
 export function manaSources(g: Game, pid: PlayerId): Source[] {
@@ -381,12 +437,13 @@ function pickColor(g: Game, pid: PlayerId, options: ManaSym[]): ManaSym {
   return mine.reduce((best, x) => (need(x) > need(best) ? x : best));
 }
 
-/** Taps a permanent for mana by hand. */
+/** Taps a permanent for mana by hand. A Treasure is sacrificed too (111.10a): that can't be undone. */
 export function tapForMana(g: Game, pid: PlayerId, c: Card) {
   const m = manaOf(g, c)!;
   const sym = m.colors.length === 1 ? m.colors[0] : pickColor(g, pid, m.colors);
   c.tapped = true;
   for (let k = 0; k < m.amount; k++) g.players[pid].pool.push({ sym, source: c.id });
+  if (m.sacrifice) dieMany(g, [c], 'is sacrificed');
 }
 
 /** Tapping for mana can be undone while every mana it made is still unspent in the pool. */
@@ -426,7 +483,7 @@ const extraMana = (s: Source, paying: ManaSym | null): Mana[] =>
 function payMana(sym: ManaSym, plan: Plan): Plan[] {
   const inPool = plan.pool.findIndex((m) => m.sym === sym);
   if (inPool >= 0) return [{ ...plan, pool: plan.pool.filter((_, i) => i !== inPool) }];
-  const rank = (s: Source) => s.amount * 10 + s.colors.length;
+  const rank = (s: Source) => s.amount * 10 + s.colors.length + (s.sacrifice ? 1000 : 0);
   const options = plan.sources
     .map((s, i) => ({ s, i }))
     .filter(({ s }) => s.colors.includes(sym))
@@ -463,7 +520,7 @@ function payGeneric(plan: Plan): Plan | null {
     if (!sources.length) return null;
     // Prefer the biggest source that doesn't overpay, colourless before coloured.
     const score = (s: Source) =>
-      (s.amount <= remaining ? 100 + s.amount * 10 : 50 - s.amount * 10) + (s.colors[0] === 'C' ? 5 : 0) - s.colors.length;
+      (s.amount <= remaining ? 100 + s.amount * 10 : 50 - s.amount * 10) + (s.colors[0] === 'C' ? 5 : 0) - s.colors.length - (s.sacrifice ? 500 : 0);
     let best = 0;
     sources.forEach((s, i) => {
       if (score(s) > score(sources[best])) best = i;
@@ -530,6 +587,8 @@ export function pay(g: Game, pid: PlayerId, cost: Cost): boolean {
   if (!plan) return false;
   for (const id of plan.tap) permanent(g, id)!.tapped = true;
   g.players[pid].pool = plan.pool;
+  const spent = plan.tap.map((id) => permanent(g, id)!).filter((c) => manaOf(g, c)?.sacrifice);
+  if (spent.length) dieMany(g, spent, 'is sacrificed');
   if (plan.life) {
     g.players[pid].life -= plan.life; // paying life (119.4)
     log(g, `${says(g.players[pid], 'pays')} ${plan.life} life.`, pid);
@@ -601,7 +660,7 @@ export const sameRef = (a: TargetRef, b: TargetRef) => a.kind === b.kind && a.id
  * belongs to its enters ability.
  */
 export function spellTargets(c: Card, modes: number[] = []): TargetSpec[] {
-  const script = scriptOf(c.name);
+  const script = scriptFor(c);
   // An Aura spell targets what it will enchant (303.4a).
   if (script.enchant) return [script.enchant];
   if (isPermanentCard(c)) return [];
@@ -611,9 +670,14 @@ export function spellTargets(c: Card, modes: number[] = []): TargetSpec[] {
 
 /** The targets a spell or ability on the stack has to choose. */
 export function targetSpecs(item: StackItem): TargetSpec[] {
-  const script = scriptOf(item.card.name);
+  const script = scriptFor(item.card);
   if (item.kind === 'activated') return (item.ability === undefined ? script.activated : script.loyalty?.[item.ability])?.targets ?? [];
-  if (item.kind === 'triggered') return item.hook === 'onEnter' ? (script.targets ?? []) : [];
+  if (item.kind === 'triggered' && item.hook === 'onChapter') return script.chapters?.[(item.event as { chapter: number }).chapter - 1]?.targets ?? [];
+  if (item.kind === 'triggered' && item.hook === 'onEnter') return script.targets ?? [];
+  if (item.kind === 'triggered') {
+    const t = script[item.hook!] as Trigger<object> | undefined;
+    return (t && typeof t !== 'function' && t.targets) || [];
+  }
   return spellTargets(item.card, item.card.cast?.modes);
 }
 
@@ -725,6 +789,9 @@ export function makeCard(g: Game, name: string, owner: PlayerId, zone: Zone, ext
     zone,
     isCommander: false,
     isToken: false,
+    face: 0,
+    level: 1,
+    adventure: false,
     tapped: false,
     sick: false,
     damage: 0,
@@ -772,7 +839,14 @@ export function moveCard(g: Game, c: Card, to: Zone) {
   c.attachedTo = null; // leaving the battlefield also unattaches it
   c.loyaltyTurn = 0; // a new object with no memory of its last one (400.7)
   c.protector = null;
+  c.level = 1;
+  c.adventure = false;
   c.mods = [];
+  // A spell cast with flashback is exiled instead of going anywhere else (702.34a).
+  if (c.zone === 'stack' && c.cast?.flashback && to !== 'exile') to = 'exile';
+  // A permanent spell enters with the face it had on the stack up (712.13). Anywhere else,
+  // a card has its front face up (712.8a, 712.14).
+  if (c.zone !== 'stack' || to !== 'battlefield') c.face = 0;
   // A spell keeps what it was cast with as it becomes a permanent (107.3m), and loses it after.
   if (c.zone !== 'stack' || to !== 'battlefield') c.cast = null;
   if (c.isCommander && (to === 'hand' || to === 'library') && g.players[c.owner].isBot) {
@@ -795,7 +869,7 @@ const isCard = (v: unknown): v is Card => typeof v === 'object' && v !== null &&
  * waits in `g.triggers` and goes on the stack the next time a player would get priority (603.3).
  */
 export function trigger<H extends TriggerHook>(g: Game, source: Card, hook: H, event: TriggerEvents[H]) {
-  const t = scriptOf(source.name)[hook] as Trigger<object> | undefined;
+  const t = scriptFor(source)[hook] as Trigger<object> | undefined;
   if (!t) return;
   if (typeof t !== 'function' && !t.when(g, { self: source, ...event })) return;
   const remembered = Object.fromEntries(Object.entries(event).map(([k, v]) => [k, isCard(v) ? snapshot(v) : v]));
@@ -834,9 +908,11 @@ export const canProtect = (g: Game, c: Card, pid: PlayerId) =>
 /** Sets up a permanent that was just put onto the battlefield, and triggers "enters" abilities (603.6a). */
 function arrive(g: Game, c: Card, opts: { tapped?: boolean; protector?: PlayerId }) {
   c.sick = true;
-  c.tapped = !!opts.tapped || !!scriptOf(c.name).entersTapped;
+  c.tapped = !!opts.tapped || !!scriptFor(c).entersTapped;
   // A planeswalker enters with its printed loyalty (306.5b), a battle with its printed defense (310.4b).
   if (isPlaneswalker(c)) c.counters.loyalty = num(data(c).loyalty);
+  // A Saga enters with a lore counter, which triggers chapter I (714.3a, 714.2b).
+  if (isSaga(c) && scriptFor(c).chapters?.length) addCounters(g, c, 1, 'lore');
   if (isBattle(c)) {
     c.counters.defense = num(data(c).defense);
     c.protector = opts.protector !== undefined && canProtect(g, c, opts.protector) ? opts.protector : defaultProtector(g, c);
@@ -848,8 +924,10 @@ function arrive(g: Game, c: Card, opts: { tapped?: boolean; protector?: PlayerId
 }
 
 /** Puts a card onto the battlefield. An Aura resolving as a spell enters attached to its target (`attachTo`, 303.4). */
-export function enterBattlefield(g: Game, c: Card, opts: { tapped?: boolean; attachTo?: string; protector?: PlayerId } = {}) {
+/** `face`: the face it enters with up, e.g. a modal double-faced card played as its back face (712.12). */
+export function enterBattlefield(g: Game, c: Card, opts: { tapped?: boolean; attachTo?: string; protector?: PlayerId; face?: number } = {}) {
   moveCard(g, c, 'battlefield');
+  if (opts.face !== undefined) c.face = opts.face;
   if (opts.attachTo) c.attachedTo = opts.attachTo;
   arrive(g, c, opts);
 }
@@ -873,7 +951,7 @@ export function dieMany(g: Game, cards: Card[], verb = 'dies') {
   const dying = cards.filter((c) => c.zone === 'battlefield');
   if (!dying.length) return;
   const listeners = battlefield(g)
-    .filter((c) => scriptOf(c.name).onCreatureDies)
+    .filter((c) => scriptFor(c).onCreatureDies)
     .map(snapshot);
   const dead = dying.filter(isCreature).map(snapshot);
   for (const c of dying) {
@@ -936,7 +1014,7 @@ export function draw(g: Game, pid: PlayerId, n = 1) {
 function damageBonus(g: Game, source: Card, targetOwner: PlayerId): number {
   let bonus = 0;
   for (const c of g.players[source.owner].battlefield) {
-    bonus += scriptOf(c.name).damageBonus?.(g, c, source, targetOwner) ?? 0;
+    bonus += scriptFor(c).damageBonus?.(g, c, source, targetOwner) ?? 0;
   }
   return bonus;
 }
@@ -1000,8 +1078,36 @@ export function pump(_g: Game, c: Card | undefined, power: number, toughness: nu
 }
 
 /** Puts `n` counters of `kind` on a permanent (122). */
-export function addCounters(_g: Game, c: Card | undefined, n = 1, kind = '+1/+1') {
-  if (c && c.zone === 'battlefield' && n > 0) c.counters[kind] = counterCount(c, kind) + n;
+export function addCounters(g: Game, c: Card | undefined, n = 1, kind = '+1/+1') {
+  if (!c || c.zone !== 'battlefield' || n <= 0) return;
+  const before = counterCount(c, kind);
+  c.counters[kind] = before + n;
+  // A Saga's chapter ability triggers when lore counters take it from below N to N or more (714.2b).
+  if (kind !== 'lore') return;
+  (scriptFor(c).chapters ?? []).forEach((_, i) => {
+    const chapter = i + 1;
+    if (before < chapter && before + n >= chapter) {
+      g.triggers.push({ id: `s${g.nextId++}`, kind: 'triggered', controller: c.owner, card: snapshot(c), hook: 'onChapter', event: { chapter }, targets: [] });
+    }
+  });
+}
+
+/** Is a chapter ability of Saga `c` waiting or on the stack (714.4)? */
+const chapterPending = (g: Game, c: Card) => [...g.triggers, ...g.stack].some((x) => x.hook === 'onChapter' && x.card.id === c.id);
+
+/**
+ * Transforms a double-faced permanent: its other face turns up (701.27a). It stays the same
+ * object (712.18). Nothing happens to a card with one face, or if the other face is an
+ * instant or sorcery (712.9, 712.10).
+ */
+export function transform(g: Game, c: Card | undefined) {
+  const d = c && cardData(c.name);
+  if (!c || !d || c.zone !== 'battlefield' || (d.layout !== 'transform' && d.layout !== 'modal_dfc')) return;
+  const next = d.faces![1 - c.face];
+  if (!next || /Instant|Sorcery/.test(next.typeLine)) return;
+  const before = label(c);
+  c.face = 1 - c.face;
+  log(g, `${before} transforms into ${label(c)}.`, c.owner, [c]);
 }
 
 /** Removes up to `n` counters of `kind` from a permanent. */
@@ -1017,7 +1123,7 @@ export function removeCounters(c: Card, n: number, kind = '+1/+1') {
  * a creature can't enchant anything.
  */
 export function canEnchant(g: Game, aura: Card, host: Card | undefined): boolean {
-  const spec = scriptOf(aura.name).enchant;
+  const spec = scriptFor(aura).enchant;
   if (!spec || !host || host.zone !== 'battlefield' || host.id === aura.id || isCreature(aura)) return false;
   if (spec.type === 'creature' && !isCreature(host)) return false;
   if (spec.who === 'you' && host.owner !== aura.owner) return false;
@@ -1165,6 +1271,15 @@ export function checkState(g: Game) {
     }
     if (spent.length) {
       dieMany(g, spent, "is put into its owner's graveyard");
+      changed = true;
+    }
+    // A Saga past its final chapter is sacrificed once that chapter's ability has left the stack (714.4).
+    const done = battlefield(g).filter((c) => {
+      const chapters = scriptFor(c).chapters?.length ?? 0;
+      return isSaga(c) && chapters > 0 && counterCount(c, 'lore') >= chapters && !chapterPending(g, c);
+    });
+    if (done.length) {
+      dieMany(g, done, 'is sacrificed');
       changed = true;
     }
     // An Aura on something it can't enchant, or on nothing, goes to the graveyard (704.5m).

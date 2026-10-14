@@ -234,7 +234,7 @@ function CastCrown({ player, c, name, index }: { player: Player; c: Card | undef
         e.stopPropagation();
         clickCrown(player.id, c);
       }}
-      {...(c ? hoverProps(c.name) : {})}
+      {...(c ? hoverProps(data(c).name) : {})}
     >
       <span>♛</span>
     </motion.button>
@@ -243,12 +243,15 @@ function CastCrown({ player, c, name, index }: { player: Player; c: Card | undef
 
 /** A face-up pile. Always drawn, even when empty; shows its top card and opens the full list on click. */
 function FaceUpPile({ player, zone }: { player: Player; zone: 'graveyard' | 'exile' }) {
+  const v = useView();
   const cards = player[zone];
+  // Something in it can be cast: flashback, or an adventurer card (702.34a, 715.3d).
+  const castable = cards.some((c) => v.glow.get(c.id) === 'play');
   const top = cards[cards.length - 1];
   const name = zone === 'graveyard' ? 'Graveyard' : 'Exile';
   return (
     <div
-      className={cx('pile', zone, !top && 'empty')}
+      className={cx('pile', zone, !top && 'empty', castable && 'glow-play')}
       title={`${name}: ${cards.length} cards${top ? ' — click to view' : ''}`}
       onClick={() => top && useStore.setState({ viewer: { pid: player.id, zone } })}
     >

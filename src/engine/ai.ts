@@ -2,13 +2,13 @@
 // trying them (`applyAction`), letting the stack resolve, and scoring the resulting
 // position. Attacks and blocks use hand-written heuristics, since their outcome depends
 // on what other players do next.
-import { scriptOf } from './registry';
 import {
   activatable,
   applyAction,
   attackCandidates,
   attackOptions,
   canCast,
+  castFaces,
   canMulligan,
   canPlayLand,
   castTargets,
@@ -34,6 +34,8 @@ import {
   isCreature,
   isLand,
   isPlaneswalker,
+  asSpell,
+  landFaces,
   loyaltyOf,
   legalTargets,
   manaOf,
@@ -41,6 +43,7 @@ import {
   permanent,
   stats,
   targetSpecs,
+  scriptFor,
 } from './rules';
 import type { ApplyOptions, AttackOption } from './engine';
 import type { Action, Card, CastChoices, Game, ManaSym, Player, PlayerId, TargetRef, TargetSpec } from './types';
@@ -57,7 +60,7 @@ export function threat(g: Game, c: Card): number {
   if (s.keywords.has('trample')) v += 0.5;
   if (s.keywords.has('double strike')) v += s.power;
   if (c.isCommander) v += 3;
-  const script = scriptOf(c.name);
+  const script = scriptFor(c);
   if (script.static || script.onCreatureDies || script.onCast || script.onDraw || script.damageBonus) v += 1.5;
   // A creature that can't attack or block (Pacifism) is worth little.
   if (s.keywords.has(CANT_ATTACK) && s.keywords.has(CANT_BLOCK)) v *= 0.25;
@@ -70,7 +73,7 @@ export function threat(g: Game, c: Card): number {
  * creatures first, and only if they have less power than the Vehicle brings.
  */
 function crewChoice(g: Game, pid: PlayerId, v: Card): string[] | null {
-  const need = scriptOf(v.name).activated?.cost.crew;
+  const need = scriptFor(v).activated?.cost.crew;
   if (!need || g.active !== pid || g.step !== 'main1' || v.sick || isCreature(v)) return null;
   const pool = crewOptions(g, pid, v).sort((a, b) => Number(b.sick) - Number(a.sick) || threat(g, a) - threat(g, b));
   const picked: Card[] = [];
@@ -100,13 +103,21 @@ function boardValue(g: Game, p: Player): number {
     if (isCreature(c)) v += threat(g, c);
     else if (isPlaneswalker(c)) v += walkerValue(c);
     else if (isBattle(c)) v += battleValue(c);
+    else if (scriptFor(c).levels) v += 1 + data(c).cmc * 0.5 + (c.level - 1) * 1.5; // a Class is worth more each level
     else if (!isLand(c)) v += 1 + data(c).cmc * 0.5;
     mana += manaOf(g, c)?.amount ?? 0;
   }
   return v + Math.min(mana, 12) * 1.3;
 }
 
-const handValue = (p: Player) => Math.min(p.hand.length, 5) + Math.max(0, p.hand.length - 5) * 0.4;
+/**
+ * Cards in hand, counting an adventurer card waiting in exile as one (715.3d), and a
+ * flashback card in the graveyard as half of one (702.34a).
+ */
+const handValue = (p: Player) => {
+  const n = p.hand.length + p.exile.filter((c) => c.adventure).length + p.graveyard.filter((c) => scriptFor(c).flashback).length * 0.5;
+  return Math.min(n, 5) + Math.max(0, n - 5) * 0.4;
+};
 
 /** Higher is better for `pid`. Opponents count half: each is only one of three enemies. */
 export function evaluate(g: Game, pid: PlayerId): number {
@@ -144,29 +155,32 @@ function targetChoices(g: Game, pid: PlayerId, specs: TargetSpec[], source: Card
  * the two least valuable permanents to sacrifice.
  */
 function castChoices(g: Game, pid: PlayerId, c: Card): CastChoices[] {
-  const script = scriptOf(c.name);
   const out: CastChoices[] = [];
-  const sacrifices = script.additionalCost
-    ? [...sacrificeOptions(g, pid, c)]
-        .sort((a, b) => (isCreature(a) ? threat(g, a) : 0) - (isCreature(b) ? threat(g, b) : 0))
-        .slice(0, 2)
-        .map((x) => [x.id])
-    : [undefined];
-  const modeSets = script.modal ? modeChoices(g, pid, c) : [undefined];
-  for (const modes of modeSets) {
-    for (const alt of [undefined, ...altCostsOf(g, c)]) {
-      for (const sacrifice of sacrifices) {
-        const kicks = [0];
-        if (script.kicker) {
-          let k = 0;
-          while (k < (script.kicker.multi ? 10 : 1) && canCast(g, pid, c, { alt, sacrifice, modes, kicked: k + 1 })) k++;
-          if (k) kicks.push(k);
-        }
-        for (const kicked of kicks) {
-          const most = maxX(g, pid, c, { alt, sacrifice, modes, kicked });
-          for (const x of new Set([most, Math.floor(most / 2)])) {
-            const choices: CastChoices = { x, kicked, alt, sacrifice, modes };
-            if (x >= 0 && canCast(g, pid, c, choices)) out.push(choices);
+  // Each face it can be cast as: a split card's halves, an Adventure, a modal card's faces.
+  for (const face of castFaces(c)) {
+    const script = scriptFor(asSpell(c, face));
+    const sacrifices = script.additionalCost
+      ? [...sacrificeOptions(g, pid, c, face)]
+          .sort((a, b) => (isCreature(a) ? threat(g, a) : 0) - (isCreature(b) ? threat(g, b) : 0))
+          .slice(0, 2)
+          .map((x) => [x.id])
+      : [undefined];
+    const modeSets = script.modal ? modeChoices(g, pid, c, face) : [undefined];
+    for (const modes of modeSets) {
+      for (const alt of [undefined, ...altCostsOf(g, c, face)]) {
+        for (const sacrifice of sacrifices) {
+          const kicks = [0];
+          if (script.kicker) {
+            let k = 0;
+            while (k < (script.kicker.multi ? 10 : 1) && canCast(g, pid, c, { face, alt, sacrifice, modes, kicked: k + 1 })) k++;
+            if (k) kicks.push(k);
+          }
+          for (const kicked of kicks) {
+            const most = maxX(g, pid, c, { face, alt, sacrifice, modes, kicked });
+            for (const x of new Set([most, Math.floor(most / 2)])) {
+              const choices: CastChoices = { x, kicked, alt, sacrifice, modes, ...(face ? { face } : {}) };
+              if (x >= 0 && canCast(g, pid, c, choices)) out.push(choices);
+            }
           }
         }
       }
@@ -178,21 +192,23 @@ function castChoices(g: Game, pid: PlayerId, c: Card): CastChoices[] {
 function candidateActions(g: Game, pid: PlayerId): { action: Action; spendsCard: boolean }[] {
   const p = g.players[pid];
   const out: { action: Action; spendsCard: boolean }[] = [];
-  for (const c of [...p.hand, ...p.command]) {
+  // Cards in a graveyard (flashback) or exile (after an Adventure) can be cast too.
+  for (const c of [...p.hand, ...p.command, ...p.graveyard, ...p.exile]) {
     if (!canCast(g, pid, c)) continue;
     for (const choices of castChoices(g, pid, c)) {
-      for (const targets of targetChoices(g, pid, castTargets(c, choices.modes), c)) {
+      for (const targets of targetChoices(g, pid, castTargets(c, choices.modes, choices.face), c)) {
         out.push({ action: { type: 'cast', card: c.id, targets, ...choices }, spendsCard: true });
       }
     }
   }
   for (const c of p.battlefield) {
     for (const ability of activatable(g, pid, c)) {
-      const script = scriptOf(c.name);
-      const ab = ability === undefined ? script.activated! : script.loyalty![ability];
+      const script = scriptFor(c);
+      // The `activated` ability, a loyalty ability, or a Class level bar (which has no targets).
+      const specs = (ability === undefined ? script.activated!.targets : script.loyalty?.[ability].targets) ?? [];
       const crew = ability === undefined && script.activated!.cost.crew ? crewChoice(g, pid, c) : undefined;
       if (crew === null) continue;
-      for (const targets of targetChoices(g, pid, ab.targets ?? [], c)) {
+      for (const targets of targetChoices(g, pid, specs, c)) {
         out.push({ action: { type: 'activate', card: c.id, ability, targets, crew }, spendsCard: false });
       }
     }
@@ -444,25 +460,35 @@ function blockAction(g: Game, pid: PlayerId): Action {
  * The land to play: the one making the colour the bot is shortest of. A multicolour deck
  * wants each of its colours on the battlefield before a second land of any one of them.
  */
-function bestLand(g: Game, pid: PlayerId, lands: Card[]): Card {
+function bestLand(g: Game, pid: PlayerId, lands: Card[]): Action | null {
   const p = g.players[pid];
   const sources = p.battlefield.map((c) => manaOf(g, c)?.colors ?? []);
   const pips = [...p.hand, ...p.command].flatMap((c) => parseCost(data(c).manaCost).pips);
   const short = (sym: ManaSym) => pips.filter((x) => x === sym).length / (1 + sources.filter((m) => m.includes(sym)).length);
-  const score = (land: Card) =>
-    Math.max(0, ...(manaOf(g, land)?.colors ?? []).map(short)) - (scriptOf(land.name).entersTapped ? 0.5 : 0);
-  return lands.reduce((best, c) => (score(c) > score(best) ? c : best));
+  const landsOut = p.battlefield.filter(isLand).length;
+  // Each land face it could be played as (712.12), looked at as it would be on the battlefield.
+  const options = lands.flatMap((card) => landFaces(card).map((face) => ({ card, face, as: { ...card, zone: 'battlefield' as const, face } })));
+  const score = ({ card, as }: (typeof options)[number]) => {
+    let v = Math.max(0, ...(manaOf(g, as)?.colors ?? []).map(short)) - (scriptFor(as).entersTapped ? 0.5 : 0);
+    // A modal card whose front is a spell is a land only when nothing else is, and mana is short.
+    if (!isLand(card)) v -= landsOut >= 5 ? 100 : 2;
+    return v;
+  };
+  const best = options.reduce((a, b) => (score(b) > score(a) ? b : a));
+  if (score(best) < -50) return null;
+  return { type: 'playLand', card: best.card.id, ...(best.face ? { face: best.face } : {}) };
 }
 
 function mainAction(g: Game, pid: PlayerId): Action {
   const p = g.players[pid];
   const lands = p.hand.filter((c) => canPlayLand(g, pid, c));
-  if (lands.length) return { type: 'playLand', card: bestLand(g, pid, lands).id };
+  const land = lands.length ? bestLand(g, pid, lands) : null;
+  if (land) return land;
   const play = bestPlay(g, pid);
   if (play) return play;
   // Team pumps look worthless to `evaluate` (they wear off), so cast them by rule.
   if (g.step === 'main1' && attackCandidates(g, pid).length >= 3) {
-    const alpha = p.hand.find((c) => scriptOf(c.name).ai === 'alpha' && canCast(g, pid, c));
+    const alpha = p.hand.find((c) => scriptFor(c).ai === 'alpha' && canCast(g, pid, c));
     if (alpha) return { type: 'cast', card: alpha.id };
   }
   return { type: 'pass' };
