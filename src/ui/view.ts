@@ -139,7 +139,16 @@ export function buildView(): View {
 
   if (me === null || !mine) {
     const who = g.players[g.priority].name;
-    const text = deciding === 'blockers' ? `${who} is blocking` : g.priority === g.active ? `${who}'s turn` : `${who} may respond`;
+    const text =
+      deciding === 'blockers'
+        ? `${who} is blocking`
+        : deciding === 'mulligan'
+          ? `${who} is choosing a hand`
+          : deciding === 'chooseCards' && g.decision?.type === 'chooseCards'
+            ? `${who} is ${g.decision.choice.kind === 'search' ? 'searching' : 'choosing cards'}`
+            : g.priority === g.active
+              ? `${who}'s turn`
+              : `${who} may respond`;
     view.primary = { label: text, tone: 'plain', disabled: true, onClick: () => {} };
     return view;
   }
