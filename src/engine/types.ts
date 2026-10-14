@@ -36,6 +36,8 @@ export interface Mod {
 export interface CastInfo {
   x: number;
   kicked: number;
+  /** A modal spell's chosen modes, as indexes into its script's `modal.modes`, in printed order (700.2). */
+  modes: number[];
 }
 
 /**
@@ -51,6 +53,8 @@ export interface CastChoices {
   alt?: number;
   /** Permanents sacrificed for the script's `additionalCost` (118.8). */
   sacrifice?: string[];
+  /** A modal spell's modes, as indexes into its script's `modal.modes` (700.2a). */
+  modes?: number[];
 }
 
 /** One physical card (or token) in a game. `name` is the key into the card database. */
@@ -145,7 +149,8 @@ export interface Combat {
   moreDamage: boolean;
 }
 
-export type TargetRef = { kind: 'card'; id: string } | { kind: 'player'; id: PlayerId };
+/** A target: a permanent, a player, or a spell or ability on the stack (by its `StackItem` id). */
+export type TargetRef = { kind: 'card'; id: string } | { kind: 'player'; id: PlayerId } | { kind: 'stack'; id: string };
 
 export interface LogEntry {
   turn: number;
@@ -171,6 +176,11 @@ export interface StackItem {
   targets: (TargetRef | null)[];
   /** A waiting triggered ability whose controller has already chosen its place in the order (603.3b). */
   ordered?: boolean;
+  /**
+   * A copy of a spell (707.10). It isn't cast, and its card is a token, so it ceases to
+   * exist once it leaves the stack (707.10a), or becomes a token permanent.
+   */
+  copy?: boolean;
 }
 
 /**
@@ -227,7 +237,11 @@ export interface Game {
   decision: Decision | null;
   /** Spells and abilities waiting to resolve. The last one is the top (405.2). */
   stack: StackItem[];
-  /** Abilities that have triggered but aren't on the stack yet (603.3). */
+  /**
+   * Abilities that have triggered but aren't on the stack yet (603.3), and copies of
+   * spells waiting for new targets (707.10c). They go on the next time a player would
+   * get priority.
+   */
   triggers: StackItem[];
   /** Mulligans in progress before the first turn (103.5), or null once the game has begun. */
   mulligan: Mulligans | null;
@@ -237,6 +251,8 @@ export interface Game {
   resolving: string | null;
   /** How many players have passed priority in a row (117.4). */
   passes: number;
+  /** A player who cast or activated with `hold`: auto-pass leaves them priority until they act again (117.3c). */
+  holding: PlayerId | null;
   combat: Combat | null;
   winner: PlayerId | 'draw' | null;
   log: LogEntry[];
@@ -248,8 +264,9 @@ export interface Game {
 
 export type Action =
   | { type: 'playLand'; card: string }
-  | ({ type: 'cast'; card: string; targets?: (TargetRef | null)[] } & CastChoices)
-  | { type: 'activate'; card: string; targets?: (TargetRef | null)[] }
+  /** `hold`: keep priority afterwards instead of letting auto-pass pass it (117.3c). */
+  | ({ type: 'cast'; card: string; targets?: (TargetRef | null)[]; hold?: boolean } & CastChoices)
+  | { type: 'activate'; card: string; targets?: (TargetRef | null)[]; hold?: boolean }
   | { type: 'tapMana'; card: string }
   | { type: 'untapMana'; card: string }
   | { type: 'declareAttack'; card: string; defender: PlayerId }
@@ -273,7 +290,8 @@ export type Action =
 // ---------- card scripts ----------
 
 export interface TargetSpec {
-  type: 'creature' | 'permanent' | 'player' | 'any'; // any = creature or player
+  /** any = creature or player. spell and ability are on the stack (ability = activated or triggered). */
+  type: 'creature' | 'permanent' | 'player' | 'any' | 'spell' | 'ability';
   who?: 'you' | 'opponent' | 'any'; // whose permanent / which player
   filter?: (g: Game, c: Card, source: Card) => boolean;
   optional?: boolean; // "you may" / "up to one"
@@ -330,6 +348,13 @@ export type Trigger<E> =
 
 type Triggers = { [H in TriggerHook]?: Trigger<TriggerEvents[H]> };
 
+/** One mode of a modal spell (700.2). */
+export interface Mode {
+  text: string;
+  targets?: TargetSpec[];
+  resolve: (g: Game, ctx: Ctx) => void;
+}
+
 /** Behaviour for one card name. Anything a card does beyond its printed keywords lives here. */
 export interface CardScript extends Triggers {
   /** "{T}: Add ..." */
@@ -337,6 +362,13 @@ export interface CardScript extends Triggers {
   entersTapped?: boolean;
   /** Targets of an instant or sorcery, or of a permanent's `onEnter` ability. */
   targets?: TargetSpec[];
+  /**
+   * A modal instant or sorcery, "Choose one —" (700.2): the caster picks `min` to `max`
+   * modes, the same one more than once only if `repeat` (700.2d). Each mode has its own
+   * targets (700.2c), and the chosen ones run in printed order. Use instead of
+   * `targets` and `onResolve`.
+   */
+  modal?: { min: number; max: number; repeat?: boolean; modes: Mode[] };
   /** Instants and sorceries. */
   onResolve?: (g: Game, ctx: Ctx) => void;
   /** Continuous effect this permanent grants to creature `c` (may be itself). */

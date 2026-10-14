@@ -1104,6 +1104,17 @@ button {
   border-radius: 0.8rem;
 }
 
+.cast-modes {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.cast-options .chip.mode {
+  max-width: 50rem;
+  text-align: left;
+}
+
 .cast-options .chip.on {
   border-color: var(--f-gold);
   background: #3a3324;
@@ -1137,6 +1148,35 @@ button {
   flex-direction: column;
   gap: 0.9rem;
   z-index: 25;
+}
+
+/* Keep priority after paying (117.3c). */
+.hold-toggle {
+  align-self: flex-end;
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.3rem 0.9rem;
+  font: 600 1.4rem 'Segoe UI', sans-serif;
+  color: #cfd6e4;
+  background: rgba(12, 14, 20, 0.85);
+  border: 0.15rem solid #4a5366;
+  border-radius: 0.8rem;
+}
+
+.hold-toggle.on {
+  color: #ffe08a;
+  border-color: var(--f-gold);
+}
+
+.hold-box {
+  width: 1.6rem;
+  height: 1.6rem;
+  display: grid;
+  place-items: center;
+  border: 0.15rem solid currentColor;
+  border-radius: 0.3rem;
+  font-size: 1.2rem;
 }
 
 .phases {
@@ -1664,6 +1704,23 @@ button {
 }
 
 .stack-item.top .stack-tag {
+  display: block;
+}
+
+/* A spell or ability that can be targeted now, e.g. by a counterspell (701.6). */
+.stack-item.targetable {
+  cursor: pointer;
+}
+
+.stack-item.targetable img {
+  box-shadow:
+    0 0 0 0.35rem #ffe45c,
+    0 0 2rem 0.5rem rgba(255, 228, 92, 0.8),
+    0 0.6rem 1.6rem #000;
+  animation: breathe 1s ease-in-out infinite;
+}
+
+.stack-item.targetable .stack-tag {
   display: block;
 }
 

@@ -49,6 +49,7 @@ import {
   searchable,
   shuffle,
   snapshot,
+  spellTargets,
   stats,
   tapForMana,
   targetSpecs,
@@ -84,6 +85,7 @@ export function newGame({ seed, humanDeck, stops, decks }: NewGameOptions): Game
     choices: [],
     resolving: null,
     passes: 0,
+    holding: null,
     combat: null,
     winner: null,
     log: [],
@@ -272,7 +274,31 @@ export function canPlayLand(g: Game, pid: PlayerId, c: Card): boolean {
 }
 
 /** Targets chosen as a spell is cast (601.2c). A permanent's `targets` are for its enters ability instead. */
-export const castTargets = (c: Card): TargetSpec[] => (isPermanentCard(c) ? [] : (scriptOf(c.name).targets ?? []));
+export const castTargets = (c: Card, modes?: number[]): TargetSpec[] => spellTargets(c, modes);
+
+/** Can mode `i` of modal spell `c` be chosen now? Not if a target it needs has no legal choice (700.2a). */
+function modeOk(g: Game, pid: PlayerId, c: Card, i: number): boolean {
+  const mode = scriptOf(c.name).modal?.modes[i];
+  return !!mode && (mode.targets ?? []).every((spec) => spec.optional || legalTargets(g, pid, spec, c).length > 0);
+}
+
+/**
+ * Every set of modes `pid` could choose for modal spell `c` now (700.2): `min` to `max` of
+ * them, as sorted indexes, repeating one only if the spell allows it (700.2d).
+ */
+export function modeChoices(g: Game, pid: PlayerId, c: Card): number[][] {
+  const modal = scriptOf(c.name).modal;
+  if (!modal) return [];
+  const legal = modal.modes.map((_, i) => i).filter((i) => modeOk(g, pid, c, i));
+  const out: number[][] = [];
+  const grow = (picked: number[], from: number) => {
+    if (picked.length >= modal.min) out.push(picked);
+    if (picked.length === modal.max) return;
+    for (let k = from; k < legal.length; k++) grow([...picked, legal[k]], modal.repeat ? k : k + 1);
+  };
+  grow([], 0);
+  return out;
+}
 
 /** Permanents `pid` could sacrifice to pay `c`'s additional cost (118.8), or [] if it has none. */
 export function sacrificeOptions(g: Game, pid: PlayerId, c: Card): Card[] {
@@ -293,6 +319,9 @@ function choicesOk(g: Game, pid: PlayerId, c: Card, ch: CastChoices): boolean {
   if (!Number.isInteger(x) || x < 0 || !Number.isInteger(kicked) || kicked < 0) return false;
   if (kicked > (script.kicker ? (script.kicker.multi ? Infinity : 1) : 0)) return false;
   if (ch.alt !== undefined && !altCostsOf(g, c).includes(ch.alt)) return false;
+  // Modes: a set the spell allows, in printed order (700.2).
+  const modes = ch.modes ?? [];
+  if (script.modal ? !modeChoices(g, pid, c).some((m) => m.join() === modes.join()) : modes.length) return false;
   const sacrifice = ch.sacrifice ?? [];
   if (!script.additionalCost) return sacrifice.length === 0;
   const legal = new Set(sacrificeOptions(g, pid, c).map((p) => p.id));
@@ -306,11 +335,12 @@ function choicesOk(g: Game, pid: PlayerId, c: Card, ch: CastChoices): boolean {
 export function canCast(g: Game, pid: PlayerId, c: Card, choices?: CastChoices): boolean {
   if (c.owner !== pid || (c.zone !== 'hand' && c.zone !== 'command') || isLand(c)) return false;
   if (!timingOk(g, pid, isInstantSpeed(c))) return false;
-  for (const spec of castTargets(c)) {
+  for (const spec of castTargets(c, choices?.modes)) {
     if (!spec.optional && legalTargets(g, pid, spec, c).length === 0) return false;
   }
   if (choices) return choicesOk(g, pid, c, choices) && !!planPayment(g, pid, castCost(g, c, choices));
   if (scriptOf(c.name).additionalCost && !sacrificeOptions(g, pid, c).length) return false;
+  if (scriptOf(c.name).modal && !modeChoices(g, pid, c).length) return false;
   return [undefined, ...altCostsOf(g, c)].some((alt) => planPayment(g, pid, castCost(g, c, { alt })));
 }
 
@@ -403,10 +433,13 @@ export const defaultStops = (pid: PlayerId, players = 4): Stops =>
  *  - with something on the stack: when the top object is someone else's and they could act
  *  - with the stack empty: at their stops (see `StopKind`), `defaultStops` unless given.
  *    A stop in declare attackers only counts once something attacks.
+ *  - after casting or activating with `hold`: until they act again
  * `applyAction(g, a, { autoPass: false })` turns it off.
  */
 export function wantsPriority(g: Game, pid: PlayerId, stops?: Stops): boolean {
   const top = g.stack[g.stack.length - 1];
+  // A player holding priority keeps it, to respond to their own spell (117.3c).
+  if (top && g.holding === pid) return true;
   if (top) return top.controller !== pid && canAct(g, pid);
   if (g.step === 'attackers' && !g.combat?.attacks.length) return false;
   const stop = (stops?.[g.active] ?? (g.active === pid ? OWN_TURN_STOPS : OTHER_TURN_STOPS))[g.step];
@@ -639,6 +672,7 @@ function dealCombatDamage(g: Game, firstStrike: boolean, struckFirst: Set<string
  * the top of the stack resolves, or the step ends if the stack is empty (117.4).
  */
 function passPriority(g: Game) {
+  g.holding = null;
   g.passes++;
   if (g.passes < living(g).length) {
     g.priority = nextLiving(g, g.priority);
@@ -670,8 +704,17 @@ function resolveTop(g: Game) {
   if (item.kind === 'spell') {
     if (isPermanentCard(card)) {
       enterBattlefield(g, card); // 608.3
-    } else {
-      if (!fizzled) script.onResolve?.(g, { self: card, you: controller, targets });
+    } else if (!fizzled && script.modal) {
+      // Each chosen mode in printed order, with its own share of the targets (700.2).
+      let next = 0;
+      for (const i of card.cast?.modes ?? []) {
+        const mode = script.modal.modes[i];
+        const n = mode.targets?.length ?? 0;
+        mode.resolve(g, { self: card, you: controller, targets: targets.slice(next, next + n) });
+        next += n;
+      }
+    } else if (!fizzled) {
+      script.onResolve?.(g, { self: card, you: controller, targets });
     }
   } else if (!fizzled) {
     // An ability uses its source as it is now, or as it last was if it has gone (113.7a).
@@ -721,8 +764,12 @@ function putTriggerOnStack(g: Game): boolean {
   const [item] = g.triggers.splice(next, 1);
   const specs = targetSpecs(item);
   const options = specs.map((spec) => legalTargets(g, item.controller, spec, item.card));
-  // An ability that needs a target and has none is removed instead (603.3d).
-  if (specs.some((spec, i) => !spec.optional && options[i].length === 0)) return true;
+  if (specs.some((spec, i) => !spec.optional && options[i].length === 0)) {
+    // A copy keeps the original's targets if there are no new ones (707.10c). An ability
+    // that needs a target and has none is removed instead (603.3d).
+    if (item.copy) g.stack.push(item);
+    return true;
+  }
   if (options.some((o) => o.length)) {
     g.decision = { type: 'targets', item, resume: g.priority };
     g.priority = item.controller;
@@ -757,14 +804,14 @@ function act(g: Game, a: Action): boolean {
     // them leaves the game as if the spell was never started (733.1).
     case 'cast': {
       const c = p.hand.find((x) => x.id === a.card) ?? p.command.find((x) => x.id === a.card);
-      const choices: CastChoices = { x: a.x, kicked: a.kicked, alt: a.alt, sacrifice: a.sacrifice };
+      const choices: CastChoices = { x: a.x, kicked: a.kicked, alt: a.alt, sacrifice: a.sacrifice, modes: a.modes };
       if (!c || !canCast(g, pid, c, choices)) return false;
-      const specs = castTargets(c);
+      const specs = castTargets(c, choices.modes);
       const targets = specs.map((_, i) => a.targets?.[i] ?? null);
       if (!targetsOk(g, pid, c, specs, targets)) return false;
       // An alternative cost without {X} makes X 0 (107.3b).
       const hasX = parseCost(choices.alt === undefined ? data(c).manaCost : scriptOf(c.name).alternativeCosts![choices.alt].mana).x > 0;
-      c.cast = { x: hasX ? (choices.x ?? 0) : 0, kicked: choices.kicked ?? 0 };
+      c.cast = { x: hasX ? (choices.x ?? 0) : 0, kicked: choices.kicked ?? 0, modes: choices.modes ?? [] };
       pay(g, pid, castCost(g, c, choices)); // 601.2f-h
       const sacrificed = (choices.sacrifice ?? []).map((id) => permanent(g, id)!);
       const from = c.zone === 'command' ? p.command : p.hand;
@@ -777,6 +824,13 @@ function act(g: Game, a: Action): boolean {
         hasX && `X = ${c.cast.x}`,
         c.cast.kicked && (c.cast.kicked > 1 ? `kicked ${c.cast.kicked} times` : 'kicked'),
         choices.alt !== undefined && scriptOf(c.name).alternativeCosts![choices.alt].label,
+        c.cast.modes.length > 0 &&
+          [...new Set(c.cast.modes)]
+            .map((i) => {
+              const times = c.cast!.modes.filter((m) => m === i).length;
+              return `“${scriptOf(c.name).modal!.modes[i].text}”${times > 1 ? ` ×${times}` : ''}`;
+            })
+            .join(', '),
       ].filter(Boolean);
       const details = (how.length ? ` (${how.join(', ')})` : '') + (chosen.length ? ` targeting ${chosen.join(' and ')}` : '');
       log(g, `${says(p, 'casts')} ${label(c)}${details}.`, pid, [c, ...refCards(g, targets)]);
@@ -784,6 +838,7 @@ function act(g: Game, a: Action): boolean {
       if (sacrificed.length) dieMany(g, sacrificed, 'is sacrificed'); // an additional cost, paid with the rest (601.2h)
       broadcast(g, 'onCast', { card: c, caster: pid }); // 601.2i
       g.passes = 0; // the caster keeps priority (117.3c)
+      g.holding = a.hold ? pid : null;
       return true;
     }
 
@@ -803,6 +858,7 @@ function act(g: Game, a: Action): boolean {
       if (ab.cost.sacrifice) dieMany(g, [c], 'is sacrificed');
       g.stack.push(item);
       g.passes = 0;
+      g.holding = a.hold ? pid : null;
       return true;
     }
 

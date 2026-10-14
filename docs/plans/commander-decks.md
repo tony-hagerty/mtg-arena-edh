@@ -3,7 +3,7 @@
 Goal: play real 100-card Commander decks of any colours, with partner commanders and
 every card type, and add the user's own deck to the menu.
 
-**Status: sessions 1-2 done. Don't start the next session until the user says so.**
+**Status: sessions 1-3 done. Don't start the next session until the user says so.**
 
 ## What "every card type" means here
 
@@ -50,7 +50,7 @@ Order matters: each one builds on the ones before it.
   creature" style costs, and free/alternative casting.
 - Cost increases and reductions that apply together in the right order (601.2f).
 
-### 3. The stack: counterspells, holding priority, modes
+### 3. The stack: counterspells, holding priority, modes (done)
 
 - Counter a spell or ability (701.6). New target kind for stack objects.
 - Let the human hold priority to respond to their own spell (117.3c). This removes the

@@ -442,6 +442,146 @@ describe('costs (107.3, 107.4, 118, 601.2f)', () => {
   });
 });
 
+describe('counterspells, modes, copies and holding priority', () => {
+  const opp = (id: number) => ({ kind: 'player', id }) as const;
+  const top = (g: Game) => ({ kind: 'stack', id: g.stack[g.stack.length - 1].id }) as const;
+  const cast = (g: Game, pid: number, name: string, extra: object = {}) =>
+    ({ type: 'cast', card: byName(g, pid, name, 'hand')!.id, ...extra }) as const;
+
+  /** Player 0 has 4 Mountains and Lightning Bolt; player 1 has 4 Islands and `answer`. */
+  const duel = (answer: string, setup: (g: Game) => void = () => {}) =>
+    emptyGame((d) => {
+      put(d, 0, 'Mountain', 'battlefield', 4);
+      put(d, 0, 'Lightning Bolt', 'hand');
+      put(d, 1, 'Island', 'battlefield', 4);
+      put(d, 1, answer, 'hand');
+      setup(d);
+    });
+
+  it('counters a spell: it goes to the graveyard and does nothing (701.6a)', () => {
+    let g = duel('Counterspell');
+    g = run(g, cast(g, 0, 'Lightning Bolt', { targets: [opp(1)] }));
+    // Player 1 could respond, so the game stops for them.
+    expect(g.priority).toBe(1);
+    g = run(g, cast(g, 1, 'Counterspell', { targets: [top(g)] }));
+    expect(g.log.some((l) => l.text === 'Lightning Bolt is countered.')).toBe(true);
+    expect(g.stack).toEqual([]);
+    expect(g.players[1].life).toBe(40);
+    expect(byName(g, 0, 'Lightning Bolt', 'graveyard')).toBeDefined();
+    // The mana spent on it isn't refunded (701.6b).
+    expect(g.players[0].battlefield.filter((c) => c.tapped)).toHaveLength(1);
+  });
+
+  it('only targets the spells a counterspell allows', () => {
+    const negate = duel('Negate', (d) => put(d, 0, 'Raging Goblin', 'hand'));
+    // Negate can't target a creature spell, so player 1 isn't asked and it resolves.
+    let g = run(negate, cast(negate, 0, 'Raging Goblin'));
+    expect(g.stack).toHaveLength(0);
+    const scatter = duel('Essence Scatter', (d) => put(d, 0, 'Raging Goblin', 'hand'));
+    g = run(scatter, cast(scatter, 0, 'Raging Goblin'));
+    expect(g.priority).toBe(1);
+    expect(canCast(g, 1, byName(g, 1, 'Essence Scatter', 'hand')!)).toBe(true);
+  });
+
+  it('a countered commander can still go to the command zone, and its tax still counts (903.8, 903.9a)', () => {
+    let g = duel('Counterspell', (d) => put(d, 0, 'Plains', 'battlefield', 5));
+    const lyra = byName(g, 0, 'Lyra Dawnbringer', 'command')!;
+    g = run(g, { type: 'cast', card: lyra.id });
+    // Player 0 still has Lightning Bolt and the mana for it, so they get to respond too.
+    g = run(g, cast(g, 1, 'Counterspell', { targets: [top(g)] }), pass);
+    expect(byName(g, 0, 'Lyra Dawnbringer', 'command')).toBeDefined();
+    expect(g.players[0].commanderCasts).toEqual([1]);
+  });
+
+  it('counters a triggered ability (701.6a)', () => {
+    let g = duel('Stifle', (d) => {
+      put(d, 0, 'Flametongue Kavu', 'hand');
+      put(d, 1, 'Serra Angel');
+    });
+    g = run(g, cast(g, 0, 'Flametongue Kavu'));
+    // It resolves, and its enters ability waits for player 0 to choose a target.
+    expect(g.decision?.type).toBe('targets');
+    const angel = byName(g, 1, 'Serra Angel')!;
+    g = run(g, { type: 'chooseTargets', targets: [{ kind: 'card', id: angel.id }] });
+    expect(g.priority).toBe(1);
+    g = run(g, cast(g, 1, 'Stifle', { targets: [top(g)] }));
+    expect(g.log.some((l) => l.text === "Flametongue Kavu's ability is countered.")).toBe(true);
+    expect(byName(g, 1, 'Serra Angel')!.damage).toBe(0);
+  });
+
+  it('casts a modal spell with the modes chosen, each with its own targets (700.2)', () => {
+    let g = emptyGame((d) => {
+      put(d, 0, 'Mountain', 'battlefield', 2);
+      put(d, 0, 'Plains', 'battlefield', 2);
+      put(d, 0, 'Boros Charm', 'hand');
+    });
+    const charm = byName(g, 0, 'Boros Charm', 'hand')!;
+    // Choose one: two modes, or none, is illegal. With no creature around, the double
+    // strike mode has no target and can't be chosen (700.2a).
+    expect(canCast(g, 0, charm, { modes: [0, 1], targets: [opp(1)] } as never)).toBe(false);
+    expect(canCast(g, 0, charm, { modes: [] })).toBe(false);
+    expect(canCast(g, 0, charm, { modes: [2] })).toBe(false);
+    g = run(g, cast(g, 0, 'Boros Charm', { modes: [0], targets: [opp(1)] }));
+    expect(g.players[1].life).toBe(36);
+    expect(g.log.some((l) => l.text.includes('Boros Charm (“Boros Charm deals 4 damage to target player.”) targeting Mortis'))).toBe(true);
+  });
+
+  it('lets a mode be chosen more than once when the spell says so (700.2d)', () => {
+    let g = emptyGame((d) => {
+      put(d, 0, 'Mountain', 'battlefield', 4);
+      put(d, 0, 'Fiery Confluence', 'hand');
+      put(d, 1, 'Sol Ring');
+    });
+    expect(applyAction(g, cast(g, 0, 'Fiery Confluence', { modes: [1, 1] }))).toBe(g); // needs three
+    g = run(g, cast(g, 0, 'Fiery Confluence', { modes: [1, 1, 2], targets: [{ kind: 'card', id: byName(g, 1, 'Sol Ring')!.id }] }));
+    expect(g.players.slice(1).map((p) => p.life)).toEqual([36, 36, 36]);
+    expect(byName(g, 1, 'Sol Ring')).toBeUndefined();
+  });
+
+  it('takes targets only for the chosen modes (700.2c)', () => {
+    let g = duel('Cryptic Command');
+    g = run(g, cast(g, 0, 'Lightning Bolt', { targets: [opp(1)] }));
+    const hand = g.players[1].hand.length;
+    // Counter + draw: one target, for the counter mode.
+    g = run(g, cast(g, 1, 'Cryptic Command', { modes: [0, 3], targets: [top(g)] }));
+    expect(g.players[1].life).toBe(40);
+    expect(g.players[1].hand.length).toBe(hand); // Cryptic left the hand, a card was drawn
+  });
+
+  it('holds priority after casting, to respond to your own spell (117.3c)', () => {
+    let g = emptyGame((d) => {
+      put(d, 0, 'Mountain', 'battlefield', 3);
+      put(d, 0, 'Lightning Bolt', 'hand');
+      put(d, 0, 'Reverberate', 'hand');
+    });
+    const held = run(g, cast(g, 0, 'Lightning Bolt', { targets: [opp(1)], hold: true }));
+    expect(held.stack).toHaveLength(1);
+    expect(held.priority).toBe(0);
+    // Without holding, everyone passes and it resolves.
+    expect(run(g, cast(g, 0, 'Lightning Bolt', { targets: [opp(1)] })).stack).toHaveLength(0);
+
+    // Copy it: the copy keeps its target unless new ones are chosen (707.10c).
+    g = run(held, cast(held, 0, 'Reverberate', { targets: [top(held)] }));
+    expect(g.decision?.type).toBe('targets');
+    g = run(g, { type: 'chooseTargets', targets: [opp(2)] });
+    // The copy resolves first: it went on the stack above the original.
+    const damage = g.log.filter((l) => l.text.startsWith('Lightning Bolt deals')).map((l) => l.text);
+    expect(damage).toEqual([`Lightning Bolt deals 3 damage to ${g.players[2].name}.`, `Lightning Bolt deals 3 damage to ${g.players[1].name}.`]);
+    expect(g.players[1].life).toBe(37);
+    expect(g.players[2].life).toBe(37);
+    // The copy ceases to exist instead of going to a graveyard (707.10a).
+    expect(g.players[0].graveyard.map((c) => c.name).sort()).toEqual(['Lightning Bolt', 'Reverberate']);
+  });
+
+  it('bots counter a spell that would kill them', () => {
+    let g = duel('Counterspell', (d) => {
+      d.players[1].life = 3;
+    });
+    g = run(g, cast(g, 0, 'Lightning Bolt', { targets: [opp(1)] }));
+    expect(botAction(g, 1)).toMatchObject({ type: 'cast', card: byName(g, 1, 'Counterspell', 'hand')!.id, targets: [top(g)] });
+  });
+});
+
 describe('combat', () => {
   it('lets each attacker pick its own defender', () => {
     let g = emptyGame((d) => {

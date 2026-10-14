@@ -521,6 +521,16 @@ export function devotion(g: Game, pid: PlayerId, color: Color): number {
 
 export function legalTargets(g: Game, pid: PlayerId, spec: TargetSpec, source: Card): TargetRef[] {
   const out: TargetRef[] = [];
+  if (spec.type === 'spell' || spec.type === 'ability') {
+    // A spell or ability on the stack. One can't target itself (115.5).
+    for (const item of g.stack) {
+      if ((item.kind === 'spell') !== (spec.type === 'spell') || item.card.id === source.id) continue;
+      if (spec.who && spec.who !== 'any' && (spec.who === 'you') !== (item.controller === pid)) continue;
+      if (spec.filter && !spec.filter(g, item.card, source)) continue;
+      out.push({ kind: 'stack', id: item.id });
+    }
+    return out;
+  }
   const whoOk = (owner: PlayerId) =>
     !spec.who || spec.who === 'any' || (spec.who === 'you' ? owner === pid : owner !== pid);
   for (const p of living(g)) {
@@ -538,27 +548,72 @@ export function legalTargets(g: Game, pid: PlayerId, spec: TargetSpec, source: C
 
 export const sameRef = (a: TargetRef, b: TargetRef) => a.kind === b.kind && a.id === b.id;
 
+/**
+ * The targets a spell has to choose as it is cast (601.2c). A modal spell's come from its
+ * chosen modes, in order (700.2c). A permanent spell has none of its own: `targets`
+ * belongs to its enters ability.
+ */
+export function spellTargets(c: Card, modes: number[] = []): TargetSpec[] {
+  const script = scriptOf(c.name);
+  if (isPermanentCard(c)) return [];
+  if (script.modal) return modes.flatMap((i) => script.modal!.modes[i]?.targets ?? []);
+  return script.targets ?? [];
+}
+
 /** The targets a spell or ability on the stack has to choose. */
 export function targetSpecs(item: StackItem): TargetSpec[] {
   const script = scriptOf(item.card.name);
   if (item.kind === 'activated') return script.activated?.targets ?? [];
   if (item.kind === 'triggered') return item.hook === 'onEnter' ? (script.targets ?? []) : [];
-  // A permanent spell has no targets of its own: `targets` belongs to its enters ability.
-  return isPermanentCard(item.card) ? [] : (script.targets ?? []);
+  return spellTargets(item.card, item.card.cast?.modes);
 }
+
+/** The spell or ability on the stack that a target names, if it is still there. */
+export const refStack = (g: Game, ref: TargetRef | null | undefined) =>
+  ref && ref.kind === 'stack' ? g.stack.find((x) => x.id === ref.id) : undefined;
 
 export function describeRef(g: Game, ref: TargetRef): string {
   if (ref.kind === 'player') return g.players[ref.id].name;
+  if (ref.kind === 'stack') {
+    const item = refStack(g, ref);
+    return !item ? '?' : item.kind === 'spell' ? label(item.card) : `${label(item.card)}'s ability`;
+  }
   const c = permanent(g, ref.id);
   return c ? label(c) : '?';
 }
 
-/** The cards among some targets, for `log`. */
+/** The cards among some targets (a spell or ability counts as its card), for `log`. */
 export function refCards(g: Game, refs: (TargetRef | null)[]): Card[] {
   return refs.flatMap((r) => {
-    const c = r?.kind === 'card' ? permanent(g, r.id) : undefined;
+    const c = r?.kind === 'card' ? permanent(g, r.id) : refStack(g, r)?.card;
     return c ? [c] : [];
   });
+}
+
+/**
+ * Counters a spell or ability (701.6a): it leaves the stack without resolving and none of
+ * its effects happen. A countered spell goes to its owner's graveyard (a copy just ceases
+ * to exist), and nothing paid for it comes back (701.6b).
+ */
+export function counter(g: Game, ref: TargetRef | null | undefined) {
+  const item = refStack(g, ref);
+  if (!item) return;
+  log(g, `${describeRef(g, ref!)} is countered.`, item.controller, [item.card]);
+  if (item.kind === 'spell') moveCard(g, item.card, 'graveyard');
+  else g.stack = g.stack.filter((x) => x !== item);
+}
+
+/**
+ * Copies a spell on the stack (707.10). The copy keeps every choice made for it: modes,
+ * X, kicker (700.2g, 707.10). It goes on the stack the next time a player would get
+ * priority, and its controller may choose new targets for it then (707.10c).
+ */
+export function copySpell(g: Game, ref: TargetRef | null | undefined, controller: PlayerId) {
+  const item = refStack(g, ref);
+  if (!item || item.kind !== 'spell') return;
+  const card: Card = { ...snapshot(item.card), id: `c${g.nextId++}`, owner: controller, isToken: true, isCommander: false };
+  log(g, `${says(g.players[controller], 'copies')} ${label(item.card)}.`, controller, [item.card]);
+  g.triggers.push({ id: `s${g.nextId++}`, kind: 'spell', controller, card, targets: item.targets, copy: true, ordered: true });
 }
 
 // ---------- randomness (seeded, so games can be replayed in tests) ----------
@@ -593,6 +648,7 @@ const SECOND_PERSON: Record<string, string> = {
   fetches: 'fetch',
   finds: 'find',
   puts: 'put',
+  copies: 'copy',
   keeps: 'keep',
   leaves: 'leave',
   mulligans: 'mulligan',

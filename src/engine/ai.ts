@@ -13,6 +13,7 @@ import {
   castTargets,
   choiceOptions,
   maxX,
+  modeChoices,
   sacrificeOptions,
 } from './engine';
 import {
@@ -99,10 +100,10 @@ function targetChoices(g: Game, pid: PlayerId, specs: TargetSpec[], source: Card
 }
 
 /**
- * A few sensible ways to cast `c` (601.2b), for the look-ahead to compare: each available
- * cost (mana cost or alternative), X as high as it can pay and about half that, kicked
- * as many times as it can pay or not at all, and the two least valuable permanents to
- * sacrifice.
+ * A few sensible ways to cast `c` (601.2b), for the look-ahead to compare: every set of
+ * modes it allows (700.2), each available cost (mana cost or alternative), X as high as
+ * it can pay and about half that, kicked as many times as it can pay or not at all, and
+ * the two least valuable permanents to sacrifice.
  */
 function castChoices(g: Game, pid: PlayerId, c: Card): CastChoices[] {
   const script = scriptOf(c.name);
@@ -113,19 +114,22 @@ function castChoices(g: Game, pid: PlayerId, c: Card): CastChoices[] {
         .slice(0, 2)
         .map((x) => [x.id])
     : [undefined];
-  for (const alt of [undefined, ...altCostsOf(g, c)]) {
-    for (const sacrifice of sacrifices) {
-      const kicks = [0];
-      if (script.kicker) {
-        let k = 0;
-        while (k < (script.kicker.multi ? 10 : 1) && canCast(g, pid, c, { alt, sacrifice, kicked: k + 1 })) k++;
-        if (k) kicks.push(k);
-      }
-      for (const kicked of kicks) {
-        const most = maxX(g, pid, c, { alt, sacrifice, kicked });
-        for (const x of new Set([most, Math.floor(most / 2)])) {
-          const choices: CastChoices = { x, kicked, alt, sacrifice };
-          if (x >= 0 && canCast(g, pid, c, choices)) out.push(choices);
+  const modeSets = script.modal ? modeChoices(g, pid, c) : [undefined];
+  for (const modes of modeSets) {
+    for (const alt of [undefined, ...altCostsOf(g, c)]) {
+      for (const sacrifice of sacrifices) {
+        const kicks = [0];
+        if (script.kicker) {
+          let k = 0;
+          while (k < (script.kicker.multi ? 10 : 1) && canCast(g, pid, c, { alt, sacrifice, modes, kicked: k + 1 })) k++;
+          if (k) kicks.push(k);
+        }
+        for (const kicked of kicks) {
+          const most = maxX(g, pid, c, { alt, sacrifice, modes, kicked });
+          for (const x of new Set([most, Math.floor(most / 2)])) {
+            const choices: CastChoices = { x, kicked, alt, sacrifice, modes };
+            if (x >= 0 && canCast(g, pid, c, choices)) out.push(choices);
+          }
         }
       }
     }
@@ -139,7 +143,7 @@ function candidateActions(g: Game, pid: PlayerId): { action: Action; spendsCard:
   for (const c of [...p.hand, ...p.command]) {
     if (!canCast(g, pid, c)) continue;
     for (const choices of castChoices(g, pid, c)) {
-      for (const targets of targetChoices(g, pid, castTargets(c), c)) {
+      for (const targets of targetChoices(g, pid, castTargets(c, choices.modes), c)) {
         out.push({ action: { type: 'cast', card: c.id, targets, ...choices }, spendsCard: true });
       }
     }
