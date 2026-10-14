@@ -630,7 +630,8 @@ export function canCastAs(g: Game, pid: PlayerId, c: Card, face: number, choices
   for (const spec of castTargets(c, choices?.modes, face, choices?.gift)) {
     if (!spec.optional && legalTargets(g, pid, spec, spell).length === 0) return false;
   }
-  if (choices) return choicesOk(g, pid, c, choices) && !!planPayment(g, pid, castCost(g, c, choices, pid), spell);
+  // A permanent being sacrificed for the cost can't also make mana for it.
+  if (choices) return choicesOk(g, pid, c, choices) && !!planPayment(g, pid, castCost(g, c, choices, pid), spell, choices.sacrifice);
   const script = scriptFor(spell);
   if (script.additionalCost && !script.additionalCost.optional && !sacrificeOptions(g, pid, c, face).length) return false;
   if (script.modal && !modeChoices(g, pid, c, face).length) return false;
@@ -669,7 +670,8 @@ export function canActivate(g: Game, pid: PlayerId, c: Card, ability?: number): 
   if (ab.cost.counters && counterCount(c, ab.cost.counters.kind) < ab.cost.counters.n) return false;
   if (ab.cost.discard && discardOptions(g, pid, c).length < ab.cost.discard) return false;
   if (ab.cost.sacrificeOne && !activationSacrificeOptions(g, pid, c).length) return false;
-  if ((ab.cost.mana || ab.cost.life) && !planPayment(g, pid, abilityCost(ab, g, c))) return false;
+  // The source can't also make the mana if tapping or sacrificing it is part of the cost.
+  if ((ab.cost.mana || ab.cost.life) && !planPayment(g, pid, abilityCost(ab, g, c), undefined, ab.cost.tap || ab.cost.sacrifice ? [c.id] : [])) return false;
   for (const spec of ab.targets ?? []) {
     if (!spec.optional && legalTargets(g, pid, spec, c).length === 0) return false;
   }
@@ -1501,7 +1503,7 @@ function act(g: Game, a: Action): boolean {
       const hasX = parseCost(paying).x > 0;
       const cost = castCost(g, c, choices, pid);
       // Costs are paid (601.2f-h): mana and life, then sacrifices and cards exiled.
-      const paid = pay(g, pid, cost, spell)!;
+      const paid = pay(g, pid, cost, spell, choices.sacrifice)!;
       const sacrificed = (choices.sacrifice ?? []).map((id) => permanent(g, id)!);
       const exiled = (choices.exile ?? []).map((id) => p.hand.find((x) => x.id === id)!);
       const escapedWith = (choices.escape ?? []).map((id) => g.players[c.owner].graveyard.find((x) => x.id === id)!);
@@ -1609,7 +1611,9 @@ function act(g: Game, a: Action): boolean {
         item.sacrificed = sacrificing.map((x) => snapshot(x!));
         item.sacrificedPower = sacrificing.map((x) => stats(g, x!).power);
       }
-      if (ab.cost.mana || ab.cost.life) pay(g, pid, abilityCost(ab, g, c));
+      // Nothing tapped or sacrificed for the rest of the cost makes mana for it.
+      const busy = [...(ab.cost.tap || ab.cost.sacrifice ? [c.id] : []), ...(a.sacrifice ?? [])];
+      if ((ab.cost.mana || ab.cost.life) && !pay(g, pid, abilityCost(ab, g, c), undefined, busy)) return false;
       if (ab.cost.tap) c.tapped = true;
       if (ab.cost.counters) removeCounters(c, ab.cost.counters.n, ab.cost.counters.kind);
       for (const x of crewing) x!.tapped = true;

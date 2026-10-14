@@ -3317,6 +3317,20 @@ describe('the two-colour starter decks (session 8a)', () => {
     expect(byName(m, 0, 'Isolated Chapel')!.tapped).toBe(false);
   });
 
+  it("a permanent sacrificed for a spell's cost can't also make mana for it (Deadly Dispute and a Treasure)", () => {
+    const g = emptyGame((d) => {
+      put(d, 0, 'Swamp');
+      put(d, 0, 'Deadly Dispute', 'hand');
+      createToken(d, 0, 'Treasure');
+    });
+    const dispute = byName(g, 0, 'Deadly Dispute', 'hand')!;
+    const treasure = byName(g, 0, 'Treasure')!;
+    expect(canCast(g, 0, dispute, { sacrifice: [treasure.id] })).toBe(false);
+    const h = produce(g, (d) => void put(d, 0, 'Swamp'));
+    const after = run(h, { type: 'cast', card: dispute.id, sacrifice: [treasure.id] });
+    expect(after.players[0].hand).toHaveLength(2);
+  });
+
   it('Carrier Thrall leaves an Eldrazi Scion that sacrifices itself for {C}', () => {
     let g = emptyGame((d) => {
       put(d, 0, 'Carrier Thrall');

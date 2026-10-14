@@ -863,12 +863,16 @@ export interface Payment {
   uncounterable: boolean;
 }
 
-export function planPayment(g: Game, pid: PlayerId, cost: Cost, spell?: Card): Payment | null {
+/**
+ * `keep`: permanents already being used to pay another part of the cost, like the one
+ * sacrificed for an additional cost: they can't make mana too.
+ */
+export function planPayment(g: Game, pid: PlayerId, cost: Cost, spell?: Card, keep: string[] = []): Payment | null {
   const p = g.players[pid];
   // A player can pay life only if their life total is at least that much (119.4).
   if (cost.life > p.life) return null;
   // Mana with a restriction can be spent only on what it allows (106.6).
-  const all = manaSources(g, pid).filter((s) => spendable(s.only, spell));
+  const all = manaSources(g, pid).filter((s) => spendable(s.only, spell) && !keep.includes(s.id));
   const pool = p.pool.filter((m) => spendable(m.only, spell));
   const kept = p.pool.filter((m) => !spendable(m.only, spell));
   // Not enough mana in total, however it's spent: skip the search.
@@ -885,8 +889,8 @@ export function planPayment(g: Game, pid: PlayerId, cost: Cost, spell?: Card): P
 }
 
 /** Pays a cost, tapping and sacrificing what it has to. Returns how it was paid, or null if it can't be. */
-export function pay(g: Game, pid: PlayerId, cost: Cost, spell?: Card): Payment | null {
-  const plan = planPayment(g, pid, cost, spell);
+export function pay(g: Game, pid: PlayerId, cost: Cost, spell?: Card, keep: string[] = []): Payment | null {
+  const plan = planPayment(g, pid, cost, spell, keep);
   if (!plan) return null;
   g.players[pid].pool = plan.pool;
   // Every ability is activated before any of them is sacrificed or deals its damage.
