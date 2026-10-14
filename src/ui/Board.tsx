@@ -20,9 +20,11 @@ const fit = (n: number, width: number, max: number, gap = 0.8) => Math.min(max, 
 const floating = (player: Player, c: Card) => player.pool.some((m) => m.source === c.id);
 
 /**
- * A player's creatures. Identical tokens pile up like lands (except while their owner is
- * picking attackers or blockers). A side-seat board wraps onto two rows once that makes
- * the tiles bigger than squeezing them into one.
+ * A player's creatures. Identical tokens pile up like lands; the pile's badge attacks or
+ * blocks with all of them. While their owner picks attackers or blockers, each token's
+ * choice is part of its pile, so clicking one moves it to a pile of its own. Once combat is
+ * underway the fighting ones stand alone. A side-seat board wraps onto two rows once that
+ * makes the tiles bigger than squeezing them into one.
  */
 function CreatureRow({ player, width, max, className, wrap }: { player: Player; width: number; max: number; className: string; wrap?: boolean }) {
   const v = useView();
@@ -31,8 +33,10 @@ function CreatureRow({ player, width, max, className, wrap }: { player: Player; 
   const choosing = v.mine && player.id === v.me && (g.decision?.type === 'attackers' || g.decision?.type === 'blockers');
   const groups = new Map<string, Card[]>();
   for (const c of creaturesOf(g, player.id)) {
-    const stackable = c.isToken && !choosing && !fighting.has(c.id);
-    const key = stackable ? [c.name, c.tapped, floating(player, c), c.sick, c.counters, c.damage, c.mods.length].join('|') : c.id;
+    const stackable = c.isToken && (choosing || !fighting.has(c.id));
+    const attack = g.combat?.attacks.find((a) => a.id === c.id || a.blockers.includes(c.id));
+    const choice = choosing ? [attack && (attack.id === c.id ? `attacks ${attack.defender}` : `blocks ${attack.id}`), v.glow.get(c.id)] : [];
+    const key = stackable ? [c.name, c.tapped, floating(player, c), c.sick, c.counters, c.damage, c.mods.length, ...choice].join('|') : c.id;
     groups.set(key, [...(groups.get(key) ?? []), c]);
   }
   const units = [...groups.values()].reduce((n, s) => n + 1 + 0.14 * (s.length - 1), 0);
@@ -49,7 +53,7 @@ function CreatureRow({ player, width, max, className, wrap }: { player: Player; 
           ) : (
             <div className="stack" key={`stack-${stack[0].id}`}>
               {stack.map((c, i) => (
-                <Permanent key={c.id} card={c} badge={i === stack.length - 1 ? `x${stack.length}` : undefined} />
+                <Permanent key={c.id} card={c} badge={i === stack.length - 1 ? stack : undefined} />
               ))}
             </div>
           ),
@@ -61,7 +65,8 @@ function CreatureRow({ player, width, max, className, wrap }: { player: Player; 
 
 /**
  * Lands on one side, artifacts and enchantments on the other. Lands stack by name, with
- * tapped ones apart, and ones whose mana is still unspent in the pool apart again.
+ * tapped ones apart, and ones whose mana is still unspent in the pool apart again. The
+ * pile's badge taps (or untaps) the whole pile.
  * With `split` the two sides sit either side of the avatar and each gets `width` to itself.
  */
 function BackRow({ player, width, max, className, split }: { player: Player; width: number; max: number; className: string; split?: boolean }) {
@@ -83,7 +88,7 @@ function BackRow({ player, width, max, className, split }: { player: Player; wid
         {[...stacks.entries()].map(([key, stack]) => (
           <div className="stack" key={key}>
             {stack.map((c, i) => (
-              <Permanent key={c.id} card={c} badge={stack.length > 1 && i === stack.length - 1 ? `x${stack.length}` : undefined} />
+              <Permanent key={c.id} card={c} badge={stack.length > 1 && i === stack.length - 1 ? stack : undefined} />
             ))}
           </div>
         ))}

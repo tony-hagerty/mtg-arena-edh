@@ -232,18 +232,18 @@ export function buildView(): View {
     case 'blockers': {
       const blocking = (g.combat?.attacks ?? []).filter((a) => a.defender === me).flatMap((a) => a.blockers);
       for (const c of blockCandidates(g, me)) view.glow.set(c.id, 'block');
-      if (s.pickedBlocker) {
-        view.glow.set(s.pickedBlocker, 'picked');
-        const blocker = permanent(g, s.pickedBlocker);
+      const picked = s.pickedBlockers.map((id) => permanent(g, id)).filter((c) => c !== undefined);
+      for (const blocker of picked) {
+        view.glow.set(blocker.id, 'picked');
         for (const a of g.combat?.attacks ?? []) {
           const atk = permanent(g, a.id);
-          if (a.defender === me && atk && blocker && canBlock(g, blocker, atk)) view.glow.set(a.id, 'target');
+          if (a.defender === me && atk && canBlock(g, blocker, atk)) view.glow.set(a.id, 'target');
         }
       }
       const illegal = illegalBlocks(g, me).length > 0;
       view.prompt = illegal
         ? 'A creature with menace needs two or more blockers.'
-        : s.pickedBlocker
+        : picked.length
           ? 'Choose the attacker to block.'
           : 'Choose blockers.';
       view.primary = {
@@ -371,7 +371,7 @@ function chooseTarget(ref: TargetRef | null) {
 export function cancel() {
   const t = S().targeting;
   for (const id of [...(t?.tapped ?? [])].reverse()) S().act({ type: 'untapMana', card: id });
-  useStore.setState({ targeting: null, pickedBlocker: null });
+  useStore.setState({ targeting: null, pickedBlockers: [] });
 }
 
 function myTurnToAct(): { g: Game; me: PlayerId } | null {
@@ -411,15 +411,12 @@ export function clickPermanent(card: Card) {
   if (deciding === 'blockers') {
     const attacksOnMe = (g.combat?.attacks ?? []).filter((a) => a.defender === me);
     if (card.owner !== me) {
-      if (s.pickedBlocker && s.act({ type: 'declareBlock', blocker: s.pickedBlocker, attacker: card.id })) {
-        useStore.setState({ pickedBlocker: null });
-      }
+      const declared = s.pickedBlockers.filter((b) => S().act({ type: 'declareBlock', blocker: b, attacker: card.id }));
+      if (declared.length) useStore.setState({ pickedBlockers: [] });
     } else if (attacksOnMe.some((a) => a.blockers.includes(card.id))) {
       s.act({ type: 'undeclareBlock', blocker: card.id });
     } else {
-      const options = attacksOnMe.filter((a) => canBlock(g, card, permanent(g, a.id)!));
-      if (options.length === 1) s.act({ type: 'declareBlock', blocker: card.id, attacker: options[0].id });
-      else if (options.length > 1) useStore.setState({ pickedBlocker: s.pickedBlocker === card.id ? null : card.id });
+      pickBlockers(g, me, [card]);
     }
     return;
   }
@@ -428,6 +425,78 @@ export function clickPermanent(card: Card) {
   if (canTapForMana(g, me, card)) s.act({ type: 'tapMana', card: card.id });
   else if (canUntapMana(g, me, card)) s.act({ type: 'untapMana', card: card.id });
   else if (canActivate(g, me, card)) propose('activate', card);
+}
+
+/**
+ * Blocks with `blockers` (identical creatures, so they can block the same attackers). With one
+ * attacker to block they block it; with more they are picked, and clicking an attacker sends
+ * them all. Picking the same creatures again unpicks them.
+ */
+function pickBlockers(g: Game, me: PlayerId, blockers: Card[]) {
+  const options = (g.combat?.attacks ?? []).filter((a) => a.defender === me && canBlock(g, blockers[0], permanent(g, a.id)!));
+  const ids = blockers.map((c) => c.id);
+  const s = S();
+  if (options.length === 1) ids.forEach((b) => S().act({ type: 'declareBlock', blocker: b, attacker: options[0].id }));
+  else if (options.length > 1) {
+    const same = s.pickedBlockers.length === ids.length && ids.every((id) => s.pickedBlockers.includes(id));
+    useStore.setState({ pickedBlockers: same ? [] : ids });
+  }
+}
+
+/**
+ * The "x7" badge on a pile of identical permanents: does to all of them what clicking one does.
+ * Lands tap for mana together (while paying, only until the cost is covered) or untap together
+ * to take the mana back, and creatures attack or block together. A click that only makes sense
+ * for one card (a target, an opponent's pile) goes to the top card.
+ */
+export function clickGroup(cards: Card[]) {
+  const top = cards[cards.length - 1];
+  const t = targetingOf(S());
+  const ctx = myTurnToAct();
+  if (!ctx || top.owner !== ctx.me || (t && !isPaying(t))) return clickPermanent(top);
+  const { me } = ctx;
+  // Every action makes a new game, so each card is looked up again in the latest one.
+  const now = () => cards.map((c) => permanent(S().game!, c.id)).filter((c) => c !== undefined);
+  const deciding = ctx.g.decision?.type;
+
+  if (t) {
+    const tap = now().some((c) => canTapForMana(S().game!, me, c));
+    for (const c of now()) {
+      const paying = targetingOf(S());
+      const g = S().game!;
+      if (!paying || !isPaying(paying)) break; // paid: the spell is cast
+      if (tap ? canTapForMana(g, me, c) : canUntapMana(g, me, c)) payByHand(g, me, paying, c);
+    }
+    return;
+  }
+
+  if (deciding === 'attackers') {
+    const g = ctx.g;
+    const target = opponentsOf(g, me).find((o) => o.id === S().attackTarget) ?? opponentsOf(g, me)[0];
+    const able = now().filter((c) => canAttack(g, c));
+    const attacking = (c: Card) => g.combat?.attacks.some((a) => a.id === c.id && a.defender === target.id);
+    if (able.length && able.every(attacking)) able.forEach((c) => S().act({ type: 'undeclareAttack', card: c.id }));
+    else able.filter((c) => !attacking(c)).forEach((c) => S().act({ type: 'declareAttack', card: c.id, defender: target.id }));
+    return;
+  }
+
+  if (deciding === 'blockers') {
+    const g = ctx.g;
+    const blocking = new Set((g.combat?.attacks ?? []).flatMap((a) => a.blockers));
+    const cs = now();
+    if (cs.every((c) => blocking.has(c.id))) cs.forEach((c) => S().act({ type: 'undeclareBlock', blocker: c.id }));
+    else pickBlockers(g, me, cs.filter((c) => !blocking.has(c.id)));
+    return;
+  }
+
+  if (!deciding) {
+    const g = ctx.g;
+    const tappable = now().filter((c) => canTapForMana(g, me, c));
+    const untappable = now().filter((c) => canUntapMana(g, me, c));
+    if (tappable.length) return tappable.forEach((c) => S().act({ type: 'tapMana', card: c.id }));
+    if (untappable.length) return untappable.forEach((c) => S().act({ type: 'untapMana', card: c.id }));
+  }
+  clickPermanent(top);
 }
 
 export function clickPlayer(pid: PlayerId) {

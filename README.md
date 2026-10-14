@@ -53,6 +53,11 @@ npm run build    # type-check and production build
   attack, then click your creatures. Different creatures can attack different players.
 - **Blocking:** when you are attacked, click your creature. If it could block more than
   one attacker, click the attacker next.
+- **Piles:** identical lands, and identical creature tokens, pile up with a count (`x7`) on
+  top. Click the count to use the whole pile: lands tap for mana together (while paying,
+  only as many as the cost needs), or untap together to take the mana back, and tokens
+  attack or block together. Clicking a card in the pile still uses just that one, and it
+  moves out to its own pile.
 - When your commander dies or is exiled, a window asks whether it goes to the
   **Command Zone** (castable again, with tax) or stays where it went.
 - "When this enters" abilities that need a target ask for it once the creature is on the

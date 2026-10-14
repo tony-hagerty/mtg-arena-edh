@@ -5,7 +5,7 @@ import { data, isCreature, scriptOf, stats } from '../engine';
 import type { Card, CardData } from '../engine';
 import { useRem } from './rem';
 import { SEATS, cx, hoverProps } from './util';
-import { clickPermanent, playHandCard, useView } from './view';
+import { clickGroup, clickPermanent, playHandCard, useView } from './view';
 
 function frameOf(d: CardData): string {
   if (d.typeLine.includes('Land')) return 'land';
@@ -104,8 +104,9 @@ function fan(index: number, total: number, maxGap: number, span: number) {
 /**
  * A permanent on the battlefield, drawn Arena-style: cropped art, name bar, P/T box.
  * The outer tile is the space it takes on screen; the face inside is turned for the side seats.
+ * The top card of a pile gets `badge`, the whole pile: its "x7" uses them all at once.
  */
-export function Permanent({ card, badge }: { card: Card; badge?: string }) {
+export function Permanent({ card, badge }: { card: Card; badge?: Card[] }) {
   const v = useView();
   const g = v.g;
   const d = data(card);
@@ -171,7 +172,18 @@ export function Permanent({ card, badge }: { card: Card; badge?: string }) {
         {sick && <i className="tile-sick ms ms-ability-summoning-sickness" title="Summoning sick" />}
         {scriptOf(card.name).activated && <div className="tile-ability" title={scriptOf(card.name).activated!.text} />}
         {card.tapped && <div className="tile-tapmark" />}
-        {badge && <div className="tile-badge">{badge}</div>}
+        {badge && (
+          <div
+            className="tile-badge"
+            title={`Use all ${badge.length}`}
+            onClick={(e) => {
+              e.stopPropagation();
+              clickGroup(badge);
+            }}
+          >
+            x{badge.length}
+          </div>
+        )}
       </div>
     </motion.div>
   );
