@@ -24,6 +24,8 @@ export interface Hover {
 
 interface Store {
   game: Game | null;
+  /** Counts games started. The game screen is keyed on it, so a new game starts with fresh UI state. */
+  gameNo: number;
   /** Seat the human controls, or null when watching four bots. */
   human: PlayerId | null;
   targeting: Targeting | null;
@@ -45,6 +47,7 @@ interface Store {
 
 export const useStore = create<Store>()((set, get) => ({
   game: null,
+  gameNo: 0,
   human: null,
   targeting: null,
   attackTarget: null,
@@ -59,6 +62,7 @@ export const useStore = create<Store>()((set, get) => ({
   start: (deck) =>
     set({
       game: newGame({ seed: (Math.random() * 2 ** 31) | 0, humanDeck: deck }),
+      gameNo: get().gameNo + 1,
       human: deck === null ? null : 0,
       targeting: null,
       attackTarget: null,
