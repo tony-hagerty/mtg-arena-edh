@@ -1046,15 +1046,48 @@ button {
 }
 
 .phases {
+  --phase: #ffc163;
+  --phase-glow: var(--orange);
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.8rem;
   text-align: center;
+}
+
+.phase-main {
+  position: relative;
 }
 
 .phase-pips {
   display: flex;
   justify-content: center;
   align-items: center;
-  gap: 1.3rem;
-  height: 3.2rem;
+  gap: 0.4rem;
+  height: 3.6rem;
+}
+
+.pip-btn {
+  position: relative;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  width: 2.6rem;
+  height: 3.6rem;
+  padding: 0;
+  background: none;
+  border: none;
+  border-radius: 0.6rem;
+}
+
+.phases.editable .pip-btn {
+  cursor: pointer;
+}
+
+.phases.editable .pip-btn:hover,
+.pip-btn.open {
+  background: rgba(255, 255, 255, 0.08);
 }
 
 .pip {
@@ -1064,18 +1097,129 @@ button {
   transition: transform 0.2s, fill 0.2s;
 }
 
+.phases.editable .pip-btn:hover .pip:not(.on) {
+  fill: #8a93a5;
+}
+
 .pip.on {
-  fill: #ffc163;
+  fill: var(--phase);
   transform: scale(1.5);
-  filter: drop-shadow(0 0 0.6rem var(--orange));
+  filter: drop-shadow(0 0 0.6rem var(--phase-glow));
+}
+
+/* A stop: a ring for "stop if you can act", a dot for "always stop". */
+.stop-mark {
+  position: absolute;
+  left: calc(50% - 0.35rem);
+  bottom: -0.2rem;
+  width: 0.7rem;
+  height: 0.7rem;
+  border-radius: 50%;
+}
+
+.stop-mark.stop-ifAble {
+  border: 0.15rem solid var(--phase);
+}
+
+.stop-mark.stop-always {
+  background: var(--phase);
+  box-shadow: 0 0 0.4rem var(--phase-glow);
 }
 
 .phase-label {
-  margin-top: 0.3rem;
+  margin-top: 0.5rem;
   font-size: 1.25rem;
   color: #d4dbe9;
   text-shadow: 0 0.1rem 0.3rem #000;
 }
+
+.phases.editable .phase-label {
+  color: color-mix(in srgb, var(--phase) 45%, #d4dbe9);
+}
+
+/* A pip covering several steps, split into one button per step. */
+.step-split {
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% + 0.6rem);
+  transform: translateX(-50%);
+  display: flex;
+  gap: 0.4rem;
+  padding: 0.5rem;
+  background: rgba(10, 14, 22, 0.92);
+  border: 0.1rem solid color-mix(in srgb, var(--phase) 50%, transparent);
+  border-radius: 1rem;
+  box-shadow: 0 0.5rem 1.4rem rgba(0, 0, 0, 0.7);
+  white-space: nowrap;
+}
+
+.step-btn {
+  position: relative;
+  padding: 0.6rem 1rem 1rem;
+  font-size: 1.2rem;
+  font-weight: 600;
+  color: #d4dbe9;
+  background: rgba(255, 255, 255, 0.06);
+  border: 0.1rem solid transparent;
+  border-radius: 0.6rem;
+  cursor: pointer;
+}
+
+.step-btn:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.14);
+}
+
+.step-btn.on {
+  color: var(--phase);
+  border-color: var(--phase);
+}
+
+.step-btn:disabled {
+  color: #596171;
+  cursor: default;
+}
+
+/* Whose turns the stops are for: one arrow per seat, laid out like the table. */
+.seat-arrows {
+  display: grid;
+  grid-template: repeat(3, 1.6rem) / repeat(3, 1.6rem);
+  flex: none;
+}
+
+.seat-arrow {
+  display: flex;
+  padding: 0;
+  background: none;
+  border: none;
+  cursor: pointer;
+}
+
+.seat-arrow svg {
+  width: 100%;
+  height: 100%;
+  fill: color-mix(in srgb, var(--deck) 45%, #2a303b);
+  transition: fill 0.2s, transform 0.2s;
+}
+
+.seat-arrow:hover svg,
+.seat-arrow.active svg {
+  fill: color-mix(in srgb, var(--deck) 75%, #2a303b);
+}
+
+.seat-arrow.on svg {
+  fill: var(--deck);
+  transform: scale(1.25);
+  filter: drop-shadow(0 0 0.4rem var(--deck));
+}
+
+.seat-arrow:disabled {
+  visibility: hidden;
+}
+
+.seat-arrow.arrow-top { grid-area: 1 / 2; }
+.seat-arrow.arrow-left { grid-area: 2 / 1; }
+.seat-arrow.arrow-right { grid-area: 2 / 3; }
+.seat-arrow.arrow-bottom { grid-area: 3 / 2; }
 
 .btn {
   height: 6.4rem;
@@ -1410,6 +1554,168 @@ button {
 .viewer-cards img {
   width: 19rem;
   border-radius: 0.9rem;
+}
+
+/* ---------- card picker (search, mulligan, bottom, trigger order) ---------- */
+
+.picker {
+  display: flex;
+  flex-direction: column;
+  min-width: 80rem;
+  padding-bottom: 2rem;
+  /* the cards scroll; the title and buttons stay put */
+  overflow: hidden;
+}
+
+.picker-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 3rem;
+}
+
+.picker-head h2 {
+  text-transform: none;
+}
+
+.picker-fold {
+  padding: 0.6rem 1.6rem;
+  font-size: 1.5rem;
+  color: #d4dbe9;
+  background: rgba(255, 255, 255, 0.06);
+  border: 0.1rem solid #5d6472;
+  border-radius: 2rem;
+  cursor: pointer;
+}
+
+.picker-fold:hover {
+  background: rgba(255, 255, 255, 0.14);
+}
+
+.picker-hint {
+  margin: -0.6rem 0 1.8rem;
+  font-size: 1.7rem;
+  color: #c3cad8;
+}
+
+.picker-cards {
+  min-height: 0;
+  justify-content: center;
+  overflow-y: auto;
+  /* room for the lift and glow of a hovered or picked card */
+  padding: 0.8rem;
+}
+
+.picker-card {
+  position: relative;
+  padding: 0;
+  background: none;
+  border: none;
+  border-radius: 0.9rem;
+  transition: transform 0.12s, box-shadow 0.12s, filter 0.12s;
+}
+
+.picker-card img {
+  display: block;
+}
+
+.picker-card.can {
+  cursor: pointer;
+  box-shadow: 0 0 0 0.25rem var(--cyan), 0 0 1.6rem rgba(57, 227, 255, 0.55);
+}
+
+.picker-card.can:hover {
+  transform: translateY(-0.5rem);
+}
+
+.picker-card.picked {
+  box-shadow: 0 0 0 0.35rem var(--orange), 0 0 2.2rem rgba(255, 154, 46, 0.8);
+  transform: translateY(-0.8rem);
+}
+
+.picker-card.dim {
+  filter: brightness(0.45) saturate(0.6);
+}
+
+.picker-num {
+  position: absolute;
+  top: -1rem;
+  left: 50%;
+  transform: translateX(-50%);
+  min-width: 3.6rem;
+  padding: 0.3rem 1rem;
+  font: 700 1.8rem var(--serif);
+  color: #fff;
+  background: linear-gradient(#ffc56a, #d2670a);
+  border-radius: 2rem;
+  box-shadow: 0 0.3rem 0.8rem #000;
+}
+
+.picker-count {
+  position: absolute;
+  right: 0.8rem;
+  bottom: 0.8rem;
+  padding: 0.2rem 1rem;
+  font: 700 2rem var(--serif);
+  color: #fff;
+  background: rgba(8, 10, 16, 0.9);
+  border: 0.15rem solid #cfd6e4;
+  border-radius: 1.6rem;
+}
+
+.picker-buttons .btn:disabled {
+  filter: grayscale(0.85) brightness(0.65);
+}
+
+.picker-slot {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1rem;
+}
+
+.picker-move {
+  display: flex;
+  gap: 1rem;
+}
+
+.picker-move button {
+  width: 5rem;
+  height: 3.6rem;
+  font-size: 1.8rem;
+  color: #fff;
+  background: rgba(255, 255, 255, 0.08);
+  border: 0.15rem solid #8a93a5;
+  border-radius: 1.8rem;
+  cursor: pointer;
+}
+
+.picker-move button:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+
+.picker-buttons {
+  display: flex;
+  justify-content: flex-end;
+  gap: 1.6rem;
+  margin-top: 2rem;
+}
+
+.picker-pill {
+  position: absolute;
+  left: 50%;
+  top: 2rem;
+  z-index: 150;
+  transform: translateX(-50%);
+  padding: 1.2rem 3rem;
+  font: 600 2rem var(--serif);
+  color: #fff;
+  background: rgba(14, 17, 24, 0.95);
+  border: 0.2rem solid var(--cyan);
+  border-radius: 3rem;
+  box-shadow: 0 0 2rem rgba(57, 227, 255, 0.5);
+  cursor: pointer;
 }
 
 .game-over {
