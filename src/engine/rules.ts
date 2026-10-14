@@ -426,6 +426,7 @@ const SECOND_PERSON: Record<string, string> = {
   finds: 'find',
   puts: 'put',
   keeps: 'keep',
+  leaves: 'leave',
   mulligans: 'mulligan',
   gains: 'gain',
   loses: 'lose',
@@ -469,10 +470,13 @@ export function removeFromCombat(g: Game, id: string) {
 }
 
 /**
- * Moves a card between zones. Tokens vanish. A commander really does go to a graveyard or
- * exile, so "dies" abilities see it; the next state-based check offers to move it on to the
- * command zone (903.9a). No card in the pool puts a permanent into a hand or library, so
- * the replacement effect for those zones (903.9b) isn't implemented.
+ * Moves a card between zones. Tokens vanish. A commander can leave for the command zone:
+ *  - Into a graveyard or exile it really goes there, so "dies" abilities see it, and the
+ *    next state-based check offers to move it on (903.9a).
+ *  - Into a hand or library it may go to the command zone instead (903.9b). That is a
+ *    replacement effect, chosen as the card moves. Bots always take it. A human's commander
+ *    goes where it was headed and they are asked at the next state-based check, because an
+ *    effect can't stop partway through for an answer. No card in the pool does this yet.
  */
 export function moveCard(g: Game, c: Card, to: Zone) {
   if (c.zone === 'stack') {
@@ -489,7 +493,11 @@ export function moveCard(g: Game, c: Card, to: Zone) {
   c.deathtouched = false;
   c.counters = 0;
   c.mods = [];
-  c.mayReturn = c.isCommander && (to === 'graveyard' || to === 'exile');
+  if (c.isCommander && (to === 'hand' || to === 'library') && g.players[c.owner].isBot) {
+    log(g, `${label(c)} goes to the command zone instead.`, c.owner, [c]);
+    to = 'command';
+  }
+  c.mayReturn = c.isCommander && to !== 'command' && to !== 'battlefield';
   c.zone = to;
   if (c.isToken && to !== 'battlefield') return;
   g.players[c.owner][to].push(c);
@@ -692,7 +700,7 @@ export const searchable = (c: Card, subtype?: string) => hasType(c, 'Basic Land'
 
 // ---------- state-based actions ----------
 
-/** Moves a commander from its owner's graveyard or exile to the command zone (903.9a). */
+/** Moves a commander from wherever it just went to the command zone (903.9a, 903.9b). */
 export function returnCommander(g: Game, c: Card) {
   log(g, `${label(c)} goes to the command zone.`, c.owner, [c]);
   moveCard(g, c, 'command');
@@ -754,10 +762,11 @@ export function checkState(g: Game) {
       dieMany(g, dying);
       changed = true;
     }
-    // A commander just put into a graveyard or exile may go to the command zone (903.9a).
+    // A commander just put into a graveyard or exile may go to the command zone (903.9a),
+    // and so may a human's that just went to a hand or library (903.9b, see `moveCard`).
     // Bots always send it. A human is asked, unless the game is already waiting on another
     // decision: then the commander waits for the next check.
-    for (const c of g.players.flatMap((p) => [...p.graveyard, ...p.exile])) {
+    for (const c of g.players.flatMap((p) => [...p.graveyard, ...p.exile, ...p.hand, ...p.library])) {
       if (!c.mayReturn) continue;
       if (g.players[c.owner].isBot) {
         returnCommander(g, c);

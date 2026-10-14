@@ -27,10 +27,10 @@ function checkInvariants(g: Game) {
     }
     real += casting.length;
     if (!p.lost && real !== 60) throw new Error(`${p.name} has ${real} cards instead of 60`);
-    const commanders = [...p.command, ...p.battlefield, ...p.hand, ...p.graveyard, ...p.exile, ...casting].filter((c) => c.isCommander).length;
+    const commanders = [...p.command, ...p.battlefield, ...p.hand, ...p.library, ...p.graveyard, ...p.exile, ...casting].filter((c) => c.isCommander).length;
     if (!p.lost && commanders !== 1) throw new Error(`${p.name}'s commander is missing`);
-    // Bots always send their commander home (903.9a), once nothing is partway through resolving.
-    if (!g.resolving && [...p.graveyard, ...p.exile].some((c) => c.isCommander)) throw new Error(`${p.name}'s commander didn't go home`);
+    // Bots always send their commander home (903.9), once nothing is partway through resolving.
+    if (!g.resolving && [...p.graveyard, ...p.exile, ...p.hand, ...p.library].some((c) => c.isCommander)) throw new Error(`${p.name}'s commander didn't go home`);
   }
   if (g.step !== 'gameOver' && g.players[g.priority].lost) throw new Error('a dead player has priority');
   if (g.triggers.length && !g.decision && g.step !== 'gameOver') throw new Error('a triggered ability was left waiting');

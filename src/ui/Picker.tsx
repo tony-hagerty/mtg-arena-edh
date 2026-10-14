@@ -239,18 +239,30 @@ function TriggerOrder({ g, me }: { g: Game; me: PlayerId }) {
   );
 }
 
-/** Your commander went to your graveyard or exile: send it to the command zone, or leave it (903.9a). */
+/** Per zone: what happened to the commander, what leaving it there means, and the button to leave it. */
+const COMMANDER_ZONE: Record<string, { went: string; left: string; leave: string }> = {
+  graveyard: { went: 'went to your graveyard', left: "Left in your graveyard, it can't be cast.", leave: 'Leave in Graveyard' },
+  exile: { went: 'went to exile', left: "Left in exile, it can't be cast.", leave: 'Leave in Exile' },
+  hand: { went: 'is going to your hand', left: 'From your hand you can cast it like any other card, with no tax.', leave: 'Keep in Hand' },
+  library: { went: 'is going to your library', left: 'Left in your library, you could draw it again.', leave: 'Leave in Library' },
+};
+
+/**
+ * Your commander was put into your graveyard or exile (903.9a), or is going to your hand or
+ * library (903.9b): send it to the command zone, or leave it.
+ */
 function CommanderZone({ g, me, card }: { g: Game; me: PlayerId; card: Card }) {
-  const where = card.zone === 'exile' ? 'exile' : 'your graveyard';
+  const text = COMMANDER_ZONE[card.zone];
+  const instead = card.zone === 'hand' || card.zone === 'library' ? ' instead' : '';
   const tax = 2 * g.players[me].commanderCasts; // commander tax (903.8)
   const choose = (toCommand: boolean) => act({ type: 'commanderZone', toCommand });
   return (
     <CardPicker
-      title={`${label(card)} went to ${where}`}
-      hint={`Put it in the command zone to cast it again later${tax ? ` for ${tax} more` : ''}. Left in ${where}, it can't be cast.`}
+      title={`${label(card)} ${text.went}`}
+      hint={`Put it in the command zone${instead} to cast it again later${tax ? ` for ${tax} more` : ''}. ${text.left}`}
       cards={[card]}
       buttons={() => [
-        { label: card.zone === 'exile' ? 'Leave in Exile' : 'Leave in Graveyard', tone: 'plain', onClick: () => choose(false) },
+        { label: text.leave, tone: 'plain', onClick: () => choose(false) },
         { label: 'Command Zone', tone: 'go', onClick: () => choose(true) },
       ]}
     />
@@ -271,7 +283,8 @@ export function Decisions() {
     case 'orderTriggers':
       return <TriggerOrder key={g.triggers.map((t) => t.id).join()} g={g} me={me} />;
     case 'commanderZone': {
-      const card = [...g.players[me].graveyard, ...g.players[me].exile].find((c) => c.id === d.card);
+      const p = g.players[me];
+      const card = [...p.graveyard, ...p.exile, ...p.hand, ...p.library].find((c) => c.id === d.card);
       return card ? <CommanderZone key={card.id} g={g} me={me} card={card} /> : null;
     }
     default:
