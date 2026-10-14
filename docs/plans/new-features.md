@@ -1,14 +1,15 @@
 # Plan: new features
 
-Goal: six features the user asked for after the Commander-decks plan
+Goal: the features the user asked for after the Commander-decks plan
 (`docs/plans/commander-decks.md`) was finished. Each is its own session, started only when
 the user says so, one at a time.
 
-**Status: not started. Open questions below need answers first (marked ❓).**
+**Status: not started. The user answered the first round of questions; the decisions are
+written into each session.**
 
 ## Rules every session follows
 
-The same as in `commander-decks.md`:
+The same as in `commander-decks.md`, plus one:
 
 - Do only that session's scope. Leave other gaps to later sessions.
 - Cite rule numbers from `docs/rules/` in comments (see `CLAUDE.md`).
@@ -18,10 +19,15 @@ The same as in `commander-decks.md`:
 - Finish with `npm test` and `npm run build` passing, and update `README.md`
   ("What works", "Known simplifications", "Adding a card").
 - Ask the user before committing.
+- **Choices belong to the player.** Wherever the rules give a player a choice, the human
+  can make it. Where most players won't care, a setting can make it automatic (the
+  default being the sensible automatic choice), so lazy play stays quick. Settings are
+  saved in the browser like the stops are.
 
 ## Sessions
 
-Order matters: 2 and 3 are independent of the rest; 4 comes before 6, and 5 before 6.
+Order matters. 1, 2, 3 and 4 are mostly independent; 3 uses 2. 5 comes before 7, and 6
+before 7.
 
 ### 1. Several triggered abilities for one event, and Dragon Tempest
 
@@ -40,39 +46,57 @@ two "whenever ... enters" abilities can't be scripted.
 - Each trigger can carry its own `text`, so the stack and the ordering window show which
   ability it is.
 - Add **Dragon Tempest** to "Fire and Fang" in place of one card (deck stays 100,
-  `deckProblems` passes). Check its Oracle text in `cards.generated.json` after
-  `npm run fetch-cards`. As of writing it has two abilities: a flying creature you control
-  entering gains haste until end of turn, and a Dragon you control entering deals X damage
-  to any target, X = the number of Dragons you control. Note: "it deals" means the
-  entering Dragon is the source (last known information if it has left), and X is counted
-  as the ability resolves (608.2h).
+  `deckProblems` passes). Claude picks the weakest non-land card and names it in the PR.
+  Check its Oracle text in `cards.generated.json` after `npm run fetch-cards`. As of
+  writing it has two abilities: a flying creature you control entering gains haste until
+  end of turn, and a Dragon you control entering deals X damage to any target, X = the
+  number of Dragons you control. "It deals" means the entering Dragon is the source (last
+  known information if it has left), and X is counted as the ability resolves (608.2h).
 - Remove the Dragon Tempest sentence from README's "Known simplifications".
 - Tests: both abilities trigger from one Dragon with flying; each can be ordered; a
   non-flying Dragon triggers only the damage one; a flier that isn't a Dragon only the
   haste one.
-- ❓ Which card leaves the deck? Default: Claude picks the weakest non-land card and names
-  it in the PR.
 
-### 2. {X} in activated ability costs
+### 2. Several activated abilities on one card
+
+Today `CardScript.activated` is a single ability (README: "A card can have only one
+activated ability"). Many common cards have more, for example **Deathrite Shaman** (three),
+and Equipment with another ability besides equip.
+
+- `activated` may be a list. The action that activates names the ability by index, as
+  loyalty abilities already do (`ability` in the action, 606).
+- Each ability keeps its own costs, timing (`sorcery`), `when`, targets and resolve.
+- An ability with a target is not a mana ability even if it adds mana (605.1a): Deathrite
+  Shaman's first ability ("Exile target land card from a graveyard. Add one mana of any
+  color.") uses the stack.
+- UI: clicking a permanent with two or more abilities opens a small menu listing them by
+  their text (like the planeswalker menu); with one, it works as now. Mana abilities stay
+  as they are (`mana` is already a list).
+- Bots: try each ability in the look-ahead.
+- Tests: Deathrite Shaman in `tests/fixtures.ts`, each ability on its own; an Equipment
+  with a second ability.
+- Remove the one-activated-ability sentence from "Known simplifications".
+
+### 3. {X} in activated ability costs, and −X loyalty abilities
 
 Spells already have X (`self.cast.x`). Activated abilities don't (README: "Not supported
-yet: X in activated abilities").
+yet: X in activated abilities"), nor do loyalty abilities with −X.
 
 - Rules: the player announces X while activating (107.3a, 601.2b via 602.2b); an ability's
   X is its own, independent of other X values on the object (107.3k). X is paid as generic
-  mana (107.3) unless the cost says otherwise ({X}{X}, {X}{R}).
+  mana unless the cost says otherwise ({X}{X}, {X}{R}). A −X loyalty cost removes X
+  loyalty counters (606.4), so X can't be more than its loyalty (606.6).
 - `activated.cost.mana` accepts `{X}`; the chosen X is stored on the stack item and read by
-  the resolve (for example `ctx.x`). Mana abilities with X, if any, too (605).
+  the resolve (for example `ctx.x`). The same for `loyalty` abilities with cost `'-X'`.
 - UI: the same number picker the cast panel uses for X spells, shown before targets.
 - Bots: try X values from 0 to what they can pay in the look-ahead, keep the best; skip X=0
   when it does nothing.
-- Also lifts "Loyalty abilities with an X cost (−X) aren't supported" if it fits the same
-  code (606, [-X] in 107.3a). ❓ In scope, or leave for later?
-- Tests: a real card with an {X}: ability in `tests/fixtures.ts` (for example Crypt Rats,
-  "{X}: Crypt Rats deals X damage to each creature and each player"; checked against its
-  Oracle text in the session).
+- Tests: real cards in `tests/fixtures.ts`, for example Crypt Rats ("{X}: Crypt Rats deals
+  X damage to each creature and each player") and a planeswalker with −X (chosen in the
+  session, checked against Oracle text).
+- Update "Known simplifications" (X in activated abilities, −X loyalty).
 
-### 3. Manual combat damage assignment
+### 4. Manual combat damage assignment
 
 Today damage is split automatically: lethal to each blocker in order, the rest to the last
 one, or past them with trample (`dealCombatDamage` in `src/engine/engine.ts`).
@@ -101,17 +125,16 @@ Plan:
   blockers and unblocked attackers stay automatic. Both damage steps (first strike, 510.4)
   ask separately.
 - The engine validates the full assignment (510.1e) and refuses an illegal one.
-- UI: a window listing each such attacker with its blockers (and the player/planeswalker
-  for trample), +/− per recipient, a running total, and "lethal" markers. A default fill
-  (today's automatic split) so pressing Done keeps current behaviour.
-- Bots keep auto-assigning (today's split, which still fits the new rules).
+- **A setting decides whether the human is asked** ("Assign combat damage: automatic / by
+  hand"). Default: automatic. The automatic split is today's, which still fits the rules.
+- UI when asked: a window listing each such attacker with its blockers (and the player,
+  planeswalker or battle for trample), +/− per recipient, a running total and "lethal"
+  markers, pre-filled with the automatic split.
+- Bots keep auto-assigning.
 - Remove "Combat damage is assigned automatically" from Known simplifications. Trample
   over planeswalkers (702.19c) stays out unless asked.
-- ❓ Should the human be asked every time they have a choice, or only when they turn on a
-  setting ("assign combat damage by hand")? Default: ask every time, with the automatic
-  split pre-filled.
 
-### 4. Paste a deck list in the app
+### 5. Paste a deck list in the app
 
 - A menu screen with a text box. Accepts plain names ("1 Sol Ring", "Sol Ring") and
   Arena/Moxfield exports (set codes and collector numbers ignored, "Commander" /
@@ -125,13 +148,14 @@ Plan:
 - Names are matched case-insensitively, and by the first face of double-faced cards and
   split names ("Fire // Ice").
 - The pasted deck is saved in the browser (localStorage) and shown on the menu with the
-  built-in decks; it can be deleted. Bots still play the built-in decks.
-- Tests: the parser of the list format, and that a known-good list builds the same
-  `DeckDef` as the one in `decklists.json`.
-- ❓ Should bots be able to play pasted decks too (pick per seat), or only the human?
-  Default: only the human in this session.
+  built-in decks; it can be deleted.
+- **Bots can play pasted decks too**: the setup lets each bot seat pick a deck (built-in
+  or pasted). If this turns out too large for the session, it moves to its own session
+  and the user is told.
+- Tests: the list parser, and that a known-good list builds the same `DeckDef` as the one
+  in `decklists.json`.
 
-### 5. Automatic scripting from Oracle text
+### 6. Automatic scripting from Oracle text
 
 A parser that turns common, regular Oracle wording into a `CardScript`, and refuses any
 card it can't handle completely. It never approximates: one clause it doesn't understand
@@ -142,8 +166,8 @@ means the whole card is refused, with the clause named.
   the existing helpers in `rules.ts`. Anything left unmatched → refuse.
 - Reminder text in parentheses is ignored; keywords the engine knows are left to
   Scryfall's keyword list as today.
-- How far it goes is the main open question (see ❓ below). A first proposal, from the
-  wording most common in the pool:
+- **Reach (decided): a narrow first list**, measured by a report; later sessions grow it
+  if the user asks. The first list:
   - Keyword-only cards and vanilla creatures (already work without a script).
   - "When this enters" / "When [this] dies" / "Whenever [this] attacks" with one effect.
   - Effects: draw N, gain/lose N life, deal N damage to [target spec], destroy / exile /
@@ -153,54 +177,41 @@ means the whole card is refused, with the clause named.
   - Target specs: "any target", "target creature", "target creature an opponent
     controls", "target artifact or enchantment", "target player", "target opponent", with
     "nonland", "nontoken" and colour words.
-  - Simple activated abilities with `{T}`, mana and sacrifice costs, and "Activate only as
-    a sorcery".
+  - Simple activated abilities (one or several, after session 2) with `{T}`, mana
+    (including {X}, after session 3) and sacrifice costs, and "Activate only as a
+    sorcery".
   - Mana abilities "{T}: Add {G}." / "Add one mana of any colour."
   - Static "[Creatures] you control get +N/+N" and "have [keyword]".
-- Explicitly refused (always): "may" choices beyond the simplest yes/no, modal triggered
-  abilities, replacement effects, "instead", copy effects, anything with "for each" unless
-  it is a listed count, cards that name other cards, X outside a cost, conditions like
-  "if you control", and every card with layers or text-changing effects.
+  - "You may" effects ask the player each time, as the session 7a cards do (never
+    assumed yes).
+- Explicitly refused: modal triggered abilities, replacement effects, "instead", copy
+  effects, "for each" unless it is a listed count, cards that name other cards, X outside
+  a cost, conditions like "if you control", layers and text-changing effects.
+- **Parsed scripts are only for cards with no hand script.** Hand scripts stay and always
+  win.
 - Every generated script is checked by the same tests as a hand script: the card-pool
-  test, and a sample of real cards whose hand scripts already exist (the parser's output
-  must behave the same in a test game). Hand scripts always win over parsed ones.
-- A CLI report (`npm run parse-report`) lists, for the current card data, which cards it
+  test, and a sample of pool cards whose hand scripts exist (the parser's output must
+  behave the same in a test game, as a check on the parser, without replacing them).
+- A report (`npm run parse-report`) lists, for the current card data, which cards it
   scripts and why each other card was refused, so its reach can be measured.
-- ❓ Questions for the user:
-  1. How far should it go? (a) only the narrow list above, measured by the report;
-     (b) aim at a named target, e.g. "most commons from one recent set"; (c) grow it over
-     several sessions, one family of wording per session. Default: (a) in this session,
-     with the report deciding what comes next.
-  2. Should parsed scripts replace hand scripts for cards already in the pool where they
-     behave the same (less code), or only add new cards? Default: only new cards.
-  3. Runs where? It must run in the browser for session 6, so it is plain TypeScript with
-     no Node-only parts. OK?
-  4. "May" effects: ask the player each time, as the session 7a cards do (never assume
-     yes)? Default: yes, ask.
+- Plain TypeScript with no Node-only parts, so session 7 can run it in the browser.
 
-### 6. Paste a deck with any card
+### 7. Paste a deck with any card
 
-Builds on 4 and 5.
+Builds on 5 and 6.
 
-- A pasted card not in the pool is fetched from Scryfall's API from the browser
-  (`/cards/collection`, up to 75 names per request, with Scryfall's rate limits:
+- A pasted card not in the pool is fetched from Scryfall's API by the browser
+  (`/cards/collection`, up to 75 names per request, keeping to Scryfall's rate limits:
   50-100 ms between requests), using the same field mapping as `scripts/fetch-cards.mjs`
-  (move it to a shared module).
+  (moved to a shared module).
 - Each fetched card is scripted by the parser. Cards it refuses are listed with the reason
   (the clause it couldn't read), and the deck can't be played until they are replaced.
-- Fetched data and generated scripts are cached in the browser (IndexedDB or
-  localStorage) so a deck works offline afterwards; the cache can be cleared.
+  A refused card is never played as a stand-in.
+- Fetched data and generated scripts are cached in the browser (IndexedDB) so a deck
+  works offline afterwards; the cache can be cleared.
+- **Readable fallback when Scryfall can't be reached** (offline, blocked, rate limited,
+  a name it doesn't know): the screen says which cards couldn't be fetched and why, in
+  plain words, offers **Retry**, and keeps every card already in the pool or the cache
+  working. A dev command (`npm run fetch-cards` with the deck added to
+  `decklists.json`) stays as the other way to add cards.
 - Images keep coming from Scryfall's image server as now.
-- ❓ Questions for the user:
-  1. Is the browser calling Scryfall at runtime acceptable (it needs a network
-     connection; Scryfall asks for a sensible User-Agent and rate limits)? The
-     alternative is a "fetch and save into the repo" dev command only.
-  2. Should a card the parser refuses be playable as a "vanilla" stand-in if the user
-     explicitly ticks it? Default: no, following "never approximate".
-
-## Other limits these features touch
-
-- A card still has only one activated ability (README, "Known simplifications"). Session 2
-  doesn't change that. The parser (session 5) will refuse cards with two activated
-  abilities unless lifting this is added. ❓ Add it as its own session (like session 1, for
-  activated abilities) before session 5?
