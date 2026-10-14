@@ -1,0 +1,1510 @@
+/*
+  The whole UI is laid out on a fixed 192 x 108 grid of rem units (16:9) and the root
+  font-size scales that grid to the window. So 1rem = 10px on a 1920x1080 screen.
+*/
+html {
+  font-size: min(calc(100vw / 192), calc(100vh / 108));
+}
+
+:root {
+  --f-W: #e3d9ae;
+  --f-U: #4a90d2;
+  --f-B: #8a6cc4;
+  --f-R: #e0553a;
+  --f-G: #4fae62;
+  --f-gold: #d2aa42;
+  --f-artifact: #93a0af;
+  --f-land: #8a765c;
+  --cyan: #39e3ff;
+  --orange: #ff9a2e;
+  --serif: 'Palatino Linotype', 'Book Antiqua', Palatino, Georgia, serif;
+  /* How cards are turned and which way rows run. Each opponent's seat overrides these. */
+  --face: 0deg;
+  --dir: row;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  height: 100vh;
+  display: grid;
+  place-items: center;
+  overflow: clip;
+  background: #05060a;
+  color: #eef1f7;
+  font-family: 'Segoe UI', system-ui, sans-serif;
+  user-select: none;
+}
+
+button {
+  font-family: inherit;
+}
+
+.stage {
+  position: relative;
+  width: 192rem;
+  height: 108rem;
+  /* clip, not hidden: a hidden box can still be scrolled by focus or scrollIntoView */
+  overflow: clip;
+  font-size: 1.5rem;
+}
+
+/* ---------- table ---------- */
+
+.board {
+  background:
+    linear-gradient(180deg, rgba(14, 9, 5, 0.85), transparent 14rem),
+    radial-gradient(34rem 30rem at 0% 36%, rgba(255, 150, 40, 0.34), transparent 70%),
+    radial-gradient(34rem 30rem at 100% 30%, rgba(255, 150, 40, 0.3), transparent 70%),
+    radial-gradient(110rem 55rem at 50% 62%, rgba(150, 175, 215, 0.2), transparent 70%),
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cg fill='none' stroke='%23aab6cc' stroke-opacity='.15' stroke-width='3'%3E%3Cpath d='M0 80 80 0 160 80 80 160Z'/%3E%3Cpath d='M40 80 80 40 120 80 80 120Z'/%3E%3Cpath d='M0 0h160v160H0z'/%3E%3Cpath d='M80 0v40M80 120v40M0 80h40M120 80h40'/%3E%3C/g%3E%3C/svg%3E")
+      0 0 / 16rem 16rem,
+    #1b2029;
+}
+
+.board::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  box-shadow: inset 0 0 22rem 6rem rgba(0, 0, 0, 0.75);
+}
+
+/* ---------- opponents (left, top and right edges) ---------- */
+
+/*
+  Each opponent's area is the bottom player's layout turned to face their own edge: hand
+  at the edge, then lands, then creatures nearest the middle. At the side seats --face
+  turns the cards toward their owner and --dir runs each row from their left to their
+  right. The top seat's cards stay upright so they read from the bottom of the table.
+*/
+.opp {
+  position: absolute;
+  display: flex;
+  gap: 0.5rem;
+}
+
+.seat-top {
+  inset: 0 36.5rem auto;
+  height: 35rem;
+  flex-direction: column;
+  --inward: 180deg;
+}
+
+.seat-left,
+.seat-right {
+  top: 3rem;
+  width: 36.5rem;
+  height: 67rem;
+}
+
+.seat-left {
+  left: 0;
+  flex-direction: row;
+  --face: 90deg;
+  --dir: column;
+  --wrap: wrap-reverse;
+  --inward: 90deg;
+}
+
+.seat-right {
+  right: 0;
+  flex-direction: row-reverse;
+  --face: -90deg;
+  --dir: column-reverse;
+  --wrap: wrap;
+  --inward: 270deg;
+}
+
+.opp::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: linear-gradient(var(--inward), color-mix(in srgb, var(--deck) 20%, transparent), transparent 60%);
+  /* fade out toward the neighbouring seats instead of ending in a hard line */
+  mask-image: linear-gradient(calc(var(--inward) + 90deg), transparent, #000 15%, #000 85%, transparent);
+  transition: background 0.4s;
+}
+
+.opp.active::before {
+  background: linear-gradient(var(--inward), rgba(255, 165, 55, 0.4), rgba(255, 165, 55, 0.08) 75%, transparent);
+}
+
+.opp.lost > :not(.defeated) {
+  filter: grayscale(1) brightness(0.45);
+}
+
+.defeated {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  font: 700 4.5rem var(--serif);
+  letter-spacing: 0.4rem;
+  color: rgba(255, 255, 255, 0.7);
+  text-shadow: 0 0.2rem 1rem #000;
+}
+
+.seat-left .defeated,
+.seat-right .defeated {
+  writing-mode: vertical-rl;
+}
+
+.seat-right .defeated {
+  rotate: 180deg;
+}
+
+/* Avatar, hand and zones along the player's own edge. */
+.opp-head {
+  position: relative;
+  flex: 0 0 12.5rem;
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: start;
+  gap: 1.5rem;
+  --av: 8.2rem;
+  --pile-w: 4.6rem;
+  --cmd-w: 7.2rem;
+}
+
+.seat-top .avatar {
+  justify-self: end;
+  margin-top: 0.8rem;
+}
+
+.seat-left .opp-head,
+.seat-right .opp-head {
+  flex-basis: 10rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.8rem;
+  padding: 0.8rem 0;
+}
+
+.opp-hand {
+  position: relative;
+  flex: none;
+  width: 36rem;
+  height: 100%;
+}
+
+.seat-left .opp-hand,
+.seat-right .opp-hand {
+  order: -1;
+  width: 100%;
+  height: 25rem;
+}
+
+/* A zero-size anchor at the middle of the hand; the cards hang off it past the screen edge. */
+.opp-fan {
+  position: absolute;
+  left: 50%;
+  top: 7rem;
+  width: 0;
+  height: 0;
+  rotate: 180deg;
+}
+
+/* The side hands lean 12 degrees toward the top corners, as if seen from across the table. */
+.seat-left .opp-fan {
+  left: 7rem;
+  top: 50%;
+  rotate: 102deg;
+}
+
+.seat-right .opp-fan {
+  left: calc(100% - 7rem);
+  top: 50%;
+  rotate: -102deg;
+}
+
+.opp-fan .card-back {
+  position: absolute;
+  top: 0;
+  width: 9rem;
+  margin-left: -4.5rem;
+  border-radius: 0.5rem;
+}
+
+.opp-zones {
+  justify-self: start;
+  display: flex;
+  align-items: flex-start;
+  gap: 0.9rem;
+  margin-top: 0.8rem;
+}
+
+.seat-left .opp-zones,
+.seat-right .opp-zones {
+  flex-direction: column;
+  align-items: center;
+  gap: 0.7rem;
+  /* leaves room for the commander damage badges under the avatar */
+  margin-top: 3rem;
+}
+
+.count {
+  position: absolute;
+  right: -0.6rem;
+  bottom: -0.6rem;
+  min-width: 2.2rem;
+  padding: 0 0.4rem;
+  font: 700 1.3rem/2rem 'Segoe UI', sans-serif;
+  text-align: center;
+  color: #fff;
+  background: rgba(8, 10, 16, 0.9);
+  border: 0.1rem solid #aeb7c8;
+  border-radius: 1.1rem;
+  z-index: 3;
+}
+
+.opp-hand .count {
+  inset: 7.5rem auto auto 50%;
+  translate: -50% 0;
+}
+
+.seat-left .opp-hand .count {
+  inset: 50% auto auto 7.5rem;
+  translate: 0 -50%;
+}
+
+.seat-right .opp-hand .count {
+  inset: 50% 7.5rem auto auto;
+  translate: 0 -50%;
+}
+
+.card-back {
+  aspect-ratio: 5 / 7;
+  border-radius: 0.4rem;
+  border: 0.2rem solid #140b05;
+  background:
+    radial-gradient(ellipse 40% 52% at center, #d9a04a 0 60%, transparent 62%),
+    radial-gradient(ellipse 62% 74% at center, #7a431a 0 96%, transparent 100%), #2e1709;
+  box-shadow: 0 0.2rem 0.5rem rgba(0, 0, 0, 0.7);
+}
+
+/* ---------- zones: command, library, graveyard ---------- */
+
+.pile {
+  position: relative;
+  width: var(--pile-w);
+  aspect-ratio: 5 / 7;
+}
+
+/* At the side seats, cards in the piles and the command zone are turned like permanents (see .tile). */
+.seat-left .pile,
+.seat-right .pile {
+  width: calc(var(--pile-w) * 1.4);
+  aspect-ratio: 7 / 5;
+}
+
+.pile .card-back,
+.pile img {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: var(--pile-w);
+  height: calc(var(--pile-w) * 1.4);
+  translate: -50% -50%;
+  rotate: var(--face);
+}
+
+.pile.library .card-back {
+  box-shadow:
+    0.2rem 0.2rem 0 #140b05,
+    0.4rem 0.4rem 0 #2e1709,
+    0 0.4rem 0.9rem rgba(0, 0, 0, 0.8);
+}
+
+.pile.graveyard,
+.pile.exile {
+  border-radius: 0.4rem;
+  cursor: pointer;
+}
+
+.pile.graveyard img,
+.pile.exile img {
+  border-radius: 0.4rem;
+  filter: saturate(0.5) brightness(0.8);
+}
+
+/* Exiled cards look washed out and ringed in pale blue, so the pile isn't mistaken for the graveyard. */
+.pile.exile img {
+  filter: saturate(0.25) brightness(1.05) contrast(0.85);
+  box-shadow:
+    0 0 0 0.15rem rgba(190, 215, 255, 0.75),
+    0 0 0.9rem rgba(150, 190, 255, 0.5);
+}
+
+.pile.empty {
+  border: 0.15rem dashed rgba(255, 255, 255, 0.3);
+  cursor: default;
+}
+
+.pile.exile.empty {
+  border-color: rgba(190, 215, 255, 0.4);
+}
+
+/* The zone's icon: a faint mark filling an empty pile, a small corner badge once it holds cards. */
+.pile > .ms {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  font-size: calc(var(--pile-w) * 0.5);
+  color: rgba(255, 255, 255, 0.3);
+  pointer-events: none;
+}
+
+.pile:not(.empty) > .ms {
+  inset: -0.5rem auto auto -0.5rem;
+  width: 1.7em;
+  height: 1.7em;
+  font-size: calc(var(--pile-w) * 0.24);
+  color: #fff;
+  background: rgba(8, 10, 16, 0.9);
+  border: 0.1rem solid #aeb7c8;
+  border-radius: 50%;
+  z-index: 3;
+}
+
+.command-slot {
+  width: var(--cmd-w);
+  aspect-ratio: 5 / 4;
+}
+
+.seat-left .command-slot,
+.seat-right .command-slot {
+  width: calc(var(--cmd-w) * 0.8);
+  aspect-ratio: 4 / 5;
+}
+
+.cmd-card,
+.cmd-empty {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  border-radius: 0.5rem;
+}
+
+.cmd-card {
+  font-size: calc(var(--cmd-w) / 10);
+  box-shadow: 0 0.3rem 0.8rem rgba(0, 0, 0, 0.8);
+}
+
+.cmd-face {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: var(--cmd-w);
+  aspect-ratio: 5 / 4;
+  translate: -50% -50%;
+  rotate: var(--face);
+  border-radius: 0.5rem;
+  background-size: cover;
+  background-position: center 20%;
+  border: 0.2rem solid var(--f-gold);
+}
+
+.cmd-card .crown {
+  position: absolute;
+  left: 0.3em;
+  top: 0.1em;
+  font-size: 1.8em;
+  color: var(--f-gold);
+  text-shadow: 0 0 0.3em #000;
+}
+
+.cmd-card .tax {
+  position: absolute;
+  right: -0.4em;
+  bottom: -0.4em;
+  padding: 0 0.4em;
+  font: 700 1.5em/1.5em 'Segoe UI', sans-serif;
+  background: #1a1d24;
+  border: 0.08em solid var(--f-gold);
+  border-radius: 0.8em;
+}
+
+.cmd-empty {
+  display: grid;
+  place-items: center;
+  font-size: calc(var(--cmd-w) / 3);
+  color: rgba(210, 170, 66, 0.35);
+  border: 0.15rem dashed rgba(210, 170, 66, 0.4);
+}
+
+/* ---------- avatars ---------- */
+
+.avatar {
+  position: relative;
+  width: var(--av);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.avatar-art {
+  position: relative;
+  z-index: 1;
+  width: var(--av);
+  height: var(--av);
+  border-radius: 50%;
+  background-size: cover;
+  background-position: center 20%;
+  border: 0.3rem solid #232832;
+  box-shadow:
+    0 0 0 0.2rem var(--deck),
+    0 0.5rem 1.4rem rgba(0, 0, 0, 0.85);
+  transition: box-shadow 0.2s;
+}
+
+.avatar-rays {
+  position: absolute;
+  left: 50%;
+  top: calc(var(--av) * -0.3);
+  width: calc(var(--av) * 1.6);
+  height: calc(var(--av) * 1.6);
+  margin-left: calc(var(--av) * -0.8);
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(255, 190, 90, 0.95) 35%, rgba(255, 140, 30, 0.4) 55%, transparent 70%);
+  opacity: 0;
+  transition: opacity 0.4s;
+}
+
+.avatar.active .avatar-rays {
+  opacity: 1;
+  animation: breathe 2.2s ease-in-out infinite;
+}
+
+.avatar-life {
+  z-index: 2;
+  min-width: calc(var(--av) * 0.52);
+  margin-top: calc(var(--av) * -0.2);
+  padding: 0 0.8rem;
+  font: 700 calc(var(--av) * 0.3) / 1.25 var(--serif);
+  text-align: center;
+  background: linear-gradient(#444c5c, #1a1e26);
+  border: 0.15rem solid #aab3c5;
+  border-radius: 2rem;
+  box-shadow: 0 0.3rem 0.8rem rgba(0, 0, 0, 0.8);
+}
+
+.avatar-name {
+  z-index: 2;
+  margin-top: 0.2rem;
+  font: 600 1.35rem var(--serif);
+  white-space: nowrap;
+  text-shadow: 0 0.1rem 0.4rem #000, 0 0 0.6rem #000;
+}
+
+.dots::after {
+  content: '…';
+  animation: blink 1s steps(2) infinite;
+}
+
+.avatar.targetable {
+  cursor: pointer;
+}
+
+.avatar.targetable .avatar-art {
+  box-shadow:
+    0 0 0 0.35rem #ffe45c,
+    0 0 2rem 0.5rem rgba(255, 228, 92, 0.8);
+  animation: breathe 1s ease-in-out infinite;
+}
+
+.avatar.attack-target .avatar-art {
+  box-shadow:
+    0 0 0 0.45rem #ff5a36,
+    0 0 2.4rem 0.8rem rgba(255, 90, 54, 0.9);
+  animation: none;
+}
+
+.avatar.lost .avatar-art {
+  filter: grayscale(1) brightness(0.5);
+}
+
+.cmd-dmg {
+  position: absolute;
+  left: calc(100% + 0.5rem);
+  top: 0.4rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  z-index: 3;
+}
+
+.seat-left .cmd-dmg,
+.seat-right .cmd-dmg {
+  left: 50%;
+  top: calc(100% + 0.3rem);
+  translate: -50% 0;
+  flex-direction: row;
+}
+
+.cmd-dmg span {
+  width: 2.9rem;
+  height: 2.9rem;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background-size: cover;
+  background-position: center 20%;
+  border: 0.15rem solid var(--f-gold);
+}
+
+.cmd-dmg b {
+  font-size: 1.5rem;
+  text-shadow: 0 0 0.3rem #000, 0 0 0.3rem #000, 0 0 0.5rem #000;
+}
+
+.life-delta {
+  position: absolute;
+  left: 50%;
+  top: 30%;
+  width: 8rem;
+  margin-left: -4rem;
+  z-index: 5;
+  font: 700 3.6rem var(--serif);
+  text-align: center;
+  pointer-events: none;
+  text-shadow: 0 0 0.6rem #000, 0 0.2rem 0.3rem #000;
+}
+
+.life-delta.up {
+  color: #7dffa0;
+}
+
+.life-delta.down {
+  color: #ff6b5e;
+}
+
+/* ---------- battlefield rows ---------- */
+
+.row {
+  display: flex;
+  flex-direction: var(--dir);
+  justify-content: center;
+  align-items: center;
+  gap: 0.8rem;
+}
+
+.row.back,
+.lands,
+.others {
+  display: flex;
+  flex-direction: var(--dir);
+  align-items: center;
+  gap: 1.2rem;
+}
+
+.stack {
+  display: flex;
+  flex-direction: var(--dir);
+  flex: none;
+}
+
+.row.two-rows {
+  flex-wrap: var(--wrap, wrap);
+  align-content: center;
+  gap: 0.8rem 0.5rem;
+}
+
+/* Stacked cards overlap along the row, whichever way the row runs. */
+.stack .tile + .tile {
+  margin-left: calc(var(--tw) * -0.86);
+}
+
+.seat-left .stack .tile + .tile {
+  margin: calc(var(--tw) * -0.86) 0 0;
+}
+
+.seat-right .stack .tile + .tile {
+  margin: 0 0 calc(var(--tw) * -0.86);
+}
+
+.opp-back {
+  flex: 0 0 9.3rem;
+}
+
+.opp-front {
+  flex: 0 0 12.2rem;
+}
+
+/* Deep enough for a crowded board's two rows. */
+.seat-left .opp-front,
+.seat-right .opp-front {
+  flex-basis: 16rem;
+}
+
+.me-front,
+.me-back {
+  position: absolute;
+}
+
+/* Stays between the side seats, which reach down past its top edge. */
+.me-front {
+  left: 37.5rem;
+  right: 37.5rem;
+  top: 54.5rem;
+  height: 14.5rem;
+}
+
+/*
+  Lands sit to the left of the avatar and everything else to its right, level with its top.
+  This row is below the side seats, so it can run wider than the creatures.
+*/
+.me-back {
+  left: 30rem;
+  right: 30rem;
+  top: 70rem;
+  height: 11.5rem;
+}
+
+/* .row.me-back, not .me-back: the gap has to beat the one set on .row.back above. */
+.row.me-back {
+  gap: 28rem;
+}
+
+.me-back .lands,
+.me-back .others {
+  flex: 1;
+  min-width: 0;
+}
+
+.me-back .lands {
+  justify-content: flex-end;
+}
+
+/* ---------- permanents ---------- */
+
+/* The tile is the upright box a permanent takes up on screen: it glows, tilts and is clicked. */
+.tile {
+  --frame: var(--f-artifact);
+  position: relative;
+  flex: none;
+  width: var(--tw);
+  aspect-ratio: 5 / 4;
+  font-size: calc(var(--tw) / 10);
+  border-radius: 0.5em;
+  background: #0d0f14;
+  box-shadow: 0 0.35em 0.9em rgba(0, 0, 0, 0.8);
+}
+
+/* Side seats see their cards turned a quarter, so the box is tall instead of wide. */
+.seat-left .tile,
+.seat-right .tile {
+  width: calc(var(--tw) * 0.8);
+  aspect-ratio: 4 / 5;
+}
+
+/* The card itself, centred in the tile and turned with everything on it. */
+.tile-face {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: var(--tw);
+  aspect-ratio: 5 / 4;
+  translate: -50% -50%;
+  rotate: var(--face);
+}
+
+
+.frame-W { --frame: var(--f-W); }
+.frame-U { --frame: var(--f-U); }
+.frame-B { --frame: var(--f-B); }
+.frame-R { --frame: var(--f-R); }
+.frame-G { --frame: var(--f-G); }
+.frame-gold { --frame: var(--f-gold); }
+.frame-land { --frame: var(--f-land); }
+
+.tile-art {
+  position: absolute;
+  inset: 0;
+  border-radius: 0.5em;
+  border: 0.22em solid color-mix(in srgb, var(--frame) 70%, #000);
+  background-size: cover;
+  background-position: center 22%;
+}
+
+.tile.commander .tile-art {
+  border-color: var(--f-gold);
+}
+
+.tile-name {
+  position: absolute;
+  inset: 0.22em 0.22em auto 0.22em;
+  padding: 0 0.45em;
+  font: 600 0.92em/1.5em var(--serif);
+  color: #f6f1e4;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  background: linear-gradient(90deg, color-mix(in srgb, var(--frame) 60%, #000), rgba(8, 10, 14, 0.85));
+  border-radius: 0.3em 0.3em 0 0;
+}
+
+.tile-name .crown {
+  color: var(--f-gold);
+  margin-right: 0.3em;
+}
+
+.tile-pt {
+  position: absolute;
+  right: -0.35em;
+  bottom: -0.35em;
+  padding: 0 0.45em;
+  font: 700 1.75em/1.3em var(--serif);
+  color: #fff;
+  background: linear-gradient(#333843, #14161b);
+  border: 0.07em solid #b3bccd;
+  border-radius: 0.3em;
+  box-shadow: 0 0.1em 0.3em rgba(0, 0, 0, 0.8);
+}
+
+.tile-pt.buffed {
+  color: #73d4ff;
+}
+
+.tile-pt.hurt {
+  color: #ff7466;
+}
+
+.tile-keywords {
+  position: absolute;
+  left: 0.3em;
+  bottom: 0.3em;
+  display: flex;
+  gap: 0.15em;
+}
+
+.tile-keywords i {
+  width: 1.5em;
+  height: 1.5em;
+  display: grid;
+  place-items: center;
+  font-size: 1.05em;
+  color: #fff;
+  background: rgba(8, 10, 16, 0.85);
+  border: 0.06em solid #b3bccd;
+  border-radius: 50%;
+}
+
+.tile-counters {
+  position: absolute;
+  right: -0.5em;
+  top: 1.5em;
+  min-width: 1.9em;
+  padding: 0 0.3em;
+  font: 700 1.25em/1.9em 'Segoe UI', sans-serif;
+  text-align: center;
+  background: radial-gradient(circle at 35% 30%, #7ec8ff, #1d5fb8);
+  border: 0.08em solid #fff;
+  border-radius: 1em;
+}
+
+.tile-sick {
+  position: absolute;
+  left: 0.35em;
+  top: 1.6em;
+  font-size: 1.6em;
+  color: #fff;
+  opacity: 0.85;
+  filter: drop-shadow(0 0 0.15em #000);
+}
+
+.tile-ability {
+  position: absolute;
+  right: 0.5em;
+  top: 2em;
+  width: 0.9em;
+  height: 0.9em;
+  transform: rotate(45deg);
+  background: #ffd76a;
+  box-shadow: 0 0 0.4em #000;
+}
+
+.tile-tapmark {
+  position: absolute;
+  inset: 0;
+  border-radius: 0.5em;
+  background: rgba(6, 8, 14, 0.55);
+}
+
+.tile-badge {
+  position: absolute;
+  left: -0.7em;
+  top: -0.9em;
+  padding: 0 0.4em;
+  font: 700 1.3em/1.4em 'Segoe UI', sans-serif;
+  background: rgba(8, 10, 16, 0.9);
+  border: 0.08em solid #fff;
+  border-radius: 0.3em;
+  z-index: 2;
+}
+
+/* ---------- highlights (shared by tiles, hand cards and the commander) ---------- */
+
+.glow-play,
+.glow-attack,
+.glow-block {
+  box-shadow:
+    0 0 0 0.25em var(--cyan),
+    0 0 1.4em 0.3em rgba(57, 227, 255, 0.7);
+  cursor: pointer;
+}
+
+.glow-target {
+  box-shadow:
+    0 0 0 0.3em #ffe45c,
+    0 0 1.8em 0.4em rgba(255, 228, 92, 0.85);
+  animation: breathe 1s ease-in-out infinite;
+  cursor: crosshair;
+}
+
+.glow-picked {
+  box-shadow:
+    0 0 0 0.35em #fff,
+    0 0 1.8em 0.5em #fff;
+  cursor: pointer;
+}
+
+.glow-discard {
+  box-shadow:
+    0 0 0 0.25em #ff5a4a,
+    0 0 1.4em 0.3em rgba(255, 90, 74, 0.7);
+  cursor: pointer;
+}
+
+.tile.mana-source {
+  cursor: pointer;
+}
+
+.tile.blocking {
+  box-shadow:
+    0 0 0 0.3em #7cbcff,
+    0 0 1.6em 0.4em rgba(124, 188, 255, 0.8);
+}
+
+.tile.attacking {
+  box-shadow:
+    0 0 0 0.3em var(--orange),
+    0 0 1.9em 0.5em rgba(255, 122, 26, 0.9);
+}
+
+/* ---------- the human's side (bottom) ---------- */
+
+/*
+  The avatar sits right on the hand: the middle cards and their mana costs just cover the
+  bottom edge of the life total. z-index 0 keeps every part of it under the hand.
+*/
+.me-avatar {
+  position: absolute;
+  z-index: 0;
+  left: 0;
+  right: 0;
+  top: 79.5rem;
+  display: flex;
+  justify-content: center;
+  pointer-events: none;
+  --av: 14rem;
+}
+
+.me-avatar .avatar {
+  pointer-events: auto;
+}
+
+/* The name goes above the portrait, clear of the hand. */
+.me-avatar .avatar-name {
+  position: absolute;
+  bottom: calc(100% + 0.3rem);
+  font-size: 1.6rem;
+}
+
+.me-avatar .cmd-dmg {
+  left: calc(100% + 1rem);
+  top: auto;
+  bottom: 6.2rem;
+  flex-direction: row;
+}
+
+.mana-pool {
+  position: absolute;
+  right: calc(50% + 8rem);
+  top: 7.5rem;
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  padding: 0.45rem 0.55rem;
+  font: 700 1.8rem/1 'Segoe UI', sans-serif;
+  background: rgba(8, 10, 16, 0.75);
+  border: 0.1rem solid #5d6472;
+  border-radius: 2rem;
+}
+
+/* One colour: its symbol, then how many if more than one. */
+.mana-pool span {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.mana-pool .ms {
+  display: block;
+}
+
+/* A count at the pill's rounded end needs a little more room than a round symbol does. */
+.mana-pool span:last-child b {
+  margin-right: 0.35rem;
+}
+
+.me-zones {
+  position: absolute;
+  left: 2.2rem;
+  bottom: 2.2rem;
+  display: flex;
+  align-items: flex-end;
+  gap: 1.4rem;
+  --pile-w: 7rem;
+  --cmd-w: 12rem;
+}
+
+.me-zones .cmd-card {
+  cursor: default;
+}
+
+.me-zones .cmd-card.glow-play {
+  cursor: pointer;
+}
+
+.hand {
+  position: absolute;
+  left: 50%;
+  top: 96rem;
+  width: 0;
+  height: 0;
+}
+
+.hand-slot {
+  position: absolute;
+  top: 0;
+  width: 15rem;
+  margin-left: -7.5rem;
+  cursor: grab;
+  touch-action: none;
+}
+
+.hand-card {
+  position: relative;
+  font-size: 1.4rem;
+  border-radius: 0.75rem;
+  box-shadow: 0 0.4rem 1.2rem rgba(0, 0, 0, 0.8);
+}
+
+/* Dragged far enough toward the table that letting go will play it. */
+.hand-card.armed {
+  box-shadow:
+    0 0 0 0.3rem #fff,
+    0 0 2.6rem 0.9rem var(--cyan);
+}
+
+/* The mana cost, enlarged and riding on the card's top edge like Arena shows it. */
+.hand-cost {
+  position: absolute;
+  top: -0.95rem;
+  font-size: 1.8rem;
+  filter: drop-shadow(0 0 0.15rem #000) drop-shadow(0 0.2rem 0.3rem rgba(0, 0, 0, 0.8));
+  transition: right 0.15s;
+}
+
+.hand-cost .mana-cost {
+  display: flex;
+  gap: 0.2rem;
+}
+
+.hand-card img {
+  display: block;
+  width: 100%;
+  border-radius: 0.75rem;
+}
+
+/* ---------- prompt, buttons, phases ---------- */
+
+.prompt {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 43rem;
+  width: fit-content;
+  margin: 0 auto;
+  padding: 0.5rem 9rem;
+  font: 600 2.2rem var(--serif);
+  text-shadow: 0 0.15rem 0.3rem #000;
+  background: linear-gradient(90deg, transparent, rgba(0, 0, 0, 0.85) 22%, rgba(0, 0, 0, 0.85) 78%, transparent);
+  pointer-events: none;
+  z-index: 20;
+}
+
+.action-bar {
+  position: absolute;
+  right: 2.6rem;
+  bottom: 2.6rem;
+  width: 27rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.9rem;
+  z-index: 25;
+}
+
+.phases {
+  text-align: center;
+}
+
+.phase-pips {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 1.3rem;
+  height: 3.2rem;
+}
+
+.pip {
+  width: 1.9rem;
+  height: 1.9rem;
+  fill: #596171;
+  transition: transform 0.2s, fill 0.2s;
+}
+
+.pip.on {
+  fill: #ffc163;
+  transform: scale(1.5);
+  filter: drop-shadow(0 0 0.6rem var(--orange));
+}
+
+.phase-label {
+  margin-top: 0.3rem;
+  font-size: 1.25rem;
+  color: #d4dbe9;
+  text-shadow: 0 0.1rem 0.3rem #000;
+}
+
+.btn {
+  height: 6.4rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  border: none;
+  border-radius: 3.2rem;
+  cursor: pointer;
+  text-shadow: 0 0.15rem 0.25rem rgba(0, 0, 0, 0.7);
+  box-shadow:
+    inset 0 0.25rem 0.3rem rgba(255, 255, 255, 0.4),
+    inset 0 -0.5rem 0.7rem rgba(0, 0, 0, 0.3),
+    0 0.5rem 1.4rem rgba(0, 0, 0, 0.8);
+  transition: filter 0.15s, transform 0.1s;
+}
+
+.btn:hover:not(:disabled) {
+  filter: brightness(1.15);
+}
+
+.btn:active:not(:disabled) {
+  transform: translateY(0.2rem);
+}
+
+.btn-label {
+  font: 700 2.9rem/1.1 var(--serif);
+}
+
+.btn-sub {
+  font-size: 1.3rem;
+  opacity: 0.95;
+}
+
+.btn.small {
+  height: 4.4rem;
+  padding: 0 3rem;
+}
+
+.btn.small .btn-label {
+  font-size: 2rem;
+}
+
+.btn-go {
+  background: linear-gradient(#ffc56a, #f08a1c 55%, #d2670a);
+}
+
+.btn-attack {
+  background: linear-gradient(#ff9d70, #ee4a21 55%, #c12d0e);
+}
+
+.btn-cancel {
+  background: linear-gradient(#86b6ff, #2f62d9 55%, #1d43a8);
+}
+
+.btn-plain {
+  background: rgba(10, 12, 18, 0.78);
+  border: 0.2rem solid #cfd6e4;
+  box-shadow: 0 0.5rem 1.4rem rgba(0, 0, 0, 0.8);
+}
+
+.btn:disabled {
+  cursor: default;
+  border-color: #5d6472;
+  color: #aab3c5;
+}
+
+.btn:disabled .btn-label {
+  font-size: 2rem;
+}
+
+/* ---------- log + controls ---------- */
+
+.log {
+  position: absolute;
+  left: 1.6rem;
+  top: 70.5rem;
+  width: 27rem;
+  z-index: 20;
+}
+
+.log-bar {
+  display: flex;
+  gap: 0.5rem;
+  margin-bottom: 0.6rem;
+}
+
+.log-bar button {
+  flex: 1;
+  padding: 0.5rem 0.2rem;
+  font-size: 1.15rem;
+  color: #dfe6f3;
+  background: rgba(10, 12, 18, 0.75);
+  border: 0.1rem solid #5d6472;
+  border-radius: 0.5rem;
+  cursor: pointer;
+}
+
+.log-bar button:hover {
+  border-color: #cfd6e4;
+}
+
+.log-lines {
+  height: 20.5rem;
+  padding: 0.6rem 0.9rem;
+  overflow-y: auto;
+  font-size: 1.2rem;
+  line-height: 1.45;
+  background: rgba(8, 10, 16, 0.66);
+  border: 0.1rem solid rgba(255, 255, 255, 0.1);
+  border-radius: 0.8rem;
+  scrollbar-width: thin;
+  scrollbar-color: #5d6472 transparent;
+}
+
+.log-line {
+  margin: 0.25rem 0;
+  padding-left: 0.7rem;
+  color: #d0d7e5;
+  border-left: 0.25rem solid var(--deck);
+}
+
+.log-line.turn {
+  margin-top: 0.9rem;
+  font-weight: 700;
+  color: #fff;
+}
+
+/* ---------- overlays ---------- */
+
+.arrows {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: 30;
+}
+
+.line-attack,
+.line-block {
+  fill: none;
+  stroke-width: 0.5rem;
+  stroke-linecap: round;
+  opacity: 0.9;
+}
+
+.line-attack {
+  stroke: #ff8a3c;
+  filter: drop-shadow(0 0 0.5rem #ff5a1a);
+}
+
+.line-block {
+  stroke: #7cbcff;
+  filter: drop-shadow(0 0 0.5rem #2f7fe0);
+}
+
+.head-attack {
+  fill: #ff8a3c;
+}
+
+.head-block {
+  fill: #7cbcff;
+}
+
+/* Big enough to read. It covers part of the table for a moment, which is fine: it's gone in under two seconds. */
+.spell-flash {
+  position: absolute;
+  right: 38.5rem;
+  top: 18rem;
+  width: 30rem;
+  text-align: center;
+  pointer-events: none;
+  z-index: 40;
+}
+
+.spell-flash img {
+  display: block;
+  width: 100%;
+  border-radius: 4.75% / 3.5%;
+  box-shadow:
+    0 0 4rem 0.8rem rgba(255, 210, 122, 0.6),
+    0 1rem 3rem #000;
+}
+
+.spell-caster {
+  margin-bottom: 0.6rem;
+  font: 600 2.3rem var(--serif);
+  text-shadow: 0 0.15rem 0.4rem #000, 0 0 0.8rem #000;
+}
+
+.preview {
+  position: fixed;
+  z-index: 200;
+  pointer-events: none;
+  animation: appear 0.12s 0.15s both;
+}
+
+.preview img {
+  display: block;
+  width: 100%;
+  border-radius: 4.75% / 3.5%;
+  box-shadow: 0 1rem 4rem #000, 0 0 0 0.1rem rgba(255, 255, 255, 0.2);
+}
+
+.modal {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: rgba(0, 0, 0, 0.68);
+  z-index: 150;
+}
+
+.viewer {
+  max-width: 150rem;
+  max-height: 92rem;
+  padding: 2rem 3rem 3rem;
+  overflow-y: auto;
+  background: rgba(14, 17, 24, 0.95);
+  border: 0.15rem solid #5d6472;
+  border-radius: 1.5rem;
+}
+
+.viewer h2 {
+  margin: 0 0 1.5rem;
+  font: 700 2.6rem var(--serif);
+  text-transform: capitalize;
+}
+
+.viewer-cards {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1.2rem;
+}
+
+.viewer-cards img {
+  width: 19rem;
+  border-radius: 0.9rem;
+}
+
+.game-over {
+  padding: 4rem 9rem 5rem;
+  text-align: center;
+  background: radial-gradient(circle at 50% 0%, #3a2a2a, #0d0f14 75%);
+  border: 0.25rem solid #8a6c6c;
+  border-radius: 2.5rem;
+  box-shadow: 0 2rem 8rem #000;
+}
+
+.game-over.won {
+  background: radial-gradient(circle at 50% 0%, #4a3a16, #0d0f14 75%);
+  border-color: var(--f-gold);
+}
+
+.game-over h1 {
+  margin: 0;
+  font: 700 9rem var(--serif);
+  color: #ffdf9a;
+  text-shadow: 0 0.4rem 1.5rem #000;
+}
+
+.game-over p {
+  margin: 1rem 0 3rem;
+  font-size: 2.2rem;
+  color: #d4dbe9;
+}
+
+.game-over-buttons {
+  display: flex;
+  justify-content: center;
+  gap: 2rem;
+}
+
+.knocked-out {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 52rem;
+  width: fit-content;
+  margin: 0 auto;
+  padding: 1rem 2.5rem;
+  font: 600 2rem var(--serif);
+  background: rgba(8, 10, 16, 0.88);
+  border: 0.15rem solid #8a6c6c;
+  border-radius: 1rem;
+  z-index: 60;
+}
+
+.knocked-out button {
+  margin-left: 2rem;
+  padding: 0.5rem 1.5rem;
+  font-size: 1.5rem;
+  color: #fff;
+  background: #2f3644;
+  border: 0.1rem solid #aab3c5;
+  border-radius: 0.6rem;
+  cursor: pointer;
+}
+
+/* ---------- menu ---------- */
+
+.menu {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  background: radial-gradient(circle at 50% 25%, #2c3548, #0b0d13 75%);
+}
+
+.menu h1 {
+  margin: 0;
+  font: 700 8rem var(--serif);
+  color: #ffdf9a;
+  text-shadow: 0 0.4rem 2rem #000;
+}
+
+.menu-sub {
+  margin: 1rem 0 4rem;
+  font-size: 2.2rem;
+  color: #cfd6e4;
+}
+
+.deck-list {
+  display: flex;
+  gap: 3.5rem;
+}
+
+.deck {
+  width: 33rem;
+  padding: 1.8rem 1.8rem 2.2rem;
+  color: #fff;
+  text-align: center;
+  background: rgba(12, 14, 20, 0.85);
+  border: 0.3rem solid;
+  border-radius: 2rem;
+  cursor: pointer;
+  transition: transform 0.15s, box-shadow 0.15s;
+}
+
+.deck:hover {
+  transform: translateY(-1.2rem);
+  box-shadow: 0 2rem 5rem rgba(0, 0, 0, 0.8), 0 0 3rem rgba(255, 223, 154, 0.25);
+}
+
+.deck img {
+  display: block;
+  width: 100%;
+  border-radius: 1.35rem;
+}
+
+.deck-title {
+  margin-top: 1.4rem;
+  font: 700 2.7rem var(--serif);
+}
+
+.deck-title .ms {
+  font-size: 2rem;
+  vertical-align: 0.2rem;
+}
+
+.deck-commander {
+  margin-top: 0.3rem;
+  font-size: 1.7rem;
+  color: #ffdf9a;
+}
+
+.deck-blurb {
+  margin-top: 0.7rem;
+  font-size: 1.55rem;
+  color: #b9c2d3;
+}
+
+.watch {
+  margin-top: 3.5rem;
+  font-size: 1.9rem;
+  color: #9fb4d8;
+  text-decoration: underline;
+  background: none;
+  border: none;
+  cursor: pointer;
+}
+
+.watch:hover {
+  color: #fff;
+}
+
+/* ---------- animation ---------- */
+
+@keyframes breathe {
+  50% {
+    filter: brightness(1.35);
+  }
+}
+
+@keyframes blink {
+  50% {
+    opacity: 0;
+  }
+}
+
+@keyframes appear {
+  from {
+    opacity: 0;
+    transform: scale(0.94);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation: none !important;
+  }
+}

@@ -1,0 +1,2305 @@
+{
+ "cards": {
+  "Sol Ring": {
+   "name": "Sol Ring",
+   "manaCost": "{1}",
+   "cmc": 1,
+   "colors": [],
+   "colorIdentity": [],
+   "typeLine": "Artifact",
+   "oracleText": "{T}: Add {C}{C}.",
+   "keywords": [],
+   "image": "https://cards.scryfall.io/normal/front/8/e/8ee443cc-e17a-493b-9c93-1f9e141a30e4.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/8/e/8ee443cc-e17a-493b-9c93-1f9e141a30e4.jpg"
+  },
+  "Arcane Signet": {
+   "name": "Arcane Signet",
+   "manaCost": "{2}",
+   "cmc": 2,
+   "colors": [],
+   "colorIdentity": [],
+   "typeLine": "Artifact",
+   "oracleText": "{T}: Add one mana of any color in your commander's color identity.",
+   "keywords": [],
+   "image": "https://cards.scryfall.io/normal/front/c/6/c6b6117c-faab-4bbb-b851-07bd8061ef03.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/c/6/c6b6117c-faab-4bbb-b851-07bd8061ef03.jpg"
+  },
+  "Worn Powerstone": {
+   "name": "Worn Powerstone",
+   "manaCost": "{3}",
+   "cmc": 3,
+   "colors": [],
+   "colorIdentity": [],
+   "typeLine": "Artifact",
+   "oracleText": "This artifact enters tapped.\n{T}: Add {C}{C}.",
+   "keywords": [],
+   "image": "https://cards.scryfall.io/normal/front/a/c/ace686ad-9e3f-41b3-b8eb-d1b6d45eb4e1.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/a/c/ace686ad-9e3f-41b3-b8eb-d1b6d45eb4e1.jpg"
+  },
+  "Thran Dynamo": {
+   "name": "Thran Dynamo",
+   "manaCost": "{4}",
+   "cmc": 4,
+   "colors": [],
+   "colorIdentity": [],
+   "typeLine": "Artifact",
+   "oracleText": "{T}: Add {C}{C}{C}.",
+   "keywords": [],
+   "image": "https://cards.scryfall.io/normal/front/7/c/7ce5f12e-fc02-42f8-a5ca-b523050d4650.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/7/c/7ce5f12e-fc02-42f8-a5ca-b523050d4650.jpg"
+  },
+  "Manalith": {
+   "name": "Manalith",
+   "manaCost": "{3}",
+   "cmc": 3,
+   "colors": [],
+   "colorIdentity": [],
+   "typeLine": "Artifact",
+   "oracleText": "{T}: Add one mana of any color.",
+   "keywords": [],
+   "image": "https://cards.scryfall.io/normal/front/f/0/f0d7d904-f29b-4524-9223-27910d748bdb.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/f/0/f0d7d904-f29b-4524-9223-27910d748bdb.jpg"
+  },
+  "Solemn Simulacrum": {
+   "name": "Solemn Simulacrum",
+   "manaCost": "{4}",
+   "cmc": 4,
+   "colors": [],
+   "colorIdentity": [],
+   "typeLine": "Artifact Creature — Golem",
+   "oracleText": "When this creature enters, you may search your library for a basic land card, put that card onto the battlefield tapped, then shuffle.\nWhen this creature dies, you may draw a card.",
+   "power": "2",
+   "toughness": "2",
+   "keywords": [],
+   "image": "https://cards.scryfall.io/normal/front/d/a/daafd816-f7c1-4630-9e5c-a1e5db570a35.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/d/a/daafd816-f7c1-4630-9e5c-a1e5db570a35.jpg"
+  },
+  "Meteor Golem": {
+   "name": "Meteor Golem",
+   "manaCost": "{7}",
+   "cmc": 7,
+   "colors": [],
+   "colorIdentity": [],
+   "typeLine": "Artifact Creature — Golem",
+   "oracleText": "When this creature enters, destroy target nonland permanent an opponent controls.",
+   "power": "3",
+   "toughness": "3",
+   "keywords": [],
+   "image": "https://cards.scryfall.io/normal/front/a/1/a1a1cfec-72ca-499b-b621-fa2d8502ea20.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/a/1/a1a1cfec-72ca-499b-b621-fa2d8502ea20.jpg"
+  },
+  "Lyra Dawnbringer": {
+   "name": "Lyra Dawnbringer",
+   "manaCost": "{3}{W}{W}",
+   "cmc": 5,
+   "colors": [
+    "W"
+   ],
+   "colorIdentity": [
+    "W"
+   ],
+   "typeLine": "Legendary Creature — Angel",
+   "oracleText": "Flying\nFirst strike (This creature deals combat damage before creatures without first strike.)\nLifelink (Damage dealt by this creature also causes you to gain that much life.)\nOther Angels you control get +1/+1 and have lifelink.",
+   "power": "5",
+   "toughness": "5",
+   "keywords": [
+    "Flying",
+    "Lifelink",
+    "First strike"
+   ],
+   "image": "https://cards.scryfall.io/normal/front/f/9/f9fa30b6-3a33-46fd-8b32-ac1cfa41500d.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/f/9/f9fa30b6-3a33-46fd-8b32-ac1cfa41500d.jpg"
+  },
+  "Plains": {
+   "name": "Plains",
+   "manaCost": "",
+   "cmc": 0,
+   "colors": [],
+   "colorIdentity": [
+    "W"
+   ],
+   "typeLine": "Basic Land — Plains",
+   "oracleText": "({T}: Add {W}.)",
+   "keywords": [],
+   "image": "https://cards.scryfall.io/normal/front/0/9/09ac862f-0a51-44dd-b86f-9412b8218b13.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/0/9/09ac862f-0a51-44dd-b86f-9412b8218b13.jpg"
+  },
+  "Serra Angel": {
+   "name": "Serra Angel",
+   "manaCost": "{3}{W}{W}",
+   "cmc": 5,
+   "colors": [
+    "W"
+   ],
+   "colorIdentity": [
+    "W"
+   ],
+   "typeLine": "Creature — Angel",
+   "oracleText": "Flying\nVigilance (Attacking doesn't cause this creature to tap.)",
+   "power": "4",
+   "toughness": "4",
+   "keywords": [
+    "Flying",
+    "Vigilance"
+   ],
+   "image": "https://cards.scryfall.io/normal/front/b/8/b8c5e74c-96e7-4a1f-93b7-14d776fe4b2d.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/b/8/b8c5e74c-96e7-4a1f-93b7-14d776fe4b2d.jpg"
+  },
+  "Angel of Mercy": {
+   "name": "Angel of Mercy",
+   "manaCost": "{4}{W}",
+   "cmc": 5,
+   "colors": [
+    "W"
+   ],
+   "colorIdentity": [
+    "W"
+   ],
+   "typeLine": "Creature — Angel",
+   "oracleText": "Flying\nWhen this creature enters, you gain 3 life.",
+   "power": "3",
+   "toughness": "3",
+   "keywords": [
+    "Flying"
+   ],
+   "image": "https://cards.scryfall.io/normal/front/2/d/2d22fdde-5590-4a4c-af2e-09711f4b5ffd.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/2/d/2d22fdde-5590-4a4c-af2e-09711f4b5ffd.jpg"
+  },
+  "Seraph of Dawn": {
+   "name": "Seraph of Dawn",
+   "manaCost": "{2}{W}{W}",
+   "cmc": 4,
+   "colors": [
+    "W"
+   ],
+   "colorIdentity": [
+    "W"
+   ],
+   "typeLine": "Creature — Angel",
+   "oracleText": "Flying, lifelink",
+   "power": "2",
+   "toughness": "4",
+   "keywords": [
+    "Flying",
+    "Lifelink"
+   ],
+   "image": "https://cards.scryfall.io/normal/front/6/4/64bf33ea-2d2d-476d-ab1d-fba204fd034b.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/6/4/64bf33ea-2d2d-476d-ab1d-fba204fd034b.jpg"
+  },
+  "Archangel of Thune": {
+   "name": "Archangel of Thune",
+   "manaCost": "{3}{W}{W}",
+   "cmc": 5,
+   "colors": [
+    "W"
+   ],
+   "colorIdentity": [
+    "W"
+   ],
+   "typeLine": "Creature — Angel",
+   "oracleText": "Flying\nLifelink (Damage dealt by this creature also causes you to gain that much life.)\nWhenever you gain life, put a +1/+1 counter on each creature you control.",
+   "power": "3",
+   "toughness": "4",
+   "keywords": [
+    "Flying",
+    "Lifelink"
+   ],
+   "image": "https://cards.scryfall.io/normal/front/1/5/15c34447-b0f4-4fcc-b557-23c92850b31b.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/1/5/15c34447-b0f4-4fcc-b557-23c92850b31b.jpg"
+  },
+  "Segovian Angel": {
+   "name": "Segovian Angel",
+   "manaCost": "{W}",
+   "cmc": 1,
+   "colors": [
+    "W"
+   ],
+   "colorIdentity": [
+    "W"
+   ],
+   "typeLine": "Creature — Angel",
+   "oracleText": "Flying, vigilance",
+   "power": "1",
+   "toughness": "1",
+   "keywords": [
+    "Flying",
+    "Vigilance"
+   ],
+   "image": "https://cards.scryfall.io/normal/front/b/5/b5dbaec5-502d-48c2-9e71-c12cd0bccc6a.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/b/5/b5dbaec5-502d-48c2-9e71-c12cd0bccc6a.jpg"
+  },
+  "Angel of the Dawn": {
+   "name": "Angel of the Dawn",
+   "manaCost": "{4}{W}",
+   "cmc": 5,
+   "colors": [
+    "W"
+   ],
+   "colorIdentity": [
+    "W"
+   ],
+   "typeLine": "Creature — Angel",
+   "oracleText": "Flying\nWhen this creature enters, creatures you control get +1/+1 and gain vigilance until end of turn.",
+   "power": "3",
+   "toughness": "3",
+   "keywords": [
+    "Flying"
+   ],
+   "image": "https://cards.scryfall.io/normal/front/d/0/d00ffeb5-195c-45ad-a791-ec67f463d552.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/d/0/d00ffeb5-195c-45ad-a791-ec67f463d552.jpg"
+  },
+  "Youthful Knight": {
+   "name": "Youthful Knight",
+   "manaCost": "{1}{W}",
+   "cmc": 2,
+   "colors": [
+    "W"
+   ],
+   "colorIdentity": [
+    "W"
+   ],
+   "typeLine": "Creature — Human Knight",
+   "oracleText": "First strike",
+   "power": "2",
+   "toughness": "1",
+   "keywords": [
+    "First strike"
+   ],
+   "image": "https://cards.scryfall.io/normal/front/3/d/3d1a3fec-39de-4223-9da2-22749a58cd62.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/3/d/3d1a3fec-39de-4223-9da2-22749a58cd62.jpg"
+  },
+  "Fencing Ace": {
+   "name": "Fencing Ace",
+   "manaCost": "{1}{W}",
+   "cmc": 2,
+   "colors": [
+    "W"
+   ],
+   "colorIdentity": [
+    "W"
+   ],
+   "typeLine": "Creature — Human Soldier",
+   "oracleText": "Double strike (This creature deals both first-strike and regular combat damage.)",
+   "power": "1",
+   "toughness": "1",
+   "keywords": [
+    "Double strike"
+   ],
+   "image": "https://cards.scryfall.io/normal/front/9/9/994094f8-e175-4e2e-aa39-c096f0ed9e6a.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/9/9/994094f8-e175-4e2e-aa39-c096f0ed9e6a.jpg"
+  },
+  "Inspiring Overseer": {
+   "name": "Inspiring Overseer",
+   "manaCost": "{2}{W}",
+   "cmc": 3,
+   "colors": [
+    "W"
+   ],
+   "colorIdentity": [
+    "W"
+   ],
+   "typeLine": "Creature — Angel Cleric",
+   "oracleText": "Flying\nWhen this creature enters, you gain 1 life and draw a card.",
+   "power": "2",
+   "toughness": "1",
+   "keywords": [
+    "Flying"
+   ],
+   "image": "https://cards.scryfall.io/normal/front/7/9/79016cf3-6eea-4b21-9ff3-f187d606e19a.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/7/9/79016cf3-6eea-4b21-9ff3-f187d606e19a.jpg"
+  },
+  "Elite Vanguard": {
+   "name": "Elite Vanguard",
+   "manaCost": "{W}",
+   "cmc": 1,
+   "colors": [
+    "W"
+   ],
+   "colorIdentity": [
+    "W"
+   ],
+   "typeLine": "Creature — Human Soldier",
+   "oracleText": "",
+   "power": "2",
+   "toughness": "1",
+   "keywords": [],
+   "image": "https://cards.scryfall.io/normal/front/2/8/28a5c350-2ed1-4a25-9626-0f8da5d1aef7.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/2/8/28a5c350-2ed1-4a25-9626-0f8da5d1aef7.jpg"
+  },
+  "Attended Knight": {
+   "name": "Attended Knight",
+   "manaCost": "{2}{W}",
+   "cmc": 3,
+   "colors": [
+    "W"
+   ],
+   "colorIdentity": [
+    "W"
+   ],
+   "typeLine": "Creature — Human Knight",
+   "oracleText": "First strike\nWhen this creature enters, create a 1/1 white Soldier creature token.",
+   "power": "2",
+   "toughness": "2",
+   "keywords": [
+    "First strike"
+   ],
+   "image": "https://cards.scryfall.io/normal/front/e/a/eac22a3b-4536-4372-a854-bc7f0919830b.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/e/a/eac22a3b-4536-4372-a854-bc7f0919830b.jpg"
+  },
+  "Captain of the Watch": {
+   "name": "Captain of the Watch",
+   "manaCost": "{4}{W}{W}",
+   "cmc": 6,
+   "colors": [
+    "W"
+   ],
+   "colorIdentity": [
+    "W"
+   ],
+   "typeLine": "Creature — Human Soldier",
+   "oracleText": "Vigilance (Attacking doesn't cause this creature to tap.)\nOther Soldier creatures you control get +1/+1 and have vigilance.\nWhen this creature enters, create three 1/1 white Soldier creature tokens.",
+   "power": "3",
+   "toughness": "3",
+   "keywords": [
+    "Vigilance"
+   ],
+   "image": "https://cards.scryfall.io/normal/front/6/e/6e201980-e220-44dc-beab-ad13c20332bd.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/6/e/6e201980-e220-44dc-beab-ad13c20332bd.jpg"
+  },
+  "Sunblast Angel": {
+   "name": "Sunblast Angel",
+   "manaCost": "{4}{W}{W}",
+   "cmc": 6,
+   "colors": [
+    "W"
+   ],
+   "colorIdentity": [
+    "W"
+   ],
+   "typeLine": "Creature — Angel",
+   "oracleText": "Flying\nWhen this creature enters, destroy all tapped creatures.",
+   "power": "4",
+   "toughness": "5",
+   "keywords": [
+    "Flying"
+   ],
+   "image": "https://cards.scryfall.io/normal/front/6/8/680f7d5c-d518-4ebb-92d5-e835cd9eafe0.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/6/8/680f7d5c-d518-4ebb-92d5-e835cd9eafe0.jpg"
+  },
+  "Ajani's Pridemate": {
+   "name": "Ajani's Pridemate",
+   "manaCost": "{1}{W}",
+   "cmc": 2,
+   "colors": [
+    "W"
+   ],
+   "colorIdentity": [
+    "W"
+   ],
+   "typeLine": "Creature — Cat Soldier",
+   "oracleText": "Whenever you gain life, put a +1/+1 counter on this creature.",
+   "power": "2",
+   "toughness": "2",
+   "keywords": [],
+   "image": "https://cards.scryfall.io/normal/front/2/2/222c1a68-e34c-4103-b1be-17d4ceaef6ce.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/2/2/222c1a68-e34c-4103-b1be-17d4ceaef6ce.jpg"
+  },
+  "Soul Warden": {
+   "name": "Soul Warden",
+   "manaCost": "{W}",
+   "cmc": 1,
+   "colors": [
+    "W"
+   ],
+   "colorIdentity": [
+    "W"
+   ],
+   "typeLine": "Creature — Human Cleric",
+   "oracleText": "Whenever another creature enters, you gain 1 life.",
+   "power": "1",
+   "toughness": "1",
+   "keywords": [],
+   "image": "https://cards.scryfall.io/normal/front/d/9/d96266b3-a7cb-40ce-a328-ac13719fe5f0.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/d/9/d96266b3-a7cb-40ce-a328-ac13719fe5f0.jpg"
+  },
+  "Angelic Wall": {
+   "name": "Angelic Wall",
+   "manaCost": "{1}{W}",
+   "cmc": 2,
+   "colors": [
+    "W"
+   ],
+   "colorIdentity": [
+    "W"
+   ],
+   "typeLine": "Creature — Wall",
+   "oracleText": "Defender (This creature can't attack.)\nFlying",
+   "power": "0",
+   "toughness": "4",
+   "keywords": [
+    "Flying",
+    "Defender"
+   ],
+   "image": "https://cards.scryfall.io/normal/front/7/f/7fe8f88e-8a51-494b-a008-fbfe624f97f7.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/7/f/7fe8f88e-8a51-494b-a008-fbfe624f97f7.jpg"
+  },
+  "Benalish Marshal": {
+   "name": "Benalish Marshal",
+   "manaCost": "{W}{W}{W}",
+   "cmc": 3,
+   "colors": [
+    "W"
+   ],
+   "colorIdentity": [
+    "W"
+   ],
+   "typeLine": "Creature — Human Knight",
+   "oracleText": "Other creatures you control get +1/+1.",
+   "power": "3",
+   "toughness": "3",
+   "keywords": [],
+   "image": "https://cards.scryfall.io/normal/front/f/c/fc395215-a2ec-49e1-9b1b-f8fcfe73e361.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/f/c/fc395215-a2ec-49e1-9b1b-f8fcfe73e361.jpg"
+  },
+  "Victory's Herald": {
+   "name": "Victory's Herald",
+   "manaCost": "{3}{W}{W}{W}",
+   "cmc": 6,
+   "colors": [
+    "W"
+   ],
+   "colorIdentity": [
+    "W"
+   ],
+   "typeLine": "Creature — Angel",
+   "oracleText": "Flying\nWhenever this creature attacks, attacking creatures gain flying and lifelink until end of turn.",
+   "power": "4",
+   "toughness": "4",
+   "keywords": [
+    "Flying"
+   ],
+   "image": "https://cards.scryfall.io/normal/front/3/3/33366563-6cb8-46f6-82c9-d7541a52af33.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/3/3/33366563-6cb8-46f6-82c9-d7541a52af33.jpg"
+  },
+  "Shepherd of the Lost": {
+   "name": "Shepherd of the Lost",
+   "manaCost": "{4}{W}",
+   "cmc": 5,
+   "colors": [
+    "W"
+   ],
+   "colorIdentity": [
+    "W"
+   ],
+   "typeLine": "Creature — Angel",
+   "oracleText": "Flying, first strike, vigilance",
+   "power": "3",
+   "toughness": "3",
+   "keywords": [
+    "Flying",
+    "Vigilance",
+    "First strike"
+   ],
+   "image": "https://cards.scryfall.io/normal/front/f/f/ff23b1c2-7b99-4504-8944-ada264725524.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/f/f/ff23b1c2-7b99-4504-8944-ada264725524.jpg"
+  },
+  "Swords to Plowshares": {
+   "name": "Swords to Plowshares",
+   "manaCost": "{W}",
+   "cmc": 1,
+   "colors": [
+    "W"
+   ],
+   "colorIdentity": [
+    "W"
+   ],
+   "typeLine": "Instant",
+   "oracleText": "Exile target creature. Its controller gains life equal to its power.",
+   "keywords": [],
+   "image": "https://cards.scryfall.io/normal/front/f/7/f7e12477-d59f-442b-a678-1be746d0b7be.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/f/7/f7e12477-d59f-442b-a678-1be746d0b7be.jpg"
+  },
+  "Wrath of God": {
+   "name": "Wrath of God",
+   "manaCost": "{2}{W}{W}",
+   "cmc": 4,
+   "colors": [
+    "W"
+   ],
+   "colorIdentity": [
+    "W"
+   ],
+   "typeLine": "Sorcery",
+   "oracleText": "Destroy all creatures. They can't be regenerated.",
+   "keywords": [],
+   "image": "https://cards.scryfall.io/normal/front/5/3/537d2b05-3f52-45d6-8fe3-26282085d0c6.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/5/3/537d2b05-3f52-45d6-8fe3-26282085d0c6.jpg"
+  },
+  "Path to Exile": {
+   "name": "Path to Exile",
+   "manaCost": "{W}",
+   "cmc": 1,
+   "colors": [
+    "W"
+   ],
+   "colorIdentity": [
+    "W"
+   ],
+   "typeLine": "Instant",
+   "oracleText": "Exile target creature. Its controller may search their library for a basic land card, put that card onto the battlefield tapped, then shuffle.",
+   "keywords": [],
+   "image": "https://cards.scryfall.io/normal/front/2/2/22e08a78-55b7-46b0-bd1a-a51548fc1861.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/2/2/22e08a78-55b7-46b0-bd1a-a51548fc1861.jpg"
+  },
+  "Glorious Anthem": {
+   "name": "Glorious Anthem",
+   "manaCost": "{1}{W}{W}",
+   "cmc": 3,
+   "colors": [
+    "W"
+   ],
+   "colorIdentity": [
+    "W"
+   ],
+   "typeLine": "Enchantment",
+   "oracleText": "Creatures you control get +1/+1.",
+   "keywords": [],
+   "image": "https://cards.scryfall.io/normal/front/1/7/17d154d3-7ae5-43ff-9978-d974285e2c89.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/1/7/17d154d3-7ae5-43ff-9978-d974285e2c89.jpg"
+  },
+  "Raise the Alarm": {
+   "name": "Raise the Alarm",
+   "manaCost": "{1}{W}",
+   "cmc": 2,
+   "colors": [
+    "W"
+   ],
+   "colorIdentity": [
+    "W"
+   ],
+   "typeLine": "Instant",
+   "oracleText": "Create two 1/1 white Soldier creature tokens.",
+   "keywords": [],
+   "image": "https://cards.scryfall.io/normal/front/6/c/6c7c8527-55f6-494d-b4f7-c427a5735053.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/6/c/6c7c8527-55f6-494d-b4f7-c427a5735053.jpg"
+  },
+  "Revitalize": {
+   "name": "Revitalize",
+   "manaCost": "{1}{W}",
+   "cmc": 2,
+   "colors": [
+    "W"
+   ],
+   "colorIdentity": [
+    "W"
+   ],
+   "typeLine": "Instant",
+   "oracleText": "You gain 3 life.\nDraw a card.",
+   "keywords": [],
+   "image": "https://cards.scryfall.io/normal/front/3/a/3a9fb75e-c8e5-417b-83d4-5105af9c66c1.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/3/a/3a9fb75e-c8e5-417b-83d4-5105af9c66c1.jpg"
+  },
+  "Disenchant": {
+   "name": "Disenchant",
+   "manaCost": "{1}{W}",
+   "cmc": 2,
+   "colors": [
+    "W"
+   ],
+   "colorIdentity": [
+    "W"
+   ],
+   "typeLine": "Instant",
+   "oracleText": "Destroy target artifact or enchantment.",
+   "keywords": [],
+   "image": "https://cards.scryfall.io/normal/front/7/a/7ac43e16-8b14-46f2-877a-600ea918766b.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/7/a/7ac43e16-8b14-46f2-877a-600ea918766b.jpg"
+  },
+  "Divine Verdict": {
+   "name": "Divine Verdict",
+   "manaCost": "{3}{W}",
+   "cmc": 4,
+   "colors": [
+    "W"
+   ],
+   "colorIdentity": [
+    "W"
+   ],
+   "typeLine": "Instant",
+   "oracleText": "Destroy target attacking or blocking creature.",
+   "keywords": [],
+   "image": "https://cards.scryfall.io/normal/front/e/d/ed07b708-7232-4b87-b5d9-edaa20a69293.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/e/d/ed07b708-7232-4b87-b5d9-edaa20a69293.jpg"
+  },
+  "Inspired Charge": {
+   "name": "Inspired Charge",
+   "manaCost": "{2}{W}{W}",
+   "cmc": 4,
+   "colors": [
+    "W"
+   ],
+   "colorIdentity": [
+    "W"
+   ],
+   "typeLine": "Instant",
+   "oracleText": "Creatures you control get +2/+1 until end of turn.",
+   "keywords": [],
+   "image": "https://cards.scryfall.io/normal/front/9/f/9f17e624-219a-4e76-bfe0-f49c9ddd4a6d.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/9/f/9f17e624-219a-4e76-bfe0-f49c9ddd4a6d.jpg"
+  },
+  "Sheoldred, the Apocalypse": {
+   "name": "Sheoldred, the Apocalypse",
+   "manaCost": "{2}{B}{B}",
+   "cmc": 4,
+   "colors": [
+    "B"
+   ],
+   "colorIdentity": [
+    "B"
+   ],
+   "typeLine": "Legendary Creature — Phyrexian Praetor",
+   "oracleText": "Deathtouch\nWhenever you draw a card, you gain 2 life.\nWhenever an opponent draws a card, they lose 2 life.",
+   "power": "4",
+   "toughness": "5",
+   "keywords": [
+    "Deathtouch"
+   ],
+   "image": "https://cards.scryfall.io/normal/front/d/6/d67be074-cdd4-41d9-ac89-0a0456c4e4b2.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/d/6/d67be074-cdd4-41d9-ac89-0a0456c4e4b2.jpg"
+  },
+  "Swamp": {
+   "name": "Swamp",
+   "manaCost": "",
+   "cmc": 0,
+   "colors": [],
+   "colorIdentity": [
+    "B"
+   ],
+   "typeLine": "Basic Land — Swamp",
+   "oracleText": "({T}: Add {B}.)",
+   "keywords": [],
+   "image": "https://cards.scryfall.io/normal/front/b/2/b233b117-9369-45c1-80c5-cc857386b6be.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/b/2/b233b117-9369-45c1-80c5-cc857386b6be.jpg"
+  },
+  "Typhoid Rats": {
+   "name": "Typhoid Rats",
+   "manaCost": "{B}",
+   "cmc": 1,
+   "colors": [
+    "B"
+   ],
+   "colorIdentity": [
+    "B"
+   ],
+   "typeLine": "Creature — Rat",
+   "oracleText": "Deathtouch (Any amount of damage this deals to a creature is enough to destroy it.)",
+   "power": "1",
+   "toughness": "1",
+   "keywords": [
+    "Deathtouch"
+   ],
+   "image": "https://cards.scryfall.io/normal/front/d/1/d13cb90b-50c3-46ef-83f8-812dfb7ff881.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/d/1/d13cb90b-50c3-46ef-83f8-812dfb7ff881.jpg"
+  },
+  "Vampire Nighthawk": {
+   "name": "Vampire Nighthawk",
+   "manaCost": "{1}{B}{B}",
+   "cmc": 3,
+   "colors": [
+    "B"
+   ],
+   "colorIdentity": [
+    "B"
+   ],
+   "typeLine": "Creature — Vampire Shaman",
+   "oracleText": "Flying\nDeathtouch (Any amount of damage this deals to a creature is enough to destroy it.)\nLifelink (Damage dealt by this creature also causes you to gain that much life.)",
+   "power": "2",
+   "toughness": "3",
+   "keywords": [
+    "Deathtouch",
+    "Flying",
+    "Lifelink"
+   ],
+   "image": "https://cards.scryfall.io/normal/front/7/a/7aff07f9-9528-4149-9af0-f4e3c66c9dc5.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/7/a/7aff07f9-9528-4149-9af0-f4e3c66c9dc5.jpg"
+  },
+  "Gray Merchant of Asphodel": {
+   "name": "Gray Merchant of Asphodel",
+   "manaCost": "{3}{B}{B}",
+   "cmc": 5,
+   "colors": [
+    "B"
+   ],
+   "colorIdentity": [
+    "B"
+   ],
+   "typeLine": "Creature — Zombie",
+   "oracleText": "When this creature enters, each opponent loses X life, where X is your devotion to black. You gain life equal to the life lost this way. (Each {B} in the mana costs of permanents you control counts toward your devotion to black.)",
+   "power": "2",
+   "toughness": "4",
+   "keywords": [],
+   "image": "https://cards.scryfall.io/normal/front/0/0/00d001d0-fd29-4b7c-9d0e-9131b995f910.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/0/0/00d001d0-fd29-4b7c-9d0e-9131b995f910.jpg"
+  },
+  "Gifted Aetherborn": {
+   "name": "Gifted Aetherborn",
+   "manaCost": "{B}{B}",
+   "cmc": 2,
+   "colors": [
+    "B"
+   ],
+   "colorIdentity": [
+    "B"
+   ],
+   "typeLine": "Creature — Aetherborn Vampire",
+   "oracleText": "Deathtouch, lifelink",
+   "power": "2",
+   "toughness": "3",
+   "keywords": [
+    "Lifelink",
+    "Deathtouch"
+   ],
+   "image": "https://cards.scryfall.io/normal/front/8/6/8644d4d1-8499-40a8-a01f-68172c82bf58.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/8/6/8644d4d1-8499-40a8-a01f-68172c82bf58.jpg"
+  },
+  "Vampire of the Dire Moon": {
+   "name": "Vampire of the Dire Moon",
+   "manaCost": "{B}",
+   "cmc": 1,
+   "colors": [
+    "B"
+   ],
+   "colorIdentity": [
+    "B"
+   ],
+   "typeLine": "Creature — Vampire",
+   "oracleText": "Deathtouch (Any amount of damage this deals to a creature is enough to destroy it.)\nLifelink (Damage dealt by this creature also causes you to gain that much life.)",
+   "power": "1",
+   "toughness": "1",
+   "keywords": [
+    "Lifelink",
+    "Deathtouch"
+   ],
+   "image": "https://cards.scryfall.io/normal/front/b/3/b3c185b9-5d97-4a5a-af0b-8b9c44dcd235.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/b/3/b3c185b9-5d97-4a5a-af0b-8b9c44dcd235.jpg"
+  },
+  "Harvester of Souls": {
+   "name": "Harvester of Souls",
+   "manaCost": "{4}{B}{B}",
+   "cmc": 6,
+   "colors": [
+    "B"
+   ],
+   "colorIdentity": [
+    "B"
+   ],
+   "typeLine": "Creature — Demon",
+   "oracleText": "Deathtouch (Any amount of damage this deals to a creature is enough to destroy it.)\nWhenever another nontoken creature dies, you may draw a card.",
+   "power": "5",
+   "toughness": "5",
+   "keywords": [
+    "Deathtouch"
+   ],
+   "image": "https://cards.scryfall.io/normal/front/8/7/870ebc0b-b748-4a21-b939-a48811451bba.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/8/7/870ebc0b-b748-4a21-b939-a48811451bba.jpg"
+  },
+  "Zulaport Cutthroat": {
+   "name": "Zulaport Cutthroat",
+   "manaCost": "{1}{B}",
+   "cmc": 2,
+   "colors": [
+    "B"
+   ],
+   "colorIdentity": [
+    "B"
+   ],
+   "typeLine": "Creature — Human Rogue Ally",
+   "oracleText": "Whenever this creature or another creature you control dies, each opponent loses 1 life and you gain 1 life.",
+   "power": "1",
+   "toughness": "1",
+   "keywords": [],
+   "image": "https://cards.scryfall.io/normal/front/c/4/c43609fb-3cee-44e0-98d0-3ecaba1d5767.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/c/4/c43609fb-3cee-44e0-98d0-3ecaba1d5767.jpg"
+  },
+  "Ravenous Chupacabra": {
+   "name": "Ravenous Chupacabra",
+   "manaCost": "{2}{B}{B}",
+   "cmc": 4,
+   "colors": [
+    "B"
+   ],
+   "colorIdentity": [
+    "B"
+   ],
+   "typeLine": "Creature — Beast Horror",
+   "oracleText": "When this creature enters, destroy target creature an opponent controls.",
+   "power": "2",
+   "toughness": "2",
+   "keywords": [],
+   "image": "https://cards.scryfall.io/normal/front/a/4/a4dfbac0-1849-41c5-853a-1fee108d0b01.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/a/4/a4dfbac0-1849-41c5-853a-1fee108d0b01.jpg"
+  },
+  "Nekrataal": {
+   "name": "Nekrataal",
+   "manaCost": "{2}{B}{B}",
+   "cmc": 4,
+   "colors": [
+    "B"
+   ],
+   "colorIdentity": [
+    "B"
+   ],
+   "typeLine": "Creature — Human Assassin",
+   "oracleText": "First strike\nWhen this creature enters, destroy target nonartifact, nonblack creature. That creature can't be regenerated.",
+   "power": "2",
+   "toughness": "1",
+   "keywords": [
+    "First strike"
+   ],
+   "image": "https://cards.scryfall.io/normal/front/5/b/5b3a4f2a-57ea-4fa0-a76f-3e215a36d1f4.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/5/b/5b3a4f2a-57ea-4fa0-a76f-3e215a36d1f4.jpg"
+  },
+  "Nantuko Shade": {
+   "name": "Nantuko Shade",
+   "manaCost": "{B}{B}",
+   "cmc": 2,
+   "colors": [
+    "B"
+   ],
+   "colorIdentity": [
+    "B"
+   ],
+   "typeLine": "Creature — Insect Shade",
+   "oracleText": "{B}: This creature gets +1/+1 until end of turn.",
+   "power": "2",
+   "toughness": "1",
+   "keywords": [],
+   "image": "https://cards.scryfall.io/normal/front/f/b/fb4c5dd4-79dc-4bd2-8c18-897924a4a959.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/f/b/fb4c5dd4-79dc-4bd2-8c18-897924a4a959.jpg"
+  },
+  "Kokusho, the Evening Star": {
+   "name": "Kokusho, the Evening Star",
+   "manaCost": "{4}{B}{B}",
+   "cmc": 6,
+   "colors": [
+    "B"
+   ],
+   "colorIdentity": [
+    "B"
+   ],
+   "typeLine": "Legendary Creature — Dragon Spirit",
+   "oracleText": "Flying\nWhen Kokusho dies, each opponent loses 5 life. You gain life equal to the life lost this way.",
+   "power": "5",
+   "toughness": "5",
+   "keywords": [
+    "Flying"
+   ],
+   "image": "https://cards.scryfall.io/normal/front/a/b/ab56cedb-1bcd-48a5-8503-a8e324e236ad.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/a/b/ab56cedb-1bcd-48a5-8503-a8e324e236ad.jpg"
+  },
+  "Massacre Wurm": {
+   "name": "Massacre Wurm",
+   "manaCost": "{3}{B}{B}{B}",
+   "cmc": 6,
+   "colors": [
+    "B"
+   ],
+   "colorIdentity": [
+    "B"
+   ],
+   "typeLine": "Creature — Phyrexian Wurm",
+   "oracleText": "When this creature enters, creatures your opponents control get -2/-2 until end of turn.\nWhenever a creature an opponent controls dies, that player loses 2 life.",
+   "power": "6",
+   "toughness": "5",
+   "keywords": [],
+   "image": "https://cards.scryfall.io/normal/front/6/7/670a36cc-34e1-4d11-808e-1b6bc88eb5d8.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/6/7/670a36cc-34e1-4d11-808e-1b6bc88eb5d8.jpg"
+  },
+  "Vampire Sovereign": {
+   "name": "Vampire Sovereign",
+   "manaCost": "{3}{B}{B}",
+   "cmc": 5,
+   "colors": [
+    "B"
+   ],
+   "colorIdentity": [
+    "B"
+   ],
+   "typeLine": "Creature — Vampire Noble",
+   "oracleText": "Flying\nWhen this creature enters, target opponent loses 3 life and you gain 3 life.",
+   "power": "3",
+   "toughness": "4",
+   "keywords": [
+    "Flying"
+   ],
+   "image": "https://cards.scryfall.io/normal/front/6/f/6f7f0f05-fe4e-4827-bedf-a54352f95967.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/6/f/6f7f0f05-fe4e-4827-bedf-a54352f95967.jpg"
+  },
+  "Dusk Legion Zealot": {
+   "name": "Dusk Legion Zealot",
+   "manaCost": "{1}{B}",
+   "cmc": 2,
+   "colors": [
+    "B"
+   ],
+   "colorIdentity": [
+    "B"
+   ],
+   "typeLine": "Creature — Vampire Soldier",
+   "oracleText": "When this creature enters, you draw a card and you lose 1 life.",
+   "power": "1",
+   "toughness": "1",
+   "keywords": [],
+   "image": "https://cards.scryfall.io/normal/front/7/2/72048624-e3fd-4e9b-91a9-996ea3a1a74f.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/7/2/72048624-e3fd-4e9b-91a9-996ea3a1a74f.jpg"
+  },
+  "Phyrexian Rager": {
+   "name": "Phyrexian Rager",
+   "manaCost": "{2}{B}",
+   "cmc": 3,
+   "colors": [
+    "B"
+   ],
+   "colorIdentity": [
+    "B"
+   ],
+   "typeLine": "Creature — Phyrexian Horror",
+   "oracleText": "When this creature enters, you draw a card and you lose 1 life.",
+   "power": "2",
+   "toughness": "2",
+   "keywords": [],
+   "image": "https://cards.scryfall.io/normal/front/a/9/a9861fb3-6722-43b8-bf0a-af6dd166e59d.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/a/9/a9861fb3-6722-43b8-bf0a-af6dd166e59d.jpg"
+  },
+  "Walking Corpse": {
+   "name": "Walking Corpse",
+   "manaCost": "{1}{B}",
+   "cmc": 2,
+   "colors": [
+    "B"
+   ],
+   "colorIdentity": [
+    "B"
+   ],
+   "typeLine": "Creature — Zombie",
+   "oracleText": "",
+   "power": "2",
+   "toughness": "2",
+   "keywords": [],
+   "image": "https://cards.scryfall.io/normal/front/0/5/053b59b4-a22c-4228-aadc-ae9da6bb465e.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/0/5/053b59b4-a22c-4228-aadc-ae9da6bb465e.jpg"
+  },
+  "Child of Night": {
+   "name": "Child of Night",
+   "manaCost": "{1}{B}",
+   "cmc": 2,
+   "colors": [
+    "B"
+   ],
+   "colorIdentity": [
+    "B"
+   ],
+   "typeLine": "Creature — Vampire",
+   "oracleText": "Lifelink",
+   "power": "2",
+   "toughness": "1",
+   "keywords": [
+    "Lifelink"
+   ],
+   "image": "https://cards.scryfall.io/normal/front/3/8/3887af00-a87d-4396-b82b-38b88c084e8e.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/3/8/3887af00-a87d-4396-b82b-38b88c084e8e.jpg"
+  },
+  "Grave Titan": {
+   "name": "Grave Titan",
+   "manaCost": "{4}{B}{B}",
+   "cmc": 6,
+   "colors": [
+    "B"
+   ],
+   "colorIdentity": [
+    "B"
+   ],
+   "typeLine": "Creature — Giant",
+   "oracleText": "Deathtouch\nWhenever this creature enters or attacks, create two 2/2 black Zombie creature tokens.",
+   "power": "6",
+   "toughness": "6",
+   "keywords": [
+    "Deathtouch"
+   ],
+   "image": "https://cards.scryfall.io/normal/front/3/b/3b4faa6e-5013-4c59-80f5-662a386672eb.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/3/b/3b4faa6e-5013-4c59-80f5-662a386672eb.jpg"
+  },
+  "Nightmare": {
+   "name": "Nightmare",
+   "manaCost": "{5}{B}",
+   "cmc": 6,
+   "colors": [
+    "B"
+   ],
+   "colorIdentity": [
+    "B"
+   ],
+   "typeLine": "Creature — Nightmare Horse",
+   "oracleText": "Flying (This creature can't be blocked except by creatures with flying or reach.)\nNightmare's power and toughness are each equal to the number of Swamps you control.",
+   "power": "*",
+   "toughness": "*",
+   "keywords": [
+    "Flying"
+   ],
+   "image": "https://cards.scryfall.io/normal/front/0/5/052022ff-795f-4f50-a45c-91cf8be9fbe9.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/0/5/052022ff-795f-4f50-a45c-91cf8be9fbe9.jpg"
+  },
+  "Doom Blade": {
+   "name": "Doom Blade",
+   "manaCost": "{1}{B}",
+   "cmc": 2,
+   "colors": [
+    "B"
+   ],
+   "colorIdentity": [
+    "B"
+   ],
+   "typeLine": "Instant",
+   "oracleText": "Destroy target nonblack creature.",
+   "keywords": [],
+   "image": "https://cards.scryfall.io/normal/front/5/d/5dcd0c4e-4047-47a2-8969-c62616d457c2.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/5/d/5dcd0c4e-4047-47a2-8969-c62616d457c2.jpg"
+  },
+  "Murder": {
+   "name": "Murder",
+   "manaCost": "{1}{B}{B}",
+   "cmc": 3,
+   "colors": [
+    "B"
+   ],
+   "colorIdentity": [
+    "B"
+   ],
+   "typeLine": "Instant",
+   "oracleText": "Destroy target creature.",
+   "keywords": [],
+   "image": "https://cards.scryfall.io/normal/front/2/c/2c249609-9cf7-46f1-b94c-9329add966bb.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/2/c/2c249609-9cf7-46f1-b94c-9329add966bb.jpg"
+  },
+  "Sign in Blood": {
+   "name": "Sign in Blood",
+   "manaCost": "{B}{B}",
+   "cmc": 2,
+   "colors": [
+    "B"
+   ],
+   "colorIdentity": [
+    "B"
+   ],
+   "typeLine": "Sorcery",
+   "oracleText": "Target player draws two cards and loses 2 life.",
+   "keywords": [],
+   "image": "https://cards.scryfall.io/normal/front/b/8/b89d9372-8682-4a61-a003-8bccfbb6cbb4.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/b/8/b89d9372-8682-4a61-a003-8bccfbb6cbb4.jpg"
+  },
+  "Night's Whisper": {
+   "name": "Night's Whisper",
+   "manaCost": "{1}{B}",
+   "cmc": 2,
+   "colors": [
+    "B"
+   ],
+   "colorIdentity": [
+    "B"
+   ],
+   "typeLine": "Sorcery",
+   "oracleText": "You draw two cards and lose 2 life.",
+   "keywords": [],
+   "image": "https://cards.scryfall.io/normal/front/e/8/e8399c2e-ecc8-41c9-a690-a0eeafb27f77.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/e/8/e8399c2e-ecc8-41c9-a690-a0eeafb27f77.jpg"
+  },
+  "Damnation": {
+   "name": "Damnation",
+   "manaCost": "{2}{B}{B}",
+   "cmc": 4,
+   "colors": [
+    "B"
+   ],
+   "colorIdentity": [
+    "B"
+   ],
+   "typeLine": "Sorcery",
+   "oracleText": "Destroy all creatures. They can't be regenerated.",
+   "keywords": [],
+   "image": "https://cards.scryfall.io/normal/front/d/3/d3c0aac5-b9f1-4446-bfea-3e1dd1cf1f2f.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/d/3/d3c0aac5-b9f1-4446-bfea-3e1dd1cf1f2f.jpg"
+  },
+  "Syphon Soul": {
+   "name": "Syphon Soul",
+   "manaCost": "{2}{B}",
+   "cmc": 3,
+   "colors": [
+    "B"
+   ],
+   "colorIdentity": [
+    "B"
+   ],
+   "typeLine": "Sorcery",
+   "oracleText": "Syphon Soul deals 2 damage to each other player. You gain life equal to the damage dealt this way.",
+   "keywords": [],
+   "image": "https://cards.scryfall.io/normal/front/d/c/dc308882-1c12-4da0-8eae-caf4cc3d43e1.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/d/c/dc308882-1c12-4da0-8eae-caf4cc3d43e1.jpg"
+  },
+  "Phyrexian Arena": {
+   "name": "Phyrexian Arena",
+   "manaCost": "{1}{B}{B}",
+   "cmc": 3,
+   "colors": [
+    "B"
+   ],
+   "colorIdentity": [
+    "B"
+   ],
+   "typeLine": "Enchantment",
+   "oracleText": "At the beginning of your upkeep, you draw a card and lose 1 life.",
+   "keywords": [],
+   "image": "https://cards.scryfall.io/normal/front/0/7/0784b6f0-9ebf-43d2-ba0f-a6bc93ba0c48.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/0/7/0784b6f0-9ebf-43d2-ba0f-a6bc93ba0c48.jpg"
+  },
+  "Go for the Throat": {
+   "name": "Go for the Throat",
+   "manaCost": "{1}{B}",
+   "cmc": 2,
+   "colors": [
+    "B"
+   ],
+   "colorIdentity": [
+    "B"
+   ],
+   "typeLine": "Instant",
+   "oracleText": "Destroy target nonartifact creature.",
+   "keywords": [],
+   "image": "https://cards.scryfall.io/normal/front/5/4/5446e1ba-c745-45b2-ad05-b22abf04daec.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/5/4/5446e1ba-c745-45b2-ad05-b22abf04daec.jpg"
+  },
+  "Hero's Downfall": {
+   "name": "Hero's Downfall",
+   "manaCost": "{1}{B}{B}",
+   "cmc": 3,
+   "colors": [
+    "B"
+   ],
+   "colorIdentity": [
+    "B"
+   ],
+   "typeLine": "Instant",
+   "oracleText": "Destroy target creature or planeswalker.",
+   "keywords": [],
+   "image": "https://cards.scryfall.io/normal/front/a/d/ad2c01d9-8f54-46c0-9dc9-d4d4764ce1c9.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/a/d/ad2c01d9-8f54-46c0-9dc9-d4d4764ce1c9.jpg"
+  },
+  "Torbran, Thane of Red Fell": {
+   "name": "Torbran, Thane of Red Fell",
+   "manaCost": "{1}{R}{R}{R}",
+   "cmc": 4,
+   "colors": [
+    "R"
+   ],
+   "colorIdentity": [
+    "R"
+   ],
+   "typeLine": "Legendary Creature — Dwarf Noble",
+   "oracleText": "If a red source you control would deal damage to an opponent or a permanent an opponent controls, it deals that much damage plus 2 instead.",
+   "power": "2",
+   "toughness": "4",
+   "keywords": [],
+   "image": "https://cards.scryfall.io/normal/front/7/9/79f591cd-d277-4ba5-b1bf-1c09cac9cb8a.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/7/9/79f591cd-d277-4ba5-b1bf-1c09cac9cb8a.jpg"
+  },
+  "Mountain": {
+   "name": "Mountain",
+   "manaCost": "",
+   "cmc": 0,
+   "colors": [],
+   "colorIdentity": [
+    "R"
+   ],
+   "typeLine": "Basic Land — Mountain",
+   "oracleText": "({T}: Add {R}.)",
+   "keywords": [],
+   "image": "https://cards.scryfall.io/normal/front/8/5/85177bd7-6c50-48da-b692-ae5fe7bd357c.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/8/5/85177bd7-6c50-48da-b692-ae5fe7bd357c.jpg"
+  },
+  "Goblin Piker": {
+   "name": "Goblin Piker",
+   "manaCost": "{1}{R}",
+   "cmc": 2,
+   "colors": [
+    "R"
+   ],
+   "colorIdentity": [
+    "R"
+   ],
+   "typeLine": "Creature — Goblin Warrior",
+   "oracleText": "",
+   "power": "2",
+   "toughness": "1",
+   "keywords": [],
+   "image": "https://cards.scryfall.io/normal/front/0/8/083ec3e7-950c-4e9d-aba5-02ed13d723f0.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/0/8/083ec3e7-950c-4e9d-aba5-02ed13d723f0.jpg"
+  },
+  "Raging Goblin": {
+   "name": "Raging Goblin",
+   "manaCost": "{R}",
+   "cmc": 1,
+   "colors": [
+    "R"
+   ],
+   "colorIdentity": [
+    "R"
+   ],
+   "typeLine": "Creature — Goblin Berserker",
+   "oracleText": "Haste (This creature can attack and {T} as soon as it comes under your control.)",
+   "power": "1",
+   "toughness": "1",
+   "keywords": [
+    "Haste"
+   ],
+   "image": "https://cards.scryfall.io/normal/front/3/4/3480927c-10da-4817-9954-10aea2bc7100.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/3/4/3480927c-10da-4817-9954-10aea2bc7100.jpg"
+  },
+  "Goblin Chainwhirler": {
+   "name": "Goblin Chainwhirler",
+   "manaCost": "{R}{R}{R}",
+   "cmc": 3,
+   "colors": [
+    "R"
+   ],
+   "colorIdentity": [
+    "R"
+   ],
+   "typeLine": "Creature — Goblin Warrior",
+   "oracleText": "First strike\nWhen this creature enters, it deals 1 damage to each opponent and each creature and planeswalker they control.",
+   "power": "3",
+   "toughness": "3",
+   "keywords": [
+    "First strike"
+   ],
+   "image": "https://cards.scryfall.io/normal/front/8/b/8bdb2883-3cfd-4fb0-9f99-6a57277f7fe4.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/8/b/8bdb2883-3cfd-4fb0-9f99-6a57277f7fe4.jpg"
+  },
+  "Beetleback Chief": {
+   "name": "Beetleback Chief",
+   "manaCost": "{2}{R}{R}",
+   "cmc": 4,
+   "colors": [
+    "R"
+   ],
+   "colorIdentity": [
+    "R"
+   ],
+   "typeLine": "Creature — Goblin Warrior",
+   "oracleText": "When this creature enters, create two 1/1 red Goblin creature tokens.",
+   "power": "2",
+   "toughness": "2",
+   "keywords": [],
+   "image": "https://cards.scryfall.io/normal/front/2/d/2d19a474-b008-4088-8a31-333c0b2d9d65.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/2/d/2d19a474-b008-4088-8a31-333c0b2d9d65.jpg"
+  },
+  "Shivan Dragon": {
+   "name": "Shivan Dragon",
+   "manaCost": "{4}{R}{R}",
+   "cmc": 6,
+   "colors": [
+    "R"
+   ],
+   "colorIdentity": [
+    "R"
+   ],
+   "typeLine": "Creature — Dragon",
+   "oracleText": "Flying\n{R}: This creature gets +1/+0 until end of turn.",
+   "power": "5",
+   "toughness": "5",
+   "keywords": [
+    "Flying"
+   ],
+   "image": "https://cards.scryfall.io/normal/front/7/0/702c4781-670b-49ae-b511-90ed119841b0.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/7/0/702c4781-670b-49ae-b511-90ed119841b0.jpg"
+  },
+  "Thundermaw Hellkite": {
+   "name": "Thundermaw Hellkite",
+   "manaCost": "{3}{R}{R}",
+   "cmc": 5,
+   "colors": [
+    "R"
+   ],
+   "colorIdentity": [
+    "R"
+   ],
+   "typeLine": "Creature — Dragon",
+   "oracleText": "Flying\nHaste (This creature can attack and {T} as soon as it comes under your control.)\nWhen this creature enters, it deals 1 damage to each creature with flying your opponents control. Tap those creatures.",
+   "power": "5",
+   "toughness": "5",
+   "keywords": [
+    "Flying",
+    "Haste"
+   ],
+   "image": "https://cards.scryfall.io/normal/front/a/7/a75f6bb4-ab06-42ca-a0df-326d9a098a26.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/a/7/a75f6bb4-ab06-42ca-a0df-326d9a098a26.jpg"
+  },
+  "Flametongue Kavu": {
+   "name": "Flametongue Kavu",
+   "manaCost": "{3}{R}",
+   "cmc": 4,
+   "colors": [
+    "R"
+   ],
+   "colorIdentity": [
+    "R"
+   ],
+   "typeLine": "Creature — Kavu",
+   "oracleText": "When this creature enters, it deals 4 damage to target creature.",
+   "power": "4",
+   "toughness": "2",
+   "keywords": [],
+   "image": "https://cards.scryfall.io/normal/front/1/b/1b3a5139-3341-409e-be33-184897c7398e.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/1/b/1b3a5139-3341-409e-be33-184897c7398e.jpg"
+  },
+  "Lightning Elemental": {
+   "name": "Lightning Elemental",
+   "manaCost": "{3}{R}",
+   "cmc": 4,
+   "colors": [
+    "R"
+   ],
+   "colorIdentity": [
+    "R"
+   ],
+   "typeLine": "Creature — Elemental",
+   "oracleText": "Haste (This creature can attack and {T} as soon as it comes under your control.)",
+   "power": "4",
+   "toughness": "1",
+   "keywords": [
+    "Haste"
+   ],
+   "image": "https://cards.scryfall.io/normal/front/5/f/5f2a959e-7c17-4226-afcb-bc0bb5a4492b.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/5/f/5f2a959e-7c17-4226-afcb-bc0bb5a4492b.jpg"
+  },
+  "Borderland Marauder": {
+   "name": "Borderland Marauder",
+   "manaCost": "{1}{R}",
+   "cmc": 2,
+   "colors": [
+    "R"
+   ],
+   "colorIdentity": [
+    "R"
+   ],
+   "typeLine": "Creature — Human Warrior",
+   "oracleText": "Whenever this creature attacks, it gets +2/+0 until end of turn.",
+   "power": "1",
+   "toughness": "2",
+   "keywords": [],
+   "image": "https://cards.scryfall.io/normal/front/e/3/e3132919-58a7-429f-8a0f-9210d3c2c734.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/e/3/e3132919-58a7-429f-8a0f-9210d3c2c734.jpg"
+  },
+  "Guttersnipe": {
+   "name": "Guttersnipe",
+   "manaCost": "{2}{R}",
+   "cmc": 3,
+   "colors": [
+    "R"
+   ],
+   "colorIdentity": [
+    "R"
+   ],
+   "typeLine": "Creature — Goblin Shaman",
+   "oracleText": "Whenever you cast an instant or sorcery spell, this creature deals 2 damage to each opponent.",
+   "power": "2",
+   "toughness": "2",
+   "keywords": [],
+   "image": "https://cards.scryfall.io/normal/front/f/6/f6bb1ffc-2251-4655-b8f9-4c8047dd5d5f.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/f/6/f6bb1ffc-2251-4655-b8f9-4c8047dd5d5f.jpg"
+  },
+  "Thermo-Alchemist": {
+   "name": "Thermo-Alchemist",
+   "manaCost": "{1}{R}",
+   "cmc": 2,
+   "colors": [
+    "R"
+   ],
+   "colorIdentity": [
+    "R"
+   ],
+   "typeLine": "Creature — Human Shaman",
+   "oracleText": "Defender\n{T}: This creature deals 1 damage to each opponent.\nWhenever you cast an instant or sorcery spell, untap this creature.",
+   "power": "0",
+   "toughness": "3",
+   "keywords": [
+    "Defender"
+   ],
+   "image": "https://cards.scryfall.io/normal/front/7/8/78b194b3-108a-4152-bd37-52c302e25ad6.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/7/8/78b194b3-108a-4152-bd37-52c302e25ad6.jpg"
+  },
+  "Hellrider": {
+   "name": "Hellrider",
+   "manaCost": "{2}{R}{R}",
+   "cmc": 4,
+   "colors": [
+    "R"
+   ],
+   "colorIdentity": [
+    "R"
+   ],
+   "typeLine": "Creature — Devil",
+   "oracleText": "Haste\nWhenever a creature you control attacks, this creature deals 1 damage to the player or planeswalker it's attacking.",
+   "power": "3",
+   "toughness": "3",
+   "keywords": [
+    "Haste"
+   ],
+   "image": "https://cards.scryfall.io/normal/front/7/b/7bbfd905-8c71-4389-9174-6e84bcbcf05c.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/7/b/7bbfd905-8c71-4389-9174-6e84bcbcf05c.jpg"
+  },
+  "Viashino Pyromancer": {
+   "name": "Viashino Pyromancer",
+   "manaCost": "{1}{R}",
+   "cmc": 2,
+   "colors": [
+    "R"
+   ],
+   "colorIdentity": [
+    "R"
+   ],
+   "typeLine": "Creature — Lizard Wizard",
+   "oracleText": "When this creature enters, it deals 2 damage to target player or planeswalker.",
+   "power": "2",
+   "toughness": "1",
+   "keywords": [],
+   "image": "https://cards.scryfall.io/normal/front/9/f/9f52ada2-cabc-46a3-99df-271833a86909.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/9/f/9f52ada2-cabc-46a3-99df-271833a86909.jpg"
+  },
+  "Fire Elemental": {
+   "name": "Fire Elemental",
+   "manaCost": "{3}{R}{R}",
+   "cmc": 5,
+   "colors": [
+    "R"
+   ],
+   "colorIdentity": [
+    "R"
+   ],
+   "typeLine": "Creature — Elemental",
+   "oracleText": "",
+   "power": "5",
+   "toughness": "4",
+   "keywords": [],
+   "image": "https://cards.scryfall.io/normal/front/d/c/dc506f58-048d-49cc-ad8c-2eb851b08bb6.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/d/c/dc506f58-048d-49cc-ad8c-2eb851b08bb6.jpg"
+  },
+  "Furnace Whelp": {
+   "name": "Furnace Whelp",
+   "manaCost": "{2}{R}{R}",
+   "cmc": 4,
+   "colors": [
+    "R"
+   ],
+   "colorIdentity": [
+    "R"
+   ],
+   "typeLine": "Creature — Dragon",
+   "oracleText": "Flying\n{R}: This creature gets +1/+0 until end of turn.",
+   "power": "2",
+   "toughness": "2",
+   "keywords": [
+    "Flying"
+   ],
+   "image": "https://cards.scryfall.io/normal/front/2/c/2ce76e86-39f3-4ebf-b550-88ea7f23a91f.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/2/c/2ce76e86-39f3-4ebf-b550-88ea7f23a91f.jpg"
+  },
+  "Charging Monstrosaur": {
+   "name": "Charging Monstrosaur",
+   "manaCost": "{4}{R}",
+   "cmc": 5,
+   "colors": [
+    "R"
+   ],
+   "colorIdentity": [
+    "R"
+   ],
+   "typeLine": "Creature — Dinosaur",
+   "oracleText": "Trample, haste",
+   "power": "5",
+   "toughness": "5",
+   "keywords": [
+    "Haste",
+    "Trample"
+   ],
+   "image": "https://cards.scryfall.io/normal/front/d/5/d5222448-95d1-4b63-ab76-d5060febcf38.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/d/5/d5222448-95d1-4b63-ab76-d5060febcf38.jpg"
+  },
+  "Balefire Dragon": {
+   "name": "Balefire Dragon",
+   "manaCost": "{5}{R}{R}",
+   "cmc": 7,
+   "colors": [
+    "R"
+   ],
+   "colorIdentity": [
+    "R"
+   ],
+   "typeLine": "Creature — Dragon",
+   "oracleText": "Flying\nWhenever this creature deals combat damage to a player, it deals that much damage to each creature that player controls.",
+   "power": "6",
+   "toughness": "6",
+   "keywords": [
+    "Flying"
+   ],
+   "image": "https://cards.scryfall.io/normal/front/e/4/e4510ee2-8a2e-4fe5-94af-df420a6a35a0.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/e/4/e4510ee2-8a2e-4fe5-94af-df420a6a35a0.jpg"
+  },
+  "Mogg Fanatic": {
+   "name": "Mogg Fanatic",
+   "manaCost": "{R}",
+   "cmc": 1,
+   "colors": [
+    "R"
+   ],
+   "colorIdentity": [
+    "R"
+   ],
+   "typeLine": "Creature — Goblin",
+   "oracleText": "Sacrifice this creature: It deals 1 damage to any target.",
+   "power": "1",
+   "toughness": "1",
+   "keywords": [],
+   "image": "https://cards.scryfall.io/normal/front/d/4/d479ca28-bdc2-4b87-abf7-5aeb229a3f1e.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/d/4/d479ca28-bdc2-4b87-abf7-5aeb229a3f1e.jpg"
+  },
+  "Lightning Bolt": {
+   "name": "Lightning Bolt",
+   "manaCost": "{R}",
+   "cmc": 1,
+   "colors": [
+    "R"
+   ],
+   "colorIdentity": [
+    "R"
+   ],
+   "typeLine": "Instant",
+   "oracleText": "Lightning Bolt deals 3 damage to any target.",
+   "keywords": [],
+   "image": "https://cards.scryfall.io/normal/front/7/6/7673784e-db4b-43a1-8d55-1bb9fc1e284f.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/7/6/7673784e-db4b-43a1-8d55-1bb9fc1e284f.jpg"
+  },
+  "Shock": {
+   "name": "Shock",
+   "manaCost": "{R}",
+   "cmc": 1,
+   "colors": [
+    "R"
+   ],
+   "colorIdentity": [
+    "R"
+   ],
+   "typeLine": "Instant",
+   "oracleText": "Shock deals 2 damage to any target.",
+   "keywords": [],
+   "image": "https://cards.scryfall.io/normal/front/b/2/b23900fb-efe9-43ab-9f67-4545dd01fb9c.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/b/2/b23900fb-efe9-43ab-9f67-4545dd01fb9c.jpg"
+  },
+  "Lava Axe": {
+   "name": "Lava Axe",
+   "manaCost": "{4}{R}",
+   "cmc": 5,
+   "colors": [
+    "R"
+   ],
+   "colorIdentity": [
+    "R"
+   ],
+   "typeLine": "Sorcery",
+   "oracleText": "Lava Axe deals 5 damage to target player or planeswalker.",
+   "keywords": [],
+   "image": "https://cards.scryfall.io/normal/front/c/3/c3dab325-8f4f-4288-9f3f-960e52b4335b.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/c/3/c3dab325-8f4f-4288-9f3f-960e52b4335b.jpg"
+  },
+  "Flame Rift": {
+   "name": "Flame Rift",
+   "manaCost": "{1}{R}",
+   "cmc": 2,
+   "colors": [
+    "R"
+   ],
+   "colorIdentity": [
+    "R"
+   ],
+   "typeLine": "Sorcery",
+   "oracleText": "Flame Rift deals 4 damage to each player.",
+   "keywords": [],
+   "image": "https://cards.scryfall.io/normal/front/e/6/e63ed449-d249-4639-85d2-f8fe75496d5c.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/e/6/e63ed449-d249-4639-85d2-f8fe75496d5c.jpg"
+  },
+  "Pyroclasm": {
+   "name": "Pyroclasm",
+   "manaCost": "{1}{R}",
+   "cmc": 2,
+   "colors": [
+    "R"
+   ],
+   "colorIdentity": [
+    "R"
+   ],
+   "typeLine": "Sorcery",
+   "oracleText": "Pyroclasm deals 2 damage to each creature.",
+   "keywords": [],
+   "image": "https://cards.scryfall.io/normal/front/4/3/4391b0af-2f26-4a45-9e2a-5bd8e9838107.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/4/3/4391b0af-2f26-4a45-9e2a-5bd8e9838107.jpg"
+  },
+  "Blasphemous Act": {
+   "name": "Blasphemous Act",
+   "manaCost": "{8}{R}",
+   "cmc": 9,
+   "colors": [
+    "R"
+   ],
+   "colorIdentity": [
+    "R"
+   ],
+   "typeLine": "Sorcery",
+   "oracleText": "This spell costs {1} less to cast for each creature on the battlefield.\nBlasphemous Act deals 13 damage to each creature.",
+   "keywords": [],
+   "image": "https://cards.scryfall.io/normal/front/7/d/7d4b1d44-126e-4987-9a9f-f0f9627a09cb.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/7/d/7d4b1d44-126e-4987-9a9f-f0f9627a09cb.jpg"
+  },
+  "Lightning Strike": {
+   "name": "Lightning Strike",
+   "manaCost": "{1}{R}",
+   "cmc": 2,
+   "colors": [
+    "R"
+   ],
+   "colorIdentity": [
+    "R"
+   ],
+   "typeLine": "Instant",
+   "oracleText": "Lightning Strike deals 3 damage to any target.",
+   "keywords": [],
+   "image": "https://cards.scryfall.io/normal/front/8/8/88b13bc0-da54-4c3b-917c-7c8345a329f5.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/8/8/88b13bc0-da54-4c3b-917c-7c8345a329f5.jpg"
+  },
+  "Shatter": {
+   "name": "Shatter",
+   "manaCost": "{1}{R}",
+   "cmc": 2,
+   "colors": [
+    "R"
+   ],
+   "colorIdentity": [
+    "R"
+   ],
+   "typeLine": "Instant",
+   "oracleText": "Destroy target artifact.",
+   "keywords": [],
+   "image": "https://cards.scryfall.io/normal/front/9/2/929a41f7-f52d-4190-a80c-5ceb3e368a31.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/9/2/929a41f7-f52d-4190-a80c-5ceb3e368a31.jpg"
+  },
+  "Fervor": {
+   "name": "Fervor",
+   "manaCost": "{2}{R}",
+   "cmc": 3,
+   "colors": [
+    "R"
+   ],
+   "colorIdentity": [
+    "R"
+   ],
+   "typeLine": "Enchantment",
+   "oracleText": "Creatures you control have haste. (They can attack and {T} as soon as they come under your control.)",
+   "keywords": [],
+   "image": "https://cards.scryfall.io/normal/front/a/8/a88515c2-4b4f-4d16-9f50-149ef012e961.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/a/8/a88515c2-4b4f-4d16-9f50-149ef012e961.jpg"
+  },
+  "Brute Strength": {
+   "name": "Brute Strength",
+   "manaCost": "{1}{R}",
+   "cmc": 2,
+   "colors": [
+    "R"
+   ],
+   "colorIdentity": [
+    "R"
+   ],
+   "typeLine": "Instant",
+   "oracleText": "Target creature gets +3/+1 and gains trample until end of turn. (It can deal excess combat damage to the player or planeswalker it's attacking.)",
+   "keywords": [],
+   "image": "https://cards.scryfall.io/normal/front/6/f/6f40427d-231c-4baa-b1ed-4a2200dd5186.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/6/f/6f40427d-231c-4baa-b1ed-4a2200dd5186.jpg"
+  },
+  "Ghalta, Primal Hunger": {
+   "name": "Ghalta, Primal Hunger",
+   "manaCost": "{10}{G}{G}",
+   "cmc": 12,
+   "colors": [
+    "G"
+   ],
+   "colorIdentity": [
+    "G"
+   ],
+   "typeLine": "Legendary Creature — Elder Dinosaur",
+   "oracleText": "This spell costs {X} less to cast, where X is the total power of creatures you control.\nTrample (This creature can deal excess combat damage to the player or planeswalker it's attacking.)",
+   "power": "12",
+   "toughness": "12",
+   "keywords": [
+    "Trample"
+   ],
+   "image": "https://cards.scryfall.io/normal/front/6/a/6a9c39e4-a8cf-42dd-8d0e-45634b335546.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/6/a/6a9c39e4-a8cf-42dd-8d0e-45634b335546.jpg"
+  },
+  "Forest": {
+   "name": "Forest",
+   "manaCost": "",
+   "cmc": 0,
+   "colors": [],
+   "colorIdentity": [
+    "G"
+   ],
+   "typeLine": "Basic Land — Forest",
+   "oracleText": "({T}: Add {G}.)",
+   "keywords": [],
+   "image": "https://cards.scryfall.io/normal/front/2/e/2e781bfd-f8cb-4d20-b977-4359f3a21311.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/2/e/2e781bfd-f8cb-4d20-b977-4359f3a21311.jpg"
+  },
+  "Llanowar Elves": {
+   "name": "Llanowar Elves",
+   "manaCost": "{G}",
+   "cmc": 1,
+   "colors": [
+    "G"
+   ],
+   "colorIdentity": [
+    "G"
+   ],
+   "typeLine": "Creature — Elf Druid",
+   "oracleText": "{T}: Add {G}.",
+   "power": "1",
+   "toughness": "1",
+   "keywords": [],
+   "image": "https://cards.scryfall.io/normal/front/6/a/6a0b230b-d391-4998-a3f7-7b158a0ec2cd.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/6/a/6a0b230b-d391-4998-a3f7-7b158a0ec2cd.jpg"
+  },
+  "Elvish Mystic": {
+   "name": "Elvish Mystic",
+   "manaCost": "{G}",
+   "cmc": 1,
+   "colors": [
+    "G"
+   ],
+   "colorIdentity": [
+    "G"
+   ],
+   "typeLine": "Creature — Elf Druid",
+   "oracleText": "{T}: Add {G}.",
+   "power": "1",
+   "toughness": "1",
+   "keywords": [],
+   "image": "https://cards.scryfall.io/normal/front/0/8/08b9a296-3b76-4f8f-9d71-7c9af92bb3b4.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/0/8/08b9a296-3b76-4f8f-9d71-7c9af92bb3b4.jpg"
+  },
+  "Kalonian Tusker": {
+   "name": "Kalonian Tusker",
+   "manaCost": "{G}{G}",
+   "cmc": 2,
+   "colors": [
+    "G"
+   ],
+   "colorIdentity": [
+    "G"
+   ],
+   "typeLine": "Creature — Beast",
+   "oracleText": "",
+   "power": "3",
+   "toughness": "3",
+   "keywords": [],
+   "image": "https://cards.scryfall.io/normal/front/1/3/135946fc-fe67-401f-821d-d7145c63f030.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/1/3/135946fc-fe67-401f-821d-d7145c63f030.jpg"
+  },
+  "Leatherback Baloth": {
+   "name": "Leatherback Baloth",
+   "manaCost": "{G}{G}{G}",
+   "cmc": 3,
+   "colors": [
+    "G"
+   ],
+   "colorIdentity": [
+    "G"
+   ],
+   "typeLine": "Creature — Beast",
+   "oracleText": "",
+   "power": "4",
+   "toughness": "5",
+   "keywords": [],
+   "image": "https://cards.scryfall.io/normal/front/5/5/55f97b4c-42c7-4986-a150-0b8de11f0537.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/5/5/55f97b4c-42c7-4986-a150-0b8de11f0537.jpg"
+  },
+  "Garruk's Companion": {
+   "name": "Garruk's Companion",
+   "manaCost": "{G}{G}",
+   "cmc": 2,
+   "colors": [
+    "G"
+   ],
+   "colorIdentity": [
+    "G"
+   ],
+   "typeLine": "Creature — Beast",
+   "oracleText": "Trample (This creature can deal excess combat damage to the player or planeswalker it's attacking.)",
+   "power": "3",
+   "toughness": "2",
+   "keywords": [
+    "Trample"
+   ],
+   "image": "https://cards.scryfall.io/normal/front/b/8/b8d8806c-43c5-4c6c-9420-6210a17ec2b0.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/b/8/b8d8806c-43c5-4c6c-9420-6210a17ec2b0.jpg"
+  },
+  "Colossal Dreadmaw": {
+   "name": "Colossal Dreadmaw",
+   "manaCost": "{4}{G}{G}",
+   "cmc": 6,
+   "colors": [
+    "G"
+   ],
+   "colorIdentity": [
+    "G"
+   ],
+   "typeLine": "Creature — Dinosaur",
+   "oracleText": "Trample (This creature can deal excess combat damage to the player or planeswalker it's attacking.)",
+   "power": "6",
+   "toughness": "6",
+   "keywords": [
+    "Trample"
+   ],
+   "image": "https://cards.scryfall.io/normal/front/8/0/8059c52b-5d25-4052-b48a-e9e219a7a546.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/8/0/8059c52b-5d25-4052-b48a-e9e219a7a546.jpg"
+  },
+  "Rampaging Baloths": {
+   "name": "Rampaging Baloths",
+   "manaCost": "{4}{G}{G}",
+   "cmc": 6,
+   "colors": [
+    "G"
+   ],
+   "colorIdentity": [
+    "G"
+   ],
+   "typeLine": "Creature — Beast",
+   "oracleText": "Trample\nLandfall — Whenever a land you control enters, create a 4/4 green Beast creature token.",
+   "power": "6",
+   "toughness": "6",
+   "keywords": [
+    "Trample",
+    "Landfall"
+   ],
+   "image": "https://cards.scryfall.io/normal/front/8/4/84aa18de-6acc-46cc-8e28-3046790a6751.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/8/4/84aa18de-6acc-46cc-8e28-3046790a6751.jpg"
+  },
+  "Terra Stomper": {
+   "name": "Terra Stomper",
+   "manaCost": "{3}{G}{G}{G}",
+   "cmc": 6,
+   "colors": [
+    "G"
+   ],
+   "colorIdentity": [
+    "G"
+   ],
+   "typeLine": "Creature — Beast",
+   "oracleText": "This spell can't be countered.\nTrample (This creature can deal excess combat damage to the player or planeswalker it's attacking.)",
+   "power": "8",
+   "toughness": "8",
+   "keywords": [
+    "Trample"
+   ],
+   "image": "https://cards.scryfall.io/normal/front/6/5/652db782-cf79-4626-9eb2-ad214cb39c86.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/6/5/652db782-cf79-4626-9eb2-ad214cb39c86.jpg"
+  },
+  "Acidic Slime": {
+   "name": "Acidic Slime",
+   "manaCost": "{3}{G}{G}",
+   "cmc": 5,
+   "colors": [
+    "G"
+   ],
+   "colorIdentity": [
+    "G"
+   ],
+   "typeLine": "Creature — Ooze",
+   "oracleText": "Deathtouch (Any amount of damage this deals to a creature is enough to destroy it.)\nWhen this creature enters, destroy target artifact, enchantment, or land.",
+   "power": "2",
+   "toughness": "2",
+   "keywords": [
+    "Deathtouch"
+   ],
+   "image": "https://cards.scryfall.io/normal/front/9/3/932d48fb-42b5-4aaa-a91c-d35cdb5e41a3.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/9/3/932d48fb-42b5-4aaa-a91c-d35cdb5e41a3.jpg"
+  },
+  "Reclamation Sage": {
+   "name": "Reclamation Sage",
+   "manaCost": "{2}{G}",
+   "cmc": 3,
+   "colors": [
+    "G"
+   ],
+   "colorIdentity": [
+    "G"
+   ],
+   "typeLine": "Creature — Elf Shaman",
+   "oracleText": "When this creature enters, you may destroy target artifact or enchantment.",
+   "power": "2",
+   "toughness": "1",
+   "keywords": [],
+   "image": "https://cards.scryfall.io/normal/front/1/9/1918ea65-ab7f-4d40-97fd-a656c892a2a1.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/1/9/1918ea65-ab7f-4d40-97fd-a656c892a2a1.jpg"
+  },
+  "Wood Elves": {
+   "name": "Wood Elves",
+   "manaCost": "{2}{G}",
+   "cmc": 3,
+   "colors": [
+    "G"
+   ],
+   "colorIdentity": [
+    "G"
+   ],
+   "typeLine": "Creature — Elf Scout",
+   "oracleText": "When this creature enters, search your library for a Forest card, put that card onto the battlefield, then shuffle.",
+   "power": "1",
+   "toughness": "1",
+   "keywords": [],
+   "image": "https://cards.scryfall.io/normal/front/2/4/2476e42b-b209-4207-8ed9-cb668f89b218.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/2/4/2476e42b-b209-4207-8ed9-cb668f89b218.jpg"
+  },
+  "Farhaven Elf": {
+   "name": "Farhaven Elf",
+   "manaCost": "{2}{G}",
+   "cmc": 3,
+   "colors": [
+    "G"
+   ],
+   "colorIdentity": [
+    "G"
+   ],
+   "typeLine": "Creature — Elf Druid",
+   "oracleText": "When this creature enters, you may search your library for a basic land card, put it onto the battlefield tapped, then shuffle.",
+   "power": "1",
+   "toughness": "1",
+   "keywords": [],
+   "image": "https://cards.scryfall.io/normal/front/3/2/320d0a4c-c556-4468-b934-bfdf17961a53.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/3/2/320d0a4c-c556-4468-b934-bfdf17961a53.jpg"
+  },
+  "Giant Spider": {
+   "name": "Giant Spider",
+   "manaCost": "{3}{G}",
+   "cmc": 4,
+   "colors": [
+    "G"
+   ],
+   "colorIdentity": [
+    "G"
+   ],
+   "typeLine": "Creature — Spider",
+   "oracleText": "Reach (This creature can block creatures with flying.)",
+   "power": "2",
+   "toughness": "4",
+   "keywords": [
+    "Reach"
+   ],
+   "image": "https://cards.scryfall.io/normal/front/2/1/213c9202-b6f4-43ab-b57f-b97a1da5e263.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/2/1/213c9202-b6f4-43ab-b57f-b97a1da5e263.jpg"
+  },
+  "Thrashing Brontodon": {
+   "name": "Thrashing Brontodon",
+   "manaCost": "{1}{G}{G}",
+   "cmc": 3,
+   "colors": [
+    "G"
+   ],
+   "colorIdentity": [
+    "G"
+   ],
+   "typeLine": "Creature — Dinosaur",
+   "oracleText": "{1}, Sacrifice this creature: Destroy target artifact or enchantment.",
+   "power": "3",
+   "toughness": "4",
+   "keywords": [],
+   "image": "https://cards.scryfall.io/normal/front/5/9/592364bf-68b5-4ea0-97d6-c7cadce940fd.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/5/9/592364bf-68b5-4ea0-97d6-c7cadce940fd.jpg"
+  },
+  "Carnage Tyrant": {
+   "name": "Carnage Tyrant",
+   "manaCost": "{4}{G}{G}",
+   "cmc": 6,
+   "colors": [
+    "G"
+   ],
+   "colorIdentity": [
+    "G"
+   ],
+   "typeLine": "Creature — Dinosaur",
+   "oracleText": "This spell can't be countered.\nTrample, hexproof",
+   "power": "7",
+   "toughness": "6",
+   "keywords": [
+    "Hexproof",
+    "Trample"
+   ],
+   "image": "https://cards.scryfall.io/normal/front/3/b/3bd78731-949c-464a-826a-92f86d784911.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/3/b/3bd78731-949c-464a-826a-92f86d784911.jpg"
+  },
+  "Gigantosaurus": {
+   "name": "Gigantosaurus",
+   "manaCost": "{G}{G}{G}{G}{G}",
+   "cmc": 5,
+   "colors": [
+    "G"
+   ],
+   "colorIdentity": [
+    "G"
+   ],
+   "typeLine": "Creature — Dinosaur",
+   "oracleText": "",
+   "power": "10",
+   "toughness": "10",
+   "keywords": [],
+   "image": "https://cards.scryfall.io/normal/front/c/1/c1db84d8-d426-4c0d-b44e-5be7b0f5f5bf.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/c/1/c1db84d8-d426-4c0d-b44e-5be7b0f5f5bf.jpg"
+  },
+  "Pelakka Wurm": {
+   "name": "Pelakka Wurm",
+   "manaCost": "{4}{G}{G}{G}",
+   "cmc": 7,
+   "colors": [
+    "G"
+   ],
+   "colorIdentity": [
+    "G"
+   ],
+   "typeLine": "Creature — Wurm",
+   "oracleText": "Trample (This creature can deal excess combat damage to the player or planeswalker it's attacking.)\nWhen this creature enters, you gain 7 life.\nWhen this creature dies, draw a card.",
+   "power": "7",
+   "toughness": "7",
+   "keywords": [
+    "Trample"
+   ],
+   "image": "https://cards.scryfall.io/normal/front/3/0/304c635c-de4d-46ee-8ab0-e5c4d55b61b3.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/3/0/304c635c-de4d-46ee-8ab0-e5c4d55b61b3.jpg"
+  },
+  "Avenger of Zendikar": {
+   "name": "Avenger of Zendikar",
+   "manaCost": "{5}{G}{G}",
+   "cmc": 7,
+   "colors": [
+    "G"
+   ],
+   "colorIdentity": [
+    "G"
+   ],
+   "typeLine": "Creature — Elemental",
+   "oracleText": "When this creature enters, create a 0/1 green Plant creature token for each land you control.\nLandfall — Whenever a land you control enters, you may put a +1/+1 counter on each Plant creature you control.",
+   "power": "5",
+   "toughness": "5",
+   "keywords": [
+    "Landfall"
+   ],
+   "image": "https://cards.scryfall.io/normal/front/c/6/c6f1e60f-a195-4590-80b0-86767de6c423.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/c/6/c6f1e60f-a195-4590-80b0-86767de6c423.jpg"
+  },
+  "Elvish Visionary": {
+   "name": "Elvish Visionary",
+   "manaCost": "{1}{G}",
+   "cmc": 2,
+   "colors": [
+    "G"
+   ],
+   "colorIdentity": [
+    "G"
+   ],
+   "typeLine": "Creature — Elf Shaman",
+   "oracleText": "When this creature enters, draw a card.",
+   "power": "1",
+   "toughness": "1",
+   "keywords": [],
+   "image": "https://cards.scryfall.io/normal/front/6/d/6d2f4a37-453f-4a2c-bfba-2d1227394c90.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/6/d/6d2f4a37-453f-4a2c-bfba-2d1227394c90.jpg"
+  },
+  "Beast Whisperer": {
+   "name": "Beast Whisperer",
+   "manaCost": "{2}{G}{G}",
+   "cmc": 4,
+   "colors": [
+    "G"
+   ],
+   "colorIdentity": [
+    "G"
+   ],
+   "typeLine": "Creature — Elf Druid",
+   "oracleText": "Whenever you cast a creature spell, draw a card.",
+   "power": "2",
+   "toughness": "3",
+   "keywords": [],
+   "image": "https://cards.scryfall.io/normal/front/d/a/daf4bcd2-3ae4-4803-9ea1-3bcc3de5ca59.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/d/a/daf4bcd2-3ae4-4803-9ea1-3bcc3de5ca59.jpg"
+  },
+  "Garruk's Packleader": {
+   "name": "Garruk's Packleader",
+   "manaCost": "{4}{G}",
+   "cmc": 5,
+   "colors": [
+    "G"
+   ],
+   "colorIdentity": [
+    "G"
+   ],
+   "typeLine": "Creature — Beast",
+   "oracleText": "Whenever another creature you control with power 3 or greater enters, you may draw a card.",
+   "power": "4",
+   "toughness": "4",
+   "keywords": [],
+   "image": "https://cards.scryfall.io/normal/front/d/a/dafeafa0-b937-4387-8626-449a810486b4.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/d/a/dafeafa0-b937-4387-8626-449a810486b4.jpg"
+  },
+  "Rampant Growth": {
+   "name": "Rampant Growth",
+   "manaCost": "{1}{G}",
+   "cmc": 2,
+   "colors": [
+    "G"
+   ],
+   "colorIdentity": [
+    "G"
+   ],
+   "typeLine": "Sorcery",
+   "oracleText": "Search your library for a basic land card, put that card onto the battlefield tapped, then shuffle.",
+   "keywords": [],
+   "image": "https://cards.scryfall.io/normal/front/b/7/b7c47024-5e08-4b17-b41a-7647f8b814b9.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/b/7/b7c47024-5e08-4b17-b41a-7647f8b814b9.jpg"
+  },
+  "Cultivate": {
+   "name": "Cultivate",
+   "manaCost": "{2}{G}",
+   "cmc": 3,
+   "colors": [
+    "G"
+   ],
+   "colorIdentity": [
+    "G"
+   ],
+   "typeLine": "Sorcery",
+   "oracleText": "Search your library for up to two basic land cards, reveal those cards, put one onto the battlefield tapped and the other into your hand, then shuffle.",
+   "keywords": [],
+   "image": "https://cards.scryfall.io/normal/front/e/6/e60deb92-f7dd-4f4e-9036-e47dd586f985.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/e/6/e60deb92-f7dd-4f4e-9036-e47dd586f985.jpg"
+  },
+  "Giant Growth": {
+   "name": "Giant Growth",
+   "manaCost": "{G}",
+   "cmc": 1,
+   "colors": [
+    "G"
+   ],
+   "colorIdentity": [
+    "G"
+   ],
+   "typeLine": "Instant",
+   "oracleText": "Target creature gets +3/+3 until end of turn.",
+   "keywords": [],
+   "image": "https://cards.scryfall.io/normal/front/f/d/fd1f95bf-48ea-455a-8a6c-0249b11c8900.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/f/d/fd1f95bf-48ea-455a-8a6c-0249b11c8900.jpg"
+  },
+  "Overrun": {
+   "name": "Overrun",
+   "manaCost": "{2}{G}{G}{G}",
+   "cmc": 5,
+   "colors": [
+    "G"
+   ],
+   "colorIdentity": [
+    "G"
+   ],
+   "typeLine": "Sorcery",
+   "oracleText": "Creatures you control get +3/+3 and gain trample until end of turn. (Each of those creatures can deal excess combat damage to the player or planeswalker it's attacking.)",
+   "keywords": [],
+   "image": "https://cards.scryfall.io/normal/front/1/d/1d8e9cbb-8bf4-4a48-a58e-79deb3abdf7f.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/1/d/1d8e9cbb-8bf4-4a48-a58e-79deb3abdf7f.jpg"
+  },
+  "Rabid Bite": {
+   "name": "Rabid Bite",
+   "manaCost": "{1}{G}",
+   "cmc": 2,
+   "colors": [
+    "G"
+   ],
+   "colorIdentity": [
+    "G"
+   ],
+   "typeLine": "Sorcery",
+   "oracleText": "Target creature you control deals damage equal to its power to target creature you don't control.",
+   "keywords": [],
+   "image": "https://cards.scryfall.io/normal/front/5/3/53a73200-b798-4bfd-a431-8b94e17b70be.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/5/3/53a73200-b798-4bfd-a431-8b94e17b70be.jpg"
+  },
+  "Harmonize": {
+   "name": "Harmonize",
+   "manaCost": "{2}{G}{G}",
+   "cmc": 4,
+   "colors": [
+    "G"
+   ],
+   "colorIdentity": [
+    "G"
+   ],
+   "typeLine": "Sorcery",
+   "oracleText": "Draw three cards.",
+   "keywords": [],
+   "image": "https://cards.scryfall.io/normal/front/b/d/bd7138fb-6aa7-455e-b1f7-ca08d747277d.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/b/d/bd7138fb-6aa7-455e-b1f7-ca08d747277d.jpg"
+  },
+  "Beast Within": {
+   "name": "Beast Within",
+   "manaCost": "{2}{G}",
+   "cmc": 3,
+   "colors": [
+    "G"
+   ],
+   "colorIdentity": [
+    "G"
+   ],
+   "typeLine": "Instant",
+   "oracleText": "Destroy target permanent. Its controller creates a 3/3 green Beast creature token.",
+   "keywords": [],
+   "image": "https://cards.scryfall.io/normal/front/4/0/400b43aa-c1d2-4435-b863-061f43889422.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/4/0/400b43aa-c1d2-4435-b863-061f43889422.jpg"
+  }
+ },
+ "tokens": {
+  "Soldier": {
+   "art": "https://cards.scryfall.io/art_crop/front/5/e/5ef2f34e-0ff2-4157-9d4a-73ecf4cd449b.jpg",
+   "image": "https://cards.scryfall.io/normal/front/5/e/5ef2f34e-0ff2-4157-9d4a-73ecf4cd449b.jpg"
+  },
+  "Goblin": {
+   "art": "https://cards.scryfall.io/art_crop/front/0/9/09faad62-42ff-4e37-b8a5-d8e8a0f6d096.jpg",
+   "image": "https://cards.scryfall.io/normal/front/0/9/09faad62-42ff-4e37-b8a5-d8e8a0f6d096.jpg"
+  },
+  "Zombie": {
+   "art": "https://cards.scryfall.io/art_crop/front/5/e/5e16386a-d478-475b-8e9b-edef62cae02b.jpg",
+   "image": "https://cards.scryfall.io/normal/front/5/e/5e16386a-d478-475b-8e9b-edef62cae02b.jpg"
+  },
+  "Plant": {
+   "art": "https://cards.scryfall.io/art_crop/front/9/2/92091012-856c-4b42-9e22-405112c39edd.jpg",
+   "image": "https://cards.scryfall.io/normal/front/9/2/92091012-856c-4b42-9e22-405112c39edd.jpg"
+  },
+  "Beast 3/3": {
+   "art": "https://cards.scryfall.io/art_crop/front/4/2/4296d26c-3ba6-49e8-986c-76f875a0498c.jpg",
+   "image": "https://cards.scryfall.io/normal/front/4/2/4296d26c-3ba6-49e8-986c-76f875a0498c.jpg"
+  },
+  "Beast 4/4": {
+   "art": "https://cards.scryfall.io/art_crop/front/8/5/859bda9a-fa90-4ad3-b0c1-6fc62e27c12f.jpg",
+   "image": "https://cards.scryfall.io/normal/front/8/5/859bda9a-fa90-4ad3-b0c1-6fc62e27c12f.jpg"
+  }
+ }
+}
