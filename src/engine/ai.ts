@@ -763,6 +763,16 @@ function cardChoice(g: Game, pid: PlayerId): Action {
   if (choice.kind === 'search') return { type: 'chooseCards', cards: best(Math.max(min, Math.min(max, choice.count ?? 1))) };
   // Surveil (701.25a): cards it doesn't want go to the graveyard.
   if (choice.kind === 'pick' && choice.then === '@surveil') return { type: 'chooseCards', cards: cards.filter((c) => cardWant(g, pid, c) < 3).map((c) => c.id) };
+  const valued = (value: (c: Card) => number, n: number) =>
+    cards
+      .filter((c) => valid.has(c.id))
+      .sort((a, b) => value(a) - value(b))
+      .slice(0, n)
+      .map((c) => c.id);
+  // Sacrifice (701.21a) and discard (701.9a) the least valuable; populate (701.36a) copies the best token.
+  if (choice.kind === 'pick' && choice.then === '@sacrifice') return { type: 'chooseCards', cards: valued((c) => worth(g, c), min) };
+  if (choice.kind === 'pick' && choice.then === '@discard') return { type: 'chooseCards', cards: valued((c) => cardWant(g, pid, c), min) };
+  if (choice.kind === 'pick' && choice.data?.populate) return { type: 'chooseCards', cards: valued((c) => -worth(g, c), 1) };
   if (choice.kind === 'pick') return { type: 'chooseCards', cards: best(Math.max(min, Math.min(max, 1))) };
   const hand = g.players[pid].hand;
   // The legend rule: keep the first.

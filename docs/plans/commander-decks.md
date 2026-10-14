@@ -3,7 +3,7 @@
 Goal: play real 100-card Commander decks of any colours, with partner commanders and
 every card type, and add the user's own deck to the menu.
 
-**Status: sessions 1-7 and 8a done. Don't start the next session until the user says so.**
+**Status: all sessions (1-7, 8a and 8b) done.**
 
 ## What "every card type" means here
 
@@ -165,11 +165,17 @@ Order matters: each one builds on the ones before it.
   "whenever a planeswalker you control dies".
 - Rules tests keep Lyra as player 0's commander (`emptyGame` in tests/helpers.ts).
 
-#### 8b. Red-green and green-white
+#### 8b. Red-green and green-white (done)
 
-- The red and green decks become red-green and green-white, the same way.
-- Then nothing is a 60-card "legacy" deck any more: remove `legacy` and `shared` from
-  `decklists.json` and `db.ts`.
+- Red-green "Fire and Fang": Halana and Alena, Partners, dragons (Savage Ventmaw, Atarka,
+  Utvara Hellkite, Verix Bladewing), big tramplers and ferocious spells.
+- Green-white "Conclave's Chorus": Trostani, Selesnya's Voice, tokens and populate
+  (Growing Ranks, Rootborn Defenses, Scion of Vitu-Ghazi), lifegain.
+- Engine: "at the beginning of combat on your turn" (507), populate (701.36), "whenever
+  this becomes tapped" for every way of tapping. Dragon Tempest was left out: it has two
+  "enters" triggers, and a card can have only one per event.
+- Nothing is a 60-card "legacy" deck any more: `legacy` and `shared` are gone from
+  `decklists.json` and `db.ts`, and each deck lists its seven artifacts itself.
 
 ## Not planned unless asked
 

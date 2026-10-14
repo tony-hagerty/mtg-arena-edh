@@ -1,5 +1,5 @@
 import { produce } from 'immer';
-import { ALL_CARD_NAMES, SHARED, cardData } from '../src/cards/db';
+import { ALL_CARD_NAMES, cardData } from '../src/cards/db';
 import type { DeckDef } from '../src/cards/db';
 import { applyAction, makeCard, newGame, permanent } from '../src/engine';
 import type { Action, ApplyOptions, Card, Game, PlayerId, Zone } from '../src/engine';
@@ -63,17 +63,20 @@ export function runWith(opts: ApplyOptions, g: Game, ...actions: Action[]): Game
 
 export const onBattlefield = (g: Game, id: string) => !!permanent(g, id);
 
+/** Seven colourless artifacts every starter deck plays. */
+export const MANA_ROCKS = ['Sol Ring', 'Arcane Signet', 'Worn Powerstone', 'Thran Dynamo', 'Manalith', 'Solemn Simulacrum', 'Meteor Golem'];
+
 /**
  * A 100-card white-red deck with two commanders, built from cards in the pool. Lyra and
  * Torbran don't really have partner, so `deckProblems` rejects it, but the engine plays any
  * deck it is given: this tests two commanders and multicolour mana without new cards.
  */
 export function twoCommanderDeck(): DeckDef {
-  // 28 mono-white and 28 mono-red nonland cards from the pool, besides the commanders and shared artifacts.
+  // 28 mono-white and 28 mono-red nonland cards from the pool, besides the commanders.
   const mono = (color: string) =>
     ALL_CARD_NAMES.filter((n) => {
       const d = cardData(n);
-      return d.colorIdentity.join('') === color && !d.typeLine.includes('Land') && !SHARED.includes(n) && !['Lyra Dawnbringer', 'Torbran, Thane of Red Fell'].includes(n);
+      return d.colorIdentity.join('') === color && !d.typeLine.includes('Land') && !['Lyra Dawnbringer', 'Torbran, Thane of Red Fell'].includes(n);
     }).slice(0, 28);
   return {
     id: 'boros',
@@ -82,6 +85,6 @@ export function twoCommanderDeck(): DeckDef {
     pilot: 'Tester',
     commanders: ['Lyra Dawnbringer', 'Torbran, Thane of Red Fell'],
     basics: { Plains: 18, Mountain: 17 },
-    cards: [...mono('W'), ...mono('R'), ...SHARED],
+    cards: [...mono('W'), ...mono('R'), ...MANA_ROCKS],
   };
 }

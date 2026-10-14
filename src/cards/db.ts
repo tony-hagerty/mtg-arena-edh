@@ -14,11 +14,6 @@ export interface DeckDef {
   basics: Record<string, number>;
   /** Every other card, once each (903.5b). */
   cards: string[];
-  /**
-   * An old 60-card deck. It gets the `SHARED` cards on top of its own, and is checked as
-   * 60 cards instead of 100. Kept until the starter decks are rebuilt as 100-card decks.
-   */
-  legacy?: boolean;
   /** Still being built: kept off the menu, and its cards may not all have scripts yet. */
   wip?: boolean;
 }
@@ -27,7 +22,6 @@ export interface DeckDef {
 export const ALL_DECKS = lists.decks as unknown as DeckDef[];
 /** The decks on the menu. */
 export const DECKS = ALL_DECKS.filter((d) => !d.wip);
-export const SHARED: string[] = lists.shared;
 
 const cards = generated.cards as Record<string, CardData>;
 const tokenImages = generated.tokens as Record<string, { art: string; image: string }>;
@@ -116,7 +110,7 @@ export function deckColors(deck: DeckDef, lookup = cardData): Color[] {
 /** Every card name in a deck's library (commanders excluded). */
 export function deckLibrary(deck: DeckDef): string[] {
   const basics = Object.entries(deck.basics).flatMap(([name, n]) => Array<string>(n).fill(name));
-  return [...basics, ...deck.cards, ...(deck.legacy ? SHARED : [])];
+  return [...basics, ...deck.cards];
 }
 
 /** Can these two cards be commanders together? Plain partner (702.124h) or partner with (702.124j). */
@@ -147,8 +141,7 @@ export function deckProblems(deck: DeckDef, lookup = cardData): string[] {
   // 903.5a, 702.124b: 100 cards, commanders included.
   const library = deckLibrary(deck);
   const size = library.length + commanders.length;
-  const want = deck.legacy ? 60 : 100;
-  if (size !== want) out.push(`has ${size} cards, not ${want}`);
+  if (size !== 100) out.push(`has ${size} cards, not 100`);
   // 903.5b: one of each card except basic lands.
   const seen = new Set<string>();
   for (const name of [...deck.commanders, ...library]) {
