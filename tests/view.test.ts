@@ -4,7 +4,7 @@ import { produce } from 'immer';
 import { describe, expect, it } from 'vitest';
 import './fixtures';
 import { useStore } from '../src/ui/store';
-import { buildView, clickPermanent, clickPlayer, playHandCard, setChoices } from '../src/ui/view';
+import { buildView, clickPermanent, clickPlayer, clickStackItem, pickMode, playHandCard, setChoices } from '../src/ui/view';
 import type { Game } from '../src/engine';
 import { byName, emptyGame, put } from './helpers';
 
@@ -87,5 +87,51 @@ describe('casting with choices in the UI (601.2b)', () => {
     press();
     expect(byName(game(), 0, 'Elite Vanguard', 'graveyard')).toBeDefined();
     expect(byName(game(), 1, 'Serra Angel', 'graveyard')).toBeDefined();
+  });
+});
+
+describe('modes, stack targets and holding priority in the UI', () => {
+  it('picks a mode, then its targets (700.2)', () => {
+    play((d) => {
+      put(d, 0, 'Mountain');
+      put(d, 0, 'Plains');
+      put(d, 0, 'Boros Charm', 'hand');
+    });
+    playHandCard(byName(game(), 0, 'Boros Charm', 'hand')!);
+    let v = buildView();
+    expect(v.announce?.modal?.modes.map((m) => m.ok)).toEqual([true, true, false]); // no creature for double strike
+    expect(v.primary?.disabled).toBe(true); // no mode yet
+    pickMode(1);
+    pickMode(0); // choose one: replaces the first pick
+    v = buildView();
+    expect(v.announce?.choices.modes).toEqual([0]);
+    press(); // Continue
+    clickPlayer(1);
+    press(); // Pay
+    expect(game().players[1].life).toBe(36);
+  });
+
+  it('holds priority, then targets its own spell on the stack', () => {
+    play((d) => {
+      put(d, 0, 'Mountain');
+      put(d, 0, 'Island', 'battlefield', 2);
+      put(d, 0, 'Lightning Bolt', 'hand');
+      put(d, 0, 'Counterspell', 'hand');
+    });
+    playHandCard(byName(game(), 0, 'Lightning Bolt', 'hand')!);
+    clickPlayer(1);
+    useStore.setState({ hold: true });
+    press(); // Pay, and keep priority
+    expect(game().stack).toHaveLength(1);
+    expect(game().priority).toBe(0);
+    expect(useStore.getState().hold).toBe(false); // one use only
+    playHandCard(byName(game(), 0, 'Counterspell', 'hand')!);
+    const bolt = game().stack[0].id;
+    expect(buildView().targetStack.has(bolt)).toBe(true);
+    clickStackItem(bolt);
+    press(); // Pay
+    expect(game().stack).toHaveLength(0);
+    expect(game().players[1].life).toBe(40);
+    expect(game().log.some((l) => l.text === 'Lightning Bolt is countered.')).toBe(true);
   });
 });

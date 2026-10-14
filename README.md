@@ -119,6 +119,16 @@ Rule numbers below are from the Comprehensive Rules in `docs/rules/`.
 - The stack (405, 601, 602, 608): spells and activated abilities wait there and resolve
   last-in, first-out. Targets are checked again on resolution, and a spell whose targets
   are all gone does nothing. Mana abilities and playing a land don't use the stack.
+- Counterspells (701.6): a spell or ability can target spells or abilities on the stack
+  (click one in the stack panel). A countered spell goes to the graveyard and its costs
+  aren't refunded; a countered commander can still go to the command zone.
+- Holding priority (117.3c): tick **Hold priority** while paying (or press Ctrl+Space)
+  to keep priority after your spell goes on the stack, so you can respond to it yourself.
+- Modal spells (700.2): the cast panel lists the modes; pick as many as the card says.
+  Each mode has its own targets, and a mode with no legal target can't be picked.
+  "You may choose the same mode more than once" works (700.2d).
+- Copying spells (707.10): the copy keeps the original's modes, X and kicker, and its
+  controller may choose new targets. A copy ceases to exist when it leaves the stack.
 - Triggered abilities (603): they trigger when the event happens, go on the stack the
   next time a player would get priority (active player's first), and choose targets then.
   You choose the order of your own that go on together (603.3b); bots keep the order they
@@ -145,10 +155,10 @@ Rule numbers below are from the Comprehensive Rules in `docs/rules/`.
 
 These are deliberate cuts for a prototype, roughly in the order I'd tackle them next:
 
-- **You can't hold priority** to respond to your own spell: with something on the stack,
-  the game stops for you only when the top object is an opponent's and you could act.
-  Outside that, auto-pass follows your stops (`wantsPriority` in `engine.ts`; the UI
-  passes them in `applyAction(g, a, { stops })`). Bots always use the defaults. The
+- **Auto-pass**: with something on the stack, the game stops for you only when the top
+  object is an opponent's and you could act, or when you held priority. Outside that,
+  auto-pass follows your stops (`wantsPriority` in `engine.ts`; the UI passes them in
+  `applyAction(g, a, { stops })`). Bots always use the defaults and never hold. The
   engine itself follows the rules: `applyAction(g, a, { autoPass: false })` asks every
   player every time.
 - **No priority in the cleanup step.** An ability that triggers there waits for the next
@@ -161,7 +171,13 @@ These are deliberate cuts for a prototype, roughly in the order I'd tackle them 
   the menu yet.
 - Partner variants other than plain partner and "partner with" (Background, Doctor's
   companion, "partner—[text]") aren't recognised. Vehicles can't be commanders yet.
-- No planeswalkers, no equipment/auras, no counterspells.
+- No planeswalkers, no equipment/auras.
+- Only spells can be modal: modal triggered and activated abilities (700.2b) aren't
+  supported. A copy's controller must pick legal new targets or keep all the old ones
+  (707.10c allows keeping some). Copying abilities and "can't be countered" aren't
+  supported yet. The test-only cards for this are in `tests/fixtures.ts` too
+  (Counterspell, Negate, Essence Scatter, Stifle, Cryptic Command, Boros Charm, Fiery
+  Confluence, Reverberate).
 - **No card on the menu uses the new costs yet.** The engine supports them, and the tests
   use real cards typed in by hand in `tests/fixtures.ts` (Blaze, Gut Shot, Burst
   Lightning, Bone Splinters, Flawless Maneuver, Thalia, Ruby Medallion, Boros Recruit),
@@ -235,7 +251,9 @@ has run; the spell stays on the stack as `Game.resolving` until it is answered.
    `{ when, resolve }`, so it doesn't go on the stack for the events it ignores.
    Costs printed in rules text go in the script too: `kicker`, `additionalCost` (a
    sacrifice), `alternativeCosts`, and `costModifier` for "spells cost {1} more/less".
-   An X or kicked spell reads `self.cast.x` and `self.cast.kicked`.
+   An X or kicked spell reads `self.cast.x` and `self.cast.kicked`. A modal spell uses
+   `modal` instead of `targets`/`onResolve`; a counterspell targets `{ type: 'spell' }`
+   and calls `counter`.
 4. Run `npm test`. The card-pool test tells you if anything is still missing.
 
 ### Layout note

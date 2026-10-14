@@ -1,9 +1,28 @@
-// Real cards that aren't in the card pool yet, with scripts, so tests can try out costs
-// the pool doesn't use: X, hybrid, Phyrexian, kicker, sacrifice and alternative costs, and
-// cost changes. Importing this file registers them. Their data is typed in by hand
+// Real cards that aren't in the card pool yet, with scripts, so tests can try out rules
+// the pool doesn't use: X, hybrid, Phyrexian, kicker, sacrifice and alternative costs,
+// cost changes, counterspells, modal spells and copying spells. Importing this file registers them. Their data is typed in by hand
 // (Scryfall can't be reached from every machine), without images.
 import { registerCards } from '../src/cards/db';
-import { creaturesOf, dealDamage, destroy, isColor, isCreature, pump, refCard } from '../src/engine';
+import {
+  allCreatures,
+  battlefield,
+  copySpell,
+  counter,
+  creaturesOf,
+  damageCard,
+  damagePlayer,
+  dealDamage,
+  destroy,
+  draw,
+  hasType,
+  isColor,
+  isCreature,
+  moveCard,
+  opponentsOf,
+  pump,
+  refCard,
+  refPlayer,
+} from '../src/engine';
 import { registerScripts } from '../src/engine/registry';
 import type { CardData, Color, TargetSpec } from '../src/engine';
 
@@ -41,6 +60,16 @@ registerCards({
     keywords: ['First strike'],
   }),
   'Ruby Medallion': card('Ruby Medallion', '{2}', 2, [], 'Artifact', 'Red spells you cast cost {1} less to cast.'),
+  // The pool has no blue deck, so no Island either.
+  Island: card('Island', '', 0, [], 'Basic Land — Island', '({T}: Add {U}.)', { colorIdentity: ['U'] }),
+  Counterspell: card('Counterspell', '{U}{U}', 2, ['U'], 'Instant', 'Counter target spell.'),
+  Negate: card('Negate', '{1}{U}', 2, ['U'], 'Instant', 'Counter target noncreature spell.'),
+  'Essence Scatter': card('Essence Scatter', '{1}{U}', 2, ['U'], 'Instant', 'Counter target creature spell.'),
+  Stifle: card('Stifle', '{U}', 1, ['U'], 'Instant', 'Counter target activated or triggered ability. (Mana abilities can\'t be targeted.)'),
+  'Cryptic Command': card('Cryptic Command', '{1}{U}{U}{U}', 4, ['U'], 'Instant', 'Choose two —\n• Counter target spell.\n• Return target permanent to its owner\'s hand.\n• Tap all creatures your opponents control.\n• Draw a card.'),
+  'Boros Charm': card('Boros Charm', '{R}{W}', 2, ['R', 'W'], 'Instant', 'Choose one —\n• Boros Charm deals 4 damage to target player or planeswalker.\n• Permanents you control gain indestructible until end of turn.\n• Target creature gains double strike until end of turn.'),
+  'Fiery Confluence': card('Fiery Confluence', '{2}{R}{R}', 4, ['R'], 'Sorcery', 'Choose three. You may choose the same mode more than once.\n• Fiery Confluence deals 1 damage to each creature.\n• Fiery Confluence deals 2 damage to each opponent.\n• Destroy target artifact.'),
+  Reverberate: card('Reverberate', '{R}{R}', 2, ['R'], 'Instant', 'Copy target instant or sorcery spell. You may choose new targets for the copy.'),
 });
 
 const anyTarget: TargetSpec = { type: 'any', label: 'any target' };
@@ -71,5 +100,96 @@ registerScripts({
     },
   },
   'Thalia, Guardian of Thraben': { costModifier: (_g, _self, spell) => (isCreature(spell) ? 0 : 1) },
+  Counterspell: { targets: [{ type: 'spell', label: 'target spell' }], onResolve: (g, { targets }) => counter(g, targets[0]) },
+  Negate: {
+    targets: [{ type: 'spell', label: 'target noncreature spell', filter: (_g, c) => !isCreature(c) }],
+    onResolve: (g, { targets }) => counter(g, targets[0]),
+  },
+  'Essence Scatter': {
+    targets: [{ type: 'spell', label: 'target creature spell', filter: (_g, c) => isCreature(c) }],
+    onResolve: (g, { targets }) => counter(g, targets[0]),
+  },
+  Stifle: { targets: [{ type: 'ability', label: 'target activated or triggered ability' }], onResolve: (g, { targets }) => counter(g, targets[0]) },
+  'Cryptic Command': {
+    modal: {
+      min: 2,
+      max: 2,
+      modes: [
+        { text: 'Counter target spell.', targets: [{ type: 'spell', label: 'target spell' }], resolve: (g, { targets }) => counter(g, targets[0]) },
+        {
+          text: "Return target permanent to its owner's hand.",
+          targets: [{ type: 'permanent', label: 'target permanent' }],
+          resolve: (g, { targets }) => {
+            const c = refCard(g, targets[0]);
+            if (c) moveCard(g, c, 'hand');
+          },
+        },
+        {
+          text: 'Tap all creatures your opponents control.',
+          resolve: (g, { you }) => {
+            for (const o of opponentsOf(g, you)) for (const c of creaturesOf(g, o.id)) c.tapped = true;
+          },
+        },
+        { text: 'Draw a card.', resolve: (g, { you }) => draw(g, you) },
+      ],
+    },
+  },
+  'Boros Charm': {
+    modal: {
+      min: 1,
+      max: 1,
+      modes: [
+        {
+          text: 'Boros Charm deals 4 damage to target player.',
+          targets: [{ type: 'player', label: 'target player' }],
+          resolve: (g, { self, targets }) => {
+            const p = refPlayer(g, targets[0]);
+            if (p) damagePlayer(g, self, p.id, 4);
+          },
+        },
+        {
+          text: 'Permanents you control gain indestructible until end of turn.',
+          resolve: (g, { you }) => {
+            for (const c of battlefield(g).filter((x) => x.owner === you)) pump(g, c, 0, 0, ['indestructible']);
+          },
+        },
+        {
+          text: 'Target creature gains double strike until end of turn.',
+          targets: [{ type: 'creature', label: 'target creature' }],
+          resolve: (g, { targets }) => pump(g, refCard(g, targets[0]), 0, 0, ['double strike']),
+        },
+      ],
+    },
+  },
+  'Fiery Confluence': {
+    modal: {
+      min: 3,
+      max: 3,
+      repeat: true,
+      modes: [
+        {
+          text: 'Fiery Confluence deals 1 damage to each creature.',
+          resolve: (g, { self }) => {
+            for (const c of allCreatures(g)) damageCard(g, self, c, 1);
+          },
+        },
+        {
+          text: 'Fiery Confluence deals 2 damage to each opponent.',
+          resolve: (g, { self, you }) => {
+            for (const o of opponentsOf(g, you)) damagePlayer(g, self, o.id, 2);
+          },
+        },
+        {
+          text: 'Destroy target artifact.',
+          targets: [{ type: 'permanent', label: 'target artifact', filter: (_g, c) => hasType(c, 'Artifact') }],
+          resolve: (g, { targets }) => destroy(g, refCard(g, targets[0])),
+        },
+      ],
+    },
+  },
+  Reverberate: {
+    targets: [{ type: 'spell', label: 'target instant or sorcery spell', filter: (_g, c) => hasType(c, 'Instant') || hasType(c, 'Sorcery') }],
+    onResolve: (g, { you, targets }) => copySpell(g, targets[0], you),
+  },
   'Ruby Medallion': { costModifier: (_g, self, spell, caster) => (caster === self.owner && isColor(spell, 'R') ? -1 : 0) },
 });

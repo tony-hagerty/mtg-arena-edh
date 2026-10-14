@@ -23,7 +23,8 @@ function checkInvariants(g: Game, sizes: number[]) {
       }
     });
     // A spell on the stack is a card too (601.2a).
-    const casting = g.stack.filter((x) => x.kind === 'spell' && x.card.owner === p.id).map((x) => x.card);
+    // A copy of a spell isn't a card (707.10).
+    const casting = g.stack.filter((x) => x.kind === 'spell' && x.card.owner === p.id && !x.copy).map((x) => x.card);
     for (const c of casting) {
       if (seen.has(c.id)) throw new Error(`card ${c.name} (${c.id}) is on the stack and somewhere else`);
       seen.add(c.id);
@@ -89,6 +90,19 @@ describe('decks with X, hybrid, Phyrexian, kicker, sacrifice and alternative cos
   for (const seed of [4, 5, 6]) {
     it(`seed ${seed}: bots play them to a finish`, () => {
       const { g } = playOut(seed, [boros, black, DECKS[3], DECKS[0]]);
+      expect(g.winner).not.toBe(null);
+    });
+  }
+});
+
+describe('decks with counterspells, modal spells and copies', () => {
+  // Cards from tests/fixtures.ts, with Islands to cast the blue ones.
+  const deck = twoCommanderDeck();
+  deck.cards.push('Counterspell', 'Negate', 'Essence Scatter', 'Stifle', 'Cryptic Command', 'Boros Charm', 'Fiery Confluence', 'Reverberate');
+  deck.basics = { Plains: 12, Mountain: 12, Island: 3 };
+  for (const seed of [12, 13, 14]) {
+    it(`seed ${seed}: bots play them to a finish`, () => {
+      const { g } = playOut(seed, [deck, DECKS[1], { ...deck, id: 'boros2' }, DECKS[3]]);
       expect(g.winner).not.toBe(null);
     });
   }

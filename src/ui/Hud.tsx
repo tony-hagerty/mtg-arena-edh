@@ -8,7 +8,7 @@ import { ManaCost } from './Card';
 import { useRem } from './rem';
 import { useStore } from './store';
 import { SEATS, cx, deckColor, hoverProps } from './util';
-import { STEP_NAMES, cancel, setChoices, useView } from './view';
+import { STEP_NAMES, cancel, clickStackItem, pickMode, setChoices, useView } from './view';
 import type { Btn } from './view';
 
 // ---------- phase tracker + buttons (bottom right) ----------
@@ -177,6 +177,23 @@ function Button({ btn, small }: { btn: Btn; small?: boolean }) {
   );
 }
 
+/**
+ * While paying: keep priority after this spell or ability goes on the stack, so you can
+ * respond to it yourself (117.3c). Otherwise auto-pass lets the others respond and it resolves.
+ */
+function HoldToggle() {
+  const hold = useStore((s) => s.hold);
+  return (
+    <button
+      className={cx('hold-toggle', hold && 'on')}
+      title="Keep priority after this goes on the stack, to respond to it yourself. Ctrl+Space pays and holds."
+      onClick={() => useStore.setState({ hold: !hold })}
+    >
+      <span className="hold-box">{hold ? '✓' : ''}</span> Hold priority
+    </button>
+  );
+}
+
 export function ActionBar() {
   const v = useView();
   const latest = useRef(v);
@@ -189,8 +206,10 @@ export function ActionBar() {
         if (e.code === 'Escape') useStore.setState({ confirmExit: false });
         return;
       }
-      const { primary, secondary } = latest.current;
+      const { primary, secondary, paying } = latest.current;
       if ((e.code === 'Space' || e.code === 'Enter') && primary && !primary.disabled) {
+        // Ctrl (or Cmd) with Pay keeps priority afterwards, like Arena.
+        if (paying && (e.ctrlKey || e.metaKey)) useStore.setState({ hold: true });
         // Drop focus first, or a button that was just clicked would also fire natively.
         e.preventDefault();
         (document.activeElement as HTMLElement | null)?.blur();
@@ -207,6 +226,7 @@ export function ActionBar() {
   return (
     <div className="action-bar">
       <PhaseTracker />
+      {v.paying && <HoldToggle />}
       {v.secondary && <Button btn={v.secondary} small />}
       {v.primary && <Button btn={v.primary} />}
     </div>
@@ -223,8 +243,32 @@ export function CastOptions() {
   const { choices } = a;
   const x = choices.x ?? 0;
   const kicked = choices.kicked ?? 0;
+  const modal = a.modal;
   return (
     <div className="cast-options">
+      {modal && (
+        <div className="cast-modes">
+          <span className="cast-label">
+            {modal.min === modal.max ? `Choose ${modal.min}` : `Choose ${modal.min} to ${modal.max}`}
+            {modal.repeat && ' (repeats allowed)'}
+          </span>
+          {modal.modes.map((m, i) => (
+            <div key={i} className="cast-row">
+              <button className={cx('chip', 'mode', m.picked > 0 && 'on')} disabled={!m.ok} onClick={() => pickMode(i)}>
+                {m.text}
+              </button>
+              {modal.repeat && m.picked > 0 && (
+                <>
+                  <b className="cast-x">×{m.picked}</b>
+                  <button className="chip" onClick={() => pickMode(i, -1)} aria-label="One fewer">
+                    −
+                  </button>
+                </>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
       {a.costs.length > 1 && (
         <div className="cast-row">
           <span className="cast-label">Cost</span>
@@ -467,7 +511,7 @@ export function Preview() {
  * A spell or ability the human is paying for hovers in front, where it goes once paid.
  */
 export function StackPanel() {
-  const { g, me, paying } = useView();
+  const { g, me, paying, targetStack } = useView();
   if ((!g.stack.length && !paying) || g.step === 'gameOver') return null;
   return (
     <div className="stack-panel">
@@ -478,12 +522,13 @@ export function StackPanel() {
           <div
             key={item.id}
             data-stack={item.id}
-            className={cx('stack-item', i === g.stack.length - 1 && !paying && 'top')}
+            className={cx('stack-item', i === g.stack.length - 1 && !paying && 'top', targetStack.has(item.id) && 'targetable')}
+            onClick={() => clickStackItem(item.id)}
             {...hoverProps(item.card.name)}
           >
             <img src={data(item.card).image} alt={label(item.card)} draggable={false} />
             <span className="stack-tag">
-              {who} {item.kind === 'spell' ? 'spell' : 'ability'}
+              {who} {item.copy ? 'copy' : item.kind === 'spell' ? 'spell' : 'ability'}
             </span>
           </div>
         );
@@ -541,7 +586,7 @@ export function ArrowLayer() {
   for (const item of g.stack) {
     for (const t of item.targets) {
       if (!t) continue;
-      const to = t.kind === 'card' ? `[data-card="${t.id}"]` : `[data-avatar="${t.id}"]`;
+      const to = t.kind === 'card' ? `[data-card="${t.id}"]` : t.kind === 'stack' ? `[data-stack="${t.id}"]` : `[data-avatar="${t.id}"]`;
       arrows.push({ key: `t-${item.id}-${t.kind}-${t.id}`, from: `[data-stack="${item.id}"]`, to, kind: 'target' });
     }
   }
