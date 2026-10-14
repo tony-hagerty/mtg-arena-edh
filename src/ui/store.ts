@@ -34,6 +34,8 @@ interface Store {
   handOrder: string[];
   viewer: { pid: PlayerId; zone: Zone } | null;
   showLog: boolean;
+  /** The "leave this game?" dialog is open. */
+  confirmExit: boolean;
   speed: number;
   start: (deck: number | null) => void;
   quit: () => void;
@@ -51,6 +53,7 @@ export const useStore = create<Store>()((set, get) => ({
   handOrder: [],
   viewer: null,
   showLog: true,
+  confirmExit: false,
   speed: 1,
 
   start: (deck) =>
@@ -63,9 +66,10 @@ export const useStore = create<Store>()((set, get) => ({
       hover: null,
       handOrder: [],
       viewer: null,
+      confirmExit: false,
     }),
 
-  quit: () => set({ game: null, hover: null, targeting: null, viewer: null }),
+  quit: () => set({ game: null, hover: null, targeting: null, viewer: null, confirmExit: false }),
 
   act: (a) => {
     const g = get().game;

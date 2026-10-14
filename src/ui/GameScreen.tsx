@@ -1,7 +1,7 @@
 import { useEffect, useMemo } from 'react';
 import { botAction } from '../engine';
 import { OpponentPanel, PlayerField } from './Board';
-import { ActionBar, ArrowLayer, GameOver, LogPanel, Preview, Prompt, SpellFlash, StackPanel, ZoneViewer } from './Hud';
+import { ActionBar, ArrowLayer, ExitConfirm, GameOver, LogPanel, Preview, Prompt, SpellFlash, StackPanel, ZoneViewer } from './Hud';
 import { useStore } from './store';
 import { ViewContext, buildView } from './view';
 
@@ -41,6 +41,7 @@ export function GameScreen() {
         <SpellFlash />
         <ZoneViewer />
         <GameOver />
+        <ExitConfirm />
       </div>
       <Preview />
     </ViewContext.Provider>

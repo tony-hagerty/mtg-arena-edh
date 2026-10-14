@@ -38,6 +38,7 @@ import {
   permanent,
   planPayment,
   rand,
+  refCards,
   sameRef,
   says,
   shuffle,
@@ -353,12 +354,14 @@ function attackersDeclared(g: Game) {
   g.priority = firstPriority(g); // 508.2
   if (!combat.attacks.length) return;
   const names: string[] = [];
+  const attackers: Card[] = [];
   for (const a of combat.attacks) {
     const c = permanent(g, a.id)!;
     if (!has(g, c, 'vigilance')) c.tapped = true;
     names.push(`${label(c)} → ${g.players[a.defender].name}`);
+    attackers.push(c);
   }
-  log(g, `${says(g.players[g.active], 'attacks')}: ${names.join(', ')}.`, g.active);
+  log(g, `${says(g.players[g.active], 'attacks')}: ${names.join(', ')}.`, g.active, attackers);
   for (const a of combat.attacks) {
     const c = permanent(g, a.id)!;
     trigger(g, c, 'onAttack', { defender: a.defender });
@@ -372,7 +375,8 @@ function blockersDeclared(g: Game) {
     a.blocked = a.blockers.length > 0;
     const c = permanent(g, a.id);
     if (c && a.blocked) {
-      log(g, `${label(c)} is blocked by ${a.blockers.map((b) => label(permanent(g, b)!)).join(', ')}.`, a.defender);
+      const blockers = a.blockers.map((b) => permanent(g, b)!);
+      log(g, `${label(c)} is blocked by ${blockers.map(label).join(', ')}.`, a.defender, [c, ...blockers]);
     }
   }
   g.decision = null;
@@ -467,7 +471,7 @@ function resolveTop(g: Game) {
     t && legalTargets(g, controller, specs[i], card).some((x) => sameRef(x, t)) ? t : null,
   );
   const fizzled = item.targets.some(Boolean) && !targets.some(Boolean);
-  if (fizzled) log(g, `${label(card)} has no legal target left and does nothing.`, controller);
+  if (fizzled) log(g, `${label(card)} has no legal target left and does nothing.`, controller, [card]);
 
   if (item.kind === 'spell') {
     if (isPermanentCard(card)) {
@@ -530,7 +534,7 @@ function act(g: Game, a: Action): boolean {
       const c = p.hand.find((x) => x.id === a.card);
       if (!c || !canPlayLand(g, pid, c)) return false;
       p.landsPlayed++;
-      log(g, `${says(p, 'plays')} ${label(c)}.`, pid);
+      log(g, `${says(p, 'plays')} ${label(c)}.`, pid, [c]);
       enterBattlefield(g, c);
       g.passes = 0; // the player keeps priority after a special action (117.3c)
       return true;
@@ -552,7 +556,7 @@ function act(g: Game, a: Action): boolean {
       c.zone = 'stack'; // 601.2a
       g.stack.push({ id: `s${g.nextId++}`, kind: 'spell', controller: pid, card: c, targets });
       const chosen = targets.filter((t): t is TargetRef => !!t).map((t) => describeRef(g, t));
-      log(g, `${says(p, 'casts')} ${label(c)}${chosen.length ? ` targeting ${chosen.join(' and ')}` : ''}.`, pid);
+      log(g, `${says(p, 'casts')} ${label(c)}${chosen.length ? ` targeting ${chosen.join(' and ')}` : ''}.`, pid, [c, ...refCards(g, targets)]);
       g.lastSpell = { seq: (g.lastSpell?.seq ?? 0) + 1, name: c.name, caster: pid };
       broadcast(g, 'onCast', { card: c, caster: pid }); // 601.2i
       g.passes = 0; // the caster keeps priority (117.3c)
@@ -571,7 +575,7 @@ function act(g: Game, a: Action): boolean {
       // The ability goes on the stack as its own object, apart from its source (602.2a).
       const item: StackItem = { id: `s${g.nextId++}`, kind: 'activated', controller: pid, card: snapshot(c), targets };
       const chosen = targets.filter((t): t is TargetRef => !!t).map((t) => describeRef(g, t));
-      log(g, `${says(p, 'activates')} ${label(c)}${chosen.length ? ` targeting ${chosen.join(' and ')}` : ''}.`, pid);
+      log(g, `${says(p, 'activates')} ${label(c)}${chosen.length ? ` targeting ${chosen.join(' and ')}` : ''}.`, pid, [c, ...refCards(g, targets)]);
       if (ab.cost.sacrifice) dieMany(g, [c], 'is sacrificed');
       g.stack.push(item);
       g.passes = 0;
@@ -633,7 +637,7 @@ function act(g: Game, a: Action): boolean {
     case 'discard': {
       const c = p.hand.find((x) => x.id === a.card);
       if (deciding !== 'discard' || !c) return false;
-      log(g, `${says(p, 'discards')} ${label(c)}.`, pid);
+      log(g, `${says(p, 'discards')} ${label(c)}.`, pid, [c]);
       moveCard(g, c, 'graveyard');
       if (p.hand.length <= MAX_HAND) {
         g.decision = null;
@@ -649,7 +653,7 @@ function act(g: Game, a: Action): boolean {
       const targets = specs.map((_, i) => a.targets?.[i] ?? null);
       if (!targetsOk(g, pid, item.card, specs, targets)) return false;
       const chosen = targets.filter((t): t is TargetRef => !!t).map((t) => describeRef(g, t));
-      if (chosen.length) log(g, `${label(item.card)} targets ${chosen.join(' and ')}.`, pid);
+      if (chosen.length) log(g, `${label(item.card)} targets ${chosen.join(' and ')}.`, pid, [item.card, ...refCards(g, targets)]);
       item.targets = targets;
       g.stack.push(item);
       g.decision = null;
@@ -670,7 +674,8 @@ function act(g: Game, a: Action): boolean {
           for (const id of illegalBlocks(g, pid)) {
             const attack = combat.attacks.find((x) => x.id === id)!;
             attack.blockers = [];
-            log(g, `${label(permanent(g, id)!)} has menace and can't be blocked by one creature.`, pid);
+            const attacker = permanent(g, id)!;
+            log(g, `${label(attacker)} has menace and can't be blocked by one creature.`, pid, [attacker]);
           }
           combat.toBlock = combat.toBlock.filter((x) => x !== pid);
           if (combat.toBlock.length) g.priority = combat.toBlock[0];

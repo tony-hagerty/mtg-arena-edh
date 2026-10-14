@@ -424,5 +424,11 @@ export function clickPlayer(pid: PlayerId) {
   }
 }
 
+/** The crown on the human's avatar casts their commander. While choosing targets it counts as a click on the avatar. */
+export function clickCrown(pid: PlayerId, commander: Card | undefined) {
+  if (targetingOf(S()) || !commander) return clickPlayer(pid);
+  playHandCard(commander);
+}
+
 export const ViewContext = createContext<View | null>(null);
 export const useView = () => useContext(ViewContext)!;

@@ -8,7 +8,7 @@ import { HandBack, HandCard, Permanent } from './Card';
 import { useRem } from './rem';
 import { useStore } from './store';
 import { SEATS, cx, hoverProps } from './util';
-import { clickPlayer, playHandCard, useView } from './view';
+import { clickCrown, clickPlayer, useView } from './view';
 
 const deckColor = (p: Player) => DECKS.find((d) => d.id === p.deckId)!.color;
 const vars = (v: Record<string, string | number>) => v as CSSProperties;
@@ -116,6 +116,7 @@ function Avatar({ player }: { player: Player }) {
   const deltas = useLifeDeltas(player.life);
   const rem = useRem();
   const thinking = g.priority === player.id && player.isBot && g.step !== 'gameOver';
+  const tax = player.commanderCasts * 2; // commander tax (903.8)
   return (
     <div
       className={cx(
@@ -130,7 +131,14 @@ function Avatar({ player }: { player: Player }) {
       onClick={() => clickPlayer(player.id)}
     >
       <div className="avatar-rays" />
-      <div className="avatar-art" style={{ backgroundImage: `url(${cardData(player.commander).art})` }} />
+      {/* The portrait is the player's commander: hover it to read the card. */}
+      <div className="avatar-art" style={{ backgroundImage: `url(${cardData(player.commander).art})` }} {...hoverProps(player.commander)} />
+      {player.id === v.me && <CastCrown player={player} />}
+      {tax > 0 && (
+        <div className="avatar-tax" title={`Commander tax: casting ${player.commander} again costs ${tax} more`}>
+          +{tax}
+        </div>
+      )}
       <div className="avatar-life">{player.lost ? '✕' : player.life}</div>
       <div className="avatar-name">
         {player.name}
@@ -166,29 +174,31 @@ function Avatar({ player }: { player: Player }) {
   );
 }
 
-function CommandSlot({ player }: { player: Player }) {
+/**
+ * The human's crown on their avatar (top left): click it to cast the commander from the
+ * command zone. While the commander is anywhere else the crown is dimmed and does nothing.
+ */
+function CastCrown({ player }: { player: Player }) {
   const v = useView();
   const c = player.command[0];
-  const tax = player.commanderCasts * 2;
+  const glow = c && v.glow.get(c.id);
   return (
-    <div className="command-slot" title="Command zone">
-      {c ? (
-        <motion.div
-          layoutId={c.id}
-          data-card={c.id}
-          className={cx('cmd-card', v.glow.get(c.id) && 'glow-play')}
-          onClick={() => player.id === v.me && playHandCard(c)}
-          {...hoverProps(c.name)}
-        >
-          <div className="cmd-face" style={{ backgroundImage: `url(${data(c).art})` }}>
-            <span className="crown">♛</span>
-            {tax > 0 && <span className="tax">+{tax}</span>}
-          </div>
-        </motion.div>
-      ) : (
-        <div className="cmd-empty">♛</div>
-      )}
-    </div>
+    <motion.button
+      key={c?.id ?? 'away'}
+      layoutId={c?.id}
+      data-card={c?.id}
+      className={cx('avatar-crown', glow && `glow-${glow}`, !c && 'away')}
+      aria-disabled={!c}
+      aria-label={c ? `Cast ${c.name}` : 'Commander is not in the command zone'}
+      title={c ? undefined : 'Your commander is not in the command zone'}
+      onClick={(e) => {
+        e.stopPropagation();
+        clickCrown(player.id, c);
+      }}
+      {...(c ? hoverProps(c.name) : {})}
+    >
+      <span>♛</span>
+    </motion.button>
   );
 }
 
@@ -253,7 +263,6 @@ export function OpponentPanel({ player }: { player: Player }) {
         <Avatar player={player} />
         <OpponentHand player={player} span={side ? 20 : 30} />
         <div className="opp-zones">
-          <CommandSlot player={player} />
           <Piles player={player} />
         </div>
       </header>
@@ -309,7 +318,6 @@ export function PlayerField({ player }: { player: Player }) {
         <ManaPool player={player} />
       </div>
       <div className="me-zones">
-        <CommandSlot player={player} />
         <Piles player={player} />
       </div>
       <div className="hand">

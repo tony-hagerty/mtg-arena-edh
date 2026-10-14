@@ -387,6 +387,14 @@ export function describeRef(g: Game, ref: TargetRef): string {
   return c ? label(c) : '?';
 }
 
+/** The cards among some targets, for `log`. */
+export function refCards(g: Game, refs: (TargetRef | null)[]): Card[] {
+  return refs.flatMap((r) => {
+    const c = r?.kind === 'card' ? permanent(g, r.id) : undefined;
+    return c ? [c] : [];
+  });
+}
+
 // ---------- randomness (seeded, so games can be replayed in tests) ----------
 
 export function rand(g: Game): number {
@@ -424,8 +432,10 @@ const SECOND_PERSON: Record<string, string> = {
 /** Subject + verb for the log: "Cinder casts" for a bot, "You cast" for the human. */
 export const says = (p: Player, verb: string) => `${p.name} ${p.isBot ? verb : (SECOND_PERSON[verb] ?? verb)}`;
 
-export function log(g: Game, text: string, player?: PlayerId) {
-  g.log.push({ turn: g.turn, text, player });
+/** Adds a line to the game log. `cards` are the cards the text names, for the UI to link. */
+export function log(g: Game, text: string, player?: PlayerId, cards: Card[] = []) {
+  const names = [...new Set(cards.map(label))];
+  g.log.push({ turn: g.turn, text, player, ...(names.length ? { cards: names } : {}) });
   if (g.log.length > 400) g.log.splice(0, g.log.length - 400);
 }
 
@@ -542,7 +552,7 @@ export function dieMany(g: Game, cards: Card[], verb = 'dies') {
     .map(snapshot);
   const dead = dying.filter(isCreature).map(snapshot);
   for (const c of dying) {
-    log(g, `${label(c)} ${verb}.`, c.owner);
+    log(g, `${label(c)} ${verb}.`, c.owner, [c]);
     moveCard(g, c, 'graveyard');
   }
   for (const c of dead) {
@@ -563,7 +573,7 @@ export const sacrifice = (g: Game, c: Card) => dieMany(g, [c], 'is sacrificed');
 
 export function exile(g: Game, c: Card | undefined) {
   if (!c || c.zone !== 'battlefield') return;
-  log(g, `${label(c)} is exiled.`, c.owner);
+  log(g, `${label(c)} is exiled.`, c.owner, [c]);
   moveCard(g, c, 'exile');
 }
 
@@ -611,7 +621,7 @@ export function damagePlayer(g: Game, source: Card, pid: PlayerId, n: number, co
   if (n <= 0 || p.lost) return 0;
   n += damageBonus(g, source, pid);
   p.life -= n;
-  log(g, `${label(source)} deals ${n} damage to ${p.name}.`, source.owner);
+  log(g, `${label(source)} deals ${n} damage to ${p.name}.`, source.owner, [source]);
   if (combat && source.isCommander) p.commanderDamage[source.owner] += n;
   if (has(g, source, 'lifelink')) gainLife(g, source.owner, n);
   if (combat) trigger(g, source, 'onCombatDamageToPlayer', { player: pid, amount: n });
@@ -631,7 +641,7 @@ export function dealDamage(g: Game, source: Card, ref: TargetRef | null | undefi
   if (!ref) return 0;
   if (ref.kind === 'player') return damagePlayer(g, source, ref.id, n);
   const c = permanent(g, ref.id);
-  if (c) log(g, `${label(source)} deals ${n + damageBonus(g, source, c.owner)} damage to ${label(c)}.`, source.owner);
+  if (c) log(g, `${label(source)} deals ${n + damageBonus(g, source, c.owner)} damage to ${label(c)}.`, source.owner, [source, c]);
   return damageCard(g, source, c, n);
 }
 
@@ -654,7 +664,7 @@ export function searchBasic(
   if (p.lost) return false;
   const land = p.library.find((c) => hasType(c, 'Basic Land') && (!opts.subtype || hasType(c, opts.subtype)));
   if (land) {
-    log(g, `${says(p, 'fetches')} ${label(land)}.`, pid);
+    log(g, `${says(p, 'fetches')} ${label(land)}.`, pid, [land]);
     if (to === 'battlefield') enterBattlefield(g, land, { tapped: opts.tapped ?? true });
     else moveCard(g, land, 'hand');
   }

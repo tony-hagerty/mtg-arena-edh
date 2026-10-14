@@ -110,6 +110,8 @@ export interface LogEntry {
   turn: number;
   text: string;
   player?: PlayerId;
+  /** Names of the cards the text mentions, exactly as written in it, so the UI can link them. */
+  cards?: string[];
 }
 
 /**
