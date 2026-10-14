@@ -8,7 +8,7 @@ import { ManaCost } from './Card';
 import { useRem } from './rem';
 import { useStore } from './store';
 import { SEATS, cx, deckColor, hoverProps } from './util';
-import { STEP_NAMES, cancel, clickStackItem, pickAbility, pickFace, pickMode, playHandCard, setChoices, useView } from './view';
+import { STEP_NAMES, cancel, clickStackItem, pickAbility, pickFace, pickMode, playHandCard, setChoices, exileForMana, useView } from './view';
 import type { Btn } from './view';
 
 // ---------- phase tracker + buttons (bottom right) ----------
@@ -247,6 +247,14 @@ export function CastOptions() {
   const modal = a.modal;
   return (
     <div className="cast-options">
+      {a.handMana && (
+        <div className="cast-row">
+          <span className="cast-label">Or</span>
+          <button className="chip" onClick={exileForMana}>
+            Exile it for mana
+          </button>
+        </div>
+      )}
       {a.faces && (
         <div className="cast-row">
           <span className="cast-label">Face</span>

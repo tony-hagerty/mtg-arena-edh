@@ -1,15 +1,22 @@
 // Windows for the decisions where the human picks or orders cards: searching their library,
-// keeping or mulliganing a hand, putting cards on the bottom, ordering their triggers, and
-// sending their commander to the command zone.
+// keeping or mulliganing a hand, putting cards on the bottom, picking from a few cards,
+// ordering their triggers, and sending their commander to the command zone. Also the
+// yes/no questions and naming a card that come up while a spell or ability resolves.
 // `CardPicker` is the reusable part; `Decisions` chooses which one the game is asking for.
 import { useState } from 'react';
-import { canMulligan, choiceOptions, commanderTax, data, label, nextMulliganBottom } from '../engine';
-import type { Action, Card, CardChoice, Game, PlayerId } from '../engine';
+import { cardNames, isCardName } from '../cards/db';
+import { canMulligan, canSayYes, choiceOptions, commanderTax, data, label, nextMulliganBottom, resolvingItem } from '../engine';
+import type { Action, AskChoice, Card, CardChoice, Game, NameChoice, PlayerId } from '../engine';
+import { ManaCost } from './Card';
 import { useStore } from './store';
 import { cx, hoverProps } from './util';
 import { useView } from './view';
 
 const act = (a: Action) => useStore.getState().act(a);
+
+/** Text with mana costs like "{1}{U}" drawn as symbols. */
+const withMana = (text: string) =>
+  text.split(/((?:\{[^}]+\})+)/).map((part, i) => (part.startsWith('{') ? <ManaCost key={i} cost={part} /> : part));
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
 
 export interface PickerButton {
@@ -76,7 +83,7 @@ export function CardPicker({ title, hint, cards, selectable = () => false, max =
             View table
           </button>
         </div>
-        {hint && <p className="picker-hint">{hint}</p>}
+        {hint && <p className="picker-hint">{withMana(hint)}</p>}
         <div className="viewer-cards picker-cards">
           {tiles.map((tile) => {
             const c = tile[0];
@@ -101,7 +108,7 @@ export function CardPicker({ title, hint, cards, selectable = () => false, max =
         <div className="picker-buttons">
           {buttons(picked).map((b) => (
             <button key={b.label} className={cx('btn', `btn-${b.tone}`, 'small')} disabled={b.disabled} onClick={b.onClick}>
-              <span className="btn-label">{b.label}</span>
+              <span className="btn-label">{withMana(b.label)}</span>
               {b.sub && <span className="btn-sub">{b.sub}</span>}
             </button>
           ))}
@@ -157,10 +164,27 @@ function ChoicePicker({ g, choice }: { g: Game; choice: CardChoice }) {
       />
     );
   }
+  if (choice.kind === 'pick') {
+    const { min } = choiceOptions(g, choice);
+    return (
+      <CardPicker
+        title={`${choice.source}: ${choice.text}`}
+        hint={min === max ? `Choose ${plural(max, 'card')}.` : max === 1 ? 'Choose one, or none.' : `Choose up to ${plural(max, 'card')}.`}
+        cards={cards}
+        selectable={() => true}
+        max={max}
+        buttons={(picked) => [
+          { label: choice.button, sub: max > 1 ? `${picked.length} of ${max}` : undefined, tone: 'go', disabled: picked.length < min, onClick: () => choose(picked) },
+        ]}
+      />
+    );
+  }
   // Cards that can be found first, then the rest of the library.
   const sorted = [...cards].sort((a, b) => Number(valid.has(b.id)) - Number(valid.has(a.id)));
-  const where = choice.to === 'hand' ? 'into your hand' : `onto the battlefield${choice.tapped ? ' tapped' : ''}`;
-  const what = choice.subtype ? `a basic ${choice.subtype}` : 'a basic land';
+  const where = choice.to === 'hand' ? 'into your hand' : choice.to === 'top' ? 'on top of your library' : `onto the battlefield${choice.tapped ? ' tapped' : ''}`;
+  const what = choice.find?.label ?? 'a card';
+  // A search for just "a card" has to find one (701.23d).
+  const must = !choice.find && valid.size > 0;
   return (
     <CardPicker
       title={`${choice.source}: search your library`}
@@ -170,10 +194,82 @@ function ChoicePicker({ g, choice }: { g: Game; choice: CardChoice }) {
       max={1}
       stackCopies
       buttons={(picked) => [
-        { label: 'Find Nothing', tone: 'plain', disabled: picked.length > 0, onClick: () => choose([]) },
+        ...(must ? [] : [{ label: 'Find Nothing', tone: 'plain' as const, disabled: picked.length > 0, onClick: () => choose([]) }]),
         { label: 'Choose', sub: picked.length ? label(cards.find((c) => c.id === picked[0])!) : undefined, tone: 'go', disabled: !picked.length, onClick: () => choose(picked) },
       ]}
     />
+  );
+}
+
+/** A yes/no question while a spell or ability resolves: "you may ...", or "... unless you pay {1}" (118.12a). */
+function AskPanel({ g, choice }: { g: Game; choice: AskChoice }) {
+  const source = resolvingItem(g)?.card;
+  const answer = (yes: boolean) => act({ type: 'answer', yes });
+  const can = canSayYes(g, choice);
+  return (
+    <CardPicker
+      title={choice.source}
+      hint={choice.text}
+      cards={source ? [source] : []}
+      buttons={() => [
+        { label: choice.no, tone: 'plain', onClick: () => answer(false) },
+        { label: choice.yes, sub: !can ? "You can't pay" : undefined, tone: 'go', disabled: !can, onClick: () => answer(true) },
+      ]}
+    />
+  );
+}
+
+/** Naming a card (201.3): type and pick from every card name the game knows. */
+function NamePanel({ g, choice }: { g: Game; choice: NameChoice }) {
+  const [name, setName] = useState('');
+  const [folded, setFolded] = useState(false);
+  const source = resolvingItem(g)?.card;
+  if (folded) {
+    return (
+      <button className="picker-pill" onClick={() => setFolded(false)}>
+        Back to: {choice.source}
+      </button>
+    );
+  }
+  const ok = isCardName(name);
+  return (
+    <div className="modal">
+      <div className="viewer picker">
+        <div className="picker-head">
+          <h2>{choice.source}: name a card</h2>
+          <button className="picker-fold" onClick={() => setFolded(true)}>
+            View table
+          </button>
+        </div>
+        <p className="picker-hint">{choice.text}</p>
+        <div className="name-row">
+          {source && <img className="name-source" src={data(source).image} alt={label(source)} draggable={false} />}
+          <input
+            className="name-input"
+            list="card-names"
+            value={name}
+            autoFocus
+            placeholder="Card name"
+            onChange={(e) => setName(e.target.value)}
+            onKeyDown={(e) => {
+              e.stopPropagation(); // typing a space shouldn't press the main button
+              if (e.key === 'Enter' && ok) act({ type: 'name', name });
+            }}
+          />
+          <datalist id="card-names">
+            {cardNames().map((n) => (
+              <option key={n} value={n} />
+            ))}
+          </datalist>
+        </div>
+        <div className="picker-buttons">
+          <button className="btn btn-go small" disabled={!ok} onClick={() => act({ type: 'name', name })}>
+            <span className="btn-label">Name It</span>
+            {name && !ok && <span className="btn-sub">No card has that name</span>}
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -280,6 +376,10 @@ export function Decisions() {
       return <MulliganPicker key={g.players[me].hand.map((c) => c.id).join()} g={g} me={me} />;
     case 'chooseCards':
       return <ChoicePicker key={`${d.choice.kind}:${choiceOptions(g, d.choice).cards.map((c) => c.id).join()}`} g={g} choice={d.choice} />;
+    case 'ask':
+      return <AskPanel key={`${g.log.length}:${d.choice.text}`} g={g} choice={d.choice} />;
+    case 'name':
+      return <NamePanel key={g.log.length} g={g} choice={d.choice} />;
     case 'orderTriggers':
       return <TriggerOrder key={g.triggers.map((t) => t.id).join()} g={g} me={me} />;
     case 'commanderZone': {

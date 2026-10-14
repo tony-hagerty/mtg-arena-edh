@@ -262,8 +262,9 @@ const HELD_SCALE = 1.1;
 const HAND_W = 15;
 
 /**
- * A full card in the human's hand: fanned out, lifts and zooms on hover. Nothing happens on
- * a click, so rearranging can't play a card by accident. Dragging it sideways moves it to
+ * A full card in the human's hand: fanned out, lifts and zooms on hover. A click does
+ * nothing, so rearranging can't play a card by accident, except while a spell is being cast:
+ * then it picks a card to exile for its cost, or uses a card's mana ability from the hand. Dragging it sideways moves it to
  * another place in the hand (`onMove` gets the slot it is over); dragging it up toward the
  * table and letting go plays it. A card just drawn (`drawn` is its place in the batch) flies
  * in face down from the library and turns face up on the way.
@@ -334,6 +335,7 @@ export function HandCard({
       }}
       onMouseEnter={() => setHot(true)}
       onMouseLeave={() => setHot(false)}
+      onClick={() => (glow === 'target' || (v.paying && v.mana.has(card.id))) && playHandCard(card)}
     >
       <motion.div
         className={cx('hand-card', glow && `glow-${glow}`, held?.armed && glow && 'armed')}

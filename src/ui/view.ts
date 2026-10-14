@@ -20,6 +20,7 @@ import {
   crewOptions,
   crewPower,
   data,
+  exileOptions,
   defaultProtector,
   findCard,
   illegalBlocks,
@@ -98,6 +99,8 @@ export interface Announce {
    * (709.3), an Adventure (715.3), a modal double-faced card's faces (712.11b, 712.12).
    */
   faces: { face: number; name: string; land: boolean; ok: boolean }[] | null;
+  /** It has a mana ability that works from the hand, like Simian Spirit Guide's: offered instead of casting it. */
+  handMana: boolean;
 }
 
 /** A loyalty cost written out: "+1", "0", "−3". */
@@ -163,6 +166,17 @@ function isSacrificing(t: Targeting): boolean {
   return !!card && !!scriptFor(asSpell(card, t.choices.face)).additionalCost;
 }
 
+/**
+ * Targets are chosen, and the alternative cost chosen exiles a card from the hand that
+ * hasn't been picked yet, like Force of Will's blue card (118.9).
+ */
+function isExiling(t: Targeting): boolean {
+  if (t.mode !== 'cast' || t.announcing || t.chosen.length < t.specs.length || t.choices.alt === undefined || t.choices.exile?.length) return false;
+  if (isSacrificing(t)) return false;
+  const card = findCard(S().game!, t.cardId);
+  return !!card && !!scriptFor(asSpell(card, t.choices.face)).alternativeCosts?.[t.choices.alt]?.exile;
+}
+
 /** Targets are chosen and a Vehicle's crew still has to be picked (702.122a). Returns the power needed, or 0. */
 function crewNeeded(t: Targeting): number {
   if (t.mode !== 'activate' || t.ability !== undefined || t.pickingAbility || t.crewDone || t.chosen.length < t.specs.length) return 0;
@@ -172,7 +186,7 @@ function crewNeeded(t: Targeting): number {
 
 /** Everything is chosen and the spell or ability is waiting for its cost to be paid (601.2f-h). */
 const isPaying = (t: Targeting) =>
-  t.mode !== 'trigger' && !t.announcing && !t.pickingAbility && t.chosen.length === t.specs.length && !isSacrificing(t) && !crewNeeded(t);
+  t.mode !== 'trigger' && !t.announcing && !t.pickingAbility && t.chosen.length === t.specs.length && !isSacrificing(t) && !isExiling(t) && !crewNeeded(t);
 
 /** The mana a spell or ability costs, and the same thing written out ("{1}{B}{B}"), with any life to pay. */
 function costOf(g: Game, t: Targeting): { cost: Cost; text: string } {
@@ -216,6 +230,7 @@ function announceOf(g: Game, me: PlayerId, card: Card, choices: CastChoices): An
         ? options.map((o) => ({ face: o.face, name: data(asSpell(card, o.face)).name, land: o.land, ok: o.ok }))
         : null,
     kicker: script.kicker && !land ? { text: costText(parseCost(script.kicker.mana)), most } : null,
+    handMana: card.zone === 'hand' && canTapForMana(g, me, card),
     costs: (land ? [] : [undefined, ...altCostsOf(g, card, face)]).map((alt) => ({
       alt,
       label: alt === undefined ? costText(castCost(g, card, { ...choices, alt, kicked: 0, x: 0 })) : script.alternativeCosts![alt].label,
@@ -236,11 +251,15 @@ function playOptions(g: Game, me: PlayerId, card: Card): { face: number; land: b
   ];
 }
 
-/** The human's permanents that a click taps for mana, or untaps to take the mana back. */
+/**
+ * The human's permanents that a click taps for mana, or untaps to take the mana back, and
+ * cards in their hand with a mana ability that works from there (Simian Spirit Guide).
+ */
 function markMana(view: View, g: Game, me: PlayerId) {
   for (const c of g.players[me].battlefield) {
     if (canTapForMana(g, me, c) || canUntapMana(g, me, c)) view.mana.add(c.id);
   }
+  for (const c of g.players[me].hand) if (canTapForMana(g, me, c)) view.mana.add(c.id);
 }
 
 const sourceOf = (g: Game, t: Targeting) => (g.decision?.type === 'targets' ? g.decision.item.card : findCard(g, t.cardId));
@@ -248,7 +267,10 @@ const sourceOf = (g: Game, t: Targeting) => (g.decision?.type === 'targets' ? g.
 function currentTargets(g: Game, me: PlayerId, t: Targeting): TargetRef[] {
   const source = sourceOf(g, t);
   const spec = t.specs[t.chosen.length];
-  return source && spec ? legalTargets(g, me, spec, source) : [];
+  if (!source || !spec) return [];
+  // "Two target players": the second can't be the first again (115.3).
+  const other = spec.distinctFrom === undefined ? null : t.chosen[spec.distinctFrom];
+  return legalTargets(g, me, spec, source).filter((x) => !other || x.kind !== other.kind || x.id !== other.id);
 }
 
 export function buildView(): View {
@@ -284,6 +306,10 @@ export function buildView(): View {
           ? `${who} is choosing a hand`
           : deciding === 'chooseCards' && g.decision?.type === 'chooseCards'
             ? `${who} is ${g.decision.choice.kind === 'search' ? 'searching' : 'choosing cards'}`
+            : deciding === 'ask'
+              ? `${who} is deciding`
+              : deciding === 'name'
+                ? `${who} is naming a card`
             : g.priority === g.active
               ? `${who}'s turn`
               : `${who} may respond`;
@@ -341,6 +367,17 @@ export function buildView(): View {
     return view;
   }
 
+  // --- choosing the card to exile for an alternative cost (118.9) ---
+  if (t && isExiling(t)) {
+    const card = findCard(g, t.cardId)!;
+    const alt = scriptFor(asSpell(card, t.choices.face)).alternativeCosts![t.choices.alt!];
+    for (const c of exileOptions(g, me, card, t.choices.face ?? 0, t.choices.alt!)) view.glow.set(c.id, 'target');
+    view.glow.set(card.id, 'picked');
+    view.prompt = `${label(card)}: choose ${alt.exile!.label} in your hand to exile.`;
+    view.secondary = { label: 'Cancel', tone: 'cancel', onClick: cancel };
+    return view;
+  }
+
   // --- picking the creatures that crew a Vehicle (702.122a) ---
   const need = t ? crewNeeded(t) : 0;
   if (t && need) {
@@ -368,6 +405,8 @@ export function buildView(): View {
     // The sources auto-pay would tap. Tapping others by hand first changes the plan.
     for (const id of plan?.tap ?? []) view.glow.set(id, 'play');
     markMana(view, g, me);
+    // A card in hand that makes mana from there can be used too, by hand only.
+    for (const c of p.hand) if (view.mana.has(c.id)) view.glow.set(c.id, 'play');
     // Phyrexian mana is paid with life only when the mana isn't there (107.4f).
     const life = plan?.life ? ` (auto-pay uses ${plan.life} life)` : '';
     view.prompt = ability
@@ -398,6 +437,8 @@ export function buildView(): View {
   for (const c of [...p.hand, ...p.command, ...p.graveyard, ...p.exile]) {
     if (canPlayLand(g, me, c) || canCast(g, me, c)) view.glow.set(c.id, 'play');
   }
+  // A card that makes mana from the hand (Simian Spirit Guide).
+  if (!deciding) for (const c of p.hand) if (canTapForMana(g, me, c)) view.glow.set(c.id, 'play');
   for (const c of p.battlefield) if (activatable(g, me, c).length) view.glow.set(c.id, 'play');
   if (!deciding) markMana(view, g, me);
 
@@ -536,9 +577,10 @@ function propose(mode: 'cast' | 'activate', card: Card) {
   const script = scriptFor(asSpell(card, face));
   const hasX = mode === 'cast' && card.zone !== 'graveyard' && parseCost(data(asSpell(card, face)).manaCost).x > 0;
   const siege = mode === 'cast' && isSiege(asSpell(card, face));
+  const handMana = mode === 'cast' && card.zone === 'hand' && canTapForMana(g, me, card);
   const announcing =
     mode === 'cast' &&
-    (options.length > 1 || hasX || !!script.kicker || altCostsOf(g, card, face).length > 0 || !!script.modal || (siege && opponentsOf(g, me).length > 1));
+    (options.length > 1 || hasX || !!script.kicker || altCostsOf(g, card, face).length > 0 || !!script.modal || handMana || (siege && opponentsOf(g, me).length > 1));
   advance({ mode, cardId: card.id, specs, chosen: [], tapped: [], choices, announcing });
 }
 
@@ -692,6 +734,16 @@ function confirmCrew() {
   if (planPayment(g, me, costOf(g, next).cost)?.tap.length === 0) pay();
 }
 
+/** Picks the card in hand to exile for the spell's alternative cost (118.9). Paying comes next. */
+function chooseExile(g: Game, me: PlayerId, t: Targeting, card: Card) {
+  const spell = findCard(g, t.cardId)!;
+  if (!exileOptions(g, me, spell, t.choices.face ?? 0, t.choices.alt!).some((c) => c.id === card.id)) return;
+  const next = { ...t, choices: { ...t.choices, exile: [card.id] } };
+  useStore.setState({ targeting: next });
+  // An alternative cost with no mana, like Force of Will's, is paid as soon as the card is picked.
+  if (planPayment(g, me, costOf(g, next).cost)?.tap.length === 0) pay();
+}
+
 /** Picks the permanent to sacrifice for the spell's additional cost (118.8). Paying comes next. */
 function chooseSacrifice(g: Game, me: PlayerId, t: Targeting, card: Card) {
   const spell = findCard(g, t.cardId)!;
@@ -703,7 +755,7 @@ function chooseTarget(ref: TargetRef | null) {
   const s = S();
   const { game: g, human: me } = s;
   const t = targetingOf(s);
-  if (!g || me === null || !t || t.announcing || isSacrificing(t) || crewNeeded(t)) return;
+  if (!g || me === null || !t || t.announcing || isSacrificing(t) || isExiling(t) || crewNeeded(t)) return;
   if (ref && !currentTargets(g, me, t).some((x) => x.kind === ref.kind && x.id === ref.id)) return;
   advance({ ...t, chosen: [...t.chosen, ref] });
 }
@@ -723,16 +775,33 @@ function myTurnToAct(): { g: Game; me: PlayerId } | null {
   return g && me !== null && g.priority === me && g.step !== 'gameOver' ? { g, me } : null;
 }
 
-/** Plays, casts or discards a card from the human's hand or command zone. */
+/**
+ * Plays, casts or discards a card from the human's hand or command zone. While a spell is
+ * being cast, a hand card can instead be the card exiled to pay for it, or make mana from
+ * the hand (Simian Spirit Guide).
+ */
 export function playHandCard(card: Card) {
   const ctx = myTurnToAct();
-  if (!ctx || targetingOf(S())) return;
+  const t = targetingOf(S());
+  if (ctx && t && isExiling(t)) return chooseExile(ctx.g, ctx.me, t, card);
+  if (ctx && t && isPaying(t) && canTapForMana(ctx.g, ctx.me, card)) return payByHand(ctx.g, ctx.me, t, card);
+  if (!ctx || t) return;
   const { g, me } = ctx;
   if (g.decision?.type === 'discard') return S().act({ type: 'discard', card: card.id });
   const options = playOptions(g, me, card);
-  // A plain land is played; anything with a choice of faces, or a spell, is proposed.
+  // A plain land is played; anything with a choice of faces, or a spell, is proposed. A card
+  // that can't be cast but makes mana from the hand (Simian Spirit Guide) does that.
   if (options.length === 1 && options[0].land) S().act({ type: 'playLand', card: card.id, face: options[0].face });
   else if (options.some((o) => o.ok)) propose('cast', card);
+  else if (!g.decision && canTapForMana(g, me, card)) S().act({ type: 'tapMana', card: card.id });
+}
+
+/** From the cast panel: use the card's mana ability from the hand instead of casting it. */
+export function exileForMana() {
+  const t = S().targeting;
+  if (!t || !t.announcing) return;
+  useStore.setState({ targeting: null });
+  S().act({ type: 'tapMana', card: t.cardId });
 }
 
 export function clickPermanent(card: Card) {
@@ -741,6 +810,7 @@ export function clickPermanent(card: Card) {
   if (t && t.announcing) return;
   if (t && isPaying(t)) return ctx && payByHand(ctx.g, ctx.me, t, card);
   if (t && isSacrificing(t)) return ctx && chooseSacrifice(ctx.g, ctx.me, t, card);
+  if (t && isExiling(t)) return;
   if (t && crewNeeded(t)) return ctx && pickCrew(ctx.g, ctx.me, t, card);
   if (t) return chooseTarget({ kind: 'card', id: card.id });
   if (!ctx) return;

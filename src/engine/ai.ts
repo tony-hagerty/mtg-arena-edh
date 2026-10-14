@@ -10,11 +10,13 @@ import {
   canCast,
   castFaces,
   canMulligan,
+  canSayYes,
   canPlayLand,
   castTargets,
   choiceOptions,
   crewOptions,
   crewPower,
+  exileOptions,
   maxX,
   modeChoices,
   sacrificeOptions,
@@ -35,18 +37,23 @@ import {
   isLand,
   isPlaneswalker,
   asSpell,
+  availableMana,
+  resolvingItem,
   landFaces,
   loyaltyOf,
   legalTargets,
   manaOf,
   parseCost,
   permanent,
+  planPayment,
   stats,
   targetSpecs,
   scriptFor,
 } from './rules';
 import type { ApplyOptions, AttackOption } from './engine';
-import type { Action, Card, CastChoices, Game, ManaSym, Player, PlayerId, TargetRef, TargetSpec } from './types';
+import { produce } from 'immer';
+import { cardData } from '../cards/db';
+import type { Action, Card, CastChoices, Choice, Game, ManaSym, Player, PlayerId, TargetRef, TargetSpec } from './types';
 
 // ---------- position evaluation ----------
 
@@ -119,6 +126,15 @@ const handValue = (p: Player) => {
   return Math.min(n, 5) + Math.max(0, n - 5) * 0.4;
 };
 
+/** Could `pid` pay `cost` once their permanents untap, with the mana they have now? */
+export function canPayLater(g: Game, pid: PlayerId, cost: string): boolean {
+  const later = produce(g, (d) => {
+    for (const c of d.players[pid].battlefield) c.tapped = false;
+    d.players[pid].pool = [];
+  });
+  return !!planPayment(later, pid, parseCost(cost));
+}
+
 /** Higher is better for `pid`. Opponents count half: each is only one of three enemies. */
 export function evaluate(g: Game, pid: PlayerId): number {
   const me = g.players[pid];
@@ -143,7 +159,12 @@ function targetChoices(g: Game, pid: PlayerId, specs: TargetSpec[], source: Card
   for (const spec of specs) {
     const legal: (TargetRef | null)[] = legalTargets(g, pid, spec, source);
     if (spec.optional || legal.length === 0) legal.push(null);
-    combos = combos.flatMap((c) => legal.map((t) => [...c, t])).slice(0, 80);
+    // A target that must differ from an earlier one can't repeat it (115.3).
+    const fits = (c: (TargetRef | null)[], t: TargetRef | null) => {
+      const other = spec.distinctFrom === undefined ? null : c[spec.distinctFrom];
+      return !t || !other || t.kind !== other.kind || t.id !== other.id;
+    };
+    combos = combos.flatMap((c) => legal.filter((t) => fits(c, t)).map((t) => [...c, t])).slice(0, 80);
   }
   return combos;
 }
@@ -168,17 +189,20 @@ function castChoices(g: Game, pid: PlayerId, c: Card): CastChoices[] {
     const modeSets = script.modal ? modeChoices(g, pid, c, face) : [undefined];
     for (const modes of modeSets) {
       for (const alt of [undefined, ...altCostsOf(g, c, face)]) {
+        // An alternative cost that exiles a card from the hand gives up the one the bot wants least.
+        const pitch = alt === undefined ? [] : exileOptions(g, pid, c, face, alt).sort((a, b) => cardWant(g, pid, a) - cardWant(g, pid, b));
+        const exile = pitch.length ? [pitch[0].id] : undefined;
         for (const sacrifice of sacrifices) {
           const kicks = [0];
           if (script.kicker) {
             let k = 0;
-            while (k < (script.kicker.multi ? 10 : 1) && canCast(g, pid, c, { face, alt, sacrifice, modes, kicked: k + 1 })) k++;
+            while (k < (script.kicker.multi ? 10 : 1) && canCast(g, pid, c, { face, alt, sacrifice, exile, modes, kicked: k + 1 })) k++;
             if (k) kicks.push(k);
           }
           for (const kicked of kicks) {
-            const most = maxX(g, pid, c, { face, alt, sacrifice, modes, kicked });
+            const most = maxX(g, pid, c, { face, alt, sacrifice, exile, modes, kicked });
             for (const x of new Set([most, Math.floor(most / 2)])) {
-              const choices: CastChoices = { x, kicked, alt, sacrifice, modes, ...(face ? { face } : {}) };
+              const choices: CastChoices = { x, kicked, alt, sacrifice, modes, ...(exile ? { exile } : {}), ...(face ? { face } : {}) };
               if (x >= 0 && canCast(g, pid, c, choices)) out.push(choices);
             }
           }
@@ -194,7 +218,7 @@ function candidateActions(g: Game, pid: PlayerId): { action: Action; spendsCard:
   const out: { action: Action; spendsCard: boolean }[] = [];
   // Cards in a graveyard (flashback) or exile (after an Adventure) can be cast too.
   for (const c of [...p.hand, ...p.command, ...p.graveyard, ...p.exile]) {
-    if (!canCast(g, pid, c)) continue;
+    if (!canCast(g, pid, c) || scriptFor(c).botCast?.(g, pid, c) === false) continue;
     for (const choices of castChoices(g, pid, c)) {
       for (const targets of targetChoices(g, pid, castTargets(c, choices.modes, choices.face), c)) {
         out.push({ action: { type: 'cast', card: c.id, targets, ...choices }, spendsCard: true });
@@ -226,6 +250,7 @@ const STEP_BY_STEP = { autoPass: false } as const;
  */
 function anyTargets(g: Game): Action {
   if (g.decision?.type === 'chooseCards') return cardChoice(g, g.priority);
+  if (g.decision?.type === 'ask' || g.decision?.type === 'name') return choiceAnswer(g, g.priority);
   if (g.decision?.type === 'orderTriggers') return defaultOrder(g, g.priority);
   if (g.decision?.type === 'commanderZone') return { type: 'commanderZone', toCommand: true };
   if (g.decision?.type !== 'targets') return PASS;
@@ -261,7 +286,7 @@ function resolveStack(g: Game, pid: PlayerId, depth = 0): Game {
   for (let i = 0; i < 200 && g.step !== 'gameOver'; i++) {
     let action: Action;
     const deciding = g.decision?.type;
-    if (deciding === 'chooseCards' || deciding === 'orderTriggers' || deciding === 'commanderZone') action = anyTargets(g);
+    if (deciding === 'chooseCards' || deciding === 'orderTriggers' || deciding === 'commanderZone' || deciding === 'ask' || deciding === 'name') action = anyTargets(g);
     else if (g.decision?.type === 'targets') action = g.priority === pid && depth < 2 ? bestTargets(g, pid, depth) : anyTargets(g);
     else if (g.stack.length && !g.decision) action = PASS;
     else break;
@@ -491,6 +516,10 @@ function mainAction(g: Game, pid: PlayerId): Action {
     const alpha = p.hand.find((c) => scriptFor(c).ai === 'alpha' && canCast(g, pid, c));
     if (alpha) return { type: 'cast', card: alpha.id };
   }
+  if (g.step === 'main2') {
+    const tutor = p.hand.find((c) => scriptFor(c).ai === 'tutor' && canCast(g, pid, c) && castChoices(g, pid, c).length);
+    if (tutor) return { type: 'cast', card: tutor.id, ...castChoices(g, pid, tutor)[0] };
+  }
   return { type: 'pass' };
 }
 
@@ -512,22 +541,76 @@ function mulliganChoice(g: Game, pid: PlayerId): Action {
   return { type: keep ? 'keep' : 'mulligan' };
 }
 
+/** The card's own rule for answering a choice it asked (`CardScript.botChoice`), if it has one. */
+function scriptedChoice(g: Game, pid: PlayerId, choice: Choice): Action | null {
+  const item = resolvingItem(g);
+  const fn = item && 'then' in choice && choice.then ? scriptFor(item.card).botChoice?.[choice.then] : undefined;
+  return fn ? fn(g, pid, choice) : null;
+}
+
+/** How much a bot wants a card it could search for: what it would most like to draw. */
+export function cardWant(g: Game, pid: PlayerId, c: Card): number {
+  const p = g.players[pid];
+  const lands = p.battlefield.filter(isLand).length + p.hand.filter(isLand).length;
+  if (isLand(c)) return lands < 4 ? 6 : 1;
+  const mv = data(c).cmc;
+  // Something it could cast soon, the more expensive the better.
+  return 3 + Math.min(mv, lands + 1) - Math.max(0, mv - lands - 1) * 2;
+}
+
 /**
- * Searches find the first land they can. After a mulligan, the cards kept are about three
- * lands in seven with the cheapest spells, and the rest go on the bottom.
+ * Searches find the card the bot wants most (a land while it is short of them). Picks
+ * take the cards it wants most. After a mulligan, the cards kept are about three lands
+ * in seven with the cheapest spells, and the rest go on the bottom.
  */
 function cardChoice(g: Game, pid: PlayerId): Action {
   if (g.decision?.type !== 'chooseCards') return PASS;
   const { choice } = g.decision;
-  const { cards, valid } = choiceOptions(g, choice);
-  if (choice.kind === 'search') return { type: 'chooseCards', cards: cards.filter((c) => valid.has(c.id)).slice(0, 1).map((c) => c.id) };
+  const scripted = scriptedChoice(g, pid, choice);
+  if (scripted) return scripted;
+  const { cards, valid, min, max } = choiceOptions(g, choice);
+  const best = (n: number) =>
+    cards
+      .filter((c) => valid.has(c.id))
+      .sort((a, b) => cardWant(g, pid, b) - cardWant(g, pid, a))
+      .slice(0, n)
+      .map((c) => c.id);
+  if (choice.kind === 'search') return { type: 'chooseCards', cards: best(1) };
+  if (choice.kind === 'pick') return { type: 'chooseCards', cards: best(Math.max(min, Math.min(max, 1))) };
   const hand = g.players[pid].hand;
+  if (choice.kind !== 'bottom') return PASS;
   const keepCount = hand.length - choice.count;
   const lands = hand.filter(isLand);
   const spells = hand.filter((c) => !isLand(c)).sort((a, b) => data(a).cmc - data(b).cmc);
   const landsKept = Math.min(lands.length, Math.max(Math.round((keepCount * 3) / 7), keepCount - spells.length));
   const kept = new Set([...lands.slice(0, landsKept), ...spells.slice(0, keepCount - landsKept)].map((c) => c.id));
   return { type: 'chooseCards', cards: hand.filter((c) => !kept.has(c.id)).map((c) => c.id) };
+}
+
+/**
+ * Answers a yes/no question or names a card. Paying a tax: yes on someone else's turn if
+ * it can, on its own turn only if it leaves mana to spare. Paying life: yes if it keeps
+ * plenty. Anything else ("you may draw"): yes. Naming a card: the card it wants most
+ * from its library.
+ */
+function choiceAnswer(g: Game, pid: PlayerId): Action {
+  const d = g.decision;
+  if (d?.type !== 'ask' && d?.type !== 'name') return PASS;
+  const scripted = scriptedChoice(g, pid, d.choice);
+  if (scripted) return scripted;
+  if (d.type === 'name') {
+    const lib = [...g.players[pid].library].sort((a, b) => cardWant(g, pid, b) - cardWant(g, pid, a));
+    return { type: 'name', name: lib.length ? cardData(lib[0].name).name : 'Island' };
+  }
+  const q = d.choice;
+  if (!canSayYes(g, q)) return { type: 'answer', yes: false };
+  const me = g.players[pid];
+  if (q.life && me.life - q.life < 15) return { type: 'answer', yes: false };
+  if (q.cost) {
+    const mv = parseCost(q.cost).generic + parseCost(q.cost).pips.length;
+    return { type: 'answer', yes: g.active !== pid || availableMana(g, pid) - mv >= 3 };
+  }
+  return { type: 'answer', yes: true };
 }
 
 /** Triggers go on the stack in the order they triggered. */
@@ -551,6 +634,9 @@ export function botAction(g: Game, pid: PlayerId): Action {
       return discardChoice(g, pid);
     case 'targets':
       return bestTargets(g, pid);
+    case 'ask':
+    case 'name':
+      return choiceAnswer(g, pid);
   }
   // With priority: sorcery-speed plays in the bot's own main phase, otherwise responses and tricks.
   const myMain = pid === g.active && !g.stack.length && (g.step === 'main1' || g.step === 'main2');
@@ -564,6 +650,8 @@ export function applyBotAction(g: Game, a: Action, opts?: ApplyOptions): Game {
   if (next === g && g.decision?.type === 'discard') next = applyAction(g, discardChoice(g, g.priority), opts);
   if (next === g && g.decision?.type === 'targets') next = applyAction(g, anyTargets(g), opts);
   if (next === g && g.decision?.type === 'chooseCards') next = applyAction(g, cardChoice(g, g.priority), opts);
+  if (next === g && g.decision?.type === 'ask') next = applyAction(g, { type: 'answer', yes: false }, opts);
+  if (next === g && g.decision?.type === 'name') next = applyAction(g, { type: 'name', name: 'Island' }, opts);
   if (next === g && g.decision?.type === 'mulligan') next = applyAction(g, { type: 'keep' }, opts);
   return next;
 }

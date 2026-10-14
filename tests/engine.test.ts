@@ -30,6 +30,9 @@ import {
   draw,
   maxHandSize,
   canBlock,
+  canTapForMana,
+  forbidden,
+  manaOf,
   checkState,
   destroy,
   isCreature,
@@ -1817,5 +1820,635 @@ describe('ordering triggers (603.3b)', () => {
     const g = castTusker(wardens(1, false));
     expect(g.decision).toBe(null);
     expect(g.stack.map((x) => x.card.name)).toEqual(['Soul Warden', 'Soul Warden']);
+  });
+});
+
+describe('combo turns: searches, choices, mana, storm, taxes and extra turns (session 7a)', () => {
+  const player = (id: number) => ({ kind: 'player', id }) as const;
+  const top = (g: Game) => ({ kind: 'stack', id: g.stack[g.stack.length - 1].id }) as const;
+  const cast = (g: Game, pid: number, name: string, extra: object = {}) =>
+    run(g, { type: 'cast', card: byName(g, pid, name, 'hand')!.id, ...extra } as Action);
+  const yes = { type: 'answer', yes: true } as const;
+  const no = { type: 'answer', yes: false } as const;
+  const choose = (...cards: { id: string }[]) => ({ type: 'chooseCards', cards: cards.map((c) => c.id) }) as const;
+  /** The choice the game is waiting on. */
+  const asking = (g: Game) => (g.decision && 'choice' in g.decision ? g.decision.choice : undefined);
+  /** Passes (declining anything asked) until `done`. */
+  const passUntil = (g: Game, done: (g: Game) => boolean) => {
+    for (let i = 0; i < 500 && !done(g); i++) g = run(g, g.decision?.type === 'ask' ? no : pass);
+    return g;
+  };
+  /** A small library for player `pid`, top card first. */
+  const library = (d: Game, pid: number, names: string[]) => {
+    d.players[pid].library = [];
+    for (const n of names) put(d, pid, n, 'library');
+  };
+
+  describe('searching and looking', () => {
+    it('cracks a fetch land: 1 life, sacrifice it, a land with either type enters untapped (701.23)', () => {
+      let g = emptyGame((d) => {
+        put(d, 0, 'Polluted Delta');
+        library(d, 0, ['Plateau', 'Underground Sea', 'Island', 'Volcanic Island']);
+      });
+      g = run(g, { type: 'activate', card: byName(g, 0, 'Polluted Delta')!.id });
+      expect(g.players[0].life).toBe(39);
+      expect(byName(g, 0, 'Polluted Delta', 'graveyard')).toBeDefined();
+      const choice = asking(g)!;
+      if (choice.kind !== 'search') throw new Error('no search');
+      const { cards, valid } = choiceOptions(g, choice);
+      expect(cards.filter((c) => valid.has(c.id)).map((c) => c.name)).toEqual(['Island', 'Underground Sea', 'Volcanic Island']);
+      g = run(g, choose(byName(g, 0, 'Underground Sea', 'library')!));
+      expect(byName(g, 0, 'Underground Sea')!.tapped).toBe(false);
+    });
+
+    it('Demonic Tutor must find a card (701.23d); Vampiric Tutor puts it on top and costs 2 life', () => {
+      let g = emptyGame((d) => {
+        put(d, 0, 'Swamp', 'battlefield', 3);
+        put(d, 0, 'Demonic Tutor', 'hand');
+        put(d, 0, 'Vampiric Tutor', 'hand');
+        library(d, 0, ['Plains', 'Sol Ring', 'Plains', 'Plains']);
+      });
+      g = cast(g, 0, 'Vampiric Tutor');
+      // Any card, so finding nothing isn't allowed.
+      expect(applyAction(g, choose())).toBe(g);
+      g = run(g, choose(byName(g, 0, 'Sol Ring', 'library')!));
+      expect(g.players[0].library[0].name).toBe('Sol Ring');
+      expect(g.players[0].life).toBe(38);
+      g = cast(g, 0, 'Demonic Tutor');
+      g = run(g, choose(byName(g, 0, 'Sol Ring', 'library')!));
+      expect(byName(g, 0, 'Sol Ring', 'hand')).toBeDefined();
+      expect(g.stack).toEqual([]);
+    });
+
+    it('Gamble discards a card at random after the search', () => {
+      let g = emptyGame((d) => {
+        put(d, 0, 'Mountain');
+        put(d, 0, 'Gamble', 'hand');
+        put(d, 0, 'Plains', 'hand', 2);
+        library(d, 0, ['Sol Ring', 'Plains']);
+      });
+      g = cast(g, 0, 'Gamble');
+      g = run(g, choose(byName(g, 0, 'Sol Ring', 'library')!));
+      expect(g.players[0].hand).toHaveLength(2);
+      expect(g.players[0].graveyard.map((c) => c.name).sort()).toHaveLength(2); // Gamble and the discarded card
+    });
+
+    it('Enlightened Tutor finds only an artifact or enchantment, and reveals it', () => {
+      let g = emptyGame((d) => {
+        put(d, 0, 'Plains');
+        put(d, 0, 'Enlightened Tutor', 'hand');
+        library(d, 0, ['Lightning Bolt', 'Rhystic Study', 'Sol Ring']);
+      });
+      g = cast(g, 0, 'Enlightened Tutor');
+      const choice = asking(g)!;
+      if (choice.kind !== 'search') throw new Error('no search');
+      const { valid, min } = choiceOptions(g, choice);
+      expect([valid.size, min]).toEqual([2, 0]);
+      g = run(g, choose(byName(g, 0, 'Rhystic Study', 'library')!));
+      expect(g.players[0].library[0].name).toBe('Rhystic Study');
+      expect(g.log.some((l) => l.text.includes('for Rhystic Study'))).toBe(true);
+    });
+
+    it("a bot's unrevealed search doesn't name the card in the log (701.23e)", () => {
+      let g = emptyGame((d) => {
+        put(d, 1, 'Swamp', 'battlefield', 2);
+        put(d, 1, 'Demonic Tutor', 'hand');
+        d.active = 1;
+        d.priority = 1;
+      });
+      g = cast(g, 1, 'Demonic Tutor');
+      g = applyBotAction(g, botAction(g, 1));
+      expect(g.log.some((l) => l.text === 'Mortis searches their library for a card.')).toBe(true);
+    });
+  });
+
+  describe('mana abilities', () => {
+    it('uses the free ability first and the painful one only for colour (Tarnished Citadel)', () => {
+      let g = emptyGame((d) => {
+        put(d, 0, 'Tarnished Citadel');
+        put(d, 0, 'Sol Ring', 'hand');
+        put(d, 0, 'Mystical Tutor', 'hand');
+      });
+      g = cast(g, 0, 'Sol Ring');
+      expect(g.players[0].life).toBe(40);
+      g = produce(g, (d) => void (byName(d, 0, 'Tarnished Citadel')!.tapped = false));
+      g = cast(g, 0, 'Mystical Tutor');
+      expect(g.players[0].life).toBe(37);
+    });
+
+    it('Spire of Industry makes colour only with an artifact, for 1 life', () => {
+      let g = emptyGame((d) => put(d, 0, 'Spire of Industry'));
+      expect(planPayment(g, 0, parseCost('{U}'))).toBeNull();
+      g = produce(g, (d) => void (put(d, 0, 'Sol Ring').tapped = true));
+      expect(planPayment(g, 0, parseCost('{U}'))).not.toBeNull();
+    });
+
+    it('Ancient Tomb deals 2 damage; City of Brass deals 1 when its trigger resolves', () => {
+      let g = emptyGame((d) => {
+        put(d, 0, 'Ancient Tomb');
+        put(d, 0, 'City of Brass');
+      });
+      g = run(g, { type: 'tapMana', card: byName(g, 0, 'Ancient Tomb')!.id });
+      expect([g.players[0].life, g.players[0].pool.length]).toEqual([38, 2]);
+      g = run(g, { type: 'tapMana', card: byName(g, 0, 'City of Brass')!.id });
+      expect(g.players[0].life).toBe(37);
+      expect(g.players[0].pool.length).toBe(3);
+      // Neither can be undone: they did more than tap.
+      expect(applyAction(g, { type: 'untapMana', card: byName(g, 0, 'City of Brass')!.id })).toBe(g);
+    });
+
+    it("Simian Spirit Guide is exiled from the hand for {R}, by hand only (auto-pay won't)", () => {
+      let g = emptyGame((d) => put(d, 0, 'Simian Spirit Guide', 'hand'));
+      expect(planPayment(g, 0, parseCost('{R}'))).toBeNull();
+      g = run(g, { type: 'tapMana', card: byName(g, 0, 'Simian Spirit Guide', 'hand')!.id });
+      expect(g.players[0].pool.map((m) => m.sym)).toEqual(['R']);
+      expect(byName(g, 0, 'Simian Spirit Guide', 'exile')).toBeDefined();
+    });
+
+    it('Mox Opal needs three artifacts; Mox Amber makes the colours of your legends', () => {
+      let g = emptyGame((d) => {
+        put(d, 0, 'Mox Opal');
+        put(d, 0, 'Mox Amber');
+      });
+      expect(canTapForMana(g, 0, byName(g, 0, 'Mox Opal')!)).toBe(false);
+      expect(canTapForMana(g, 0, byName(g, 0, 'Mox Amber')!)).toBe(false);
+      g = produce(g, (d) => {
+        put(d, 0, 'Sol Ring');
+        put(d, 0, 'Lotho, Corrupt Shirriff');
+      });
+      expect(canTapForMana(g, 0, byName(g, 0, 'Mox Opal')!)).toBe(true);
+      expect(manaOf(g, byName(g, 0, 'Mox Amber')!)?.colors).toEqual(['W', 'B']);
+    });
+
+    it("Fellwar Stone makes only what opponents' lands could", () => {
+      let g = emptyGame((d) => {
+        put(d, 0, 'Fellwar Stone');
+        put(d, 1, 'Badlands');
+        put(d, 2, 'Island');
+      });
+      expect(manaOf(g, byName(g, 0, 'Fellwar Stone')!)?.colors).toEqual(['U', 'B', 'R']);
+      g = emptyGame((d) => put(d, 0, 'Fellwar Stone'));
+      expect(manaOf(g, byName(g, 0, 'Fellwar Stone')!)).toBeNull();
+    });
+
+    it("Mana Vault doesn't untap; its owner may pay {4} in upkeep, and it hurts in the draw step while tapped", () => {
+      let g = emptyGame((d) => {
+        put(d, 0, 'Mana Vault').tapped = true;
+        put(d, 0, 'Plains', 'battlefield', 4);
+      });
+      g = passUntil(g, (x) => x.active === 0 && x.turn > 1 && x.decision?.type === 'ask');
+      expect(byName(g, 0, 'Mana Vault')!.tapped).toBe(true); // the untap step skipped it (502.3)
+      g = run(g, no);
+      g = passUntil(g, (x) => x.step === 'main1');
+      expect(g.players[0].life).toBe(39);
+      g = passUntil(g, (x) => x.active === 0 && x.turn > 5 && x.decision?.type === 'ask');
+      g = run(g, yes);
+      expect(byName(g, 0, 'Mana Vault')!.tapped).toBe(false);
+    });
+
+    it('rituals add mana; Cabal Ritual adds more with threshold', () => {
+      let g = emptyGame((d) => {
+        put(d, 0, 'Swamp', 'battlefield', 3);
+        put(d, 0, 'Dark Ritual', 'hand');
+        put(d, 0, 'Cabal Ritual', 'hand');
+        for (let i = 0; i < 6; i++) put(d, 0, 'Plains', 'graveyard');
+      });
+      g = cast(g, 0, 'Dark Ritual');
+      expect(g.players[0].pool.map((m) => m.sym)).toEqual(['B', 'B', 'B']);
+      // Dark Ritual is the seventh card in the graveyard, so Cabal Ritual has threshold.
+      g = cast(g, 0, 'Cabal Ritual');
+      expect(g.players[0].pool).toHaveLength(1 + 5);
+    });
+  });
+
+  describe('alternative costs and counterspells', () => {
+    const duel = (answer: string, setup: (g: Game) => void = () => {}) =>
+      emptyGame((d) => {
+        put(d, 0, 'Mountain');
+        put(d, 0, 'Lightning Bolt', 'hand');
+        put(d, 1, answer, 'hand');
+        setup(d);
+      });
+
+    it('Force of Will: 1 life and a blue card from the hand instead of mana (118.9)', () => {
+      let g = duel('Force of Will', (d) => put(d, 1, 'Snapback', 'hand'));
+      g = cast(g, 0, 'Lightning Bolt', { targets: [player(1)] });
+      const fow = byName(g, 1, 'Force of Will', 'hand')!;
+      expect(canCast(g, 1, fow)).toBe(true);
+      expect(canCast(g, 1, fow, { alt: 0 })).toBe(false); // no card picked to exile
+      const snapback = byName(g, 1, 'Snapback', 'hand')!;
+      g = run(g, { type: 'cast', card: fow.id, alt: 0, exile: [snapback.id], targets: [top(g)] });
+      expect(g.players[1].life).toBe(39);
+      expect(byName(g, 1, 'Snapback', 'exile')).toBeDefined();
+      expect(byName(g, 0, 'Lightning Bolt', 'graveyard')).toBeDefined();
+    });
+
+    it('Force of Will has no free cost without another blue card', () => {
+      let g = duel('Force of Will');
+      g = cast(g, 0, 'Lightning Bolt', { targets: [player(1)] });
+      expect(canCast(g, 1, byName(g, 1, 'Force of Will', 'hand')!)).toBe(false);
+    });
+
+    it("Force of Negation is free only on an opponent's turn, and exiles what it counters", () => {
+      let g = duel('Force of Negation', (d) => put(d, 1, 'Snapback', 'hand'));
+      g = cast(g, 0, 'Lightning Bolt', { targets: [player(1)] });
+      const fon = byName(g, 1, 'Force of Negation', 'hand')!;
+      g = run(g, { type: 'cast', card: fon.id, alt: 0, exile: [byName(g, 1, 'Snapback', 'hand')!.id], targets: [top(g)] });
+      expect(byName(g, 0, 'Lightning Bolt', 'exile')).toBeDefined();
+      const own = emptyGame((d) => {
+        put(d, 0, 'Force of Negation', 'hand');
+        put(d, 0, 'Snapback', 'hand');
+      });
+      expect(canCast(own, 0, byName(own, 0, 'Force of Negation', 'hand')!, { alt: 0, exile: [byName(own, 0, 'Snapback', 'hand')!.id] })).toBe(false);
+    });
+
+    it('Fierce Guardianship is free while you control a commander', () => {
+      const without = duel('Fierce Guardianship');
+      const g0 = cast(without, 0, 'Lightning Bolt', { targets: [player(1)] });
+      expect(canCast(g0, 1, byName(g0, 1, 'Fierce Guardianship', 'hand')!)).toBe(false);
+      let g = duel('Fierce Guardianship', (d) => void (put(d, 1, 'Sheoldred, the Apocalypse').isCommander = true));
+      g = cast(g, 0, 'Lightning Bolt', { targets: [player(1)] });
+      g = run(g, { type: 'cast', card: byName(g, 1, 'Fierce Guardianship', 'hand')!.id, alt: 0, targets: [top(g)] });
+      expect(g.players[1].life).toBe(40);
+    });
+
+    it('Pact of Negation: pay {3}{U}{U} at your next upkeep or lose the game', () => {
+      let g = duel('Pact of Negation');
+      g = cast(g, 0, 'Lightning Bolt', { targets: [player(1)] });
+      g = cast(g, 1, 'Pact of Negation', { targets: [top(g)] });
+      expect(g.delayed).toHaveLength(1);
+      g = passUntil(g, (x) => x.decision?.type === 'ask');
+      expect([g.active, g.step, asking(g)?.player]).toEqual([1, 'upkeep', 1]);
+      // No mana: paying isn't possible.
+      expect(applyAction(g, yes)).toBe(g);
+      g = run(g, no);
+      expect(g.players[1].lost).toBe(true);
+    });
+
+    it("Flusterstorm counters unless its controller pays {1}, and storm copies it (702.40a)", () => {
+      let g = emptyGame((d) => {
+        put(d, 0, 'Mountain', 'battlefield', 3);
+        put(d, 0, 'Lightning Bolt', 'hand', 2);
+        put(d, 1, 'Island');
+        put(d, 1, 'Flusterstorm', 'hand');
+      });
+      const [b1, b2] = g.players[0].hand;
+      g = run(g, { type: 'cast', card: b1.id, targets: [player(1)], hold: true });
+      g = run(g, { type: 'cast', card: b2.id, targets: [player(1)] });
+      const [first, second] = g.stack;
+      g = cast(g, 1, 'Flusterstorm', { targets: [{ kind: 'stack', id: second.id }] });
+      // Two spells were cast before it this turn: the storm trigger makes two copies, each asking for targets.
+      expect(g.decision?.type).toBe('targets');
+      g = run(g, { type: 'chooseTargets', targets: [{ kind: 'stack', id: first.id }] });
+      g = run(g, { type: 'chooseTargets', targets: [{ kind: 'stack', id: first.id }] });
+      // Player 0 pays {1} for the first copy and can't pay for the second.
+      g = passUntil(g, (x) => x.decision?.type === 'ask');
+      g = run(g, yes);
+      g = passUntil(g, (x) => x.decision?.type === 'ask');
+      expect(applyAction(g, yes)).toBe(g);
+      g = run(g, no);
+      g = passUntil(g, (x) => !x.stack.length);
+      expect(g.players[1].life).toBe(40);
+      expect(g.log.filter((l) => l.text === 'Lightning Bolt is countered.')).toHaveLength(2);
+    });
+
+    it('Brain Freeze mills three for itself and each copy', () => {
+      let g = emptyGame((d) => {
+        put(d, 0, 'Island', 'battlefield', 2);
+        put(d, 0, 'Mountain', 'battlefield', 2);
+        put(d, 0, 'Dark Ritual', 'hand'); // a spell cast before it, if it can be paid
+        put(d, 0, 'Lightning Bolt', 'hand');
+        put(d, 0, 'Brain Freeze', 'hand');
+      });
+      g = cast(g, 0, 'Lightning Bolt', { targets: [player(2)] });
+      g = cast(g, 0, 'Brain Freeze', { targets: [player(1)] });
+      // One spell before it: one copy, which may target someone else.
+      g = run(g, { type: 'chooseTargets', targets: [player(3)] });
+      g = passUntil(g, (x) => !x.stack.length);
+      expect([g.players[1].graveyard.length, g.players[3].graveyard.length]).toEqual([3, 3]);
+    });
+
+    it('Mental Misstep counts X on the stack (202.3e); Swan Song gives the Bird to the countered spell\'s controller', () => {
+      const start = emptyGame((d) => {
+        put(d, 0, 'Mountain', 'battlefield', 2);
+        put(d, 0, 'Blaze', 'hand');
+        put(d, 1, 'Mental Misstep', 'hand');
+        put(d, 1, 'Swan Song', 'hand');
+        put(d, 1, 'Island');
+      });
+      const blaze = byName(start, 0, 'Blaze', 'hand')!;
+      // {X}{R} with X = 1 has mana value 2 on the stack: Mental Misstep can't target it.
+      let g = run(start, { type: 'cast', card: blaze.id, x: 1, targets: [player(1)] });
+      expect(legalTargets(g, 1, { type: 'spell', label: '' }, byName(g, 1, 'Mental Misstep', 'hand')!)).toHaveLength(1);
+      expect(canCast(g, 1, byName(g, 1, 'Mental Misstep', 'hand')!)).toBe(false);
+      // With X = 0 it has mana value 1.
+      g = run(start, { type: 'cast', card: blaze.id, x: 0, targets: [player(1)] });
+      expect(canCast(g, 1, byName(g, 1, 'Mental Misstep', 'hand')!)).toBe(true);
+      g = cast(g, 1, 'Swan Song', { targets: [top(g)] });
+      expect(byName(g, 0, 'Bird 2/2 flying')).toBeDefined();
+    });
+
+    it("can't counter a spell that can't be countered (113.6g)", () => {
+      let g = emptyGame((d) => {
+        put(d, 0, 'Forest', 'battlefield', 6);
+        put(d, 0, 'Carnage Tyrant', 'hand');
+        put(d, 1, 'Island', 'battlefield', 2);
+        put(d, 1, 'Counterspell', 'hand');
+      });
+      g = cast(g, 0, 'Carnage Tyrant');
+      g = cast(g, 1, 'Counterspell', { targets: [top(g)] });
+      expect(byName(g, 0, 'Carnage Tyrant')).toBeDefined();
+    });
+  });
+
+  describe('taxes and draw triggers', () => {
+    it('Rhystic Study: the caster may pay {1}; if not, its owner may draw (118.12a)', () => {
+      let g = emptyGame((d) => {
+        put(d, 0, 'Rhystic Study');
+        put(d, 1, 'Mountain', 'battlefield', 3);
+        put(d, 1, 'Lightning Bolt', 'hand', 2);
+        d.active = 1;
+        d.priority = 1;
+      });
+      const hand = g.players[0].hand.length;
+      g = cast(g, 1, 'Lightning Bolt', { targets: [player(2)] });
+      g = passUntil(g, (x) => x.decision?.type === 'ask');
+      expect(asking(g)?.player).toBe(1);
+      g = run(g, yes); // pays {1}
+      expect(g.players[0].hand).toHaveLength(hand);
+      g = passUntil(g, (x) => !x.stack.length);
+      // The second time they can't pay; player 0 chooses to draw.
+      g = cast(g, 1, 'Lightning Bolt', { targets: [player(2)] });
+      g = passUntil(g, (x) => x.decision?.type === 'ask');
+      expect(applyAction(g, yes)).toBe(g);
+      g = run(g, no);
+      expect(asking(g)).toMatchObject({ player: 0, kind: 'ask' });
+      g = run(g, yes);
+      expect(g.players[0].hand).toHaveLength(hand + 1);
+    });
+
+    it('Esper Sentinel triggers only on the first noncreature spell an opponent casts each turn', () => {
+      let g = emptyGame((d) => {
+        put(d, 0, 'Esper Sentinel');
+        put(d, 1, 'Mountain', 'battlefield', 2);
+        put(d, 1, 'Lightning Bolt', 'hand', 2);
+        d.active = 1;
+        d.priority = 1;
+      });
+      g = cast(g, 1, 'Lightning Bolt', { targets: [player(2)] });
+      g = passUntil(g, (x) => x.decision?.type === 'ask');
+      g = run(g, no);
+      g = passUntil(g, (x) => !x.stack.length);
+      const hand = g.players[0].hand.length;
+      g = cast(g, 1, 'Lightning Bolt', { targets: [player(2)] });
+      g = passUntil(g, (x) => !x.stack.length);
+      expect(g.players[0].hand).toHaveLength(hand);
+      expect(g.players[1].noncreatureSpellsCast).toBe(2);
+    });
+
+    it("Kraum draws on an opponent's second spell each turn; Lotho on anyone's", () => {
+      let g = emptyGame((d) => {
+        put(d, 0, "Kraum, Ludevic's Opus");
+        put(d, 2, 'Lotho, Corrupt Shirriff');
+        put(d, 1, 'Mountain', 'battlefield', 2);
+        put(d, 1, 'Lightning Bolt', 'hand', 2);
+        d.active = 1;
+        d.priority = 1;
+      });
+      const hand = g.players[0].hand.length;
+      g = cast(g, 1, 'Lightning Bolt', { targets: [player(3)] });
+      g = passUntil(g, (x) => !x.stack.length);
+      g = cast(g, 1, 'Lightning Bolt', { targets: [player(3)] });
+      g = passUntil(g, (x) => !x.stack.length);
+      expect(g.players[0].hand).toHaveLength(hand + 1);
+      expect(g.players[2].life).toBe(39);
+      expect(byName(g, 2, 'Treasure')).toBeDefined();
+    });
+
+    it('Smothering Tithe makes a Treasure for each draw an opponent doesn\'t pay {2} for; Wheel of Fortune draws seven each', () => {
+      let g = emptyGame((d) => {
+        put(d, 0, 'Smothering Tithe');
+        put(d, 0, 'Mountain', 'battlefield', 3);
+        put(d, 0, 'Wheel of Fortune', 'hand');
+        for (const p of d.players) put(d, p.id, 'Plains', 'hand', 2);
+      });
+      g = cast(g, 0, 'Wheel of Fortune');
+      expect(g.players.map((p) => p.hand.length)).toEqual([7, 7, 7, 7]);
+      expect(g.players.map((p) => p.graveyard.length)).toEqual([3, 2, 2, 2]);
+      g = passUntil(g, (x) => !x.stack.length && !x.decision && !x.triggers.length);
+      expect(g.players[0].battlefield.filter((c) => c.name === 'Treasure')).toHaveLength(21);
+    });
+
+    it('Tymna draws for each opponent dealt combat damage, paying that much life', () => {
+      let g = emptyGame((d) => {
+        put(d, 0, 'Tymna the Weaver');
+        put(d, 0, 'Raging Goblin');
+      });
+      g = run(g, pass); // to declare attackers
+      g = run(
+        g,
+        { type: 'declareAttack', card: byName(g, 0, 'Tymna the Weaver')!.id, defender: 1 },
+        { type: 'declareAttack', card: byName(g, 0, 'Raging Goblin')!.id, defender: 2 },
+        pass,
+      );
+      g = passUntil(g, (x) => x.decision?.type === 'ask');
+      expect([g.step, asking(g)?.kind === 'ask' && asking(g)]).toMatchObject(['main2', { life: 2 }]);
+      const hand = g.players[0].hand.length;
+      g = run(g, yes);
+      expect(g.players[0].hand).toHaveLength(hand + 2);
+      expect(g.players[0].life).toBe(40 + 2 - 2); // lifelink, then the payment
+    });
+
+    it('Tymna always triggers; with no opponent dealt combat damage there is nothing to pay or draw', () => {
+      let g = emptyGame((d) => put(d, 0, 'Tymna the Weaver'));
+      g = runWith({ autoPass: false }, g, pass, pass, pass, pass); // main1 -> beginning of combat
+      g = passUntil(g, (x) => x.step === 'main2');
+      expect(g.log.some((l) => l.text.includes('Tymna'))).toBe(false);
+      expect(g.decision).toBeNull();
+    });
+
+    it("Command Tower makes no mana for a colourless commander (105.1)", () => {
+      const g = emptyGame((d) => {
+        d.players[0].colors = [];
+        put(d, 0, 'Command Tower');
+      });
+      expect(manaOf(g, byName(g, 0, 'Command Tower')!)).toBeNull();
+    });
+
+    it('Mystic Remora: cumulative upkeep {1} per age counter, or it is sacrificed (702.24a)', () => {
+      let g = emptyGame((d) => {
+        put(d, 0, 'Mystic Remora');
+        put(d, 0, 'Island');
+      });
+      g = passUntil(g, (x) => x.active === 0 && x.decision?.type === 'ask');
+      expect(asking(g)).toMatchObject({ cost: '{1}' });
+      g = run(g, yes);
+      g = passUntil(g, (x) => x.active === 0 && x.turn > 5 && x.decision?.type === 'ask');
+      expect(asking(g)).toMatchObject({ cost: '{2}' });
+      g = run(g, no);
+      expect(byName(g, 0, 'Mystic Remora', 'graveyard')).toBeDefined();
+    });
+
+    it('The Queen of Dale recruits: draw, discard, and a Human Soldier for a nonland card', () => {
+      let g = emptyGame((d) => {
+        put(d, 0, 'The Queen of Dale');
+        put(d, 0, 'Lightning Bolt', 'hand');
+        put(d, 1, 'Mountain');
+        put(d, 1, 'Lightning Bolt', 'hand');
+        d.active = 1;
+        d.priority = 1;
+      });
+      g = cast(g, 1, 'Lightning Bolt', { targets: [player(2)] });
+      g = passUntil(g, (x) => x.decision?.type === 'chooseCards');
+      g = run(g, choose(byName(g, 0, 'Lightning Bolt', 'hand')!));
+      expect(byName(g, 0, 'Human Soldier')).toBeDefined();
+    });
+
+    it("Tataru Taru: both draw, and a tapped Treasure when an opponent draws on someone else's turn, once a turn", () => {
+      let g = emptyGame((d) => {
+        put(d, 0, 'Plains', 'battlefield', 2);
+        put(d, 0, 'Tataru Taru', 'hand');
+      });
+      g = cast(g, 0, 'Tataru Taru');
+      g = run(g, { type: 'chooseTargets', targets: [player(1)] });
+      g = passUntil(g, (x) => x.decision?.type === 'ask');
+      g = run(g, yes);
+      g = passUntil(g, (x) => !x.stack.length && !x.decision);
+      const treasures = g.players[0].battlefield.filter((c) => c.name === 'Treasure');
+      expect(treasures.map((t) => t.tapped)).toEqual([true]);
+    });
+
+    it('Gleaming Splendor needs two different players (115.3)', () => {
+      const g = emptyGame((d) => {
+        put(d, 0, 'Gleaming Splendor');
+        put(d, 0, 'Plains', 'battlefield', 3);
+      });
+      const gs = byName(g, 0, 'Gleaming Splendor')!;
+      expect(applyAction(g, { type: 'activate', card: gs.id, targets: [player(1), player(1)] })).toBe(g);
+      expect(applyAction(g, { type: 'activate', card: gs.id, targets: [player(1), player(2)] })).not.toBe(g);
+    });
+  });
+
+  describe("restrictions: can't cast, flash", () => {
+    it("Silence: opponents can't cast spells this turn", () => {
+      let g = emptyGame((d) => {
+        put(d, 0, 'Plains');
+        put(d, 0, 'Silence', 'hand');
+        put(d, 1, 'Mountain');
+        put(d, 1, 'Lightning Bolt', 'hand');
+      });
+      g = cast(g, 0, 'Silence');
+      g = passUntil(g, (x) => !x.stack.length);
+      expect(forbidden(g, 1, 'cast', byName(g, 1, 'Lightning Bolt', 'hand')!)).toBe(true);
+      expect(forbidden(g, 0, 'cast', byName(g, 1, 'Lightning Bolt', 'hand')!)).toBe(false);
+      g = passUntil(g, (x) => x.active === 1 && x.step === 'main1');
+      expect(g.effects).toEqual([]);
+    });
+
+    it("Grand Abolisher: on your turn opponents can't cast spells or use artifacts' abilities, even mana ones", () => {
+      const g = emptyGame((d) => {
+        put(d, 0, 'Grand Abolisher');
+        put(d, 1, 'Sol Ring');
+        put(d, 1, 'Mountain');
+        put(d, 1, 'Lightning Bolt', 'hand');
+        d.priority = 1;
+      });
+      expect(canCast(g, 1, byName(g, 1, 'Lightning Bolt', 'hand')!)).toBe(false);
+      expect(canTapForMana(g, 1, byName(g, 1, 'Sol Ring')!)).toBe(false);
+      expect(canTapForMana(g, 1, byName(g, 1, 'Mountain')!)).toBe(true);
+    });
+
+    it('Borne Upon a Wind lets you cast spells as though they had flash this turn (702.8)', () => {
+      const start = emptyGame((d) => {
+        put(d, 0, 'Island', 'battlefield', 2);
+        put(d, 0, 'Swamp', 'battlefield', 3);
+        put(d, 0, 'Borne Upon a Wind', 'hand');
+        put(d, 0, 'Dark Ritual', 'hand');
+        put(d, 0, 'Demonic Tutor', 'hand');
+      });
+      // Without it, a sorcery can't be cast while a spell is on the stack (117.1a).
+      let g = cast(start, 0, 'Dark Ritual', { hold: true });
+      expect(canCast(g, 0, byName(g, 0, 'Demonic Tutor', 'hand')!)).toBe(false);
+      g = cast(start, 0, 'Borne Upon a Wind');
+      g = cast(g, 0, 'Dark Ritual', { hold: true });
+      expect(g.stack).toHaveLength(1);
+      expect(canCast(g, 0, byName(g, 0, 'Demonic Tutor', 'hand')!)).toBe(true);
+    });
+
+    it('Voice of Victory: mobilize 2 makes two attacking Warriors, sacrificed at the end step', () => {
+      let g = emptyGame((d) => put(d, 0, 'Voice of Victory'));
+      g = run(g, pass);
+      g = run(g, { type: 'declareAttack', card: byName(g, 0, 'Voice of Victory')!.id, defender: 1 }, pass);
+      g = passUntil(g, (x) => x.step === 'blockers' || x.step === 'damage' || x.step === 'main2');
+      g = passUntil(g, (x) => x.step === 'main2');
+      expect(g.players[1].life).toBe(40 - 1 - 1 - 1);
+      g = passUntil(g, (x) => x.active === 1);
+      expect(g.players[0].battlefield.filter((c) => c.name === 'Warrior')).toHaveLength(0);
+    });
+  });
+
+  describe('winning and losing', () => {
+    it("Thassa's Oracle wins with devotion at least the library size (104.2b)", () => {
+      let g = emptyGame((d) => {
+        put(d, 0, 'Island', 'battlefield', 2);
+        put(d, 0, "Thassa's Oracle", 'hand');
+        library(d, 0, ['Plains', 'Plains']);
+      });
+      g = cast(g, 0, "Thassa's Oracle");
+      // Devotion 2 (its own {U}{U}): look at both, keep one on top.
+      g = passUntil(g, (x) => x.decision?.type === 'chooseCards');
+      g = run(g, choose(g.players[0].library[1]));
+      expect(g.winner).toBe(0);
+    });
+
+    it("Demonic Consultation naming a card that isn't there exiles the whole library", () => {
+      let g = emptyGame((d) => {
+        put(d, 0, 'Swamp');
+        put(d, 0, 'Demonic Consultation', 'hand');
+        library(d, 0, ['Plains', 'Sol Ring', 'Plains', 'Plains', 'Plains', 'Plains', 'Plains', 'Dark Ritual', 'Plains']);
+      });
+      g = cast(g, 0, 'Demonic Consultation');
+      expect(g.decision?.type).toBe('name');
+      expect(applyAction(g, { type: 'name', name: 'Not A Card' })).toBe(g);
+      const named = run(g, { type: 'name', name: 'Dark Ritual' });
+      expect(byName(named, 0, 'Dark Ritual', 'hand')).toBeDefined();
+      expect([named.players[0].exile.length, named.players[0].library.length]).toEqual([7, 1]);
+      const all = run(g, { type: 'name', name: "Thassa's Oracle" });
+      expect(all.players[0].library).toEqual([]);
+    });
+
+    it('Tainted Pact stops at a repeated name, or when a card is taken', () => {
+      let g = emptyGame((d) => {
+        put(d, 0, 'Swamp', 'battlefield', 2);
+        put(d, 0, 'Tainted Pact', 'hand');
+        library(d, 0, ['Sol Ring', 'Plains', 'Dark Ritual', 'Plains', 'Island']);
+      });
+      g = cast(g, 0, 'Tainted Pact');
+      g = run(g, no, no, no); // Sol Ring, Plains, Dark Ritual exiled
+      // The second Plains has the same name as one exiled before: it stops.
+      expect(g.decision).toBeNull();
+      expect(g.players[0].library.map((c) => c.name)).toEqual(['Island']);
+      let h = emptyGame((d) => {
+        put(d, 0, 'Swamp', 'battlefield', 2);
+        put(d, 0, 'Tainted Pact', 'hand');
+        library(d, 0, ['Plains', 'Sol Ring', 'Island']);
+      });
+      h = cast(h, 0, 'Tainted Pact');
+      h = run(h, no, yes);
+      expect(byName(h, 0, 'Sol Ring', 'hand')).toBeDefined();
+      expect(h.players[0].library.map((c) => c.name)).toEqual(['Island']);
+    });
+
+    it('Final Fortune: an extra turn, then its caster loses at its end step (500.7)', () => {
+      let g = emptyGame((d) => {
+        put(d, 0, 'Mountain', 'battlefield', 2);
+        put(d, 0, 'Final Fortune', 'hand');
+      });
+      g = cast(g, 0, 'Final Fortune');
+      g = passUntil(g, (x) => x.turn === 2 && x.step === 'main1');
+      expect(g.active).toBe(0);
+      g = passUntil(g, (x) => x.players[0].lost);
+      expect(g.log.find((l) => l.text === 'Seraphine loses the game (Final Fortune).')?.turn).toBe(2);
+    });
   });
 });
