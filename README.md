@@ -53,6 +53,12 @@ npm run build    # type-check and production build
   recast costs 2 more (`+2`, `+4`, …). Partners each have their own tax badge.
 - **Attacking:** press Next → To Combat, click an opponent's portrait to choose who to
   attack, then click your creatures. Different creatures can attack different players.
+  Planeswalkers and battles you can attack glow yellow: click one to send your next
+  attackers at it instead.
+- **Planeswalkers:** click yours to see its loyalty abilities and pick one. It happens
+  right away (after any target): loyalty abilities cost loyalty, not mana. Loyalty is the
+  shield in the corner; a battle's defense is the orange box. When you cast a Siege
+  battle, the cast panel asks which opponent protects it.
 - **Blocking:** when you are attacked, click your creature. If it could block more than
   one attacker, click the attacker next.
 - **Piles:** identical lands, and identical creature tokens, pile up with a count (`x7`) on
@@ -140,6 +146,23 @@ Rule numbers below are from the Comprehensive Rules in `docs/rules/`.
 - Vehicles (301.7, 702.122): crew by tapping other untapped creatures with enough total
   power (summoning-sick ones can crew). The Vehicle is an artifact creature until end
   of turn. Bots crew before combat with their weakest or summoning-sick creatures.
+- Planeswalkers (306, 606): they enter with their printed loyalty. One loyalty ability a
+  turn per planeswalker, at sorcery speed (606.3); a minus ability needs that much
+  loyalty (606.6). Damage removes loyalty (120.3c), and one with no loyalty goes to the
+  graveyard (704.5i). "Any target" and "target player or planeswalker" can name them
+  (115.4). Bots use loyalty abilities when the look-ahead says it helps.
+- Battles (310): they enter with their printed defense and a protector. A Siege's
+  protector is an opponent of its controller, chosen when it is cast (the human picks in
+  the cast panel; bots pick the opponent with the fewest untapped blockers). Anyone but
+  the protector can attack it, including its controller; only the protector can block
+  for it (310.9b-c). Damage removes defense (120.3h). A defeated Siege is exiled when its
+  defeat ability resolves (310.12b, 704.5v). A battle whose protector leaves the game gets
+  a new one (310.11).
+- Attacking planeswalkers and battles (506.3, 508.1b): each attacker picks a player,
+  planeswalker or battle. Unblocked damage, and trample damage past blockers, goes to
+  it; if it has left, the attacker deals no damage (510.1b). Bots attack a planeswalker
+  when killing it is worth more than hitting its controller, attack battles they control,
+  and chump-block to save a planeswalker or battle that the attack would finish.
 - Attached Auras and Equipment are drawn tucked behind the permanent they're on; click
   an attached Equipment to equip it elsewhere.
 - Triggered abilities (603): they trigger when the event happens, go on the stack the
@@ -154,7 +177,8 @@ Rule numbers below are from the Comprehensive Rules in `docs/rules/`.
 - State-based actions (704) are checked every time a player would get priority.
 - Timing: instants, flash and abilities any time you have priority; everything else, and
   lands, only in your own main phase with the stack empty.
-- Multiplayer combat: each attacker picks its own defending player; every attacked
+- Multiplayer combat: each attacker picks its own defending player (or one of their
+  planeswalkers or battles); every attacked
   player declares blocks in turn order; players are eliminated mid-game, and what they
   had on the stack goes with them.
 - Keywords: flying, reach, first strike, double strike, deathtouch, lifelink, trample,
@@ -184,7 +208,15 @@ These are deliberate cuts for a prototype, roughly in the order I'd tackle them 
   the menu yet.
 - Partner variants other than plain partner and "partner with" (Background, Doctor's
   companion, "partner—[text]") aren't recognised. Vehicles can't be commanders yet.
-- No planeswalkers or battles yet.
+- **Battles can't be defeated into their back face yet.** "Cast it transformed" needs
+  double-faced cards (session 6), so a defeated Siege is just exiled. A script can add
+  more with `onDefeat`. The protector is announced with the spell rather than chosen as
+  it enters. Only Siege battles exist in print; others are protected by their controller.
+- Loyalty abilities with an X cost (−X) aren't supported, and "two target lands" can
+  name the same land twice. Trample over planeswalkers (702.19c) isn't supported.
+  No card on the menu is a planeswalker or battle yet; the test-only ones are in
+  `tests/fixtures.ts` (Jace Beleren, Garruk Wildspeaker, Invasion of Dominaria). A
+  planeswalker that says it "can be your commander" is accepted as one (903.3a).
 - Auras can only enchant permanents, not players (702.5d). A card can have only one
   activated ability, so an Equipment's equip is its only one. Proliferate, shield,
   stun and other counters with their own rules (122.1c-j) do nothing special yet.
@@ -198,8 +230,7 @@ These are deliberate cuts for a prototype, roughly in the order I'd tackle them 
   Confluence, Reverberate).
 - **No card on the menu uses the new costs yet.** The engine supports them, and the tests
   use real cards typed in by hand in `tests/fixtures.ts` (Blaze, Gut Shot, Burst
-  Lightning, Bone Splinters, Flawless Maneuver, Thalia, Ruby Medallion, Boros Recruit),
-  because Scryfall couldn't be reached to fetch them.
+  Lightning, Bone Splinters, Flawless Maneuver, Thalia, Ruby Medallion, Boros Recruit).
 - Phyrexian mana is always paid with mana when the mana is there; you can't choose to pay
   life instead. Tapping lands by hand first lets you steer it.
 - Not supported yet: X in activated abilities, targets that exist only when kicked
@@ -263,7 +294,9 @@ has run; the spell stays on the stack as `Game.resolving` until it is answered.
 1. Add its name to a deck in `src/cards/decklists.json`. A deck lists `commanders` (one,
    or two partners), `basics` as a map like `{ "Forest": 18, "Island": 17 }`, and
    `cards`, one of each.
-2. Run `npm run fetch-cards` to pull its data and art from Scryfall.
+2. Run `npm run fetch-cards` to pull its data and art from Scryfall. Behind an HTTPS
+   proxy (as in a Claude Code cloud session) run `NODE_USE_ENV_PROXY=1 npm run fetch-cards`:
+   Node's `fetch` ignores the proxy otherwise.
 3. If it does more than its printed keywords, add an entry to `src/cards/scripts.ts`.
    A trigger that only fires on some events ("whenever *another* creature enters") needs
    `{ when, resolve }`, so it doesn't go on the stack for the events it ignores.
@@ -273,7 +306,10 @@ has run; the spell stays on the stack as `Game.resolving` until it is answered.
    `modal` instead of `targets`/`onResolve`; a counterspell targets `{ type: 'spell' }`
    and calls `counter`. An Aura sets `enchant` and `static: attachedBonus({...})`; an
    Equipment uses `attachedBonus` with `activated: equip('{2}')`; a Vehicle uses
-   `activated: crew(3)`. Counters: `addCounters(g, card, n, kind)`.
+   `activated: crew(3)`. Counters: `addCounters(g, card, n, kind)`. A planeswalker lists
+   its `loyalty` abilities (`{ cost: -2, text, targets, resolve }`); a target spec of
+   `'player or planeswalker'` or `'creature or planeswalker'` matches cards that say so.
+   A Siege's script can add `onDefeat`.
 4. Run `npm test`. The card-pool test tells you if anything is still missing.
 
 ### Layout note

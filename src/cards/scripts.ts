@@ -22,6 +22,7 @@ import {
   hasType,
   isColor,
   isCreature,
+  isPlaneswalker,
   isLand,
   loseLife,
   opponentsOf,
@@ -41,6 +42,7 @@ const theirCreature: TargetSpec = { type: 'creature', who: 'opponent', label: "t
 const yourCreature: TargetSpec = { type: 'creature', who: 'you', label: 'target creature you control' };
 const anyTarget: TargetSpec = { type: 'any', label: 'any target' };
 const anyPlayer: TargetSpec = { type: 'player', label: 'target player' };
+const playerOrPlaneswalker: TargetSpec = { type: 'player or planeswalker', label: 'target player or planeswalker' };
 const isArtifactOrEnchantment = (_g: Game, c: Card) => hasType(c, 'Artifact') || hasType(c, 'Enchantment');
 const artifactOrEnchantment: TargetSpec = {
   type: 'permanent',
@@ -255,7 +257,7 @@ registerScripts({
   'Doom Blade': kill(creature('target nonblack creature', (_g, c) => !isColor(c, 'B'))),
   Murder: kill(creature()),
   'Go for the Throat': kill(creature('target nonartifact creature', (_g, c) => !hasType(c, 'Artifact'))),
-  "Hero's Downfall": kill(creature()),
+  "Hero's Downfall": kill({ type: 'creature or planeswalker', label: 'target creature or planeswalker' }),
   'Sign in Blood': {
     targets: [anyPlayer],
     onResolve: (g, { targets }) => {
@@ -293,7 +295,7 @@ registerScripts({
     onEnter: (g, { self, you }) => {
       for (const o of opponentsOf(g, you)) {
         damagePlayer(g, self, o.id, 1);
-        for (const c of creaturesOf(g, o.id)) damageCard(g, self, c, 1);
+        for (const c of o.battlefield.filter((x) => isCreature(x) || isPlaneswalker(x))) damageCard(g, self, c, 1);
       }
     },
   },
@@ -342,11 +344,16 @@ registerScripts({
   Hellrider: {
     onCreatureAttacks: {
       when: (_g, { self, attacker }) => attacker.owner === self.owner,
-      resolve: (g, { self, defender }) => void damagePlayer(g, self, defender, 1),
+      // The player or planeswalker it's attacking (508.5). A battle it attacks doesn't count.
+      resolve: (g, { self, defender, target }) => {
+        const attacked = target ? permanent(g, target) : undefined;
+        if (!target) damagePlayer(g, self, defender, 1);
+        else if (attacked && isPlaneswalker(attacked)) dealDamage(g, self, { kind: 'card', id: attacked.id }, 1);
+      },
     },
   },
   'Viashino Pyromancer': {
-    targets: [anyPlayer],
+    targets: [playerOrPlaneswalker],
     onEnter: (g, { self, targets }) => void dealDamage(g, self, targets[0], 2),
   },
   'Balefire Dragon': {
@@ -365,7 +372,7 @@ registerScripts({
   'Lightning Bolt': burn(3),
   Shock: burn(2),
   'Lightning Strike': burn(3),
-  'Lava Axe': { targets: [anyPlayer], onResolve: (g, { self, targets }) => void dealDamage(g, self, targets[0], 5) },
+  'Lava Axe': { targets: [playerOrPlaneswalker], onResolve: (g, { self, targets }) => void dealDamage(g, self, targets[0], 5) },
   'Flame Rift': {
     onResolve: (g, { self }) => {
       for (const p of g.players) damagePlayer(g, self, p.id, 4);

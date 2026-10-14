@@ -34,7 +34,7 @@ function CreatureRow({ player, width, max, className, wrap }: { player: Player; 
   for (const c of creaturesOf(g, player.id)) {
     const stackable = c.isToken && (choosing || !fighting.has(c.id));
     const attack = g.combat?.attacks.find((a) => a.id === c.id || a.blockers.includes(c.id));
-    const choice = choosing ? [attack && (attack.id === c.id ? `attacks ${attack.defender}` : `blocks ${attack.id}`), v.glow.get(c.id)] : [];
+    const choice = choosing ? [attack && (attack.id === c.id ? `attacks ${attack.defender} ${attack.target}` : `blocks ${attack.id}`), v.glow.get(c.id)] : [];
     const attached = attachmentsOf(g, c).length > 0;
     const key = stackable && !attached ? [c.name, c.tapped, floating(player, c), c.sick, JSON.stringify(c.counters), c.damage, c.mods.length, ...choice].join('|') : c.id;
     groups.set(key, [...(groups.get(key) ?? []), c]);
@@ -136,7 +136,7 @@ function Avatar({ player }: { player: Player }) {
         'avatar',
         g.active === player.id && 'active',
         v.targetPlayers.has(player.id) && 'targetable',
-        v.attackTarget === player.id && 'attack-target',
+        v.attackTarget?.target === null && v.attackTarget.defender === player.id && 'attack-target',
         player.lost && 'lost',
       )}
       style={vars({ '--deck': deckColor(player.colors) })}

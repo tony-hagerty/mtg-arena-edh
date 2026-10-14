@@ -4,9 +4,10 @@
 // on what other players do next.
 import { scriptOf } from './registry';
 import {
+  activatable,
   applyAction,
   attackCandidates,
-  canActivate,
+  attackOptions,
   canCast,
   canMulligan,
   canPlayLand,
@@ -27,18 +28,21 @@ import {
   commanderDamageFrom,
   creaturesOf,
   data,
+  defenseOf,
   fight,
+  isBattle,
   isCreature,
   isLand,
+  isPlaneswalker,
+  loyaltyOf,
   legalTargets,
   manaOf,
-  opponentsOf,
   parseCost,
   permanent,
   stats,
   targetSpecs,
 } from './rules';
-import type { ApplyOptions } from './engine';
+import type { ApplyOptions, AttackOption } from './engine';
 import type { Action, Card, CastChoices, Game, ManaSym, Player, PlayerId, TargetRef, TargetSpec } from './types';
 
 // ---------- position evaluation ----------
@@ -80,6 +84,12 @@ function crewChoice(g: Game, pid: PlayerId, v: Card): string[] | null {
   return lost < (parseInt(data(v).power ?? '0', 10) || 0) ? picked.map((c) => c.id) : null;
 }
 
+/** Rough worth of a planeswalker: more loyalty means more uses, and further from dying. */
+const walkerValue = (c: Card) => 2 + loyaltyOf(c) * 0.8;
+
+/** Rough worth of a battle to its controller: closer to defeat is better (310.12b). */
+const battleValue = (c: Card) => 1 + data(c).cmc * 0.5 + (parseInt(data(c).defense ?? '0', 10) - defenseOf(c)) * 0.6;
+
 // Each point of life matters more the less of it you have.
 const lifeValue = (life: number) => 4 * Math.sqrt(Math.max(0, life));
 
@@ -88,6 +98,8 @@ function boardValue(g: Game, p: Player): number {
   let mana = 0;
   for (const c of p.battlefield) {
     if (isCreature(c)) v += threat(g, c);
+    else if (isPlaneswalker(c)) v += walkerValue(c);
+    else if (isBattle(c)) v += battleValue(c);
     else if (!isLand(c)) v += 1 + data(c).cmc * 0.5;
     mana += manaOf(g, c)?.amount ?? 0;
   }
@@ -175,12 +187,14 @@ function candidateActions(g: Game, pid: PlayerId): { action: Action; spendsCard:
     }
   }
   for (const c of p.battlefield) {
-    if (!canActivate(g, pid, c)) continue;
-    const ab = scriptOf(c.name).activated!;
-    const crew = ab.cost.crew ? crewChoice(g, pid, c) : undefined;
-    if (crew === null) continue;
-    for (const targets of targetChoices(g, pid, ab.targets ?? [], c)) {
-      out.push({ action: { type: 'activate', card: c.id, targets, crew }, spendsCard: false });
+    for (const ability of activatable(g, pid, c)) {
+      const script = scriptOf(c.name);
+      const ab = ability === undefined ? script.activated! : script.loyalty![ability];
+      const crew = ability === undefined && script.activated!.cost.crew ? crewChoice(g, pid, c) : undefined;
+      if (crew === null) continue;
+      for (const targets of targetChoices(g, pid, ab.targets ?? [], c)) {
+        out.push({ action: { type: 'activate', card: c.id, ability, targets, crew }, spendsCard: false });
+      }
     }
   }
   return out;
@@ -286,24 +300,47 @@ function bestPlay(g: Game, pid: PlayerId): Action | null {
 
 // ---------- attacking ----------
 
-function planAttacks(g: Game, pid: PlayerId): Map<string, PlayerId> {
-  const plan = new Map<string, PlayerId>();
+/**
+ * What damage that gets through is worth to the attacker: to a player, about 0.6 a point
+ * (much more if it is lethal); to a planeswalker, a share of its worth, or all of it if
+ * the attack kills it; to a battle the attacker controls, progress toward defeating it.
+ * Attacking someone else's battle only helps its controller, so it is worth nothing.
+ */
+function attackWorth(g: Game, pid: PlayerId, c: Card, o: AttackOption): number {
+  const power = stats(g, c).power;
+  const target = o.target ? permanent(g, o.target) : undefined;
+  if (target && isPlaneswalker(target)) {
+    const loyalty = loyaltyOf(target);
+    return power >= loyalty ? walkerValue(target) : (power / loyalty) * walkerValue(target) * 0.8;
+  }
+  if (target) return target.owner === pid ? Math.min(power, defenseOf(target)) * 0.6 + (power >= defenseOf(target) ? 2 : 0) : 0;
+  const p = g.players[o.defender];
+  const lethal = power >= p.life || (c.isCommander && commanderDamageFrom(g, p, c) + power >= COMMANDER_DAMAGE);
+  return power * (lethal ? 5 : 0.6) + (c.isCommander ? power * 0.3 : 0);
+}
+
+const sameAttack = (a: AttackOption | undefined, b: AttackOption) => !!a && a.defender === b.defender && a.target === b.target;
+
+function planAttacks(g: Game, pid: PlayerId): Map<string, AttackOption> {
+  const plan = new Map<string, AttackOption>();
   const mine = attackCandidates(g, pid);
-  const opps = opponentsOf(g, pid).map((o) => ({
-    o,
-    blockers: creaturesOf(g, o.id).filter((c) => !c.tapped),
+  const bias = (o: Player) =>
     // Mild preference for the strongest opponent, rotated so bots don't all pile on one seat.
-    bias: boardValue(g, o) * 0.01 + o.life * 0.004 + ((o.id * 7 + g.turn * 3 + pid * 5) % 4) * 0.03,
+    boardValue(g, o) * 0.01 + o.life * 0.004 + ((o.id * 7 + g.turn * 3 + pid * 5) % 4) * 0.03;
+  const opps = attackOptions(g, pid).map((option) => ({
+    option,
+    blockers: creaturesOf(g, option.defender).filter((c) => !c.tapped),
+    bias: bias(g.players[option.defender]),
   }));
   if (!mine.length || !opps.length) return plan;
 
   for (const c of mine) {
     const cs = stats(g, c);
-    let best: PlayerId | null = null;
+    let best: AttackOption | null = null;
     let bestScore = -Infinity;
-    for (const { o, blockers, bias } of opps) {
-      const lethal = cs.power >= o.life || (c.isCommander && commanderDamageFrom(g, o, c) + cs.power >= COMMANDER_DAMAGE);
-      const unblocked = cs.power * (lethal ? 5 : 0.6) + (c.isCommander ? cs.power * 0.3 : 0);
+    for (const { option, blockers, bias } of opps) {
+      const unblocked = attackWorth(g, pid, c, option);
+      if (unblocked <= 0) continue;
       const able = blockers.filter((b) => canBlock(g, b, c));
       let value = unblocked + 0.5;
       if (able.length >= (cs.keywords.has('menace') ? 2 : 1)) {
@@ -316,7 +353,7 @@ function planAttacks(g: Game, pid: PlayerId): Map<string, PlayerId> {
       }
       if (value > 0.25 && value + bias > bestScore) {
         bestScore = value + bias;
-        best = o.id;
+        best = option;
       }
     }
     if (best !== null) plan.set(c.id, best);
@@ -325,16 +362,17 @@ function planAttacks(g: Game, pid: PlayerId): Map<string, PlayerId> {
   // Swarm: if we have clearly more attackers than someone has blockers, send everyone.
   const idle = mine.filter((c) => !plan.has(c.id));
   if (idle.length) {
-    const victim = [...opps].sort((a, b) => b.bias - a.bias).find(({ blockers }) => idle.length >= blockers.length + 2);
-    if (victim) for (const c of idle) plan.set(c.id, victim.o.id);
+    const players = opps.filter((o) => o.option.target === null);
+    const victim = players.sort((a, b) => b.bias - a.bias).find(({ blockers }) => idle.length >= blockers.length + 2);
+    if (victim) for (const c of idle) plan.set(c.id, victim.option);
   }
   return plan;
 }
 
 function attackAction(g: Game, pid: PlayerId): Action {
-  const declared = new Map((g.combat?.attacks ?? []).map((a) => [a.id, a.defender]));
-  for (const [card, defender] of planAttacks(g, pid)) {
-    if (declared.get(card) !== defender) return { type: 'declareAttack', card, defender };
+  const declared = new Map((g.combat?.attacks ?? []).map((a) => [a.id, a]));
+  for (const [card, option] of planAttacks(g, pid)) {
+    if (!sameAttack(declared.get(card), option)) return { type: 'declareAttack', card, defender: option.defender, ...(option.target ? { target: option.target } : {}) };
   }
   return { type: 'pass' };
 }
@@ -344,20 +382,30 @@ function attackAction(g: Game, pid: PlayerId): Action {
 function planBlocks(g: Game, pid: PlayerId): Map<string, string> {
   const plan = new Map<string, string>(); // blocker -> attacker
   const me = g.players[pid];
-  const attackers = (g.combat?.attacks ?? [])
-    .filter((a) => a.defender === pid)
-    .map((a) => permanent(g, a.id))
-    .filter((c): c is Card => !!c)
-    .sort((a, b) => stats(g, b).power - stats(g, a).power);
-  let incoming = attackers.reduce((n, c) => n + stats(g, c).power, 0);
+  // Attacks on this player, their planeswalkers, and the battles they protect (509.1a).
+  const attacks = (g.combat?.attacks ?? []).filter((a) => a.defender === pid && permanent(g, a.id));
+  const attackers = attacks.map((a) => permanent(g, a.id)!).sort((a, b) => stats(g, b).power - stats(g, a).power);
+  const targetOf = (atk: Card) => {
+    const t = attacks.find((a) => a.id === atk.id)!.target;
+    return t ? permanent(g, t) : undefined;
+  };
+  let incoming = attackers.filter((c) => !attacks.find((a) => a.id === c.id)!.target).reduce((n, c) => n + stats(g, c).power, 0);
   const free = () => creaturesOf(g, pid).filter((b) => !b.tapped && !plan.has(b.id));
   const cheapest = (cards: Card[]) => [...cards].sort((a, b) => threat(g, a) - threat(g, b))[0];
 
   for (const atk of attackers) {
     const s = stats(g, atk);
     const able = free().filter((b) => canBlock(g, b, atk));
+    const target = targetOf(atk);
     const mustStop =
-      incoming >= me.life || (atk.isCommander && commanderDamageFrom(g, me, atk) + s.power >= COMMANDER_DAMAGE);
+      !target && (incoming >= me.life || (atk.isCommander && commanderDamageFrom(g, me, atk) + s.power >= COMMANDER_DAMAGE));
+    // What the attack would take: a planeswalker it kills, or a battle it defeats. Worth a
+    // chump block by a creature that is worth less.
+    const stake = !target
+      ? 0
+      : isPlaneswalker(target)
+        ? s.power >= loyaltyOf(target) ? walkerValue(target) : 0
+        : s.power >= defenseOf(target) ? 3 : 0;
     if (s.keywords.has('menace')) {
       if (mustStop && able.length >= 2) {
         const pair = [...able].sort((a, b) => threat(g, a) - threat(g, b)).slice(0, 2);
@@ -371,10 +419,11 @@ function planBlocks(g: Game, pid: PlayerId): Map<string, string> {
       cheapest(able.filter((b) => outcome(b).aDies && !outcome(b).bDies)) ?? // kill it and live
       cheapest(able.filter((b) => outcome(b).aDies && threat(g, b) <= threat(g, atk) + 0.5)) ?? // fair trade
       cheapest(able.filter((b) => !outcome(b).bDies)) ?? // free wall
-      (mustStop || s.power >= 5 ? cheapest(able.filter((b) => mustStop || threat(g, b) <= 2.5)) : undefined); // chump
+      (mustStop || (!target && s.power >= 5) ? cheapest(able.filter((b) => mustStop || threat(g, b) <= 2.5)) : undefined) ?? // chump
+      cheapest(able.filter((b) => threat(g, b) < stake)); // save a planeswalker or battle
     if (pick) {
       plan.set(pick.id, atk.id);
-      incoming -= s.power;
+      if (!target) incoming -= s.power;
     }
   }
   return plan;

@@ -67,6 +67,13 @@ export const counterCount = (c: Card, kind = '+1/+1') => c.counters[kind] ?? 0;
 /** Permanents attached to `c`: its Auras and Equipment. */
 export const attachmentsOf = (g: Game, c: Card) => battlefield(g).filter((x) => x.attachedTo === c.id);
 export const isLand = (c: Card) => hasType(c, 'Land');
+export const isPlaneswalker = (c: Card) => hasType(c, 'Planeswalker');
+export const isBattle = (c: Card) => hasType(c, 'Battle');
+export const isSiege = (c: Card) => isBattle(c) && hasType(c, 'Siege');
+/** A planeswalker's loyalty on the battlefield: its loyalty counters (306.5c). Elsewhere, its printed loyalty (306.5a). */
+export const loyaltyOf = (c: Card) => (c.zone === 'battlefield' ? counterCount(c, 'loyalty') : num(data(c).loyalty));
+/** A battle's defense on the battlefield: its defense counters (310.4c). Elsewhere, its printed defense (310.4a). */
+export const defenseOf = (c: Card) => (c.zone === 'battlefield' ? counterCount(c, 'defense') : num(data(c).defense));
 export const isPermanentCard = (c: Card) => !hasType(c, 'Instant') && !hasType(c, 'Sorcery');
 export const isInstantSpeed = (c: Card) => hasType(c, 'Instant') || data(c).keywords.includes('Flash');
 export const isColor = (c: Card, color: Color) => data(c).colors.includes(color);
@@ -557,12 +564,28 @@ export function legalTargets(g: Game, pid: PlayerId, spec: TargetSpec, source: C
   }
   const whoOk = (owner: PlayerId) =>
     !spec.who || spec.who === 'any' || (spec.who === 'you' ? owner === pid : owner !== pid);
+  const players = spec.type === 'player' || spec.type === 'any' || spec.type === 'player or planeswalker';
+  // Which permanents the spec can name. "Any target" is a creature, player, planeswalker or battle (115.4).
+  const fits = (c: Card) => {
+    switch (spec.type) {
+      case 'permanent':
+        return true;
+      case 'any':
+        return isCreature(c) || isPlaneswalker(c) || isBattle(c);
+      case 'creature or planeswalker':
+        return isCreature(c) || isPlaneswalker(c);
+      case 'player or planeswalker':
+        return isPlaneswalker(c);
+      default:
+        return isCreature(c);
+    }
+  };
   for (const p of living(g)) {
-    if ((spec.type === 'player' || spec.type === 'any') && whoOk(p.id)) out.push({ kind: 'player', id: p.id });
+    if (players && whoOk(p.id)) out.push({ kind: 'player', id: p.id });
     if (spec.type === 'player' || !whoOk(p.id)) continue;
     for (const c of p.battlefield) {
-      if (spec.type !== 'permanent' && !isCreature(c)) continue;
-      if (c.owner !== pid && isCreature(c) && has(g, c, 'hexproof')) continue;
+      if (!fits(c)) continue;
+      if (c.owner !== pid && has(g, c, 'hexproof')) continue;
       if (spec.filter && !spec.filter(g, c, source)) continue;
       out.push({ kind: 'card', id: c.id });
     }
@@ -589,7 +612,7 @@ export function spellTargets(c: Card, modes: number[] = []): TargetSpec[] {
 /** The targets a spell or ability on the stack has to choose. */
 export function targetSpecs(item: StackItem): TargetSpec[] {
   const script = scriptOf(item.card.name);
-  if (item.kind === 'activated') return script.activated?.targets ?? [];
+  if (item.kind === 'activated') return (item.ability === undefined ? script.activated : script.loyalty?.[item.ability])?.targets ?? [];
   if (item.kind === 'triggered') return item.hook === 'onEnter' ? (script.targets ?? []) : [];
   return spellTargets(item.card, item.card.cast?.modes);
 }
@@ -708,6 +731,8 @@ export function makeCard(g: Game, name: string, owner: PlayerId, zone: Zone, ext
     deathtouched: false,
     counters: {},
     attachedTo: null,
+    loyaltyTurn: 0,
+    protector: null,
     mods: [],
     cast: null,
     mayReturn: false,
@@ -745,6 +770,8 @@ export function moveCard(g: Game, c: Card, to: Zone) {
   c.deathtouched = false;
   c.counters = {};
   c.attachedTo = null; // leaving the battlefield also unattaches it
+  c.loyaltyTurn = 0; // a new object with no memory of its last one (400.7)
+  c.protector = null;
   c.mods = [];
   // A spell keeps what it was cast with as it becomes a permanent (107.3m), and loses it after.
   if (c.zone !== 'stack' || to !== 'battlefield') c.cast = null;
@@ -788,17 +815,40 @@ export function broadcast<H extends BroadcastHook>(g: Game, hook: H, event: Trig
   for (const c of battlefield(g)) trigger(g, c, hook, event);
 }
 
+/**
+ * Who protects battle `c` if its controller has the choice: for a Siege, the opponent
+ * whose untapped creatures could defend it least (310.12a), or null if there is no
+ * opponent. Only its controller can protect any other battle (310.9a).
+ */
+export function defaultProtector(g: Game, c: Card): PlayerId | null {
+  if (!isSiege(c)) return c.owner;
+  const guard = (pid: PlayerId) => creaturesOf(g, pid).filter((x) => !x.tapped).reduce((n, x) => n + Math.max(0, stats(g, x).power), 0);
+  const opps = opponentsOf(g, c.owner);
+  return opps.length ? opps.reduce((best, o) => (guard(o.id) < guard(best.id) ? o : best)).id : null;
+}
+
+/** Can `pid` protect battle `c`? An opponent for a Siege (310.12a), its controller for any other (310.9a). */
+export const canProtect = (g: Game, c: Card, pid: PlayerId) =>
+  !g.players[pid]?.lost && (isSiege(c) ? pid !== c.owner : pid === c.owner);
+
 /** Sets up a permanent that was just put onto the battlefield, and triggers "enters" abilities (603.6a). */
-function arrive(g: Game, c: Card, opts: { tapped?: boolean }) {
+function arrive(g: Game, c: Card, opts: { tapped?: boolean; protector?: PlayerId }) {
   c.sick = true;
   c.tapped = !!opts.tapped || !!scriptOf(c.name).entersTapped;
+  // A planeswalker enters with its printed loyalty (306.5b), a battle with its printed defense (310.4b).
+  if (isPlaneswalker(c)) c.counters.loyalty = num(data(c).loyalty);
+  if (isBattle(c)) {
+    c.counters.defense = num(data(c).defense);
+    c.protector = opts.protector !== undefined && canProtect(g, c, opts.protector) ? opts.protector : defaultProtector(g, c);
+    if (c.protector !== null) log(g, `${g.players[c.protector].name} protects ${label(c)}.`, c.owner, [c]);
+  }
   trigger(g, c, 'onEnter', {});
   if (isCreature(c)) broadcast(g, 'onCreatureEnters', { entered: c });
   if (isLand(c)) broadcast(g, 'onLandfall', { land: c });
 }
 
 /** Puts a card onto the battlefield. An Aura resolving as a spell enters attached to its target (`attachTo`, 303.4). */
-export function enterBattlefield(g: Game, c: Card, opts: { tapped?: boolean; attachTo?: string } = {}) {
+export function enterBattlefield(g: Game, c: Card, opts: { tapped?: boolean; attachTo?: string; protector?: PlayerId } = {}) {
   moveCard(g, c, 'battlefield');
   if (opts.attachTo) c.attachedTo = opts.attachTo;
   arrive(g, c, opts);
@@ -905,11 +955,34 @@ export function damagePlayer(g: Game, source: Card, pid: PlayerId, n: number, co
   return n;
 }
 
+/**
+ * Removes defense counters from a battle. When the last one goes, a Siege's defeat
+ * ability triggers (310.12b): it is exiled when that resolves, and stays on the
+ * battlefield until then (704.5v).
+ */
+export function removeDefense(g: Game, c: Card, n: number) {
+  const before = counterCount(c, 'defense');
+  if (n <= 0 || before === 0) return;
+  removeCounters(c, n, 'defense');
+  if (counterCount(c, 'defense') > 0 || !isSiege(c)) return;
+  log(g, `${label(c)} is defeated.`, c.owner, [c]);
+  g.triggers.push({ id: `s${g.nextId++}`, kind: 'triggered', controller: c.owner, card: snapshot(c), hook: 'onDefeat', event: {}, targets: [] });
+}
+
+/** Is a Siege's defeat ability waiting or on the stack (704.5v)? */
+const defeatPending = (g: Game, c: Card) => [...g.triggers, ...g.stack].some((x) => x.hook === 'onDefeat' && x.card.id === c.id);
+
+/**
+ * Damage to a permanent: a planeswalker loses that many loyalty counters (120.3c), a
+ * battle that many defense counters (120.3h), and a creature has it marked (120.3e).
+ */
 export function damageCard(g: Game, source: Card, target: Card | undefined, n: number): number {
   if (!target || n <= 0 || target.zone !== 'battlefield') return 0;
   n += damageBonus(g, source, target.owner);
-  target.damage += n;
-  if (has(g, source, 'deathtouch')) target.deathtouched = true;
+  if (isPlaneswalker(target)) removeCounters(target, n, 'loyalty');
+  if (isBattle(target)) removeDefense(g, target, n);
+  if (isCreature(target)) target.damage += n;
+  if (has(g, source, 'deathtouch') && isCreature(target)) target.deathtouched = true;
   if (has(g, source, 'lifelink')) gainLife(g, source.owner, n);
   return n;
 }
@@ -1075,6 +1148,24 @@ export function checkState(g: Game) {
       const s = stats(g, c);
       const lethal = c.damage >= s.toughness || (c.deathtouched && c.damage > 0);
       if (s.toughness <= 0 || (lethal && !s.keywords.has('indestructible'))) dying.push(c);
+    }
+    // A planeswalker with no loyalty (704.5i) and a battle with no defense (704.5v-w) go to
+    // the graveyard, except a Siege whose defeat ability hasn't resolved yet. So does a
+    // battle with nobody left who can protect it (310.11).
+    const spent: Card[] = [];
+    for (const c of battlefield(g)) {
+      if (isPlaneswalker(c) && loyaltyOf(c) <= 0) spent.push(c);
+      else if (isBattle(c) && defenseOf(c) <= 0 && !(isSiege(c) && defeatPending(g, c))) spent.push(c);
+      else if (isBattle(c) && (c.protector === null || !canProtect(g, c, c.protector))) {
+        c.protector = defaultProtector(g, c);
+        if (c.protector === null) spent.push(c);
+        else log(g, `${g.players[c.protector].name} protects ${label(c)}.`, c.owner, [c]);
+        changed = true;
+      }
+    }
+    if (spent.length) {
+      dieMany(g, spent, "is put into its owner's graveyard");
+      changed = true;
     }
     // An Aura on something it can't enchant, or on nothing, goes to the graveyard (704.5m).
     // Equipment on something it can't equip falls off and stays (704.5n).

@@ -34,6 +34,9 @@ function toCard(c) {
     oracleText: c.oracle_text ?? '',
     power: c.power,
     toughness: c.toughness,
+    // A double-faced battle keeps these on its front face.
+    loyalty: c.loyalty ?? c.card_faces?.[0]?.loyalty,
+    defense: c.defense ?? c.card_faces?.[0]?.defense,
     keywords: c.keywords ?? [],
     image: face.image_uris.normal.split('?')[0],
     art: face.image_uris.art_crop.split('?')[0],

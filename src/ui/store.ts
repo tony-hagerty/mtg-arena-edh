@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { applyAction, applyBotAction, defaultStops, newGame } from '../engine';
-import type { Action, ApplyOptions, CastChoices, Game, PlayerId, Step, StopKind, Stops, TargetRef, TargetSpec, Zone } from '../engine';
+import type { Action, ApplyOptions, AttackOption, CastChoices, Game, PlayerId, Step, StopKind, Stops, TargetRef, TargetSpec, Zone } from '../engine';
 
 /**
  * A spell or ability the human is part-way through. `cast` and `activate` are proposals
@@ -23,6 +23,10 @@ export interface Targeting {
   /** Creatures picked to crew a Vehicle (702.122a), and whether the human is done picking. */
   crew?: string[];
   crewDone?: boolean;
+  /** The loyalty ability being activated (606), by index, or undefined for the card's `activated` ability. */
+  ability?: number;
+  /** Still choosing which loyalty ability: targets come next. */
+  pickingAbility?: boolean;
 }
 
 const STOPS_KEY = 'arena-edh.stops';
@@ -60,7 +64,8 @@ interface Store {
   targeting: Targeting | null;
   /** Keep priority after the spell or ability being paid for, to respond to it yourself (117.3c). One use. */
   hold: boolean;
-  attackTarget: PlayerId | null;
+  /** What the human's attackers go after: an opponent, or a planeswalker or battle (508.1b). */
+  attackTarget: AttackOption | null;
   /** Blockers the human picked that could block more than one attacker: the next attacker they click gets them all. */
   pickedBlockers: string[];
   hover: Hover | null;
