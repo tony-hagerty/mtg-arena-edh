@@ -67,7 +67,7 @@ registerScripts({
       {
         label: 'free: you control a commander',
         mana: '',
-        when: (g, self) => g.players[self.owner].battlefield.some((c) => c.isCommander),
+        when: (g, self) => g.players[self.controller].battlefield.some((c) => c.isCommander),
       },
     ],
     onResolve: (g, { you }) => {
@@ -125,7 +125,7 @@ registerScripts({
         {
           text: 'Permanents you control gain indestructible until end of turn.',
           resolve: (g, { you }) => {
-            for (const c of battlefield(g).filter((x) => x.owner === you)) pump(g, c, 0, 0, ['indestructible']);
+            for (const c of battlefield(g).filter((x) => x.controller === you)) pump(g, c, 0, 0, ['indestructible']);
           },
         },
         {
@@ -228,12 +228,12 @@ registerScripts({
       draw(g, you, 1);
     },
   },
-  'Ruby Medallion': { costModifier: (_g, self, spell, caster) => (caster === self.owner && isColor(spell, 'R') ? -1 : 0) },
+  'Ruby Medallion': { costModifier: (_g, self, spell, caster) => (caster === self.controller && isColor(spell, 'R') ? -1 : 0) },
 
   // ---------- double-faced, split and adventurer cards (712, 709, 715) ----------
   'Delver of Secrets': {
     onUpkeep: {
-      when: (_g, { self, player }) => player === self.owner,
+      when: (_g, { self, player }) => player === self.controller,
       resolve: (g, { self, you }) => {
         // Look at the top card; revealing an instant or sorcery is free upside, so it always happens.
         const top = g.players[you].library[0];
@@ -245,7 +245,7 @@ registerScripts({
   },
   'Kazandu Mammoth': {
     onLandfall: {
-      when: (_g, { self, land }) => land.owner === self.owner,
+      when: (_g, { self, land }) => land.controller === self.controller,
       resolve: (g, { self }) => pump(g, permanent(g, self.id), 2, 2),
     },
   },
@@ -293,7 +293,7 @@ registerScripts({
     ],
     onLevel: { when: (_g, { level }) => level === 2, resolve: (g, { you }) => draw(g, you, 2) },
     onDraw: {
-      when: (_g, { self, player }) => self.level >= 3 && player === self.owner,
+      when: (_g, { self, player }) => self.level >= 3 && player === self.controller,
       targets: [{ type: 'creature', who: 'you', label: 'target creature you control' }],
       resolve: (g, { targets }) => addCounters(g, refCard(g, targets[0])),
     },

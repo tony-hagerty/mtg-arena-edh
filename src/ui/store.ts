@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { applyAction, applyBotAction, defaultStops, newGame } from '../engine';
-import type { Action, ApplyOptions, AttackOption, CastChoices, Game, PlayerId, Step, StopKind, Stops, TargetRef, TargetSpec, Zone } from '../engine';
+import type { Action, ApplyOptions, AttackOption, CastChoices, Game, ManaSym, PlayerId, Step, StopKind, Stops, TargetRef, TargetSpec, Zone } from '../engine';
 
 /**
  * A spell or ability the human is part-way through. `cast` and `activate` are proposals
@@ -10,7 +10,8 @@ import type { Action, ApplyOptions, AttackOption, CastChoices, Game, PlayerId, S
  * for targets (see `targetingOf` in view.ts).
  */
 export interface Targeting {
-  mode: 'cast' | 'activate' | 'trigger';
+  /** `retarget`: new targets for a spell or ability the game is waiting on (115.7d). */
+  mode: 'cast' | 'activate' | 'trigger' | 'retarget';
   cardId: string;
   specs: TargetSpec[];
   chosen: (TargetRef | null)[];
@@ -27,6 +28,10 @@ export interface Targeting {
   ability?: number;
   /** Still choosing which loyalty ability: targets come next. */
   pickingAbility?: boolean;
+  /** Cards picked to discard for a "Discard a card" cost. */
+  discard?: string[];
+  /** The human chose not to pay an optional sacrifice, like bargain (702.166a). */
+  sacrificeDone?: boolean;
 }
 
 const STOPS_KEY = 'arena-edh.stops';
@@ -72,6 +77,8 @@ interface Store {
   /** Card ids in the order the human arranged their hand. Display only: the engine never sees it. */
   handOrder: string[];
   viewer: { pid: PlayerId; zone: Zone } | null;
+  /** A mana ability with a choice of colour that the human is about to use, like Lion's Eye Diamond's. */
+  colorPick: { cardId: string; ability: number; colors: ManaSym[] } | null;
   showLog: boolean;
   /** The "leave this game?" dialog is open. */
   confirmExit: boolean;
@@ -96,6 +103,7 @@ export const useStore = create<Store>()((set, get) => ({
   hover: null,
   handOrder: [],
   viewer: null,
+  colorPick: null,
   showLog: true,
   confirmExit: false,
   speed: 1,
@@ -119,6 +127,7 @@ export const useStore = create<Store>()((set, get) => ({
       hover: null,
       handOrder: [],
       viewer: null,
+      colorPick: null,
       confirmExit: false,
     }),
 

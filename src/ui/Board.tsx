@@ -7,7 +7,7 @@ import type { Card, ManaSym, Player } from '../engine';
 import { HandBack, HandCard, Permanent } from './Card';
 import { useRem } from './rem';
 import { useStore } from './store';
-import { SEATS, cx, deckColor, hoverProps } from './util';
+import { SEATS, cx, deckColor, faceUp, hoverProps } from './util';
 import { clickCrown, clickPlayer, useView } from './view';
 
 const vars = (v: Record<string, string | number>) => v as CSSProperties;
@@ -255,7 +255,7 @@ function FaceUpPile({ player, zone }: { player: Player; zone: 'graveyard' | 'exi
       title={`${name}: ${cards.length} cards${top ? ' — click to view' : ''}`}
       onClick={() => top && useStore.setState({ viewer: { pid: player.id, zone } })}
     >
-      {top && <img src={data(top).image} alt="" draggable={false} />}
+      {top && (faceUp(top, v.me) ? <img src={data(top).image} alt="" draggable={false} /> : <div className="card-back" />)}
       <i className={`ms ms-${zone}`} />
       <span className="count">{cards.length}</span>
     </div>

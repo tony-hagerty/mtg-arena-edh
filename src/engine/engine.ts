@@ -2,7 +2,7 @@
 // the only way a game changes: it returns a new Game, or the same object if the action
 // was illegal. Rule numbers in comments refer to docs/rules.
 import { produce } from 'immer';
-import { DECKS, cardData, deckColors, deckLibrary, isCardName } from '../cards/db';
+import { CREATURE_TYPES, DECKS, cardData, deckColors, deckLibrary, isCardName } from '../cards/db';
 import type { DeckDef } from '../cards/db';
 import {
   STARTING_LIFE,
@@ -69,6 +69,19 @@ import {
   loseGame,
   resolvingItem,
   spellTargets,
+  checkWard,
+  counter,
+  counterCount,
+  discard,
+  fitsSpec,
+  freeCast,
+  hasEscape,
+  manaValue,
+  permission,
+  ask,
+  createToken,
+  MUST_ATTACK,
+  RETURN_TO_HAND,
   stats,
   tapForMana,
   targetSpecs,
@@ -77,7 +90,28 @@ import {
   untapMana,
   scriptFor,
 } from './rules';
-import type { Action, AskChoice, Card, CardChoice, CastChoices, Choice, ExtraTurn, Game, Player, PlayerId, StackItem, Step, TargetRef, TargetSpec, Trigger, TriggerEvents } from './types';
+import type {
+  Action,
+  AskChoice,
+  Card,
+  CardChoice,
+  CastChoices,
+  CastInfo,
+  Choice,
+  ExtraTurn,
+  Game,
+  Player,
+  PlayerId,
+  StackItem,
+  Step,
+  TargetRef,
+  TargetSpec,
+  RetargetChoice,
+  ThenCtx,
+  Trigger,
+  TriggerEvents,
+  Zone,
+} from './types';
 
 // ---------- setup ----------
 
@@ -214,6 +248,15 @@ function continueMulligans(g: Game) {
     return;
   }
   if (!m.taking.length) {
+    // Actions from opening hands, the starting player first, then the others in turn order (103.6).
+    if (!m.opened) {
+      m.opened = true;
+      g.decision = null;
+      for (const pid of turnOrder(g, g.active)) {
+        for (const c of [...g.players[pid].hand]) scriptFor(c).openingHand?.(g, c, pid);
+      }
+      if (nextChoice(g)) return;
+    }
     g.mulligan = null;
     g.decision = null;
     // In a multiplayer game nobody skips their first draw (103.8c).
@@ -244,16 +287,19 @@ export function choiceOptions(g: Game, choice: CardChoice): { cards: Card[]; val
   if (choice.kind === 'bottom') {
     return { cards: p.hand, valid: new Set(p.hand.map((c) => c.id)), min: choice.count, max: choice.count };
   }
-  if (choice.kind === 'pick') {
+  if (choice.kind === 'pick' || choice.kind === 'legend') {
     const cards = choice.cards.map((id) => findCard(g, id)).filter((c): c is Card => !!c);
+    // The legend rule keeps exactly one (704.5j).
+    if (choice.kind === 'legend') return { cards, valid: new Set(cards.map((c) => c.id)), min: 1, max: 1 };
     return { cards, valid: new Set(cards.map((c) => c.id)), min: Math.min(choice.min, cards.length), max: choice.max };
   }
   // The whole library is looked at (701.23a). Sorted, so the order of the library stays hidden (401.2).
   const cards = [...p.library].sort((a, b) => label(a).localeCompare(label(b)));
   const valid = new Set(cards.filter((c) => searchable(c, choice.find)).map((c) => c.id));
   // A search for a card with a stated quality may find nothing, even if there is one
-  // (701.23b). A search for just "a card" must find one if it can (701.23d).
-  return { cards, valid, min: choice.find || !valid.size ? 0 : 1, max: 1 };
+  // (701.23b). A search for just "a card", or "three cards", must find them if it can (701.23d).
+  const count = choice.count ?? 1;
+  return { cards, valid, min: choice.find ? 0 : Math.min(count, valid.size), max: count };
 }
 
 /** Asks the next waiting choice, if there is one. */
@@ -261,8 +307,27 @@ function nextChoice(g: Game): boolean {
   while (g.choices.length) {
     const choice = g.choices.shift()!;
     if (g.players[choice.player].lost) continue;
-    g.decision =
-      choice.kind === 'ask' ? { type: 'ask', choice } : choice.kind === 'name' ? { type: 'name', choice } : { type: 'chooseCards', choice };
+    // A spell or ability with no targets left to change has nothing to ask (115.7d).
+    if (choice.kind === 'retarget' && !g.stack.some((x) => x.id === choice.item && x.targets.some(Boolean))) continue;
+    switch (choice.kind) {
+      case 'ask':
+        g.decision = { type: 'ask', choice };
+        break;
+      case 'name':
+        g.decision = { type: 'name', choice };
+        break;
+      case 'player':
+        g.decision = { type: 'player', choice };
+        break;
+      case 'cast':
+        g.decision = { type: 'cast', choice };
+        break;
+      case 'retarget':
+        g.decision = { type: 'retarget', choice };
+        break;
+      default:
+        g.decision = { type: 'chooseCards', choice };
+    }
     g.priority = choice.player;
     return true;
   }
@@ -280,29 +345,50 @@ function afterChoice(g: Game) {
  * Runs the continuation a choice names (`CardScript.then`), with the answer. Choices it
  * asks come before any that were already waiting: they are the next step of the same effect.
  */
-function runThen(g: Game, choice: Choice, answer: { picked?: Card[]; yes?: boolean; name?: string }) {
+function runThen(g: Game, choice: Choice, answer: { picked?: Card[]; yes?: boolean; name?: string; player?: PlayerId }) {
   if (!('then' in choice) || !choice.then) return;
+  const key = choice.then;
+  // The card the continuation belongs to: one entering the battlefield or acting from an
+  // opening hand (`script`), or else the spell or ability resolving.
   const item = resolvingItem(g);
-  const fn = item && scriptFor(item.card).then?.[choice.then];
-  if (!item || !fn) return;
+  const card = choice.script ? findCard(g, choice.script) : item ? (permanent(g, item.card.id) ?? item.card) : undefined;
+  const fn = key.startsWith('@') ? ENGINE_THEN[key] : card && (choice.script ? scriptFor(card, 'battlefield') : scriptFor(item!.card)).then?.[key];
+  if (!card || !fn) return;
   const waiting = g.choices;
   g.choices = [];
+  const data = choice.data ?? {};
   fn(g, {
-    self: permanent(g, item.card.id) ?? item.card,
-    you: item.controller,
-    targets: item.targets,
+    self: card,
+    you: choice.script ? ((data.enter as { controller?: PlayerId } | undefined)?.controller ?? choice.player) : item!.controller,
+    targets: choice.script ? [] : item!.targets,
     chooser: choice.player,
     picked: answer.picked ?? [],
     yes: !!answer.yes,
     name: answer.name ?? '',
-    data: choice.data ?? {},
+    player: answer.player ?? null,
+    data,
   });
   g.choices = [...g.choices, ...waiting];
 }
 
+/** Continuations the engine itself runs, for keyword actions and abilities (`then` keys starting with "@"). */
+const ENGINE_THEN: Record<string, (g: Game, ctx: ThenCtx) => void> = {
+  // Surveil (701.25a): the cards picked go to the graveyard; the rest stay on top.
+  '@surveil': (g, { chooser, picked }) => {
+    const p = g.players[chooser];
+    for (const c of picked) moveCard(g, c, 'graveyard');
+    log(g, picked.length ? `${says(p, 'surveils')} and ${p.isBot ? 'puts' : 'put'} ${picked.map(label).join(', ')} into ${p.isBot ? 'their' : 'your'} graveyard.` : `${says(p, 'surveils')}.`, chooser, picked);
+  },
+  // Ward (702.21a): the spell or ability is countered unless its controller paid.
+  '@ward': (g, { yes, data }) => {
+    if (!yes) counter(g, { kind: 'stack', id: data.item as string });
+  },
+};
+
 /** Carries out a card choice once the player has made it. */
 function doChoice(g: Game, choice: CardChoice, cards: Card[]) {
   const p = g.players[choice.player];
+  if (choice.kind === 'legend') return;
   if (choice.kind === 'bottom') {
     for (const c of cards) moveCard(g, c, 'library'); // onto the bottom, in the chosen order (103.5)
     log(g, `${says(p, 'puts')} ${cards.length} card${cards.length === 1 ? '' : 's'} on the bottom.`, p.id);
@@ -312,7 +398,8 @@ function doChoice(g: Game, choice: CardChoice, cards: Card[]) {
   const [found] = cards;
   // A card found is shown only if the effect says to reveal it, or it goes onto the battlefield (701.23e).
   const shown = found && (choice.reveal || choice.to === 'battlefield' || !p.isBot);
-  if (found) log(g, `${says(p, 'searches')} ${p.isBot ? 'their' : 'your'} library for ${shown ? label(found) : 'a card'}.`, p.id, shown ? [found] : []);
+  const many = cards.length > 1 ? `${cards.length} cards` : 'a card';
+  if (found) log(g, `${says(p, 'searches')} ${p.isBot ? 'their' : 'your'} library for ${shown ? cards.map(label).join(', ') : many}.`, p.id, shown ? cards : []);
   else log(g, `${says(p, 'searches')} ${p.isBot ? 'their' : 'your'} library and ${p.isBot ? 'finds' : 'find'} nothing.`, p.id);
   if (found && choice.to === 'battlefield') enterBattlefield(g, found, { tapped: choice.tapped });
   else if (found && choice.to === 'hand') moveCard(g, found, 'hand');
@@ -323,7 +410,7 @@ function doChoice(g: Game, choice: CardChoice, cards: Card[]) {
     shuffle(g, p.library);
     if (found && choice.to === 'top') p.library.unshift(found); // "then shuffle and put that card on top"
   }
-  runThen(g, choice, { picked: found ? [found] : [] });
+  runThen(g, choice, { picked: cards });
 }
 
 /** Can the player say yes to `choice`: can they pay what it costs (118.3, 119.4)? */
@@ -352,18 +439,36 @@ function timingOk(g: Game, pid: PlayerId, instantSpeed: boolean): boolean {
 export function canPlayLand(g: Game, pid: PlayerId, c: Card, face?: number): boolean {
   const faces = landFaces(c);
   if (face !== undefined ? !faces.includes(face) : !faces.length) return false;
-  return c.owner === pid && c.zone === 'hand' && g.players[pid].landsPlayed < 1 && timingOk(g, pid, false);
+  // From a hand, or from exile with an effect that lets them play it (Jeska's Will). Either
+  // way it counts as their land for the turn (305.2a).
+  const from = c.zone === 'hand' ? c.owner === pid : c.zone === 'exile' && !!permission(g, pid, c)?.play;
+  return from && g.players[pid].landsPlayed < 1 && timingOk(g, pid, false);
 }
 
 /**
- * Can `c` be cast from the zone it's in? From a hand or the command zone; from a graveyard
- * with flashback (702.34a); from exile after its Adventure resolved (715.3d).
+ * Can `pid` cast `c` from the zone it's in? Their own from a hand or the command zone; from
+ * their graveyard with flashback (702.34a) or escape (702.138a); from exile after its
+ * Adventure resolved (715.3d); any card an effect lets them cast (Ragavan, Mnemonic
+ * Betrayal), or the one they may cast while a spell resolves (608.2g).
  */
-function castableFrom(c: Card): boolean {
-  if (c.zone === 'hand' || c.zone === 'command') return true;
-  if (c.zone === 'graveyard') return !!scriptFor(c).flashback;
-  return c.zone === 'exile' && c.adventure;
+function castableFrom(g: Game, pid: PlayerId, c: Card): boolean {
+  if (castingNow(g, pid, c)) return true;
+  if (c.zone === 'hand' || c.zone === 'command') return c.owner === pid;
+  if (c.zone === 'graveyard') return c.owner === pid && (!!scriptFor(c).flashback || hasEscape(g, c));
+  return c.zone === 'exile' && ((c.owner === pid && c.adventure) || !!permission(g, pid, c));
 }
+
+/** Is `c` the card `pid` may cast while a spell resolves (608.2g)? */
+const castingNow = (g: Game, pid: PlayerId, c: Card) => g.decision?.type === 'cast' && g.decision.choice.card === c.id && g.decision.choice.player === pid;
+
+/** Every card `pid` might cast from where it is: their hand, command zone and graveyard, and every exile. */
+export function castableCards(g: Game, pid: PlayerId): Card[] {
+  const p = g.players[pid];
+  return [...p.hand, ...p.command, ...p.graveyard, ...g.players.flatMap((o) => o.exile)].filter((c) => castableFrom(g, pid, c));
+}
+
+/** Other cards in the graveyard that could pay `c`'s escape cost (702.138a). */
+export const escapeOptions = (g: Game, c: Card): Card[] => g.players[c.owner].graveyard.filter((x) => x.id !== c.id);
 
 /**
  * The faces `c` could be cast as from where it is: either half of a split card (709.3),
@@ -376,19 +481,38 @@ export function castFaces(c: Card): number[] {
   let faces = facesOf(c);
   if (layout === 'transform') faces = [0];
   if (layout === 'adventure' && c.zone === 'exile') faces = [0];
-  faces = faces.filter((f) => !isLand(asSpell(c, f)));
-  if (c.zone === 'graveyard') faces = faces.filter((f) => !isPermanentCard(asSpell(c, f)));
-  return faces;
+  return faces.filter((f) => !isLand(asSpell(c, f)));
 }
 
-/** Targets chosen as a spell is cast (601.2c). A permanent's `targets` are for its enters ability instead. */
-export const castTargets = (c: Card, modes?: number[], face = 0): TargetSpec[] => spellTargets(asSpell(c, face), modes);
+/**
+ * How `c` can be cast as `face` from its owner's graveyard: with flashback, only as an
+ * instant or sorcery (702.34a); with escape, as anything but a land, if three other cards
+ * can be exiled (702.138a).
+ */
+export function graveyardWays(g: Game, c: Card, face: number): { flashback: boolean; escape: boolean } {
+  return {
+    flashback: !!scriptFor(c).flashback && !isPermanentCard(asSpell(c, face)),
+    escape: hasEscape(g, c) && escapeOptions(g, c).length >= 3,
+  };
+}
+
+/**
+ * Targets chosen as a spell is cast (601.2c). A permanent's `targets` are for its enters
+ * ability instead. A spell whose gift was promised may have other targets (702.174m).
+ */
+export const castTargets = (c: Card, modes?: number[], face = 0, gift?: PlayerId): TargetSpec[] => spellTargets(asSpell(c, face), modes, gift);
 
 /** Can mode `i` of modal spell `c` be chosen now? Not if a target it needs has no legal choice (700.2a). */
 function modeOk(g: Game, pid: PlayerId, c: Card, i: number): boolean {
   const mode = scriptFor(c).modal?.modes[i];
   return !!mode && (mode.targets ?? []).every((spec) => spec.optional || legalTargets(g, pid, spec, c).length > 0);
 }
+
+/** The most modes `pid` may choose for modal spell `c` now: Jeska's Will allows both only "if you control a commander". */
+export const maxModes = (g: Game, pid: PlayerId, c: Card): number => {
+  const max = scriptFor(c).modal?.max ?? 0;
+  return typeof max === 'function' ? max(g, { ...c, controller: pid }) : max;
+};
 
 /**
  * Every set of modes `pid` could choose for modal spell `c` (cast as `face`) now (700.2):
@@ -400,9 +524,10 @@ export function modeChoices(g: Game, pid: PlayerId, c: Card, face = 0): number[]
   if (!modal) return [];
   const legal = modal.modes.map((_, i) => i).filter((i) => modeOk(g, pid, spell, i));
   const out: number[][] = [];
+  const max = maxModes(g, pid, spell);
   const grow = (picked: number[], from: number) => {
     if (picked.length >= modal.min) out.push(picked);
-    if (picked.length === modal.max) return;
+    if (picked.length >= max) return;
     for (let k = from; k < legal.length; k++) grow([...picked, legal[k]], modal.repeat ? k : k + 1);
   };
   grow([], 0);
@@ -415,11 +540,16 @@ export function exileOptions(g: Game, pid: PlayerId, c: Card, face: number, alt:
   return spec ? g.players[pid].hand.filter((x) => x.id !== c.id && spec.filter(g, x, c)) : [];
 }
 
-/** Permanents `pid` could sacrifice to pay `c`'s additional cost (118.8), or [] if it has none. */
-export function sacrificeOptions(g: Game, pid: PlayerId, c: Card, face = 0): Card[] {
-  const spec = scriptFor(asSpell(c, face)).additionalCost?.sacrifice;
+/**
+ * Permanents `pid` could sacrifice to pay `c`'s additional cost (118.8), or [] if it has
+ * none. With `alt`, the ones that alternative cost could sacrifice instead (Flare of Duplication).
+ */
+export function sacrificeOptions(g: Game, pid: PlayerId, c: Card, face = 0, alt?: number): Card[] {
+  const script = scriptFor(asSpell(c, face));
+  const spec = alt === undefined ? script.additionalCost?.sacrifice : script.alternativeCosts?.[alt]?.sacrifice;
   if (!spec) return [];
-  return g.players[pid].battlefield.filter((p) => (spec.type !== 'creature' || isCreature(p)) && (spec.filter?.(g, p, c) ?? true));
+  const self = { ...c, controller: pid };
+  return g.players[pid].battlefield.filter((p) => fitsSpec(g, p, spec, self));
 }
 
 /**
@@ -437,19 +567,35 @@ function choicesOk(g: Game, pid: PlayerId, c: Card, ch: CastChoices): boolean {
   const kicked = ch.kicked ?? 0;
   if (!Number.isInteger(x) || x < 0 || !Number.isInteger(kicked) || kicked < 0) return false;
   if (kicked > (script.kicker ? (script.kicker.multi ? Infinity : 1) : 0)) return false;
-  if (ch.alt !== undefined && !altCostsOf(g, c, face).includes(ch.alt)) return false;
+  if (ch.alt !== undefined && !altCostsOf(g, c, face, pid).includes(ch.alt)) return false;
   if (ch.protector !== undefined && !(isBattle(spell) && canProtect(g, spell, ch.protector))) return false;
+  // A gift is promised to an opponent (702.174a), and only by a spell with gift.
+  if (ch.gift !== undefined && (!script.gift || ch.gift === pid || g.players[ch.gift]?.lost !== false)) return false;
+  // From a graveyard: with escape, three other cards from it are exiled (702.138a); otherwise it needs flashback.
+  const escape = ch.escape ?? [];
+  if (c.zone === 'graveyard') {
+    const ways = graveyardWays(g, c, face);
+    if (ch.escape ? !ways.escape : !ways.flashback) return false;
+    const options = new Set(escapeOptions(g, c).map((x) => x.id));
+    if (ch.escape && (escape.length !== 3 || new Set(escape).size !== 3 || escape.some((id) => !options.has(id)))) return false;
+  } else if (escape.length) return false;
   // Modes: a set the spell allows, in printed order (700.2).
   const modes = ch.modes ?? [];
   if (script.modal ? !modeChoices(g, pid, c, face).some((m) => m.join() === modes.join()) : modes.length) return false;
   // An alternative cost that exiles a card from the caster's hand names exactly one that fits it (118.9).
   const exile = ch.exile ?? [];
-  const altExile = ch.alt === undefined ? undefined : script.alternativeCosts?.[ch.alt]?.exile;
-  if (altExile ? exile.length !== 1 || !exileOptions(g, pid, c, face, ch.alt!).some((x) => x.id === exile[0]) : exile.length) return false;
+  const alt = ch.alt === undefined ? undefined : script.alternativeCosts?.[ch.alt];
+  if (alt?.exile ? exile.length !== 1 || !exileOptions(g, pid, c, face, ch.alt!).some((x) => x.id === exile[0]) : exile.length) return false;
+  // Sacrifices: one for an alternative cost that asks for it, then one for the additional
+  // cost, which bargain makes optional (702.166a). Each names a different permanent that fits.
   const sacrifice = ch.sacrifice ?? [];
-  if (!script.additionalCost) return sacrifice.length === 0;
-  const legal = new Set(sacrificeOptions(g, pid, c, face).map((p) => p.id));
-  return sacrifice.length === 1 && legal.has(sacrifice[0]);
+  const needs = [...(alt?.sacrifice ? [{ alt: ch.alt, optional: false }] : []), ...(script.additionalCost ? [{ alt: undefined, optional: !!script.additionalCost.optional }] : [])];
+  if (sacrifice.length > needs.length || new Set(sacrifice).size !== sacrifice.length) return false;
+  return needs.every((need, i) => {
+    const id = sacrifice[i];
+    if (id === undefined) return need.optional;
+    return sacrificeOptions(g, pid, c, face, need.alt).some((p) => p.id === id);
+  });
 }
 
 /**
@@ -458,31 +604,42 @@ function choicesOk(g: Game, pid: PlayerId, c: Card, ch: CastChoices): boolean {
  * alternative costs. Only the face being cast is checked (709.3a, 712.11c, 715.3a).
  */
 export function canCast(g: Game, pid: PlayerId, c: Card, choices?: CastChoices): boolean {
-  if (c.owner !== pid || !castableFrom(c)) return false;
+  if (!castableFrom(g, pid, c)) return false;
   if (choices) return canCastAs(g, pid, c, choices.face ?? 0, choices);
   return castFaces(c).some((face) => canCastAs(g, pid, c, face));
 }
 
 /** Can `pid` cast `c` as `face` now: with these choices, or without them, any way at all? */
 export function canCastAs(g: Game, pid: PlayerId, c: Card, face: number, choices?: CastChoices): boolean {
-  if (c.owner !== pid || !castableFrom(c) || !castFaces(c).includes(face)) return false;
-  const spell = asSpell(c, face);
-  if (!timingOk(g, pid, isInstantSpeed(spell) || flashGranted(g, pid, spell)) || forbidden(g, pid, 'cast', spell)) return false;
-  for (const spec of castTargets(c, choices?.modes, face)) {
+  if (!castableFrom(g, pid, c) || !castFaces(c).includes(face)) return false;
+  const spell = asSpell(c, face, pid);
+  // While a spell resolves, only the card it lets the player cast, ignoring timing (608.2g).
+  // "If that spell's mana value is N or less" counts X as 0 (107.3b).
+  const now = castingNow(g, pid, c);
+  if (now ? manaValue(spell) > ((g.decision as { choice: { maxMv?: number } }).choice.maxMv ?? Infinity) : !timingOk(g, pid, isInstantSpeed(spell) || flashGranted(g, pid, spell))) return false;
+  if (forbidden(g, pid, 'cast', spell)) return false;
+  for (const spec of castTargets(c, choices?.modes, face, choices?.gift)) {
     if (!spec.optional && legalTargets(g, pid, spec, spell).length === 0) return false;
   }
-  if (choices) return choicesOk(g, pid, c, choices) && !!planPayment(g, pid, castCost(g, c, choices));
+  if (choices) return choicesOk(g, pid, c, choices) && !!planPayment(g, pid, castCost(g, c, choices, pid), spell);
   const script = scriptFor(spell);
-  if (script.additionalCost && !sacrificeOptions(g, pid, c, face).length) return false;
+  if (script.additionalCost && !script.additionalCost.optional && !sacrificeOptions(g, pid, c, face).length) return false;
   if (script.modal && !modeChoices(g, pid, c, face).length) return false;
-  return [undefined, ...altCostsOf(g, c, face)].some((alt) => planPayment(g, pid, castCost(g, c, { alt, face })));
+  if (c.zone === 'graveyard') {
+    const ways = graveyardWays(g, c, face);
+    const routes: CastChoices[] = [...(ways.flashback ? [{ face }] : []), ...(ways.escape ? [{ face, escape: ['', '', ''] }] : [])];
+    return routes.some((r) => planPayment(g, pid, castCost(g, c, r, pid), spell));
+  }
+  return [undefined, ...altCostsOf(g, c, face, pid)].some((alt) => planPayment(g, pid, castCost(g, c, { alt, face }, pid), spell));
 }
 
 /** The highest X `pid` can pay for `c` with these other choices (107.3a), or -1 if it can't be cast at all. */
 export function maxX(g: Game, pid: PlayerId, c: Card, choices: CastChoices = {}): number {
-  if (!parseCost(data(asSpell(c, choices.face ?? 0)).manaCost).x || choices.alt !== undefined || c.zone === 'graveyard') return 0;
+  // An alternative cost without X, like flashback or "without paying its mana cost", makes X 0 (107.3b).
+  if (!parseCost(data(asSpell(c, choices.face ?? 0)).manaCost).x || choices.alt !== undefined || (c.zone === 'graveyard' && !choices.escape) || freeCast(g, c)) return 0;
   let x = -1;
-  while (x < 99 && planPayment(g, pid, castCost(g, c, { ...choices, x: x + 1 }))) x++;
+  const spell = asSpell(c, choices.face ?? 0, pid);
+  while (x < 99 && planPayment(g, pid, castCost(g, c, { ...choices, x: x + 1 }, pid), spell)) x++;
   return x;
 }
 
@@ -493,16 +650,24 @@ export function maxX(g: Game, pid: PlayerId, c: Card, choices: CastChoices = {})
 export function canActivate(g: Game, pid: PlayerId, c: Card, ability?: number): boolean {
   if (ability !== undefined) return scriptFor(c).levels ? canLevelUp(g, pid, c, ability) : canActivateLoyalty(g, pid, c, ability);
   const ab = scriptFor(c).activated;
-  if (!ab || c.owner !== pid || c.zone !== 'battlefield' || !timingOk(g, pid, !ab.sorcery) || forbidden(g, pid, 'activate', c)) return false;
+  if (!ab) return false;
+  // Its controller activates it from the battlefield; its owner from their hand, like channel.
+  if (ab.fromHand ? c.zone !== 'hand' || c.owner !== pid : c.zone !== 'battlefield' || c.controller !== pid) return false;
+  if (!timingOk(g, pid, !ab.sorcery) || forbidden(g, pid, 'activate', c) || (ab.when && !ab.when(g, c))) return false;
   // A summoning-sick creature can't pay a tap cost (302.6).
   if (ab.cost.tap && (c.tapped || (isCreature(c) && c.sick && !has(g, c, 'haste')))) return false;
   if (ab.cost.crew && crewPower(g, pid, c, crewOptions(g, pid, c)) < ab.cost.crew) return false;
-  if ((ab.cost.mana || ab.cost.life) && !planPayment(g, pid, abilityCost(ab))) return false;
+  if (ab.cost.counters && counterCount(c, ab.cost.counters.kind) < ab.cost.counters.n) return false;
+  if (ab.cost.discard && discardOptions(g, pid, c).length < ab.cost.discard) return false;
+  if ((ab.cost.mana || ab.cost.life) && !planPayment(g, pid, abilityCost(ab, g, c))) return false;
   for (const spec of ab.targets ?? []) {
     if (!spec.optional && legalTargets(g, pid, spec, c).length === 0) return false;
   }
   return true;
 }
+
+/** Cards `pid` could discard to pay a "Discard a card" cost of `c`'s ability: any other card in their hand. */
+export const discardOptions = (g: Game, pid: PlayerId, c: Card): Card[] => g.players[pid].hand.filter((x) => x.id !== c.id);
 
 /**
  * A loyalty ability can be activated at sorcery speed, and only if none of that
@@ -511,7 +676,7 @@ export function canActivate(g: Game, pid: PlayerId, c: Card, ability?: number): 
  */
 function canActivateLoyalty(g: Game, pid: PlayerId, c: Card, i: number): boolean {
   const ab = scriptFor(c).loyalty?.[i];
-  if (!ab || c.owner !== pid || c.zone !== 'battlefield' || !timingOk(g, pid, false) || forbidden(g, pid, 'activate', c)) return false;
+  if (!ab || c.controller !== pid || c.zone !== 'battlefield' || !timingOk(g, pid, false) || forbidden(g, pid, 'activate', c)) return false;
   if (c.loyaltyTurn === g.turn || loyaltyOf(c) + ab.cost < 0) return false;
   return (ab.targets ?? []).every((spec) => spec.optional || legalTargets(g, pid, spec, c).length > 0);
 }
@@ -522,7 +687,7 @@ function canActivateLoyalty(g: Game, pid: PlayerId, c: Card, i: number): boolean
  */
 function canLevelUp(g: Game, pid: PlayerId, c: Card, i: number): boolean {
   const bar = scriptFor(c).levels?.[i];
-  if (!bar || c.owner !== pid || c.zone !== 'battlefield' || !timingOk(g, pid, false) || forbidden(g, pid, 'activate', c)) return false;
+  if (!bar || c.controller !== pid || c.zone !== 'battlefield' || !timingOk(g, pid, false) || forbidden(g, pid, 'activate', c)) return false;
   return c.level === i + 1 && !!planPayment(g, pid, parseCost(bar.cost));
 }
 
@@ -604,8 +769,9 @@ export function illegalBlocks(g: Game, pid: PlayerId): string[] {
 export function canAct(g: Game, pid: PlayerId): boolean {
   const p = g.players[pid];
   return (
-    [...p.hand, ...p.command].some((c) => canCast(g, pid, c) || canPlayLand(g, pid, c)) ||
-    p.battlefield.some((c) => activatable(g, pid, c).length > 0)
+    castableCards(g, pid).some((c) => canCast(g, pid, c)) ||
+    [...p.hand, ...g.players.flatMap((o) => o.exile)].some((c) => canPlayLand(g, pid, c)) ||
+    [...p.battlefield, ...p.hand].some((c) => activatable(g, pid, c).length > 0)
   );
 }
 
@@ -700,12 +866,16 @@ function beginTurn(g: Game, pid: PlayerId, extra?: ExtraTurn) {
 /** The `Delayed.key` the engine itself resolves: its controller loses the game (104.3e). */
 const LOSE_GAME = 'lose the game';
 
+
 /** Delayed triggered abilities whose moment has come trigger, once each (603.7b). */
 function fireDelayed(g: Game, step: 'upkeep' | 'end') {
   const due = g.delayed.filter((d) => d.step === step && (d.turn === undefined || d.turn === g.turn) && (d.player === undefined || d.player === g.active));
   g.delayed = g.delayed.filter((d) => !due.includes(d));
   for (const d of due) {
     if (g.players[d.controller].lost) continue;
+    // An intervening "if" is checked as it would trigger, and again as it resolves (603.4).
+    const check = scriptFor(d.card).delayedIf?.[d.key];
+    if (check && !check(g, d.data ?? {})) continue;
     g.triggers.push({ id: `s${g.nextId++}`, kind: 'triggered', controller: d.controller, card: d.card, hook: 'onDelayed', event: { key: d.key, data: d.data ?? {} }, targets: [] });
   }
 }
@@ -780,9 +950,17 @@ function beginStep(g: Game, step: Step) {
 
 /** Ends the current step or phase and begins the next. */
 function nextStep(g: Game) {
-  for (const p of g.players) p.pool = []; // unspent mana empties (500.5)
+  // Unspent mana empties (500.5), except mana an effect says isn't lost this turn (Birgi).
+  for (const p of g.players) p.pool = p.pool.filter((m) => m.keep === g.turn);
   const combat = g.combat;
   switch (g.step) {
+    case 'upkeep':
+      // "Skip your draw step" (614.1b): the step doesn't happen at all (614.10).
+      if (g.players[g.active].battlefield.some((c) => scriptFor(c).skipDrawStep)) {
+        log(g, `${says(g.players[g.active], 'skips')} ${g.players[g.active].isBot ? 'their' : 'your'} draw step.`, g.active);
+        return beginStep(g, 'main1');
+      }
+      return beginStep(g, 'draw');
     case 'attackers':
       // With no attackers, the declare blockers and combat damage steps are skipped (508.8).
       return beginStep(g, combat?.attacks.length ? 'blockers' : 'endCombat');
@@ -804,6 +982,7 @@ function nextStep(g: Game) {
  */
 function cleanup(g: Game) {
   for (const p of g.players) {
+    p.pool = []; // mana kept "until end of turn" is gone now (514.2)
     for (const c of p.battlefield) {
       c.damage = 0;
       c.deathtouched = false;
@@ -841,6 +1020,21 @@ function attackersDeclared(g: Game) {
     const c = permanent(g, a.id)!;
     trigger(g, c, 'onAttack', { defender: a.defender, target: a.target });
     broadcast(g, 'onCreatureAttacks', { attacker: c, defender: a.defender, target: a.target });
+  }
+}
+
+/**
+ * A creature that "attacks each combat if able" and wasn't declared attacks anyway (508.1d):
+ * it attacks the next opponent in turn order. Only a player can have been left out, so the
+ * requirement is met however it attacks.
+ */
+function mustAttack(g: Game, pid: PlayerId) {
+  const combat = g.combat!;
+  const opponent = turnOrder(g, pid).find((o) => o !== pid);
+  if (opponent === undefined) return;
+  for (const c of attackCandidates(g, pid)) {
+    if (!has(g, c, MUST_ATTACK) || combat.attacks.some((a) => a.id === c.id)) continue;
+    combat.attacks.push({ id: c.id, defender: opponent, target: null, blockers: [], blocked: false });
   }
 }
 
@@ -962,13 +1156,16 @@ function resolveTop(g: Game) {
   if (fizzled) log(g, `${label(card)} has no legal target left and does nothing.`, controller, [card]);
 
   if (item.kind === 'spell') {
+    // A gift happens before the spell's other effects, and only if it resolves (702.174j).
+    if (!fizzled && !isPermanentCard(card) && card.cast?.gift !== undefined && script.gift) giveGift(g, card, controller);
     if (script.enchant) {
       // An Aura whose target has gone is put into its owner's graveyard (608.3b, 303.4g).
       const host = refCard(g, targets[0]);
       if (host) enterBattlefield(g, card, { attachTo: host.id });
       else moveCard(g, card, 'graveyard');
     } else if (isPermanentCard(card)) {
-      enterBattlefield(g, card, { protector: card.cast?.protector }); // 608.3
+      // It enters under the control of the spell's controller (608.3a, 110.2a).
+      enterBattlefield(g, card, { protector: card.cast?.protector, controller }); // 608.3
     } else if (!fizzled && script.modal) {
       // Each chosen mode in printed order, with its own share of the targets (700.2).
       let next = 0;
@@ -998,11 +1195,34 @@ function resolveTop(g: Game) {
       // A copy for each other spell cast before it this turn (702.40a).
       const { count, item: spell } = item.event as TriggerEvents['onStorm'];
       for (let i = 0; i < count; i++) copyItem(g, spell, controller);
+    } else if (item.hook === 'onWard') {
+      // Ward (702.21a): counter the spell or ability unless its controller pays.
+      const { item: id, cost } = item.event as TriggerEvents['onWard'];
+      const target = g.stack.find((x) => x.id === id);
+      if (target) {
+        const what = [cost.mana, cost.life && `${cost.life} life`].filter(Boolean).join(' and ');
+        ask(g, target.controller, {
+          text: `Pay ${what}, or ${target.kind === 'spell' ? label(target.card) : `${label(target.card)}'s ability`} is countered (ward).`,
+          cost: cost.mana,
+          life: cost.life,
+          yes: `Pay ${what}`,
+          no: "Don't Pay",
+          then: '@ward',
+          data: { item: id },
+        });
+      }
     } else if (item.hook === 'onDelayed') {
       const { key, data: extra } = item.event as TriggerEvents['onDelayed'];
       if (key === LOSE_GAME) {
         log(g, `${says(g.players[controller], 'loses')} the game (${label(card)}).`, controller, [card]);
         loseGame(g, controller, label(card));
+      } else if (key === RETURN_TO_HAND) {
+        // Dash (702.109a): the permanent goes back to its owner's hand, if it is still the same object.
+        const c = permanent(g, extra.id as string);
+        if (c && c.moves === extra.moves) {
+          log(g, `${label(c)} returns to its owner's hand.`, c.controller, [c]);
+          moveCard(g, c, 'hand');
+        }
       } else script.delayed?.[key]?.(g, { ...ctx, data: extra });
     } else if (item.hook === 'onChapter') {
       script.chapters?.[(item.event as { chapter: number }).chapter - 1]?.resolve(g, ctx);
@@ -1025,6 +1245,15 @@ function resolveTop(g: Game) {
   if (!nextChoice(g)) finishResolving(g);
 }
 
+/** The chosen opponent gets the gift of spell `card` (702.174a-j). */
+function giveGift(g: Game, card: Card, controller: PlayerId) {
+  const to = card.cast!.gift!;
+  const gift = scriptFor(card).gift!;
+  if (g.players[to].lost) return;
+  log(g, `${says(g.players[controller], 'gives')} ${g.players[to].name} a gift (${label(card)}).`, controller, [card]);
+  createToken(g, to, gift.token, 1, { tapped: gift.tapped });
+}
+
 /**
  * Casts the back face of a double-faced card in exile without paying its mana cost, as a
  * defeated Siege does (310.12b, 712.11a). Its mana value is still its front face's
@@ -1041,7 +1270,8 @@ function castTransformed(g: Game, pid: PlayerId, c: Card) {
   exile.splice(exile.findIndex((x) => x.id === c.id), 1);
   c.zone = 'stack';
   c.face = 1;
-  c.cast = { x: 0, kicked: 0, modes: [] };
+  c.controller = pid;
+  c.cast = { x: 0, kicked: 0, modes: [], from: 'exile', free: true };
   const item: StackItem = { id: `s${g.nextId++}`, kind: 'spell', controller: pid, card: c, targets };
   g.stack.push(item);
   log(g, `${says(g.players[pid], 'casts')} ${label(c)} transformed, without paying its mana cost.`, pid, [c]);
@@ -1109,7 +1339,10 @@ function putTriggerOnStack(g: Game): boolean {
   if (specs.some((spec, i) => !spec.optional && options[i].length === 0)) {
     // A copy keeps the original's targets if there are no new ones (707.10c). An ability
     // that needs a target and has none is removed instead (603.3d).
-    if (item.copy) g.stack.push(item);
+    if (item.copy) {
+      g.stack.push(item);
+      checkWard(g, item);
+    }
     return true;
   }
   if (options.some((o) => o.length)) {
@@ -1140,6 +1373,41 @@ function activateLevel(g: Game, pid: PlayerId, c: Card, i: number, a: Extract<Ac
  * loyalty counters (606.4), and none of its other loyalty abilities can be activated
  * this turn (606.3).
  */
+/**
+ * Answers a `retarget` choice (115.7d): each target is left as it was, even if it is illegal
+ * now, or changed to a legal one; together they must still be a legal set. Ward triggers for
+ * the permanents it newly targets (702.21a).
+ */
+function retarget(g: Game, pid: PlayerId, choice: RetargetChoice, chosen: (TargetRef | null)[]): boolean {
+  const item = g.stack.find((x) => x.id === choice.item);
+  if (item) {
+    const specs = targetSpecs(item);
+    const targets = specs.map((_, i) => chosen[i] ?? null);
+    const same = (a: TargetRef | null, b: TargetRef | null) => (!a && !b) || (!!a && !!b && sameRef(a, b));
+    const ok = specs.every((spec, i) => {
+      const t = targets[i];
+      if (same(t, item.targets[i])) return true;
+      if (!t) return false; // leaving a target out isn't choosing a new one
+      const other = spec.distinctFrom === undefined ? null : targets[spec.distinctFrom];
+      if (other && sameRef(other, t)) return false;
+      // Legal for the spell or ability as its controller would choose it.
+      return legalTargets(g, item.controller, spec, item.card).some((x) => sameRef(x, t));
+    });
+    if (!ok) return false;
+    const changed = targets.filter((t, i) => !same(t, item.targets[i]));
+    item.targets = targets;
+    if (changed.length) {
+      const names = targets.filter((t): t is TargetRef => !!t).map((t) => describeRef(g, t));
+      log(g, `${says(g.players[pid], 'chooses')} new targets for ${describeRef(g, { kind: 'stack', id: item.id })}: ${names.join(' and ')}.`, pid, refCards(g, targets));
+      checkWard(g, item, changed);
+    }
+  }
+  g.decision = null;
+  runThen(g, choice, {});
+  afterChoice(g);
+  return true;
+}
+
 function activateLoyalty(g: Game, pid: PlayerId, c: Card, i: number, a: Extract<Action, { type: 'activate' }>): boolean {
   const ab = scriptFor(c).loyalty![i];
   const specs = ab.targets ?? [];
@@ -1153,6 +1421,7 @@ function activateLoyalty(g: Game, pid: PlayerId, c: Card, i: number, a: Extract<
   const cost = ab.cost > 0 ? `+${ab.cost}` : ab.cost === 0 ? '0' : `−${-ab.cost}`;
   log(g, `${says(g.players[pid], 'activates')} ${label(c)}'s ${cost}${chosen.length ? ` targeting ${chosen.join(' and ')}` : ''}.`, pid, [c, ...refCards(g, targets)]);
   g.stack.push(item);
+  checkWard(g, item);
   g.passes = 0;
   g.holding = a.hold ? pid : null;
   return true;
@@ -1166,14 +1435,17 @@ function act(g: Game, a: Action): boolean {
 
   switch (a.type) {
     case 'playLand': {
-      const c = p.hand.find((x) => x.id === a.card);
+      // From the hand, or from exile with an effect that lets them play it (Jeska's Will).
+      const c = findCard(g, a.card);
       if (!c || !canPlayLand(g, pid, c, a.face)) return false;
       p.landsPlayed++;
       // A modal double-faced card is played as one of its land faces (712.12).
       const face = a.face ?? landFaces(c)[0];
-      enterBattlefield(g, c, { face });
       log(g, `${says(p, 'plays')} ${label(c)}.`, pid, [c]);
+      enterBattlefield(g, c, { face, controller: pid });
       g.passes = 0; // the player keeps priority after a special action (117.3c)
+      // A choice made as it enters, like Cavern of Souls's creature type (614.12a).
+      nextChoice(g);
       return true;
     }
 
@@ -1181,44 +1453,88 @@ function act(g: Game, a: Action): boolean {
     // choose targets, then pay) are collected by the UI first, so backing out of any of
     // them leaves the game as if the spell was never started (733.1).
     case 'cast': {
-      const c = [p.hand, p.command, p.graveyard, p.exile].flatMap((z) => z).find((x) => x.id === a.card);
-      const choices: CastChoices = { x: a.x, kicked: a.kicked, alt: a.alt, sacrifice: a.sacrifice, exile: a.exile, modes: a.modes, protector: a.protector, face: a.face };
-      if (!c || !canCast(g, pid, c, choices)) return false;
+      const c = findCard(g, a.card);
+      const choices: CastChoices = {
+        x: a.x,
+        kicked: a.kicked,
+        alt: a.alt,
+        sacrifice: a.sacrifice,
+        exile: a.exile,
+        modes: a.modes,
+        protector: a.protector,
+        face: a.face,
+        escape: a.escape,
+        gift: a.gift,
+      };
+      if (!c || !['hand', 'command', 'graveyard', 'exile'].includes(c.zone) || !canCast(g, pid, c, choices)) return false;
       const face = choices.face ?? 0;
-      const specs = castTargets(c, choices.modes, face);
+      const specs = castTargets(c, choices.modes, face, choices.gift);
       const targets = specs.map((_, i) => a.targets?.[i] ?? null);
-      if (!targetsOk(g, pid, c, specs, targets)) return false;
-      const spell = asSpell(c, face);
-      const flashback = c.zone === 'graveyard';
-      const fromExile = c.zone === 'exile';
-      // An alternative cost without {X} makes X 0 (107.3b).
-      const hasX = !flashback && parseCost(choices.alt === undefined ? data(spell).manaCost : scriptFor(spell).alternativeCosts![choices.alt].mana).x > 0;
-      const cost = castCost(g, c, choices);
-      c.cast = { x: hasX ? (choices.x ?? 0) : 0, kicked: choices.kicked ?? 0, modes: choices.modes ?? [], protector: choices.protector, flashback };
-      pay(g, pid, cost); // 601.2f-h
+      if (!targetsOk(g, pid, { ...c, controller: pid }, specs, targets)) return false;
+      const spell = asSpell(c, face, pid);
+      const script = scriptFor(spell);
+      const from = c.zone as Zone;
+      // Cast while a spell resolves (608.2g): the choice that allowed it is answered.
+      const during = g.decision?.type === 'cast' ? g.decision.choice : null;
+      const free = freeCast(g, c);
+      const escaped = from === 'graveyard' && !!choices.escape;
+      const flashback = from === 'graveyard' && !escaped;
+      const alt = choices.alt === undefined ? undefined : script.alternativeCosts![choices.alt];
+      // X is chosen only if the cost being paid has {X}: an alternative cost without it makes X 0 (107.3b).
+      const paying = free ? '' : flashback ? scriptFor(c).flashback! : alt ? alt.mana : data(spell).manaCost;
+      const hasX = parseCost(paying).x > 0;
+      const cost = castCost(g, c, choices, pid);
+      // Costs are paid (601.2f-h): mana and life, then sacrifices and cards exiled.
+      const paid = pay(g, pid, cost, spell)!;
       const sacrificed = (choices.sacrifice ?? []).map((id) => permanent(g, id)!);
       const exiled = (choices.exile ?? []).map((id) => p.hand.find((x) => x.id === id)!);
-      if (c.zone === 'command') p.commanderCasts[commanderIndex(g, c)]++; // commander tax (903.8, 702.124d)
-      const from = p[c.zone as 'hand' | 'command' | 'graveyard' | 'exile'];
-      from.splice(from.findIndex((x) => x.id === c.id), 1);
+      const escapedWith = (choices.escape ?? []).map((id) => g.players[c.owner].graveyard.find((x) => x.id === id)!);
+      if (from === 'command') p.commanderCasts[commanderIndex(g, c)]++; // commander tax (903.8, 702.124d)
+      const zone = g.players[c.owner][from as 'hand' | 'command' | 'graveyard' | 'exile'];
+      zone.splice(zone.findIndex((x) => x.id === c.id), 1);
       c.zone = 'stack'; // 601.2a
+      c.controller = pid; // its caster controls it (601.2a)
+      c.moves++;
+      c.faceDown = false; // a face-down card is turned face up to be cast (406.3a)
+      c.known = [];
       c.face = face; // only the face being cast is on the stack (709.3b, 712.11c, 715.3b)
       c.adventure = false;
+      const info: CastInfo = {
+        x: hasX ? (choices.x ?? 0) : 0,
+        kicked: choices.kicked ?? 0,
+        modes: choices.modes ?? [],
+        protector: choices.protector,
+        flashback,
+        from,
+        alt: choices.alt,
+        dash: !!alt?.dash,
+        escaped,
+        free,
+        bargained: !!script.additionalCost?.optional && sacrificed.length > (alt?.sacrifice ? 1 : 0),
+        gift: choices.gift,
+        spent: paid.spent,
+        uncounterable: paid.uncounterable,
+      };
+      c.cast = info;
       const item: StackItem = { id: `s${g.nextId++}`, kind: 'spell', controller: pid, card: c, targets };
       g.stack.push(item);
       const chosen = targets.filter((t): t is TargetRef => !!t).map((t) => describeRef(g, t));
       const how = [
-        hasX && `X = ${c.cast.x}`,
+        hasX && `X = ${info.x}`,
         flashback && 'flashback',
-        fromExile && 'from exile',
+        escaped && 'escape',
+        from === 'exile' && 'from exile',
+        free && 'without paying its mana cost',
         layoutOf(c) === 'adventure' && face === 1 && 'an Adventure',
-        c.cast.kicked && (c.cast.kicked > 1 ? `kicked ${c.cast.kicked} times` : 'kicked'),
-        choices.alt !== undefined && scriptFor(c).alternativeCosts![choices.alt].label,
-        c.cast.modes.length > 0 &&
-          [...new Set(c.cast.modes)]
+        info.kicked && (info.kicked > 1 ? `kicked ${info.kicked} times` : 'kicked'),
+        info.bargained && 'bargained',
+        choices.gift !== undefined && `gift promised to ${g.players[choices.gift].name}`,
+        alt?.label,
+        info.modes.length > 0 &&
+          [...new Set(info.modes)]
             .map((i) => {
-              const times = c.cast!.modes.filter((m) => m === i).length;
-              return `“${scriptFor(c).modal!.modes[i].text}”${times > 1 ? ` ×${times}` : ''}`;
+              const times = info.modes.filter((m) => m === i).length;
+              return `“${script.modal!.modes[i].text}”${times > 1 ? ` ×${times}` : ''}`;
             })
             .join(', '),
       ].filter(Boolean);
@@ -1230,14 +1546,24 @@ function act(g: Game, a: Action): boolean {
         log(g, `${says(p, 'exiles')} ${label(x)} to pay for it.`, pid, [x]);
         moveCard(g, x, 'exile');
       }
+      if (escapedWith.length) {
+        log(g, `${says(p, 'exiles')} ${escapedWith.map(label).join(', ')} from ${p.isBot ? 'their' : 'your'} graveyard to pay for it.`, pid, escapedWith);
+        for (const x of escapedWith) moveCard(g, x, 'exile');
+      }
       castDone(g, pid, item);
+      checkWard(g, item); // 702.21a: it became the target of a spell
       g.passes = 0; // the caster keeps priority (117.3c)
       g.holding = a.hold ? pid : null;
+      if (during) {
+        g.decision = null;
+        runThen(g, during, { yes: true, picked: [c] });
+        afterChoice(g);
+      }
       return true;
     }
 
     case 'activate': {
-      const c = p.battlefield.find((x) => x.id === a.card);
+      const c = [...p.battlefield, ...p.hand].find((x) => x.id === a.card);
       if (!c || !canActivate(g, pid, c, a.ability)) return false;
       if (a.ability !== undefined && scriptFor(c).levels) return activateLevel(g, pid, c, a.ability, a);
       if (a.ability !== undefined) return activateLoyalty(g, pid, c, a.ability, a);
@@ -1251,16 +1577,23 @@ function act(g: Game, a: Action): boolean {
         if (crewing.some((x) => !x) || new Set(a.crew).size !== crewing.length) return false;
         if (crewPower(g, pid, c, crewing as Card[]) < ab.cost.crew) return false;
       } else if (crewing.length) return false;
-      if (ab.cost.mana || ab.cost.life) pay(g, pid, abilityCost(ab));
-      if (ab.cost.tap) c.tapped = true;
-      for (const x of crewing) x!.tapped = true;
-      if (crewing.length) log(g, `${crewing.map((x) => label(x!)).join(' and ')} crew${crewing.length === 1 ? 's' : ''} ${label(c)}.`, pid, [...(crewing as Card[]), c]);
+      // "Discard a card": exactly that many other cards from the hand.
+      const discarding = (a.discard ?? []).map((id) => discardOptions(g, pid, c).find((x) => x.id === id));
+      if (discarding.length !== (ab.cost.discard ?? 0) || discarding.some((x) => !x) || new Set(a.discard).size !== discarding.length) return false;
       // The ability goes on the stack as its own object, apart from its source (602.2a).
       const item: StackItem = { id: `s${g.nextId++}`, kind: 'activated', controller: pid, card: snapshot(c), targets };
+      if (ab.cost.mana || ab.cost.life) pay(g, pid, abilityCost(ab, g, c));
+      if (ab.cost.tap) c.tapped = true;
+      if (ab.cost.counters) removeCounters(c, ab.cost.counters.n, ab.cost.counters.kind);
+      for (const x of crewing) x!.tapped = true;
+      if (crewing.length) log(g, `${crewing.map((x) => label(x!)).join(' and ')} crew${crewing.length === 1 ? 's' : ''} ${label(c)}.`, pid, [...(crewing as Card[]), c]);
       const chosen = targets.filter((t): t is TargetRef => !!t).map((t) => describeRef(g, t));
       log(g, `${says(p, 'activates')} ${label(c)}${chosen.length ? ` targeting ${chosen.join(' and ')}` : ''}.`, pid, [c, ...refCards(g, targets)]);
+      for (const x of discarding) discard(g, x!);
+      if (ab.cost.discardSelf) discard(g, c);
       if (ab.cost.sacrifice) dieMany(g, [c], 'is sacrificed');
       g.stack.push(item);
+      checkWard(g, item);
       g.passes = 0;
       g.holding = a.hold ? pid : null;
       return true;
@@ -1271,8 +1604,8 @@ function act(g: Game, a: Action): boolean {
     case 'tapMana': {
       // A mana ability from a hand, like Simian Spirit Guide's, is used from there.
       const c = [...p.battlefield, ...p.hand].find((x) => x.id === a.card);
-      if (!c || deciding || !canTapForMana(g, pid, c, a.ability)) return false;
-      tapForMana(g, pid, c, a.ability);
+      if (!c || (deciding && deciding !== 'cast') || !canTapForMana(g, pid, c, a.ability)) return false;
+      tapForMana(g, pid, c, a.ability, a.color);
       return true;
     }
 
@@ -1322,8 +1655,7 @@ function act(g: Game, a: Action): boolean {
     case 'discard': {
       const c = p.hand.find((x) => x.id === a.card);
       if (deciding !== 'discard' || !c) return false;
-      log(g, `${says(p, 'discards')} ${label(c)}.`, pid, [c]);
-      moveCard(g, c, 'graveyard');
+      discard(g, c);
       if (p.hand.length <= maxHandSize(g, pid)) {
         g.decision = null;
         cleanup(g);
@@ -1332,6 +1664,7 @@ function act(g: Game, a: Action): boolean {
     }
 
     case 'chooseTargets': {
+      if (g.decision?.type === 'retarget') return retarget(g, pid, g.decision.choice, a.targets);
       if (g.decision?.type !== 'targets') return false;
       const { item, resume } = g.decision;
       const specs = targetSpecs(item);
@@ -1341,6 +1674,7 @@ function act(g: Game, a: Action): boolean {
       if (chosen.length) log(g, `${label(item.card)} targets ${chosen.join(' and ')}.`, pid, [item.card, ...refCards(g, targets)]);
       item.targets = targets;
       g.stack.push(item);
+      checkWard(g, item);
       g.decision = null;
       g.priority = resume;
       return true;
@@ -1370,12 +1704,27 @@ function act(g: Game, a: Action): boolean {
       if (new Set(a.cards).size !== a.cards.length || picked.length < min || picked.length > max) return false;
       if (picked.some((c) => !c || !valid.has(c.id))) return false;
       g.decision = null;
+      if (choice.kind === 'legend') {
+        // The legend rule (704.5j): the rest go to their owners' graveyards. It is a
+        // state-based action, so whoever was about to get priority still does.
+        dieMany(g, cards.filter((c) => c.id !== picked[0]!.id), "is put into its owner's graveyard (legend rule)");
+        g.priority = choice.resume;
+        return true;
+      }
       doChoice(g, choice, picked as Card[]);
       afterChoice(g);
       return true;
     }
 
     case 'answer': {
+      if (g.decision?.type === 'cast' && !a.yes) {
+        // Declines to cast it (608.2g).
+        const { choice } = g.decision;
+        g.decision = null;
+        runThen(g, choice, { yes: false });
+        afterChoice(g);
+        return true;
+      }
       if (g.decision?.type !== 'ask') return false;
       const { choice } = g.decision;
       if (a.yes && !canSayYes(g, choice)) return false;
@@ -1395,11 +1744,22 @@ function act(g: Game, a: Action): boolean {
     }
 
     case 'name': {
-      if (g.decision?.type !== 'name' || !isCardName(a.name)) return false;
+      if (g.decision?.type !== 'name') return false;
+      const { choice } = g.decision;
+      if (choice.of === 'creature type' ? !CREATURE_TYPES.includes(a.name) : !isCardName(a.name)) return false;
+      g.decision = null;
+      log(g, `${says(p, choice.of ? 'chooses' : 'names')} ${a.name}${choice.of ? ` (${choice.source})` : ''}.`, pid);
+      runThen(g, choice, { name: a.name });
+      afterChoice(g);
+      return true;
+    }
+
+    case 'choosePlayer': {
+      if (g.decision?.type !== 'player' || !g.decision.choice.options.includes(a.player)) return false;
       const { choice } = g.decision;
       g.decision = null;
-      log(g, `${says(p, 'names')} ${a.name}.`, pid);
-      runThen(g, choice, { name: a.name });
+      log(g, `${says(p, 'chooses')} ${g.players[a.player].name} (${choice.source}).`, pid);
+      runThen(g, choice, { player: a.player });
       afterChoice(g);
       return true;
     }
@@ -1441,6 +1801,7 @@ function act(g: Game, a: Action): boolean {
           passPriority(g);
           return true;
         case 'attackers':
+          mustAttack(g, pid);
           attackersDeclared(g);
           return true;
         case 'blockers': {

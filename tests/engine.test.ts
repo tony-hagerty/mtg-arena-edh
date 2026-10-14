@@ -43,6 +43,10 @@ import {
   stats,
   tapForMana,
   turnOrder,
+  abilityCost,
+  findCard,
+  manaValue,
+  maxModes,
 } from '../src/engine';
 import type { Action, ApplyOptions, Game, TurnStops } from '../src/engine';
 import { DECKS } from '../src/cards/db';
@@ -2449,6 +2453,651 @@ describe('combo turns: searches, choices, mana, storm, taxes and extra turns (se
       expect(g.active).toBe(0);
       g = passUntil(g, (x) => x.players[0].lost);
       expect(g.log.find((l) => l.text === 'Seraphine loses the game (Final Fortune).')?.turn).toBe(2);
+    });
+  });
+});
+
+describe('graveyard, exile and odd cards (session 7b)', () => {
+  const player = (id: number) => ({ kind: 'player', id }) as const;
+  const card = (c: { id: string }) => ({ kind: 'card', id: c.id }) as const;
+  const top = (g: Game) => ({ kind: 'stack', id: g.stack[g.stack.length - 1].id }) as const;
+  const cast = (g: Game, pid: number, name: string, extra: object = {}) => run(g, { type: 'cast', card: byName(g, pid, name, 'hand')!.id, ...extra } as Action);
+  const yes = { type: 'answer', yes: true } as const;
+  const no = { type: 'answer', yes: false } as const;
+  const choose = (...cards: { id: string }[]) => ({ type: 'chooseCards', cards: cards.map((c) => c.id) }) as const;
+  const asking = (g: Game) => (g.decision && 'choice' in g.decision ? g.decision.choice : undefined);
+  /** Passes (declining anything asked, choosing nothing) until `done`. */
+  const passUntil = (g: Game, done: (g: Game) => boolean) => {
+    for (let i = 0; i < 500 && !done(g); i++) g = run(g, g.decision?.type === 'ask' || g.decision?.type === 'cast' ? no : g.decision?.type === 'chooseCards' ? choose() : pass);
+    return g;
+  };
+  const library = (d: Game, pid: number, names: string[]) => {
+    d.players[pid].library = [];
+    for (const n of names) put(d, pid, n, 'library');
+  };
+  /** Puts player `pid`'s commander from the command zone onto the battlefield. */
+  const commanderOut = (d: Game, pid: number) => {
+    const c = d.players[pid].command.pop()!;
+    c.zone = 'battlefield';
+    d.players[pid].battlefield.push(c);
+  };
+
+  describe('control and the legend rule', () => {
+    it('Wishclaw Talisman: three wish counters, only on your turn, then an opponent gains control (110.2)', () => {
+      let g = emptyGame((d) => {
+        put(d, 0, 'Swamp', 'battlefield', 3);
+        put(d, 0, 'Wishclaw Talisman', 'hand');
+        library(d, 0, ['Island', 'Sol Ring', 'Plains']);
+        library(d, 1, ['Plains', 'Dark Ritual', 'Plains', 'Plains']);
+      });
+      g = cast(g, 0, 'Wishclaw Talisman');
+      const claw = byName(g, 0, 'Wishclaw Talisman')!;
+      expect(claw.counters.wish).toBe(3);
+      g = run(g, { type: 'activate', card: claw.id });
+      g = run(g, choose(byName(g, 0, 'Sol Ring', 'library')!));
+      const choice = asking(g);
+      if (choice?.kind !== 'player') throw new Error('no player choice');
+      expect(choice.options).toEqual([1, 2, 3]);
+      g = run(g, { type: 'choosePlayer', player: 1 });
+      expect(byName(g, 0, 'Sol Ring', 'hand')).toBeDefined();
+      const moved = byName(g, 1, 'Wishclaw Talisman')!;
+      expect([moved.owner, moved.controller, moved.counters.wish]).toEqual([0, 1, 2]);
+      // "Activate only during your turn": its new controller's turn.
+      expect(canActivate(g, 1, moved)).toBe(false);
+      g = passUntil(g, (x) => x.active === 1 && x.step === 'main1');
+      g = produce(g, (d) => void put(d, 1, 'Swamp'));
+      expect(canActivate(g, 1, byName(g, 1, 'Wishclaw Talisman')!)).toBe(true);
+      // If its new controller leaves the game, control goes back (800.4a).
+      g = produce(g, (d) => {
+        d.players[1].life = 0;
+        checkState(d);
+      });
+      expect(byName(g, 0, 'Wishclaw Talisman')!.controller).toBe(0);
+    });
+
+    it('the legend rule: a human keeps one of two legends with the same name, a bot keeps the ready one (704.5j)', () => {
+      const setup = (human: boolean) =>
+        emptyGame((d) => {
+          d.players[0].isBot = !human;
+          put(d, 0, 'Ragavan, Nimble Pilferer');
+          put(d, 0, 'Island', 'battlefield', 2);
+          put(d, 0, 'Mockingbird', 'hand');
+        });
+      let g = cast(setup(true), 0, 'Mockingbird', { x: 1 });
+      const ragavan = byName(g, 0, 'Ragavan, Nimble Pilferer')!;
+      g = run(g, choose(ragavan));
+      expect(asking(g)?.kind).toBe('legend');
+      g = run(g, choose(ragavan));
+      expect(g.players[0].battlefield.filter((c) => label(c) === 'Ragavan, Nimble Pilferer').map((c) => c.id)).toEqual([ragavan.id]);
+      expect(byName(g, 0, 'Mockingbird', 'graveyard')).toBeDefined();
+      let b = cast(setup(false), 0, 'Mockingbird', { x: 1 });
+      b = run(b, choose(byName(b, 0, 'Ragavan, Nimble Pilferer')!));
+      // The bot keeps the one that isn't summoning sick.
+      expect(b.players[0].battlefield.filter((c) => label(c) === 'Ragavan, Nimble Pilferer').map((c) => c.name)).toEqual(['Ragavan, Nimble Pilferer']);
+    });
+  });
+
+  describe('entering the battlefield', () => {
+    it('Mockingbird enters as a copy of a creature with mana value up to the mana spent, a Bird with flying (707.9b)', () => {
+      let g = emptyGame((d) => {
+        put(d, 0, 'Island', 'battlefield', 3);
+        put(d, 0, 'Mockingbird', 'hand');
+        put(d, 1, 'Serra Angel');
+        put(d, 1, 'Goblin Piker');
+        put(d, 2, 'Llanowar Elves');
+      });
+      g = cast(g, 0, 'Mockingbird', { x: 1 }); // {1}{U}: 2 mana spent
+      const choice = asking(g);
+      if (choice?.kind !== 'pick') throw new Error('no pick');
+      expect(choice.cards.map((id) => label(findCard(g, id)!)).sort()).toEqual(['Goblin Piker', 'Llanowar Elves']);
+      g = run(g, choose(byName(g, 1, 'Goblin Piker')!));
+      const bird = byName(g, 0, 'Mockingbird')!;
+      expect(label(bird)).toBe('Goblin Piker');
+      expect(data(bird).typeLine).toBe('Creature — Goblin Warrior Bird');
+      expect(stats(g, bird).power).toBe(2);
+      expect(stats(g, bird).keywords.has('flying')).toBe(true);
+      expect(manaValue(bird)).toBe(2);
+    });
+
+    it("a Mockingbird copy of Thassa's Oracle has its enters ability, and its mana cost counts for devotion (707.2)", () => {
+      let g = emptyGame((d) => {
+        put(d, 0, "Thassa's Oracle");
+        put(d, 0, 'Island', 'battlefield', 3);
+        put(d, 0, 'Mockingbird', 'hand');
+        library(d, 0, ['Sol Ring', 'Plains', 'Island', 'Swamp']);
+      });
+      g = cast(g, 0, 'Mockingbird', { x: 2 });
+      g = run(g, choose(byName(g, 0, "Thassa's Oracle")!));
+      // Devotion {U}{U} + {U}{U} = 4: it looks at the top four and wins.
+      g = run(g, choose());
+      expect(g.winner).toBe(0);
+    });
+
+    it('Mox Diamond enters only if a land card is discarded instead; otherwise it goes to the graveyard', () => {
+      const setup = (land: boolean) =>
+        emptyGame((d) => {
+          put(d, 0, 'Mox Diamond', 'hand');
+          if (land) put(d, 0, 'Plains', 'hand');
+        });
+      let g = cast(setup(true), 0, 'Mox Diamond');
+      g = run(g, choose(byName(g, 0, 'Plains', 'hand')!));
+      expect(byName(g, 0, 'Mox Diamond')).toBeDefined();
+      expect(byName(g, 0, 'Plains', 'graveyard')).toBeDefined();
+      let h = cast(setup(true), 0, 'Mox Diamond');
+      h = run(h, choose());
+      expect(byName(h, 0, 'Mox Diamond', 'graveyard')).toBeDefined();
+      expect(byName(h, 0, 'Plains', 'hand')).toBeDefined();
+      const k = cast(setup(false), 0, 'Mox Diamond');
+      expect(byName(k, 0, 'Mox Diamond', 'graveyard')).toBeDefined();
+    });
+
+    it('Chrome Mox taps for the colours of the card it exiled, and makes nothing without one (106.5)', () => {
+      const setup = () =>
+        emptyGame((d) => {
+          put(d, 0, 'Chrome Mox', 'hand');
+          put(d, 0, 'Lightning Bolt', 'hand');
+          put(d, 0, 'Sol Ring', 'hand');
+        });
+      let g = cast(setup(), 0, 'Chrome Mox');
+      const choice = asking(g);
+      if (choice?.kind !== 'pick') throw new Error('no pick');
+      // Only a nonartifact, nonland card.
+      expect(choice.cards.map((id) => label(findCard(g, id)!))).toEqual(['Lightning Bolt']);
+      g = run(g, choose(byName(g, 0, 'Lightning Bolt', 'hand')!));
+      expect(manaOf(g, byName(g, 0, 'Chrome Mox')!)?.colors).toEqual(['R']);
+      let h = cast(setup(), 0, 'Chrome Mox');
+      h = run(h, choose());
+      expect(canTapForMana(h, 0, byName(h, 0, 'Chrome Mox')!)).toBe(false);
+    });
+
+    it("Cavern of Souls: a creature type is chosen as it enters; its coloured mana casts only that type, which can't be countered (106.6)", () => {
+      let g = emptyGame((d) => {
+        put(d, 0, 'Cavern of Souls', 'hand');
+        put(d, 0, 'Swamp');
+        put(d, 0, 'Goblin Piker', 'hand');
+        put(d, 0, 'Lightning Bolt', 'hand');
+        put(d, 1, 'Island', 'battlefield', 5);
+        put(d, 1, 'Force of Will', 'hand');
+      });
+      g = run(g, { type: 'playLand', card: byName(g, 0, 'Cavern of Souls', 'hand')!.id });
+      expect(asking(g)?.kind).toBe('name');
+      expect(applyAction(g, { type: 'name', name: 'Lightning Bolt' })).toBe(g); // not a creature type
+      g = run(g, { type: 'name', name: 'Goblin' });
+      expect(byName(g, 0, 'Cavern of Souls')!.chosen).toBe('Goblin');
+      expect(canCast(g, 0, byName(g, 0, 'Lightning Bolt', 'hand')!)).toBe(false);
+      g = cast(g, 0, 'Goblin Piker');
+      expect(g.priority).toBe(1);
+      g = run(g, { type: 'cast', card: byName(g, 1, 'Force of Will', 'hand')!.id, targets: [top(g)] });
+      g = passUntil(g, (x) => !x.stack.length);
+      expect(byName(g, 0, 'Goblin Piker')).toBeDefined();
+      expect(g.log.some((l) => l.text === "Goblin Piker can't be countered.")).toBe(true);
+    });
+
+    it('Gemstone Caverns: a player who doesn\'t start may begin with it on the battlefield with a luck counter, exiling a card (103.6a)', () => {
+      let g = produce(newGame({ seed: 5, humanDeck: null }), (d) => {
+        for (const pid of [d.active, (d.active + 1) % 4]) d.players[pid].hand.push(makeCard(d, 'Gemstone Caverns', pid, 'hand'));
+      });
+      const later = (g.active + 1) % 4;
+      while (g.decision?.type === 'mulligan') g = run(g, { type: 'keep' });
+      // Only the player who isn't the starting player is asked.
+      expect([asking(g)?.kind, g.priority]).toEqual(['ask', later]);
+      g = run(g, yes);
+      const exiled = g.players[later].hand.find((c) => c.name !== 'Gemstone Caverns')!;
+      g = run(g, choose(exiled));
+      const caverns = byName(g, later, 'Gemstone Caverns')!;
+      expect(caverns.counters.luck).toBe(1);
+      expect(manaOf(g, caverns)?.colors).toEqual(['W', 'U', 'B', 'R', 'G']);
+      expect(byName(g, later, exiled.name, 'exile')).toBeDefined();
+      expect([g.mulligan, g.turn]).toEqual([null, 1]);
+      g = produce(g, (d) => void put(d, 0, 'Gemstone Caverns'));
+      expect(manaOf(g, byName(g, 0, 'Gemstone Caverns')!)?.colors).toEqual(['C']);
+    });
+  });
+
+  describe('casting from graveyards and exile', () => {
+    it('Underworld Breach: escape pays the mana cost and exiles three other cards (702.138a); it is sacrificed at the end step', () => {
+      let g = emptyGame((d) => {
+        put(d, 0, 'Underworld Breach');
+        put(d, 0, 'Mountain');
+        for (const n of ['Lightning Bolt', 'Plains', 'Island', 'Swamp', 'Sol Ring']) put(d, 0, n, 'graveyard');
+      });
+      expect(canCast(g, 0, byName(g, 0, 'Plains', 'graveyard')!)).toBe(false); // lands don't get escape
+      const bolt = byName(g, 0, 'Lightning Bolt', 'graveyard')!;
+      const three = ['Plains', 'Island', 'Swamp'].map((n) => byName(g, 0, n, 'graveyard')!.id);
+      expect(applyAction(g, { type: 'cast', card: bolt.id, targets: [player(1)], escape: three.slice(0, 2) })).toBe(g);
+      g = run(g, { type: 'cast', card: bolt.id, targets: [player(1)], escape: three });
+      expect(g.players[1].life).toBe(37);
+      expect(g.players[0].exile.map((c) => c.name).sort()).toEqual(['Island', 'Plains', 'Swamp']);
+      // An escaped instant goes to the graveyard as usual, ready to escape again.
+      expect(byName(g, 0, 'Lightning Bolt', 'graveyard')).toBeDefined();
+      expect(canCast(g, 0, byName(g, 0, 'Sol Ring', 'graveyard')!)).toBe(false); // only one other card left
+      g = passUntil(g, (x) => !byName(x, 0, 'Underworld Breach'));
+      expect(byName(g, 0, 'Underworld Breach', 'graveyard')).toBeDefined();
+      expect(g.log.find((l) => l.text === 'Underworld Breach is sacrificed.')?.turn).toBe(1);
+    });
+
+    it("Mnemonic Betrayal: opponents' spells can be cast this turn with any mana; the rest go back at the end step; Betrayal is exiled", () => {
+      let g = emptyGame((d) => {
+        put(d, 0, 'Island');
+        put(d, 0, 'Swamp', 'battlefield', 4);
+        put(d, 0, 'Mnemonic Betrayal', 'hand');
+        put(d, 1, 'Goblin Piker', 'graveyard');
+        put(d, 1, 'Plains', 'graveyard');
+        put(d, 2, 'Lightning Bolt', 'graveyard');
+      });
+      g = cast(g, 0, 'Mnemonic Betrayal');
+      expect(byName(g, 0, 'Mnemonic Betrayal', 'exile')).toBeDefined();
+      const piker = byName(g, 1, 'Goblin Piker', 'exile')!;
+      expect(canPlayLand(g, 0, byName(g, 1, 'Plains', 'exile')!)).toBe(false); // spells only
+      g = run(g, { type: 'cast', card: piker.id }); // {1}{R} paid with {B}{B}
+      const stolen = byName(g, 0, 'Goblin Piker')!;
+      expect([stolen.owner, stolen.controller]).toEqual([1, 0]);
+      g = passUntil(g, (x) => !!byName(x, 1, 'Plains', 'graveyard'));
+      expect(byName(g, 2, 'Lightning Bolt', 'graveyard')).toBeDefined();
+      expect(byName(g, 0, 'Goblin Piker')).toBeDefined();
+    });
+
+    it("Ragavan: combat damage makes a Treasure and exiles that player's top card, which its controller may cast this turn", () => {
+      let g = emptyGame((d) => {
+        put(d, 0, 'Ragavan, Nimble Pilferer');
+        put(d, 0, 'Mountain');
+        library(d, 1, ['Lightning Bolt', 'Plains']);
+      });
+      g = passUntil(g, (x) => x.decision?.type === 'attackers');
+      g = run(g, { type: 'declareAttack', card: byName(g, 0, 'Ragavan, Nimble Pilferer')!.id, defender: 1 }, pass);
+      g = passUntil(g, (x) => !!byName(x, 1, 'Lightning Bolt', 'exile'));
+      expect(byName(g, 0, 'Treasure')).toBeDefined();
+      const bolt = byName(g, 1, 'Lightning Bolt', 'exile')!;
+      g = passUntil(g, (x) => x.step === 'main2');
+      expect(canCast(g, 0, bolt)).toBe(true);
+      g = passUntil(g, (x) => x.turn === 2);
+      expect(canCast(g, 0, byName(g, 1, 'Lightning Bolt', 'exile')!)).toBe(false);
+    });
+
+    it('Ragavan dashed has haste and returns to its owner\'s hand at the next end step (702.109a)', () => {
+      let g = emptyGame((d) => {
+        put(d, 0, 'Mountain', 'battlefield', 2);
+        put(d, 0, 'Ragavan, Nimble Pilferer', 'hand');
+      });
+      g = cast(g, 0, 'Ragavan, Nimble Pilferer', { alt: 0 });
+      const ragavan = byName(g, 0, 'Ragavan, Nimble Pilferer')!;
+      expect(ragavan.sick).toBe(true);
+      expect(canAttack(g, ragavan)).toBe(true);
+      g = passUntil(g, (x) => !byName(x, 0, 'Ragavan, Nimble Pilferer'));
+      expect(byName(g, 0, 'Ragavan, Nimble Pilferer', 'hand')).toBeDefined();
+      expect(g.log.find((l) => l.text === "Ragavan, Nimble Pilferer returns to its owner's hand.")?.turn).toBe(1);
+    });
+
+    it('Beseech the Mirror: bargained, it may cast the found card free if its mana value is 4 or less; otherwise the card goes to hand', () => {
+      const setup = () =>
+        emptyGame((d) => {
+          put(d, 0, 'Swamp', 'battlefield', 4);
+          put(d, 0, 'Beseech the Mirror', 'hand');
+          createToken(d, 0, 'Treasure');
+          library(d, 0, ['Island', 'Sol Ring', 'Serra Angel', 'Plains']);
+        });
+      let g = setup();
+      g = cast(g, 0, 'Beseech the Mirror', { sacrifice: [byName(g, 0, 'Treasure')!.id] });
+      g = run(g, choose(byName(g, 0, 'Sol Ring', 'library')!));
+      const ring = byName(g, 0, 'Sol Ring', 'exile')!;
+      expect([ring.faceDown, ring.known]).toEqual([true, [0]]);
+      expect(asking(g)?.kind).toBe('cast');
+      g = run(g, { type: 'cast', card: ring.id });
+      g = passUntil(g, (x) => !x.stack.length);
+      expect(byName(g, 0, 'Sol Ring')).toBeDefined();
+      // Mana value 5 can't be cast this way.
+      let h = setup();
+      h = cast(h, 0, 'Beseech the Mirror', { sacrifice: [byName(h, 0, 'Treasure')!.id] });
+      h = run(h, choose(byName(h, 0, 'Serra Angel', 'library')!));
+      expect(canCast(h, 0, byName(h, 0, 'Serra Angel', 'exile')!)).toBe(false);
+      h = run(h, no);
+      expect(byName(h, 0, 'Serra Angel', 'hand')).toBeDefined();
+      // Not bargained: straight to hand.
+      let k = cast(setup(), 0, 'Beseech the Mirror');
+      k = run(k, choose(byName(k, 0, 'Sol Ring', 'library')!));
+      expect(byName(k, 0, 'Sol Ring', 'hand')).toBeDefined();
+    });
+
+    it("Sevinne's Reclamation returns a permanent card; cast with flashback it may copy itself once (707.10)", () => {
+      let g = emptyGame((d) => {
+        put(d, 0, 'Plains', 'battlefield', 5);
+        put(d, 0, "Sevinne's Reclamation", 'graveyard');
+        put(d, 0, 'Sol Ring', 'graveyard');
+        put(d, 0, 'Chrome Mox', 'graveyard');
+        put(d, 0, 'Serra Angel', 'graveyard');
+      });
+      const sevinne = byName(g, 0, "Sevinne's Reclamation", 'graveyard')!;
+      const angel = byName(g, 0, 'Serra Angel', 'graveyard')!;
+      expect(legalTargets(g, 0, scriptOf("Sevinne's Reclamation").targets![0], sevinne).some((t) => t.id === angel.id)).toBe(false);
+      g = run(g, { type: 'cast', card: sevinne.id, targets: [card(byName(g, 0, 'Sol Ring', 'graveyard')!)] });
+      expect(byName(g, 0, 'Sol Ring')).toBeDefined();
+      g = run(g, yes);
+      expect(g.decision?.type).toBe('targets');
+      g = run(g, { type: 'chooseTargets', targets: [card(byName(g, 0, 'Chrome Mox', 'graveyard')!)] });
+      g = passUntil(g, (x) => !!byName(x, 0, 'Chrome Mox'));
+      // The copy wasn't cast from a graveyard: no second copy.
+      g = passUntil(g, (x) => !x.stack.length && !x.decision);
+      expect(byName(g, 0, "Sevinne's Reclamation", 'exile')).toBeDefined();
+    });
+
+    it("Harnfel discards a card to exile the top two, which may be played this turn: a land counts as the turn's land (305.2a)", () => {
+      let g = emptyGame((d) => {
+        const birgi = put(d, 0, 'Birgi, God of Storytelling // Harnfel, Horn of Bounty');
+        birgi.face = 1;
+        put(d, 0, 'Swamp', 'hand');
+        library(d, 0, ['Island', 'Lightning Bolt', 'Plains']);
+      });
+      const horn = g.players[0].battlefield[0];
+      expect(label(horn)).toBe('Harnfel, Horn of Bounty');
+      g = run(g, { type: 'activate', card: horn.id, discard: [byName(g, 0, 'Swamp', 'hand')!.id] });
+      const island = byName(g, 0, 'Island', 'exile')!;
+      expect(canPlayLand(g, 0, island)).toBe(true);
+      g = run(g, { type: 'playLand', card: island.id });
+      expect(byName(g, 0, 'Island')).toBeDefined();
+      expect(g.players[0].landsPlayed).toBe(1);
+      expect(canCast(g, 0, byName(g, 0, 'Lightning Bolt', 'exile')!)).toBe(false); // no red mana
+    });
+
+    it("Jeska's Will: both modes with a commander out, red mana for the opponent's hand and three cards to play", () => {
+      let g = emptyGame((d) => {
+        put(d, 0, 'Mountain', 'battlefield', 3);
+        put(d, 0, "Jeska's Will", 'hand');
+        library(d, 0, ['Plains', 'Sol Ring', 'Island', 'Swamp']);
+        for (const n of ['Plains', 'Plains', 'Plains', 'Plains']) put(d, 1, n, 'hand');
+      });
+      const will = byName(g, 0, "Jeska's Will", 'hand')!;
+      expect(maxModes(g, 0, will)).toBe(1);
+      g = produce(g, (d) => commanderOut(d, 0));
+      expect(maxModes(g, 0, byName(g, 0, "Jeska's Will", 'hand')!)).toBe(2);
+      g = cast(g, 0, "Jeska's Will", { modes: [0, 1], targets: [player(1)] });
+      expect(g.players[0].pool.map((m) => m.sym)).toEqual(['R', 'R', 'R', 'R']);
+      expect(g.players[0].exile.map((c) => c.name)).toEqual(['Plains', 'Sol Ring', 'Island']);
+      expect(canCast(g, 0, byName(g, 0, 'Sol Ring', 'exile')!)).toBe(true);
+    });
+  });
+
+  describe('instants and their tricks', () => {
+    it('Ad Nauseam reveals, draws and costs life until its caster stops', () => {
+      let g = emptyGame((d) => {
+        put(d, 0, 'Swamp', 'battlefield', 5);
+        put(d, 0, 'Ad Nauseam', 'hand');
+        library(d, 0, ['Sol Ring', 'Serra Angel', 'Plains']);
+      });
+      g = cast(g, 0, 'Ad Nauseam');
+      g = run(g, yes, no);
+      expect(g.players[0].hand.map((c) => c.name)).toEqual(['Sol Ring', 'Serra Angel']);
+      expect(g.players[0].life).toBe(40 - 1 - 5);
+    });
+
+    it('Intuition: three cards are found and revealed, the target opponent chooses one for the hand, the rest go to the graveyard', () => {
+      let g = emptyGame((d) => {
+        put(d, 0, 'Island', 'battlefield', 3);
+        put(d, 0, 'Intuition', 'hand');
+        library(d, 0, ['Plains', 'Sol Ring', 'Lightning Bolt', 'Dark Ritual', 'Island']);
+      });
+      g = cast(g, 0, 'Intuition', { targets: [player(2)] });
+      const found = ['Sol Ring', 'Lightning Bolt', 'Dark Ritual'].map((n) => byName(g, 0, n, 'library')!);
+      expect(applyAction(g, choose(found[0], found[1]))).toBe(g); // three must be found
+      g = run(g, choose(...found));
+      expect([asking(g)?.kind, g.priority]).toEqual(['pick', 2]);
+      g = run(g, choose(found[2]));
+      expect(byName(g, 0, 'Dark Ritual', 'hand')).toBeDefined();
+      expect(g.players[0].graveyard.map((c) => c.name).sort()).toEqual(['Intuition', 'Lightning Bolt', 'Sol Ring']);
+    });
+
+    it('Deflecting Swat is free with a commander out, and changes the targets of a spell (115.7d)', () => {
+      let g = emptyGame((d) => {
+        commanderOut(d, 0);
+        put(d, 0, 'Mountain');
+        put(d, 0, 'Lightning Bolt', 'hand');
+        put(d, 0, 'Deflecting Swat', 'hand');
+      });
+      g = cast(g, 0, 'Lightning Bolt', { targets: [player(2)], hold: true });
+      const bolt = top(g);
+      g = cast(g, 0, 'Deflecting Swat', { alt: 0, targets: [bolt] });
+      expect(g.decision?.type).toBe('retarget');
+      // A creature card in a graveyard isn't a legal target for the Bolt.
+      expect(applyAction(g, { type: 'chooseTargets', targets: [{ kind: 'card', id: 'nope' }] })).toBe(g);
+      g = run(g, { type: 'chooseTargets', targets: [player(3)] });
+      g = passUntil(g, (x) => !x.stack.length);
+      expect([g.players[2].life, g.players[3].life]).toEqual([40, 37]);
+    });
+
+    it("Chain of Vapor: the bounced permanent's controller may sacrifice a land to copy it, with a new target", () => {
+      let g = emptyGame((d) => {
+        put(d, 0, 'Island');
+        put(d, 0, 'Plains');
+        put(d, 0, 'Chain of Vapor', 'hand');
+        put(d, 0, 'Sol Ring');
+        put(d, 1, 'Goblin Piker');
+        put(d, 1, 'Mountain');
+      });
+      g = cast(g, 0, 'Chain of Vapor', { targets: [card(byName(g, 1, 'Goblin Piker')!)] });
+      expect(byName(g, 1, 'Goblin Piker', 'hand')).toBeDefined();
+      expect([asking(g)?.kind, g.priority]).toEqual(['pick', 1]);
+      g = run(g, choose(byName(g, 1, 'Mountain')!), yes);
+      expect(byName(g, 1, 'Mountain', 'graveyard')).toBeDefined();
+      expect([g.decision?.type, g.priority]).toEqual(['targets', 1]);
+      g = run(g, { type: 'chooseTargets', targets: [card(byName(g, 0, 'Sol Ring')!)] });
+      g = passUntil(g, (x) => !!byName(x, 0, 'Sol Ring', 'hand'));
+      // Now its controller may do the same; they decline.
+      expect([asking(g)?.kind, g.priority]).toEqual(['pick', 0]);
+      g = run(g, choose());
+      expect(byName(g, 0, 'Plains')).toBeDefined();
+    });
+
+    it('Into the Flood Maw: without a gift it bounces a creature; with one, the chosen opponent gets a tapped Fish first and any nonland permanent can be bounced (702.174)', () => {
+      let g = emptyGame((d) => {
+        put(d, 0, 'Island');
+        put(d, 0, 'Into the Flood Maw', 'hand');
+        put(d, 1, 'Goblin Piker');
+        put(d, 2, 'Sol Ring');
+      });
+      const maw = byName(g, 0, 'Into the Flood Maw', 'hand')!;
+      const ring = card(byName(g, 2, 'Sol Ring')!);
+      expect(applyAction(g, { type: 'cast', card: maw.id, targets: [ring] })).toBe(g);
+      g = cast(g, 0, 'Into the Flood Maw', { gift: 3, targets: [ring] });
+      expect(byName(g, 2, 'Sol Ring', 'hand')).toBeDefined();
+      expect(byName(g, 3, 'Fish')!.tapped).toBe(true);
+    });
+
+    it('Flare of Duplication: sacrifice a nontoken red creature instead of its cost, and copy an instant with new targets', () => {
+      let g = emptyGame((d) => {
+        put(d, 0, 'Mountain');
+        put(d, 0, 'Goblin Piker');
+        put(d, 0, 'Lightning Bolt', 'hand');
+        put(d, 0, 'Flare of Duplication', 'hand');
+      });
+      g = cast(g, 0, 'Lightning Bolt', { targets: [player(1)], hold: true });
+      g = cast(g, 0, 'Flare of Duplication', { alt: 0, sacrifice: [byName(g, 0, 'Goblin Piker')!.id], targets: [top(g)] });
+      expect(byName(g, 0, 'Goblin Piker', 'graveyard')).toBeDefined();
+      expect(g.decision?.type).toBe('targets');
+      g = run(g, { type: 'chooseTargets', targets: [player(2)] });
+      g = passUntil(g, (x) => !x.stack.length);
+      expect([g.players[1].life, g.players[2].life]).toEqual([37, 37]);
+    });
+
+    it("Hexing Squelcher: ward—pay 2 life for it and its controller's other creatures (702.21a); their spells can't be countered", () => {
+      let g = emptyGame((d) => {
+        d.active = 1;
+        d.priority = 1;
+        put(d, 0, 'Hexing Squelcher');
+        put(d, 0, 'Goblin Piker');
+        put(d, 1, 'Mountain', 'battlefield', 2);
+        put(d, 1, 'Lightning Bolt', 'hand');
+        put(d, 1, 'Shock', 'hand');
+      });
+      g = cast(g, 1, 'Lightning Bolt', { targets: [card(byName(g, 0, 'Goblin Piker')!)] });
+      // Ward triggers: pay 2 life or the Bolt is countered.
+      g = passUntil(g, (x) => asking(x)?.kind === 'ask');
+      expect(g.priority).toBe(1);
+      g = run(g, no);
+      expect(byName(g, 0, 'Goblin Piker')).toBeDefined();
+      g = cast(g, 1, 'Shock', { targets: [card(byName(g, 0, 'Goblin Piker')!)] });
+      g = passUntil(g, (x) => asking(x)?.kind === 'ask');
+      g = run(g, yes);
+      expect(g.players[1].life).toBe(38);
+      expect(byName(g, 0, 'Goblin Piker', 'graveyard')).toBeDefined();
+    });
+
+    it('Rain of Filth: the lands you control as it resolves gain "Sacrifice this land: Add {B}" until end of turn', () => {
+      let g = emptyGame((d) => {
+        put(d, 0, 'Swamp');
+        put(d, 0, 'Plains');
+        put(d, 0, 'Island', 'hand');
+        put(d, 0, 'Rain of Filth', 'hand');
+      });
+      g = cast(g, 0, 'Rain of Filth');
+      g = run(g, { type: 'playLand', card: byName(g, 0, 'Island', 'hand')!.id });
+      const plains = byName(g, 0, 'Plains')!;
+      expect(manaOf(g, plains)?.colors.sort()).toEqual(['B', 'W']);
+      expect(manaOf(g, byName(g, 0, 'Island')!)?.colors).toEqual(['U']);
+      g = run(g, { type: 'tapMana', card: plains.id });
+      g = run(g, { type: 'tapMana', card: plains.id });
+      expect(byName(g, 0, 'Plains', 'graveyard')).toBeDefined();
+      expect(g.players[0].pool.map((m) => m.sym)).toEqual(['W', 'B']);
+    });
+  });
+
+  describe('permanents', () => {
+    it("Lion's Eye Diamond: discard your hand and sacrifice it for three mana of one colour; auto-pay never uses it", () => {
+      let g = emptyGame((d) => {
+        put(d, 0, "Lion's Eye Diamond");
+        put(d, 0, 'Island', 'hand');
+        put(d, 0, 'Plains', 'hand');
+      });
+      expect(planPayment(g, 0, parseCost('{1}'))).toBeNull();
+      g = run(g, { type: 'tapMana', card: byName(g, 0, "Lion's Eye Diamond")!.id, color: 'B' });
+      expect(g.players[0].pool.map((m) => m.sym)).toEqual(['B', 'B', 'B']);
+      expect(g.players[0].hand).toEqual([]);
+      expect(g.players[0].graveyard.map((c) => c.name).sort()).toEqual(['Island', "Lion's Eye Diamond", 'Plains']);
+    });
+
+    it('Necropotence: skip the draw step; pay 1 life to exile the top card face down until your end step; discards are exiled', () => {
+      let g = emptyGame((d) => {
+        put(d, 0, 'Necropotence');
+        put(d, 0, "Lion's Eye Diamond");
+        put(d, 0, 'Plains', 'hand');
+        library(d, 0, ['Sol Ring', 'Island', 'Swamp', 'Mountain']);
+      });
+      g = run(g, { type: 'activate', card: byName(g, 0, 'Necropotence')!.id });
+      expect(g.players[0].life).toBe(39);
+      expect(byName(g, 0, 'Sol Ring', 'exile')!.faceDown).toBe(true);
+      // Discarding the hand to Lion's Eye Diamond: the Plains is exiled.
+      g = run(g, { type: 'tapMana', card: byName(g, 0, "Lion's Eye Diamond")!.id });
+      g = passUntil(g, (x) => !!byName(x, 0, 'Plains', 'exile'));
+      g = passUntil(g, (x) => !!byName(x, 0, 'Sol Ring', 'hand'));
+      expect(g.log.find((l) => l.text.includes('exiled with Necropotence into their hand'))?.turn).toBe(1);
+      g = passUntil(g, (x) => x.active === 0 && x.step === 'main1');
+      expect(g.players[0].library.length).toBe(3);
+      expect(g.log.some((l) => l.text.includes('skips their draw step'))).toBe(true);
+    });
+
+    it("Dragon's Rage Channeler: surveil 1 for each noncreature spell; with delirium it is 3/3, flies, and attacks each combat (508.1d)", () => {
+      let g = emptyGame((d) => {
+        put(d, 0, "Dragon's Rage Channeler");
+        put(d, 0, 'Mountain');
+        put(d, 0, 'Lightning Bolt', 'hand');
+        library(d, 0, ['Sol Ring', 'Plains']);
+        for (const n of ['Goblin Piker', 'Plains']) put(d, 0, n, 'graveyard');
+      });
+      g = cast(g, 0, 'Lightning Bolt', { targets: [player(1)] });
+      expect(asking(g)?.kind).toBe('pick');
+      g = run(g, choose(byName(g, 0, 'Sol Ring', 'library')!));
+      // Creature, land, instant and artifact: delirium.
+      const drc = byName(g, 0, "Dragon's Rage Channeler")!;
+      expect(stats(g, drc).power).toBe(3);
+      expect(stats(g, drc).keywords.has('flying')).toBe(true);
+      g = passUntil(g, (x) => x.decision?.type === 'attackers');
+      g = run(g, pass);
+      expect(g.players[1].life).toBe(37 - 3);
+    });
+
+    it("Birgi: whenever you cast a spell, add {R} that stays until the end of the turn", () => {
+      let g = emptyGame((d) => {
+        put(d, 0, 'Birgi, God of Storytelling // Harnfel, Horn of Bounty');
+        put(d, 0, 'Plains');
+        put(d, 0, 'Sol Ring', 'hand');
+      });
+      g = cast(g, 0, 'Sol Ring');
+      expect(g.players[0].pool.map((m) => m.sym)).toEqual(['R']);
+      // Still there in a later step (Birgi can attack, so the game stops to declare attackers).
+      g = passUntil(g, (x) => x.step === 'attackers');
+      expect(g.players[0].pool.map((m) => m.sym)).toEqual(['R']);
+      g = passUntil(g, (x) => x.turn === 2);
+      expect(g.players[0].pool).toEqual([]);
+    });
+
+    it('Otawara is channelled from the hand, {1} less for each legendary creature you control', () => {
+      let g = emptyGame((d) => {
+        put(d, 0, 'Island', 'battlefield', 3);
+        put(d, 0, 'Ragavan, Nimble Pilferer');
+        put(d, 0, 'Otawara, Soaring City', 'hand');
+        put(d, 1, 'Sol Ring');
+      });
+      const otawara = byName(g, 0, 'Otawara, Soaring City', 'hand')!;
+      expect(abilityCost(scriptOf('Otawara, Soaring City').activated!, g, otawara)).toMatchObject({ generic: 2, pips: ['U'] });
+      g = run(g, { type: 'activate', card: otawara.id, targets: [card(byName(g, 1, 'Sol Ring')!)] });
+      expect(byName(g, 0, 'Otawara, Soaring City', 'graveyard')).toBeDefined();
+      expect(byName(g, 1, 'Sol Ring', 'hand')).toBeDefined();
+    });
+  });
+
+  describe('bots', () => {
+    const playBots = (g: Game, until: (g: Game) => boolean) => {
+      for (let i = 0; i < 300 && !until(g) && g.step !== 'gameOver'; i++) g = applyBotAction(g, botAction(g, g.priority));
+      return g;
+    };
+
+    it("win with Thassa's Oracle and Demonic Consultation, naming a card that isn't in the library", () => {
+      let g = emptyGame((d) => {
+        put(d, 0, 'Island', 'battlefield', 2);
+        put(d, 0, 'Swamp');
+        put(d, 0, "Thassa's Oracle", 'hand');
+        put(d, 0, 'Demonic Consultation', 'hand');
+        library(d, 0, ['Plains', 'Sol Ring', 'Island', 'Swamp', 'Mountain', 'Plains', 'Island', 'Swamp', 'Mountain', 'Plains']);
+      });
+      g = playBots(g, (x) => x.winner !== null);
+      expect(g.winner).toBe(0);
+    });
+
+    it("win with Thassa's Oracle and Tainted Pact, taking nothing", () => {
+      let g = emptyGame((d) => {
+        put(d, 0, 'Island', 'battlefield', 2);
+        put(d, 0, 'Swamp', 'battlefield', 2);
+        put(d, 0, "Thassa's Oracle", 'hand');
+        put(d, 0, 'Tainted Pact', 'hand');
+        library(d, 0, ['Plains', 'Sol Ring', 'Island', 'Swamp', 'Mountain']);
+      });
+      g = playBots(g, (x) => x.winner !== null);
+      expect(g.winner).toBe(0);
+    });
+
+    it('cast a ritual when its mana lets them cast something bigger', () => {
+      let g = emptyGame((d) => {
+        put(d, 0, 'Swamp', 'battlefield', 3);
+        put(d, 0, 'Dark Ritual', 'hand');
+        put(d, 0, 'Gray Merchant of Asphodel', 'hand');
+      });
+      g = playBots(g, (x) => !!byName(x, 0, 'Gray Merchant of Asphodel') || x.turn > 1);
+      expect(byName(g, 0, 'Gray Merchant of Asphodel')).toBeDefined();
+      expect(byName(g, 0, 'Dark Ritual', 'graveyard')).toBeDefined();
+    });
+
+    it('cast Final Fortune only when the extra turn can win the game', () => {
+      const setup = (power: string) =>
+        emptyGame((d) => {
+          d.step = 'main2';
+          for (const pid of [2, 3]) d.players[pid].lost = true;
+          d.players[1].life = 5;
+          put(d, 0, 'Mountain', 'battlefield', 2);
+          put(d, 0, 'Final Fortune', 'hand');
+          put(d, 0, power);
+        });
+      const strong = setup('Shivan Dragon');
+      expect(botAction(strong, 0)).toMatchObject({ type: 'cast', card: byName(strong, 0, 'Final Fortune', 'hand')!.id });
+      const weak = setup('Goblin Piker');
+      expect(botAction(weak, 0)).not.toMatchObject({ type: 'cast', card: byName(weak, 0, 'Final Fortune', 'hand')!.id });
     });
   });
 });

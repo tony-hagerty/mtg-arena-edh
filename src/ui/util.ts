@@ -1,4 +1,5 @@
 import type { MouseEvent } from 'react';
+import type { Card, PlayerId } from '../engine';
 import { useStore } from './store';
 
 /** Joins class names, skipping falsy ones. */
@@ -6,6 +7,9 @@ export const cx = (...parts: (string | false | null | undefined)[]) => parts.fil
 
 /** The table edge each player sits at, by player id: you at the bottom, then clockwise in turn order. */
 export const SEATS = ['bottom', 'left', 'top', 'right'] as const;
+
+/** Can the human look at this card? Not one exiled face down, unless they may look at it (406.3). */
+export const faceUp = (c: Card, me: PlayerId | null) => !c.faceDown || (me !== null && c.known.includes(me));
 
 /** Shows the big card preview while the pointer is over an element. */
 export const hoverProps = (name: string) => ({

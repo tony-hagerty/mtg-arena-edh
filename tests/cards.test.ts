@@ -5,39 +5,7 @@ import type { CardData } from '../src/engine';
 import { SUPPORTED_KEYWORDS, hasScript } from '../src/engine';
 
 // Ability words and keyword actions: they label a rule that the card's script implements.
-const ABILITY_WORDS = ['landfall', 'treasure', 'mill', 'threshold', 'metalcraft', 'recruit', "scions' secretary"];
-
-/**
- * Cards of the Kraum and Tymna deck that come in session 7b (docs/plans/commander-decks.md).
- * The deck stays off the menu until this list is empty.
- */
-const SESSION_7B = [
-  'Ad Nauseam',
-  'Beseech the Mirror',
-  'Birgi, God of Storytelling // Harnfel, Horn of Bounty',
-  'Cavern of Souls',
-  'Chain of Vapor',
-  'Chrome Mox',
-  'Deflecting Swat',
-  "Dragon's Rage Channeler",
-  'Flare of Duplication',
-  'Gemstone Caverns',
-  'Hexing Squelcher',
-  'Intuition',
-  'Into the Flood Maw',
-  "Jeska's Will",
-  "Lion's Eye Diamond",
-  'Mnemonic Betrayal',
-  'Mockingbird',
-  'Mox Diamond',
-  'Necropotence',
-  'Otawara, Soaring City',
-  'Ragavan, Nimble Pilferer',
-  'Rain of Filth',
-  "Sevinne's Reclamation",
-  'Underworld Breach',
-  'Wishclaw Talisman',
-];
+const ABILITY_WORDS = ['landfall', 'treasure', 'mill', 'threshold', 'metalcraft', 'recruit', "scions' secretary", 'delirium', 'surveil', 'imprint', 'channel'];
 
 /** Oracle text split into abilities, with reminder text removed. */
 const abilities = (text: string) =>
@@ -60,22 +28,20 @@ describe('card pool', () => {
 
   it('every card is fully implemented: supported keywords only, or a script', () => {
     const problems: string[] = [];
-    for (const name of ALL_CARD_NAMES.filter((n) => !SESSION_7B.includes(n))) {
+    for (const name of ALL_CARD_NAMES) {
       const d = cardData(name);
       if (d.typeLine.startsWith('Basic Land')) continue;
       for (const k of d.keywords.map((x) => x.toLowerCase())) {
         if (!SUPPORTED_KEYWORDS.includes(k) && !ABILITY_WORDS.includes(k)) problems.push(`${name}: unsupported keyword "${k}"`);
       }
-      const needsScript = abilities(d.oracleText).some((line) => !isKeywordLine(line));
-      if (needsScript && !hasScript(name)) problems.push(`${name}: has rules text but no script`);
+      // A card with faces has a script for each face that has rules text (712, 709).
+      for (const face of d.faces ?? [d]) {
+        const needsScript = abilities(face.oracleText).some((line) => !isKeywordLine(line));
+        if (needsScript && !hasScript(face.name)) problems.push(`${face.name}: has rules text but no script`);
+      }
       if (!d.image || !d.art) problems.push(`${name}: missing image`);
     }
     expect(problems).toEqual([]);
-  });
-
-  it('the cards waiting for session 7b are in a deck still being built', () => {
-    const wip = new Set(ALL_DECKS.filter((d) => d.wip).flatMap((d) => d.cards));
-    for (const name of SESSION_7B) expect(wip.has(name) || wip.has(name.split(' // ')[0]), name).toBe(true);
   });
 });
 
