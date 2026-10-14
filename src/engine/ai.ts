@@ -12,6 +12,7 @@ import {
   castableCards,
   discardOptions,
   escapeOptions,
+  activationSacrificeOptions,
   canMulligan,
   canSayYes,
   canPlayLand,
@@ -279,7 +280,10 @@ function activations(g: Game, pid: PlayerId, c: Card, ability: number | undefine
   if (crew === null) return [];
   const n = ability === undefined ? (script.activated!.cost.discard ?? 0) : 0;
   const discard = n ? [...discardOptions(g, pid, c)].sort((a, b) => cardWant(g, pid, a) - cardWant(g, pid, b)).slice(0, n).map((x) => x.id) : undefined;
-  return targetChoices(g, pid, specs, c).map((targets) => ({ type: 'activate', card: c.id, ability, targets, crew, ...(discard ? { discard } : {}) }));
+  // "Sacrifice a creature": the least valuable one, and not the source itself if there is another.
+  const fodder = ability === undefined && script.activated!.cost.sacrificeOne ? [...activationSacrificeOptions(g, pid, c)].sort((a, b) => sacrificeWorth(g, a) - sacrificeWorth(g, b)) : [];
+  const victim = fodder.find((x) => x.id !== c.id) ?? fodder[0];
+  return targetChoices(g, pid, specs, c).map((targets) => ({ type: 'activate', card: c.id, ability, targets, crew, ...(discard ? { discard } : {}), ...(victim ? { sacrifice: [victim.id] } : {}) }));
 }
 
 // Look-ahead turns auto-pass off, so that passing only ever resolves the stack or ends one
@@ -546,7 +550,7 @@ function bestLand(g: Game, pid: PlayerId, lands: Card[]): Action | null {
   // Each land face it could be played as (712.12), looked at as it would be on the battlefield.
   const options = lands.flatMap((card) => landFaces(card).map((face) => ({ card, face, as: { ...card, zone: 'battlefield' as const, face } })));
   const score = ({ card, as }: (typeof options)[number]) => {
-    let v = Math.max(0, ...(manaOf(g, as)?.colors ?? []).map(short)) - (scriptFor(as).entersTapped ? 0.5 : 0);
+    let v = Math.max(0, ...(manaOf(g, as)?.colors ?? []).map(short)) - (entersTappedFor(g, as, pid) ? 0.5 : 0);
     // A modal card whose front is a spell is a land only when nothing else is, and mana is short.
     if (!isLand(card)) v -= landsOut >= 5 ? 100 : 2;
     return v;
@@ -554,6 +558,12 @@ function bestLand(g: Game, pid: PlayerId, lands: Card[]): Action | null {
   const best = options.reduce((a, b) => (score(b) > score(a) ? b : a));
   if (score(best) < -50) return null;
   return { type: 'playLand', card: best.card.id, ...(best.face ? { face: best.face } : {}) };
+}
+
+/** Would land `c` enter tapped for `pid` now (614.1c)? */
+function entersTappedFor(g: Game, c: Card, pid: PlayerId): boolean {
+  const tapped = scriptFor(c).entersTapped;
+  return typeof tapped === 'function' ? tapped(g, c, pid) : !!tapped;
 }
 
 function mainAction(g: Game, pid: PlayerId): Action {

@@ -379,6 +379,15 @@ const ENGINE_THEN: Record<string, (g: Game, ctx: ThenCtx) => void> = {
     for (const c of picked) moveCard(g, c, 'graveyard');
     log(g, picked.length ? `${says(p, 'surveils')} and ${p.isBot ? 'puts' : 'put'} ${picked.map(label).join(', ')} into ${p.isBot ? 'their' : 'your'} graveyard.` : `${says(p, 'surveils')}.`, chooser, picked);
   },
+  // "Sacrifices a creature of their choice" (701.21a).
+  '@sacrifice': (g, { picked }) => {
+    const c = picked[0] && permanent(g, picked[0].id);
+    if (c) dieMany(g, [c], 'is sacrificed');
+  },
+  // "Discards a card" (701.9a): the player chose which.
+  '@discard': (g, { picked }) => {
+    for (const c of picked) discard(g, c);
+  },
   // Ward (702.21a): the spell or ability is countered unless its controller paid.
   '@ward': (g, { yes, data }) => {
     if (!yes) counter(g, { kind: 'stack', id: data.item as string });
@@ -659,11 +668,18 @@ export function canActivate(g: Game, pid: PlayerId, c: Card, ability?: number): 
   if (ab.cost.crew && crewPower(g, pid, c, crewOptions(g, pid, c)) < ab.cost.crew) return false;
   if (ab.cost.counters && counterCount(c, ab.cost.counters.kind) < ab.cost.counters.n) return false;
   if (ab.cost.discard && discardOptions(g, pid, c).length < ab.cost.discard) return false;
+  if (ab.cost.sacrificeOne && !activationSacrificeOptions(g, pid, c).length) return false;
   if ((ab.cost.mana || ab.cost.life) && !planPayment(g, pid, abilityCost(ab, g, c))) return false;
   for (const spec of ab.targets ?? []) {
     if (!spec.optional && legalTargets(g, pid, spec, c).length === 0) return false;
   }
   return true;
+}
+
+/** Permanents `pid` could sacrifice to pay a "Sacrifice a creature" cost of `c`'s ability, itself included. */
+export function activationSacrificeOptions(g: Game, pid: PlayerId, c: Card): Card[] {
+  const spec = scriptFor(c).activated?.cost.sacrificeOne;
+  return spec ? g.players[pid].battlefield.filter((p) => fitsSpec(g, p, spec, c)) : [];
 }
 
 /** Cards `pid` could discard to pay a "Discard a card" cost of `c`'s ability: any other card in their hand. */
@@ -1172,15 +1188,15 @@ function resolveTop(g: Game) {
       for (const i of card.cast?.modes ?? []) {
         const mode = script.modal.modes[i];
         const n = mode.targets?.length ?? 0;
-        mode.resolve(g, { self: card, you: controller, targets: targets.slice(next, next + n) });
+        mode.resolve(g, { self: card, you: controller, targets: targets.slice(next, next + n), sacrificed: item.sacrificed, sacrificedPower: item.sacrificedPower });
         next += n;
       }
     } else if (!fizzled) {
-      script.onResolve?.(g, { self: card, you: controller, targets });
+      script.onResolve?.(g, { self: card, you: controller, targets, sacrificed: item.sacrificed, sacrificedPower: item.sacrificedPower });
     }
   } else if (!fizzled) {
     // An ability uses its source as it is now, or as it last was if it has gone (113.7a).
-    const ctx = { self: permanent(g, card.id) ?? card, you: controller, targets };
+    const ctx = { self: permanent(g, card.id) ?? card, you: controller, targets, sacrificed: item.sacrificed, sacrificedPower: item.sacrificedPower };
     if (item.kind === 'activated' && item.ability !== undefined && script.levels) {
       // The Class gains the level, and "when this Class becomes level N" triggers (716.2a).
       const cls = permanent(g, card.id);
@@ -1517,6 +1533,10 @@ function act(g: Game, a: Action): boolean {
       };
       c.cast = info;
       const item: StackItem = { id: `s${g.nextId++}`, kind: 'spell', controller: pid, card: c, targets };
+      if (sacrificed.length) {
+        item.sacrificed = sacrificed.map(snapshot);
+        item.sacrificedPower = sacrificed.map((x) => stats(g, x).power);
+      }
       g.stack.push(item);
       const chosen = targets.filter((t): t is TargetRef => !!t).map((t) => describeRef(g, t));
       const how = [
@@ -1580,8 +1600,15 @@ function act(g: Game, a: Action): boolean {
       // "Discard a card": exactly that many other cards from the hand.
       const discarding = (a.discard ?? []).map((id) => discardOptions(g, pid, c).find((x) => x.id === id));
       if (discarding.length !== (ab.cost.discard ?? 0) || discarding.some((x) => !x) || new Set(a.discard).size !== discarding.length) return false;
+      // "Sacrifice a creature": exactly one that fits.
+      const sacrificing = (a.sacrifice ?? []).map((id) => activationSacrificeOptions(g, pid, c).find((x) => x.id === id));
+      if (sacrificing.length !== (ab.cost.sacrificeOne ? 1 : 0) || sacrificing.some((x) => !x)) return false;
       // The ability goes on the stack as its own object, apart from its source (602.2a).
       const item: StackItem = { id: `s${g.nextId++}`, kind: 'activated', controller: pid, card: snapshot(c), targets };
+      if (sacrificing.length) {
+        item.sacrificed = sacrificing.map((x) => snapshot(x!));
+        item.sacrificedPower = sacrificing.map((x) => stats(g, x!).power);
+      }
       if (ab.cost.mana || ab.cost.life) pay(g, pid, abilityCost(ab, g, c));
       if (ab.cost.tap) c.tapped = true;
       if (ab.cost.counters) removeCounters(c, ab.cost.counters.n, ab.cost.counters.kind);
@@ -1592,6 +1619,8 @@ function act(g: Game, a: Action): boolean {
       for (const x of discarding) discard(g, x!);
       if (ab.cost.discardSelf) discard(g, c);
       if (ab.cost.sacrifice) dieMany(g, [c], 'is sacrificed');
+      const others = sacrificing.map((x) => permanent(g, x!.id)).filter((x): x is Card => !!x);
+      if (others.length) dieMany(g, others, 'is sacrificed');
       g.stack.push(item);
       checkWard(g, item);
       g.passes = 0;

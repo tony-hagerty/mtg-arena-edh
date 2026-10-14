@@ -1,16 +1,24 @@
 import { produce } from 'immer';
-import { DECKS, SHARED } from '../src/cards/db';
+import { ALL_CARD_NAMES, SHARED, cardData } from '../src/cards/db';
 import type { DeckDef } from '../src/cards/db';
 import { applyAction, makeCard, newGame, permanent } from '../src/engine';
 import type { Action, ApplyOptions, Card, Game, PlayerId, Zone } from '../src/engine';
 
-/** A fresh game past the mulligans with empty boards and hands, player 0 active with priority in main phase 1. */
+/**
+ * A fresh game past the mulligans with empty boards and hands, player 0 active with priority
+ * in main phase 1. Player 0's commander is Lyra Dawnbringer (mono-white), whatever the white
+ * deck's commander is now, so rules tests have a simple commander to cast.
+ */
 export function emptyGame(setup: (g: Game) => void = () => {}): Game {
   return produce(newGame({ seed: 1, humanDeck: null }), (g) => {
     for (const p of g.players) {
       p.hand = [];
       p.battlefield = [];
     }
+    const p0 = g.players[0];
+    p0.commanders = ['Lyra Dawnbringer'];
+    p0.colors = ['W'];
+    p0.command = [makeCard(g, 'Lyra Dawnbringer', 0, 'command', { isCommander: true })];
     // Skip the mulligans: the game is already under way.
     g.mulligan = null;
     g.decision = null;
@@ -61,7 +69,12 @@ export const onBattlefield = (g: Game, id: string) => !!permanent(g, id);
  * deck it is given: this tests two commanders and multicolour mana without new cards.
  */
 export function twoCommanderDeck(): DeckDef {
-  const [white, , red] = DECKS;
+  // 28 mono-white and 28 mono-red nonland cards from the pool, besides the commanders and shared artifacts.
+  const mono = (color: string) =>
+    ALL_CARD_NAMES.filter((n) => {
+      const d = cardData(n);
+      return d.colorIdentity.join('') === color && !d.typeLine.includes('Land') && !SHARED.includes(n) && !['Lyra Dawnbringer', 'Torbran, Thane of Red Fell'].includes(n);
+    }).slice(0, 28);
   return {
     id: 'boros',
     title: 'Test Boros',
@@ -69,6 +82,6 @@ export function twoCommanderDeck(): DeckDef {
     pilot: 'Tester',
     commanders: ['Lyra Dawnbringer', 'Torbran, Thane of Red Fell'],
     basics: { Plains: 18, Mountain: 17 },
-    cards: [...white.cards, ...red.cards, ...SHARED],
+    cards: [...mono('W'), ...mono('R'), ...SHARED],
   };
 }

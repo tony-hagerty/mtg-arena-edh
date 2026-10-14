@@ -69,9 +69,15 @@ const FIXTURES: Record<string, CardData> = {
 };
 const lookup = (name: string) => FIXTURES[name] ?? cardData(name);
 
-/** A legal 100-card Naya deck: two partners, three starter decks' cards and seven basics. */
+/** 28 nonland cards of exactly this colour identity from the pool, not counting the shared artifacts. */
+const mono = (color: string) =>
+  ALL_CARD_NAMES.filter((n) => {
+    const d = cardData(n);
+    return d.colorIdentity.join('') === color && !d.typeLine.includes('Land') && !SHARED.includes(n);
+  }).slice(0, 28);
+
+/** A legal 100-card Naya deck: two partners, 28 cards of each colour, the shared artifacts and seven basics. */
 function naya(): DeckDef {
-  const [white, , red, green] = DECKS;
   return {
     id: 'naya',
     title: 'Naya',
@@ -79,7 +85,7 @@ function naya(): DeckDef {
     pilot: '',
     commanders: ['Red-White Partner', 'Green Partner'],
     basics: { Plains: 3, Mountain: 2, Forest: 2 },
-    cards: [...white.cards, ...red.cards, ...green.cards, ...SHARED],
+    cards: [...mono('W'), ...mono('R'), ...mono('G'), ...SHARED],
   };
 }
 
