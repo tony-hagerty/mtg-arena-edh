@@ -12,11 +12,15 @@ import {
   canPlayLand,
   castTargets,
   choiceOptions,
+  crewOptions,
+  crewPower,
   maxX,
   modeChoices,
   sacrificeOptions,
 } from './engine';
 import {
+  CANT_ATTACK,
+  CANT_BLOCK,
   COMMANDER_DAMAGE,
   altCostsOf,
   canBlock,
@@ -51,7 +55,29 @@ export function threat(g: Game, c: Card): number {
   if (c.isCommander) v += 3;
   const script = scriptOf(c.name);
   if (script.static || script.onCreatureDies || script.onCast || script.onDraw || script.damageBonus) v += 1.5;
+  // A creature that can't attack or block (Pacifism) is worth little.
+  if (s.keywords.has(CANT_ATTACK) && s.keywords.has(CANT_BLOCK)) v *= 0.25;
   return v;
+}
+
+/**
+ * The crew for Vehicle `v`, or null if crewing isn't worth it now: only before combat on
+ * the bot's own turn, when the Vehicle can attack, using the summoning-sick and weakest
+ * creatures first, and only if they have less power than the Vehicle brings.
+ */
+function crewChoice(g: Game, pid: PlayerId, v: Card): string[] | null {
+  const need = scriptOf(v.name).activated?.cost.crew;
+  if (!need || g.active !== pid || g.step !== 'main1' || v.sick || isCreature(v)) return null;
+  const pool = crewOptions(g, pid, v).sort((a, b) => Number(b.sick) - Number(a.sick) || threat(g, a) - threat(g, b));
+  const picked: Card[] = [];
+  for (const c of pool) {
+    if (crewPower(g, pid, v, picked) >= need) break;
+    picked.push(c);
+  }
+  if (crewPower(g, pid, v, picked) < need) return null;
+  const awake = picked.filter((c) => !c.sick);
+  const lost = crewPower(g, pid, v, awake);
+  return lost < (parseInt(data(v).power ?? '0', 10) || 0) ? picked.map((c) => c.id) : null;
 }
 
 // Each point of life matters more the less of it you have.
@@ -150,8 +176,11 @@ function candidateActions(g: Game, pid: PlayerId): { action: Action; spendsCard:
   }
   for (const c of p.battlefield) {
     if (!canActivate(g, pid, c)) continue;
-    for (const targets of targetChoices(g, pid, scriptOf(c.name).activated!.targets ?? [], c)) {
-      out.push({ action: { type: 'activate', card: c.id, targets }, spendsCard: false });
+    const ab = scriptOf(c.name).activated!;
+    const crew = ab.cost.crew ? crewChoice(g, pid, c) : undefined;
+    if (crew === null) continue;
+    for (const targets of targetChoices(g, pid, ab.targets ?? [], c)) {
+      out.push({ action: { type: 'activate', card: c.id, targets, crew }, spendsCard: false });
     }
   }
   return out;

@@ -15,6 +15,13 @@ import {
   data,
   defaultStops,
   moveCard,
+  addCounters,
+  canActivate,
+  canAttack,
+  canBlock,
+  checkState,
+  destroy,
+  isCreature,
   makeCard,
   newGame,
   parseCost,
@@ -23,7 +30,7 @@ import {
   tapForMana,
   turnOrder,
 } from '../src/engine';
-import type { ApplyOptions, Game, TurnStops } from '../src/engine';
+import type { Action, ApplyOptions, Game, TurnStops } from '../src/engine';
 import { DECKS } from '../src/cards/db';
 import './fixtures';
 import { byName, emptyGame, onBattlefield, put, run, runWith, twoCommanderDeck } from './helpers';
@@ -579,6 +586,165 @@ describe('counterspells, modes, copies and holding priority', () => {
     });
     g = run(g, cast(g, 0, 'Lightning Bolt', { targets: [opp(1)] }));
     expect(botAction(g, 1)).toMatchObject({ type: 'cast', card: byName(g, 1, 'Counterspell', 'hand')!.id, targets: [top(g)] });
+  });
+});
+
+describe('counters and attachments (122, 301.5, 303.4, 702.122)', () => {
+  const cast = (g: Game, name: string, extra: object = {}) => ({ type: 'cast', card: byName(g, 0, name, 'hand')!.id, ...extra }) as const;
+  const ref = (c: { id: string }) => ({ kind: 'card', id: c.id }) as const;
+
+  it('keeps counters by kind, and +1/+1 and -1/-1 counters cancel out (122.1a, 704.5q)', () => {
+    let g = emptyGame((d) => {
+      put(d, 0, 'Swamp', 'battlefield', 3);
+      addCounters(d, put(d, 0, 'Serra Angel'), 2);
+      put(d, 1, 'Shivan Dragon'); // 5/5
+      put(d, 1, 'Raging Goblin'); // 1/1
+      put(d, 0, "Black Sun's Zenith", 'hand');
+    });
+    g = run(g, cast(g, "Black Sun's Zenith", { x: 1 }));
+    const angel = byName(g, 0, 'Serra Angel')!;
+    expect(angel.counters).toEqual({ '+1/+1': 1 });
+    expect(stats(g, angel).power).toBe(5);
+    expect(byName(g, 1, 'Shivan Dragon')!.counters).toEqual({ '-1/-1': 1 });
+    expect(stats(g, byName(g, 1, 'Shivan Dragon')!)).toMatchObject({ power: 4, toughness: 4 });
+    expect(byName(g, 1, 'Raging Goblin')).toBeUndefined(); // 0/0
+    // It shuffled itself into the library instead of going to the graveyard.
+    expect(byName(g, 0, "Black Sun's Zenith", 'library')).toBeDefined();
+  });
+
+  it('gives a keyword for a keyword counter (122.1b)', () => {
+    const g = emptyGame((d) => addCounters(d, put(d, 0, 'Elite Vanguard'), 1, 'flying'));
+    expect(stats(g, byName(g, 0, 'Elite Vanguard')!).keywords.has('flying')).toBe(true);
+  });
+
+  it('casts an Aura targeting what it will enchant, and it gives its bonus (303.4a)', () => {
+    let g = emptyGame((d) => {
+      put(d, 0, 'Plains');
+      put(d, 0, 'Elite Vanguard');
+      put(d, 0, 'Holy Strength', 'hand');
+    });
+    const vanguard = byName(g, 0, 'Elite Vanguard')!;
+    g = run(g, cast(g, 'Holy Strength', { targets: [ref(vanguard)] }));
+    expect(byName(g, 0, 'Holy Strength')!.attachedTo).toBe(vanguard.id);
+    expect(stats(g, byName(g, 0, 'Elite Vanguard')!)).toMatchObject({ power: 3, toughness: 3 });
+    // The creature dies: the Aura goes to the graveyard (704.5m).
+    g = produce(g, (d) => {
+      destroy(d, byName(d, 0, 'Elite Vanguard'));
+      checkState(d);
+    });
+    expect(byName(g, 0, 'Holy Strength', 'graveyard')).toBeDefined();
+  });
+
+  it("stops an enchanted creature attacking or blocking (Pacifism)", () => {
+    const g = emptyGame((d) => {
+      const angel = put(d, 1, 'Serra Angel');
+      const p = put(d, 0, 'Pacifism');
+      p.attachedTo = angel.id;
+      put(d, 0, 'Elite Vanguard');
+    });
+    const angel = byName(g, 1, 'Serra Angel')!;
+    expect(canAttack(g, angel)).toBe(false);
+    expect(canBlock(g, angel, byName(g, 0, 'Elite Vanguard')!)).toBe(false);
+  });
+
+  it('puts an Aura whose target is gone into the graveyard instead (303.4g)', () => {
+    let g = emptyGame((d) => {
+      put(d, 0, 'Plains', 'battlefield', 2);
+      put(d, 1, 'Serra Angel');
+      put(d, 0, 'Pacifism', 'hand');
+    });
+    g = runWith({ autoPass: false }, g, cast(g, 'Pacifism', { targets: [ref(byName(g, 1, 'Serra Angel')!)] }));
+    g = produce(g, (d) => destroy(d, byName(d, 1, 'Serra Angel')));
+    g = run(g, pass);
+    expect(byName(g, 0, 'Pacifism', 'graveyard')).toBeDefined();
+  });
+
+  it('equips at sorcery speed, moves between creatures, and falls off a creature that dies (702.6, 704.5n)', () => {
+    let g = emptyGame((d) => {
+      put(d, 0, 'Mountain', 'battlefield', 2);
+      put(d, 0, 'Bonesplitter');
+      put(d, 0, 'Elite Vanguard');
+      put(d, 0, 'Raging Goblin');
+    });
+    const eq = (target: string): Action => ({ type: 'activate', card: byName(g, 0, 'Bonesplitter')!.id, targets: [ref(byName(g, 0, target)!)] });
+    g = run(g, eq('Elite Vanguard'));
+    expect(stats(g, byName(g, 0, 'Elite Vanguard')!).power).toBe(4);
+    g = run(g, eq('Raging Goblin'));
+    expect(stats(g, byName(g, 0, 'Elite Vanguard')!).power).toBe(2);
+    expect(byName(g, 0, 'Bonesplitter')!.attachedTo).toBe(byName(g, 0, 'Raging Goblin')!.id);
+    g = produce(g, (d) => {
+      destroy(d, byName(d, 0, 'Raging Goblin'));
+      checkState(d);
+    });
+    expect(byName(g, 0, 'Bonesplitter')!.attachedTo).toBe(null); // stays on the battlefield
+    // Not at instant speed: with a spell on the stack, it can't be activated.
+    const busy = produce(g, (d) => {
+      d.step = 'beginCombat';
+    });
+    expect(canActivate(busy, 0, byName(busy, 0, 'Bonesplitter')!)).toBe(false);
+  });
+
+  it('crews a Vehicle with enough power, and it is a creature until end of turn (702.122)', () => {
+    let g = emptyGame((d) => {
+      put(d, 0, 'Untethered Express');
+      put(d, 0, 'Elite Vanguard').sick = true; // summoning sickness doesn't stop crewing
+    });
+    const express = byName(g, 0, 'Untethered Express')!;
+    expect(isCreature(express)).toBe(false);
+    const crewIt: Action = { type: 'activate', card: express.id, crew: [byName(g, 0, 'Elite Vanguard')!.id] };
+    expect(applyAction(g, { type: 'activate', card: express.id })).toBe(g); // no crew picked
+    g = run(g, crewIt);
+    expect(isCreature(byName(g, 0, 'Untethered Express')!)).toBe(true);
+    expect(byName(g, 0, 'Elite Vanguard')!.tapped).toBe(true);
+    // It attacks, and its attack trigger puts a +1/+1 counter on it.
+    g = run(g, pass, { type: 'declareAttack', card: express.id, defender: 1 }, pass);
+    expect(g.players[1].life).toBe(35);
+    expect(byName(g, 0, 'Untethered Express')!.counters).toEqual({ '+1/+1': 1 });
+  });
+
+  it('Equipment falls off a Vehicle when it stops being a creature at end of turn (704.5n)', () => {
+    let g = emptyGame((d) => {
+      const v = put(d, 0, 'Untethered Express');
+      v.mods.push({ power: 0, toughness: 0, keywords: [], creature: true });
+      put(d, 0, 'Bonesplitter').attachedTo = v.id;
+    });
+    expect(stats(g, byName(g, 0, 'Untethered Express')!).power).toBe(6);
+    g = produce(g, (d) => {
+      byName(d, 0, 'Untethered Express')!.mods = []; // what the cleanup step does (514.2)
+      checkState(d);
+    });
+    expect(byName(g, 0, 'Bonesplitter')!.attachedTo).toBe(null);
+  });
+
+  it("can't crew with too little power", () => {
+    const g = emptyGame((d) => {
+      put(d, 0, 'Untethered Express');
+      put(d, 0, 'Angelic Wall'); // 0/4
+    });
+    expect(canActivate(g, 0, byName(g, 0, 'Untethered Express')!)).toBe(false);
+  });
+
+  it('bots equip, enchant and crew', () => {
+    let g = emptyGame((d) => {
+      put(d, 0, 'Mountain', 'battlefield', 2);
+      put(d, 0, 'Bonesplitter');
+      put(d, 0, 'Elite Vanguard');
+    });
+    expect(botAction(g, 0)).toMatchObject({ type: 'activate', card: byName(g, 0, 'Bonesplitter')!.id });
+
+    g = emptyGame((d) => {
+      put(d, 0, 'Plains', 'battlefield', 2);
+      put(d, 1, 'Shivan Dragon');
+      put(d, 1, 'Raging Goblin');
+      put(d, 0, 'Pacifism', 'hand');
+    });
+    expect(botAction(g, 0)).toMatchObject({ type: 'cast', targets: [ref(byName(g, 1, 'Shivan Dragon')!)] });
+
+    g = emptyGame((d) => {
+      put(d, 0, 'Untethered Express');
+      put(d, 0, 'Raging Goblin').sick = true;
+    });
+    expect(botAction(g, 0)).toMatchObject({ type: 'activate', crew: [byName(g, 0, 'Raging Goblin')!.id] });
   });
 });
 

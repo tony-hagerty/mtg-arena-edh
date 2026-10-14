@@ -20,6 +20,9 @@ export interface Targeting {
   choices: CastChoices;
   /** Still announcing X, kicker or the alternative cost: targets come next. */
   announcing: boolean;
+  /** Creatures picked to crew a Vehicle (702.122a), and whether the human is done picking. */
+  crew?: string[];
+  crewDone?: boolean;
 }
 
 const STOPS_KEY = 'arena-edh.stops';

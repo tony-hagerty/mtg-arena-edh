@@ -30,6 +30,8 @@ export interface Mod {
   power: number;
   toughness: number;
   keywords: string[];
+  /** Makes the permanent an artifact creature too, e.g. a crewed Vehicle (702.122a). */
+  creature?: boolean;
 }
 
 /** What was chosen for a spell as it was cast (601.2b). */
@@ -69,7 +71,13 @@ export interface Card {
   sick: boolean; // summoning sickness
   damage: number;
   deathtouched: boolean; // damaged by a deathtouch source this turn
-  counters: number; // +1/+1 counters
+  /**
+   * Counters on it, by kind (122): '+1/+1', '-1/-1', 'charge', ... A keyword counter such
+   * as 'flying' gives it that keyword (122.1b).
+   */
+  counters: Record<string, number>;
+  /** The permanent this Aura or Equipment is attached to (303.4b, 301.5a), or null. */
+  attachedTo: string | null;
   mods: Mod[];
   /**
    * How this card was cast: the X chosen (107.3) and how many times it was kicked
@@ -266,7 +274,8 @@ export type Action =
   | { type: 'playLand'; card: string }
   /** `hold`: keep priority afterwards instead of letting auto-pass pass it (117.3c). */
   | ({ type: 'cast'; card: string; targets?: (TargetRef | null)[]; hold?: boolean } & CastChoices)
-  | { type: 'activate'; card: string; targets?: (TargetRef | null)[]; hold?: boolean }
+  /** `crew`: the creatures tapped to pay a crew cost (702.122a). */
+  | { type: 'activate'; card: string; targets?: (TargetRef | null)[]; hold?: boolean; crew?: string[] }
   | { type: 'tapMana'; card: string }
   | { type: 'untapMana'; card: string }
   | { type: 'declareAttack'; card: string; defender: PlayerId }
@@ -393,8 +402,19 @@ export interface CardScript extends Triggers {
   alternativeCosts?: { label: string; mana: string; life?: number; when?: (g: Game, self: Card) => boolean }[];
   /** Extra damage added when `source` (controlled by self's owner) damages `targetOwner` or their permanent. */
   damageBonus?: (g: Game, self: Card, source: Card, targetOwner: PlayerId) => number;
+  /**
+   * An Aura's enchant ability (702.5): what it can be attached to. It is also the Aura
+   * spell's target (303.4a). Its `who` is from the Aura's controller's side.
+   */
+  enchant?: TargetSpec;
+  /**
+   * One activated ability. Build equip with `equip(cost)` and crew with `crew(n)`.
+   * `crew` in the cost means tapping other untapped creatures with that much total power
+   * (702.122a). `sorcery` limits it to sorcery timing, like equip (702.6a).
+   */
   activated?: {
-    cost: { tap?: boolean; mana?: string; sacrifice?: boolean };
+    cost: { tap?: boolean; mana?: string; sacrifice?: boolean; crew?: number };
+    sorcery?: boolean;
     targets?: TargetSpec[];
     text: string;
     resolve: (g: Game, ctx: Ctx) => void;
