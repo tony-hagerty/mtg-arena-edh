@@ -485,4 +485,13 @@ registerScripts({
       createToken(g, c.owner, 'Beast 3/3');
     },
   },
+
+  // ---------- predefined tokens (111.10) ----------
+  Treasure: { mana: { amount: 1, colors: 'any', sacrifice: true } },
+  Food: {
+    activated: { cost: { mana: '{2}', tap: true, sacrifice: true }, text: '{2}, {T}, Sacrifice: You gain 3 life', resolve: (g, { you }) => gainLife(g, you, 3) },
+  },
+  Clue: {
+    activated: { cost: { mana: '{2}', sacrifice: true }, text: '{2}, Sacrifice: Draw a card', resolve: (g, { you }) => draw(g, you, 1) },
+  },
 });

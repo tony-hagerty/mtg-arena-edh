@@ -248,6 +248,44 @@
       "typeLine": "Token Creature — Beast",
       "keywords": [],
       "query": "t:token !\"Beast\" c=g pow=4 tou=4"
+    },
+    "Treasure": {
+      "name": "Treasure",
+      "colors": [],
+      "typeLine": "Token Artifact — Treasure",
+      "oracleText": "{T}, Sacrifice this token: Add one mana of any color.",
+      "keywords": [],
+      "query": "t:token !\"Treasure\""
+    },
+    "Food": {
+      "name": "Food",
+      "colors": [],
+      "typeLine": "Token Artifact — Food",
+      "oracleText": "{2}, {T}, Sacrifice this token: You gain 3 life.",
+      "keywords": [],
+      "query": "t:token !\"Food\""
+    },
+    "Clue": {
+      "name": "Clue",
+      "colors": [],
+      "typeLine": "Token Artifact — Clue",
+      "oracleText": "{2}, Sacrifice this token: Draw a card.",
+      "keywords": [],
+      "query": "t:token !\"Clue\""
+    },
+    "Knight 2/2 vigilance": {
+      "name": "Knight",
+      "power": "2",
+      "toughness": "2",
+      "colors": [
+        "W"
+      ],
+      "typeLine": "Token Creature — Knight",
+      "oracleText": "Vigilance",
+      "keywords": [
+        "Vigilance"
+      ],
+      "query": "t:token !\"Knight\" c=w pow=2 tou=2 o:vigilance"
     }
   }
 }

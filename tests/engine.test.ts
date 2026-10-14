@@ -22,6 +22,13 @@ import {
   legalTargets,
   pump,
   scriptOf,
+  label,
+  transform,
+  castFaces,
+  landFaces,
+  createToken,
+  draw,
+  maxHandSize,
   canBlock,
   checkState,
   destroy,
@@ -909,7 +916,7 @@ describe('planeswalkers and battles (306, 310, 606)', () => {
     expect(attackOptions(g, 1).some((o) => o.target === battle.id)).toBe(false);
   });
 
-  it('is exiled when defeated, staying until its defeat ability resolves (310.12b, 704.5v)', () => {
+  it('is exiled when defeated, staying until its defeat ability resolves, then cast transformed (310.12b, 704.5v)', () => {
     let g = emptyGame((d) => {
       siege(d, 0, 1, 3);
       put(d, 0, 'Kalonian Tusker');
@@ -921,9 +928,18 @@ describe('planeswalkers and battles (306, 310, 606)', () => {
     // Damaged to 0, it is defeated but waits on the stack's ability before leaving.
     expect(byName(g, 0, 'Invasion of Dominaria')!.counters.defense).toBeUndefined();
     expect(g.stack.map((x) => x.hook)).toEqual(['onDefeat']);
-    g = run(g, pass);
-    expect(byName(g, 0, 'Invasion of Dominaria', 'exile')).toBeDefined();
+    g = runWith({ autoPass: false }, g, pass, pass, pass, pass);
     expect(g.log.some((l) => l.text === 'Invasion of Dominaria is defeated.')).toBe(true);
+    expect(g.log.some((l) => l.text === 'Invasion of Dominaria is exiled.')).toBe(true);
+    // It was cast from exile with its back face up, for free (712.11a).
+    expect(g.stack.map((x) => label(x.card))).toEqual(['Serra Faithkeeper']);
+    g = run(g, pass);
+    const angel = byName(g, 0, 'Invasion of Dominaria')!;
+    expect(label(angel)).toBe('Serra Faithkeeper');
+    expect(stats(g, angel)).toMatchObject({ power: 4, toughness: 4 });
+    expect(stats(g, angel).keywords.has('flying')).toBe(true);
+    // A transformed permanent's mana value is its front face's (712.8e).
+    expect(data(angel).cmc).toBe(3);
   });
 
   it('gets a new protector when its protector leaves the game (310.11)', () => {
@@ -960,6 +976,197 @@ describe('planeswalkers and battles (306, 310, 606)', () => {
     const jace = byName(g, 1, 'Jace Beleren')!;
     g = run(g, pass, { type: 'declareAttack', card: byName(g, 0, 'Kalonian Tusker')!.id, defender: 1, target: jace.id }, pass);
     expect(botAction(g, 1)).toMatchObject({ type: 'declareBlock', blocker: byName(g, 1, 'Raging Goblin')!.id });
+  });
+});
+
+describe('card faces, Sagas, Classes, flashback and tokens (709, 712, 714, 715, 716, 702.34, 111.10)', () => {
+  const ref = (c: { id: string }) => ({ kind: 'card', id: c.id }) as const;
+  const cast = (g: Game, name: string, extra: object = {}, zone: 'hand' | 'graveyard' | 'exile' = 'hand') =>
+    ({ type: 'cast', card: byName(g, 0, name, zone)!.id, ...extra }) as Action;
+  /** Passes until player 0's next precombat main phase. */
+  const nextTurn = (g: Game) => {
+    const turn = g.turn;
+    while (!(g.active === 0 && g.step === 'main1' && g.turn > turn && !g.stack.length && !g.decision)) g = run(g, pass);
+    return g;
+  };
+
+  it("transforms: the back face's characteristics, and the front face again off the battlefield (701.27, 712.8)", () => {
+    let g = emptyGame((d) => {
+      put(d, 0, 'Delver of Secrets');
+      d.players[0].library.unshift(makeCard(d, 'Lightning Bolt', 0, 'library'));
+    });
+    const delver = byName(g, 0, 'Delver of Secrets')!;
+    expect(label(delver)).toBe('Delver of Secrets');
+    g = nextTurn(g);
+    const bug = byName(g, 0, 'Delver of Secrets')!;
+    expect(label(bug)).toBe('Insectile Aberration');
+    expect(stats(g, bug)).toMatchObject({ power: 3, toughness: 2 });
+    expect(stats(g, bug).keywords.has('flying')).toBe(true);
+    expect(g.log.some((l) => l.text === 'Delver of Secrets transforms into Insectile Aberration.')).toBe(true);
+    g = produce(g, (d) => destroy(d, byName(d, 0, 'Delver of Secrets')));
+    expect(label(byName(g, 0, 'Delver of Secrets', 'graveyard')!)).toBe('Delver of Secrets');
+  });
+
+  it("doesn't transform a card with one face (712.9)", () => {
+    const g = produce(
+      emptyGame((d) => void put(d, 0, 'Kalonian Tusker')),
+      (d) => transform(d, byName(d, 0, 'Kalonian Tusker')),
+    );
+    expect(byName(g, 0, 'Kalonian Tusker')!.face).toBe(0);
+  });
+
+  it('plays a modal double-faced card as either face: a spell, or its land face (712.11b, 712.12)', () => {
+    let g = emptyGame((d) => {
+      put(d, 0, 'Kazandu Mammoth', 'hand');
+      put(d, 0, 'Needleverge Pathway', 'hand');
+    });
+    const mammoth = byName(g, 0, 'Kazandu Mammoth', 'hand')!;
+    expect(castFaces(mammoth)).toEqual([0]);
+    expect(landFaces(mammoth)).toEqual([1]);
+    expect(canPlayLand(g, 0, mammoth, 0)).toBe(false);
+    g = run(g, { type: 'playLand', card: mammoth.id, face: 1 });
+    const valley = byName(g, 0, 'Kazandu Mammoth')!;
+    expect(label(valley)).toBe('Kazandu Valley');
+    expect(valley.tapped).toBe(true); // "enters tapped" is the back face's
+    // A pathway: both faces are lands, and the one played decides its colour.
+    g = produce(g, (d) => void (d.players[0].landsPlayed = 0));
+    g = run(g, { type: 'playLand', card: byName(g, 0, 'Needleverge Pathway', 'hand')!.id, face: 1 });
+    expect(label(byName(g, 0, 'Needleverge Pathway')!)).toBe('Pillarverge Pathway');
+    g = run(g, { type: 'tapMana', card: byName(g, 0, 'Needleverge Pathway')!.id });
+    expect(g.players[0].pool.map((m) => m.sym)).toEqual(['W']);
+  });
+
+  it('casts one half of a split card; elsewhere it has both halves combined (709.3, 709.4)', () => {
+    let g = emptyGame((d) => {
+      put(d, 0, 'Mountain', 'battlefield', 3);
+      put(d, 0, 'Dead', 'hand');
+      put(d, 1, 'Walking Corpse');
+    });
+    const card = byName(g, 0, 'Dead', 'hand')!;
+    expect(data(card).cmc).toBe(4);
+    expect(costText(castCost(g, card, { face: 0 }))).toBe('{R}');
+    expect(costText(castCost(g, card, { face: 1 }))).toBe('{2}{R}');
+    const corpse = byName(g, 1, 'Walking Corpse')!;
+    g = run(g, cast(g, 'Dead', { face: 1, targets: [ref(corpse)] }));
+    expect(byName(g, 1, 'Walking Corpse', 'hand')).toBeDefined();
+    expect(g.log.some((l) => l.text.endsWith('casts Gone targeting Walking Corpse.'))).toBe(true);
+    expect(label(byName(g, 0, 'Dead', 'graveyard')!)).toBe('Dead // Gone');
+  });
+
+  it('casts an Adventure, exiles it, then casts the creature from exile (715.3, 715.3d)', () => {
+    let g = emptyGame((d) => {
+      put(d, 0, 'Swamp', 'battlefield', 6);
+      put(d, 0, 'Murderous Rider', 'hand');
+      put(d, 1, 'Walking Corpse');
+    });
+    g = run(g, cast(g, 'Murderous Rider', { face: 1, targets: [ref(byName(g, 1, 'Walking Corpse')!)] }));
+    expect(byName(g, 1, 'Walking Corpse')).toBeUndefined();
+    expect(g.players[0].life).toBe(38);
+    const exiled = byName(g, 0, 'Murderous Rider', 'exile')!;
+    expect(exiled.adventure).toBe(true);
+    // Not as an Adventure again (715.3d).
+    expect(castFaces(exiled)).toEqual([0]);
+    g = run(g, cast(g, 'Murderous Rider', {}, 'exile'));
+    const rider = byName(g, 0, 'Murderous Rider')!;
+    expect(label(rider)).toBe('Murderous Rider');
+    expect(stats(g, rider).keywords.has('lifelink')).toBe(true);
+  });
+
+  it('a countered Adventure goes to the graveyard, not exile (715.3d)', () => {
+    let g = emptyGame((d) => {
+      put(d, 0, 'Swamp', 'battlefield', 3);
+      put(d, 0, 'Murderous Rider', 'hand');
+      put(d, 1, 'Walking Corpse');
+      put(d, 1, 'Island', 'battlefield', 2);
+      put(d, 1, 'Counterspell', 'hand');
+    });
+    g = run(g, cast(g, 'Murderous Rider', { face: 1, targets: [ref(byName(g, 1, 'Walking Corpse')!)] }));
+    g = run(g, { type: 'cast', card: byName(g, 1, 'Counterspell', 'hand')!.id, targets: [{ kind: 'stack', id: g.stack[0].id }] });
+    expect(byName(g, 0, 'Murderous Rider', 'graveyard')).toBeDefined();
+  });
+
+  it('runs a Saga: a chapter as it enters and each precombat main phase, then sacrifices it (714)', () => {
+    let g = emptyGame((d) => {
+      put(d, 0, 'Plains', 'battlefield', 3);
+      put(d, 0, 'History of Benalia', 'hand');
+    });
+    g = run(g, cast(g, 'History of Benalia'));
+    const knights = (g: Game) => g.players[0].battlefield.filter((c) => label(c) === 'Knight');
+    expect(byName(g, 0, 'History of Benalia')!.counters.lore).toBe(1);
+    expect(knights(g)).toHaveLength(1);
+    g = nextTurn(g);
+    expect(knights(g)).toHaveLength(2);
+    g = nextTurn(g);
+    // Chapter III pumps the Knights, then the Saga is sacrificed (714.4).
+    expect(knights(g).map((k) => stats(g, k).power)).toEqual([4, 4]);
+    expect(byName(g, 0, 'History of Benalia')).toBeUndefined();
+    expect(byName(g, 0, 'History of Benalia', 'graveyard')).toBeDefined();
+  });
+
+  it('levels up a Class one level at a time, as a sorcery (716.2a)', () => {
+    let g = emptyGame((d) => {
+      put(d, 0, 'Island', 'battlefield', 9);
+      put(d, 0, 'Wizard Class');
+      put(d, 0, 'Walking Corpse');
+    });
+    const wc = byName(g, 0, 'Wizard Class')!;
+    expect(canActivate(g, 0, wc, 1)).toBe(false); // level 3 needs level 2 first
+    g = run(g, { type: 'activate', card: wc.id, ability: 0 });
+    expect(byName(g, 0, 'Wizard Class')!.level).toBe(2);
+    expect(g.players[0].hand).toHaveLength(2); // "when this Class becomes level 2"
+    expect(canActivate(g, 0, byName(g, 0, 'Wizard Class')!, 0)).toBe(false);
+    g = run(g, { type: 'activate', card: wc.id, ability: 1 });
+    expect(byName(g, 0, 'Wizard Class')!.level).toBe(3);
+    // Level 3: drawing puts a +1/+1 counter on a creature.
+    g = produce(g, (d) => draw(d, 0, 1));
+    g = run(g, pass);
+    expect(g.decision?.type).toBe('targets');
+    g = run(g, { type: 'chooseTargets', targets: [ref(byName(g, 0, 'Walking Corpse')!)] });
+    expect(byName(g, 0, 'Walking Corpse')!.counters['+1/+1']).toBe(1);
+    expect(maxHandSize(g, 0)).toBe(Infinity);
+  });
+
+  it('casts a flashback card from the graveyard for its flashback cost, then exiles it (702.34a)', () => {
+    let g = emptyGame((d) => {
+      put(d, 0, 'Island', 'battlefield', 5);
+      put(d, 0, 'Think Twice', 'hand');
+    });
+    g = run(g, cast(g, 'Think Twice'));
+    const card = byName(g, 0, 'Think Twice', 'graveyard')!;
+    expect(costText(castCost(g, card))).toBe('{2}{U}');
+    g = run(g, cast(g, 'Think Twice', {}, 'graveyard'));
+    expect(byName(g, 0, 'Think Twice', 'exile')).toBeDefined();
+    expect(g.players[0].hand).toHaveLength(2);
+    expect(g.log.some((l) => l.text.endsWith('casts Think Twice (flashback).'))).toBe(true);
+  });
+
+  it('Treasure is sacrificed for one mana of any colour; auto-pay saves it for last (111.10a)', () => {
+    let g = emptyGame((d) => {
+      put(d, 0, 'Mountain');
+      put(d, 0, 'Strike It Rich', 'hand');
+      put(d, 0, 'Lightning Bolt', 'hand');
+      put(d, 0, 'Think Twice', 'hand');
+    });
+    g = run(g, cast(g, 'Strike It Rich'));
+    expect(byName(g, 0, 'Treasure')).toBeDefined();
+    // Bolt is paid with... nothing left but the Treasure: the Mountain paid for Strike It Rich.
+    expect(canCast(g, 0, byName(g, 0, 'Think Twice', 'hand')!)).toBe(false);
+    g = run(g, cast(g, 'Lightning Bolt', { targets: [{ kind: 'player', id: 1 }] }));
+    expect(byName(g, 0, 'Treasure')).toBeUndefined();
+    expect(g.log.some((l) => l.text === 'Treasure is sacrificed.')).toBe(true);
+  });
+
+  it('Food gains 3 life and Clue draws a card (111.10b, 111.10f)', () => {
+    let g = emptyGame((d) => {
+      put(d, 0, 'Plains', 'battlefield', 4);
+      createToken(d, 0, 'Food');
+      createToken(d, 0, 'Clue');
+    });
+    g = run(g, { type: 'activate', card: byName(g, 0, 'Food')!.id });
+    expect(g.players[0].life).toBe(43);
+    g = run(g, { type: 'activate', card: byName(g, 0, 'Clue')!.id });
+    expect(g.players[0].hand).toHaveLength(1);
+    expect(g.players[0].battlefield.filter((c) => c.isToken)).toEqual([]);
   });
 });
 
