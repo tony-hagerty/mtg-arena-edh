@@ -2,9 +2,10 @@
 // which cards glow, what the prompt says, what the buttons do. Also the click handlers.
 import { createContext, useContext } from 'react';
 import {
+  activatable,
   attackCandidates,
+  attackOptions,
   blockCandidates,
-  canActivate,
   canAttack,
   canBlock,
   canCast,
@@ -18,11 +19,14 @@ import {
   crewOptions,
   crewPower,
   data,
+  defaultProtector,
   findCard,
   illegalBlocks,
   isLand,
+  isSiege,
   label,
   legalTargets,
+  loyaltyOf,
   maxX,
   modeChoices,
   opponentsOf,
@@ -34,7 +38,7 @@ import {
   targetSpecs,
   MAX_HAND,
 } from '../engine';
-import type { Card, CastChoices, Cost, Game, PlayerId, Step, TargetRef } from '../engine';
+import type { AttackOption, Card, CastChoices, Cost, Game, PlayerId, Step, TargetRef } from '../engine';
 import { useStore } from './store';
 import type { Targeting } from './store';
 
@@ -59,7 +63,10 @@ export interface View {
   targetPlayers: Set<PlayerId>;
   /** Spells and abilities on the stack the human can target now, by stack item id. */
   targetStack: Set<string>;
-  attackTarget: PlayerId | null;
+  /** What the human's attackers go after (508.1b). */
+  attackTarget: AttackOption | null;
+  /** The planeswalker whose loyalty ability the human is choosing (606), for the options panel. */
+  loyalty: { card: Card; options: { ability: number; cost: string; text: string; ok: boolean }[] } | null;
   /** The spell or ability the human is deciding whether to pay for (shown by the stack). */
   paying: { card: Card; kind: 'spell' | 'ability' } | null;
   /** A spell whose X, kicker or alternative cost the human is announcing (601.2b), for the options panel. */
@@ -81,7 +88,29 @@ export interface Announce {
   costs: { alt: number | undefined; label: string; payable: boolean }[];
   /** A modal spell's modes (700.2): how many to choose, and each mode's text, times picked and whether it can be picked. */
   modal: { min: number; max: number; repeat: boolean; modes: { text: string; picked: number; ok: boolean }[]; valid: boolean } | null;
+  /** A Siege's possible protectors: the caster's opponents (310.12a). Null for any other spell. */
+  protectors: { id: PlayerId; name: string }[] | null;
 }
+
+/** A loyalty cost written out: "+1", "0", "−3". */
+export const loyaltyCost = (n: number) => (n > 0 ? `+${n}` : n === 0 ? '0' : `−${-n}`);
+
+const sameOption = (a: AttackOption | null | undefined, b: AttackOption) => !!a && a.defender === b.defender && a.target === b.target;
+
+/** What the human's attackers go after: the one they picked if it is still there, else the first opponent. */
+function attackTargetOf(g: Game, me: PlayerId): AttackOption | null {
+  const options = attackOptions(g, me);
+  return options.find((o) => sameOption(S().attackTarget, o)) ?? options.find((o) => o.target === null) ?? options[0] ?? null;
+}
+
+/** The name of what an attack option goes after: a player, or a planeswalker or battle. */
+function attackName(g: Game, o: AttackOption): string {
+  const c = o.target ? permanent(g, o.target) : undefined;
+  return c ? `${label(c)} (${g.players[o.defender].name})` : g.players[o.defender].name;
+}
+
+/** Sends a creature at what the human picked to attack. */
+const declare = (card: string, o: AttackOption) => S().act({ type: 'declareAttack', card, defender: o.defender, ...(o.target ? { target: o.target } : {}) });
 
 export const STEP_NAMES: Record<Step, string> = {
   untap: 'Untap step',
@@ -128,19 +157,21 @@ function isSacrificing(t: Targeting): boolean {
 
 /** Targets are chosen and a Vehicle's crew still has to be picked (702.122a). Returns the power needed, or 0. */
 function crewNeeded(t: Targeting): number {
-  if (t.mode !== 'activate' || t.crewDone || t.chosen.length < t.specs.length) return 0;
+  if (t.mode !== 'activate' || t.ability !== undefined || t.pickingAbility || t.crewDone || t.chosen.length < t.specs.length) return 0;
   const card = findCard(S().game!, t.cardId);
   return (card && scriptOf(card.name).activated?.cost.crew) || 0;
 }
 
 /** Everything is chosen and the spell or ability is waiting for its cost to be paid (601.2f-h). */
 const isPaying = (t: Targeting) =>
-  t.mode !== 'trigger' && !t.announcing && t.chosen.length === t.specs.length && !isSacrificing(t) && !crewNeeded(t);
+  t.mode !== 'trigger' && !t.announcing && !t.pickingAbility && t.chosen.length === t.specs.length && !isSacrificing(t) && !crewNeeded(t);
 
 /** The mana a spell or ability costs, and the same thing written out ("{1}{B}{B}"), with any life to pay. */
 function costOf(g: Game, t: Targeting): { cost: Cost; text: string } {
   const card = findCard(g, t.cardId)!;
-  const cost = t.mode === 'cast' ? castCost(g, card, t.choices) : parseCost(scriptOf(card.name).activated?.cost.mana ?? '');
+  // A loyalty ability costs loyalty, not mana (606.4).
+  const mana = t.ability === undefined ? (scriptOf(card.name).activated?.cost.mana ?? '') : '';
+  const cost = t.mode === 'cast' ? castCost(g, card, t.choices) : parseCost(mana);
   return { cost, text: costText(cost) + (cost.life ? ` and ${cost.life} life` : '') };
 }
 
@@ -166,6 +197,7 @@ function announceOf(g: Game, me: PlayerId, card: Card, choices: CastChoices): An
         }
       : null,
     maxX: hasX ? Math.max(0, maxX(g, me, card, { ...choices, x: 0 })) : null,
+    protectors: isSiege(card) ? opponentsOf(g, me).map((o) => ({ id: o.id, name: o.name })) : null,
     kicker: script.kicker ? { text: costText(parseCost(script.kicker.mana)), most } : null,
     costs: [undefined, ...altCostsOf(g, card)].map((alt) => ({
       alt,
@@ -204,6 +236,7 @@ export function buildView(): View {
     targetPlayers: new Set(),
     targetStack: new Set(),
     attackTarget: null,
+    loyalty: null,
     paying: null,
     announce: null,
     prompt: null,
@@ -245,6 +278,20 @@ export function buildView(): View {
     return view;
   }
 
+  // --- choosing a planeswalker's loyalty ability (606) ---
+  if (t && t.pickingAbility) {
+    const card = findCard(g, t.cardId)!;
+    const ok = new Set(activatable(g, me, card));
+    view.glow.set(card.id, 'picked');
+    view.loyalty = {
+      card,
+      options: (scriptOf(card.name).loyalty ?? []).map((ab, i) => ({ ability: i, cost: loyaltyCost(ab.cost), text: ab.text, ok: ok.has(i) })),
+    };
+    view.prompt = `${label(card)} (loyalty ${loyaltyOf(card)}): choose an ability. Only one a turn.`;
+    view.secondary = { label: 'Cancel', tone: 'cancel', onClick: cancel };
+    return view;
+  }
+
   // --- choosing what to sacrifice for an additional cost (118.8) ---
   if (t && isSacrificing(t)) {
     const card = findCard(g, t.cardId)!;
@@ -275,7 +322,8 @@ export function buildView(): View {
     const card = findCard(g, t.cardId)!;
     const { cost, text } = costOf(g, t);
     const plan = planPayment(g, me, cost);
-    const ability = t.mode === 'activate' ? scriptOf(card.name).activated : undefined;
+    const script = scriptOf(card.name);
+    const ability = t.mode !== 'activate' ? undefined : t.ability === undefined ? script.activated : script.loyalty?.[t.ability];
     view.glow.set(card.id, 'picked');
     view.paying = { card, kind: ability ? 'ability' : 'spell' };
     // The sources auto-pay would tap. Tapping others by hand first changes the plan.
@@ -310,7 +358,7 @@ export function buildView(): View {
   for (const c of [...p.hand, ...p.command]) {
     if (canPlayLand(g, me, c) || canCast(g, me, c)) view.glow.set(c.id, 'play');
   }
-  for (const c of p.battlefield) if (canActivate(g, me, c)) view.glow.set(c.id, 'play');
+  for (const c of p.battlefield) if (activatable(g, me, c).length) view.glow.set(c.id, 'play');
   if (!deciding) markMana(view, g, me);
 
   switch (deciding) {
@@ -318,14 +366,18 @@ export function buildView(): View {
       priorityView(view, g, me);
       break;
     case 'attackers': {
-      const opps = opponentsOf(g, me);
-      const target = opps.find((o) => o.id === s.attackTarget) ?? opps[0];
-      view.attackTarget = target?.id ?? null;
+      const target = attackTargetOf(g, me);
+      view.attackTarget = target;
       const candidates = attackCandidates(g, me);
       const attacks = g.combat?.attacks ?? [];
       for (const c of candidates) view.glow.set(c.id, 'attack');
-      for (const o of opps) view.targetPlayers.add(o.id);
-      view.prompt = `Choose attackers — sending them at ${target?.name}. Click an opponent to switch.`;
+      // Opponents, and the planeswalkers and battles that can be attacked (508.1b).
+      for (const o of attackOptions(g, me)) {
+        if (!o.target) view.targetPlayers.add(o.defender);
+        else view.glow.set(o.target, target?.target === o.target ? 'picked' : 'target');
+      }
+      const walkers = attackOptions(g, me).some((o) => o.target);
+      view.prompt = `Choose attackers — sending them at ${target ? attackName(g, target) : '?'}. Click an opponent${walkers ? ', planeswalker or battle' : ''} to switch.`;
       if (attacks.length) {
         view.primary = { label: plural(attacks.length, 'Attacker'), sub: 'Attack', tone: 'attack', onClick: pass };
         view.secondary = {
@@ -337,7 +389,7 @@ export function buildView(): View {
         view.primary = {
           label: 'All Attack',
           tone: 'attack',
-          onClick: () => candidates.forEach((c) => S().act({ type: 'declareAttack', card: c.id, defender: target.id })),
+          onClick: () => target && candidates.forEach((c) => declare(c.id, target)),
         };
         view.secondary = { label: 'No Attacks', tone: 'plain', onClick: pass };
       }
@@ -431,6 +483,11 @@ function endTurn() {
 function propose(mode: 'cast' | 'activate', card: Card) {
   const g = S().game!;
   const me = S().human!;
+  // A planeswalker: choose which loyalty ability first (606).
+  if (mode === 'activate' && activatable(g, me, card).some((i) => i !== undefined)) {
+    useStore.setState({ targeting: { mode, cardId: card.id, specs: [], chosen: [], tapped: [], choices: {}, announcing: false, pickingAbility: true }, hover: null });
+    return;
+  }
   const specs = mode === 'cast' ? castTargets(card) : (scriptOf(card.name).activated?.targets ?? []);
   const script = scriptOf(card.name);
   const alts = mode === 'cast' ? altCostsOf(g, card) : [];
@@ -438,7 +495,10 @@ function propose(mode: 'cast' | 'activate', card: Card) {
   // Start from a way that can be paid: the mana cost if it can, else the first alternative.
   const alt = planPayment(g, me, castCost(g, card)) ? undefined : alts.find((i) => planPayment(g, me, castCost(g, card, { alt: i })));
   const choices: CastChoices = { alt, x: hasX && alt === undefined ? Math.max(0, maxX(g, me, card, { alt })) : 0, kicked: 0 };
-  const announcing = mode === 'cast' && (hasX || !!script.kicker || alts.length > 0 || !!script.modal);
+  // A Siege's protector is announced with the rest, when there is more than one opponent to choose (310.12a).
+  const siege = mode === 'cast' && isSiege(card);
+  if (siege) choices.protector = defaultProtector(g, card) ?? undefined;
+  const announcing = mode === 'cast' && (hasX || !!script.kicker || alts.length > 0 || !!script.modal || (siege && opponentsOf(g, me).length > 1));
   advance({ mode, cardId: card.id, specs, chosen: [], tapped: [], choices, announcing });
 }
 
@@ -474,6 +534,16 @@ export function pickMode(i: number, delta: 1 | -1 = 1) {
   setChoices({ modes: [...modes].sort((a, b) => a - b) });
 }
 
+/** Picks loyalty ability `i` of the planeswalker being activated: on to its targets. */
+export function pickAbility(i: number) {
+  const t = S().targeting;
+  const { game: g, human: me } = S();
+  if (!t || !t.pickingAbility || !g || me === null) return;
+  const card = findCard(g, t.cardId)!;
+  if (!activatable(g, me, card).includes(i)) return;
+  advance({ ...t, pickingAbility: false, ability: i, specs: scriptOf(card.name).loyalty![i].targets ?? [] });
+}
+
 /** Done announcing: on to targets, which depend on the modes chosen (601.2c, 700.2c). */
 function confirmAnnounce() {
   const t = S().targeting;
@@ -496,6 +566,8 @@ function advance(t: Targeting) {
   while (chosen.length < t.specs.length && currentTargets(g, me, { ...t, chosen }).length === 0) chosen = [...chosen, null];
   if (t.mode !== 'trigger' || chosen.length < t.specs.length) {
     useStore.setState({ targeting: { ...t, chosen }, hover: null });
+    // A loyalty ability has nothing to pay in mana: it is activated as soon as its targets are chosen.
+    if (t.ability !== undefined && chosen.length === t.specs.length) pay();
     return;
   }
   useStore.setState({ targeting: null });
@@ -509,7 +581,9 @@ function pay() {
   const hold = S().hold;
   useStore.setState({ hold: false });
   const action =
-    t.mode === 'cast' ? { type: t.mode, card: t.cardId, targets: t.chosen, hold, ...t.choices } : { type: t.mode, card: t.cardId, targets: t.chosen, hold, crew: t.crew };
+    t.mode === 'cast'
+      ? { type: t.mode, card: t.cardId, targets: t.chosen, hold, ...t.choices }
+      : { type: t.mode, card: t.cardId, ability: t.ability, targets: t.chosen, hold, crew: t.crew };
   if (!S().act(action)) cancel();
 }
 
@@ -599,11 +673,14 @@ export function clickPermanent(card: Card) {
   const deciding = g.decision?.type;
 
   if (deciding === 'attackers') {
-    if (card.owner !== me || !canAttack(g, card)) return;
-    const target = opponentsOf(g, me).find((o) => o.id === s.attackTarget) ?? opponentsOf(g, me)[0];
+    // A planeswalker or battle that can be attacked becomes what the attackers go after.
+    const option = attackOptions(g, me).find((o) => o.target === card.id);
+    if (option) return useStore.setState({ attackTarget: option });
+    const target = attackTargetOf(g, me);
+    if (card.owner !== me || !canAttack(g, card) || !target) return;
     const existing = g.combat?.attacks.find((a) => a.id === card.id);
-    if (existing && existing.defender === target.id) s.act({ type: 'undeclareAttack', card: card.id });
-    else s.act({ type: 'declareAttack', card: card.id, defender: target.id });
+    if (sameOption(existing, target)) s.act({ type: 'undeclareAttack', card: card.id });
+    else declare(card.id, target);
     return;
   }
 
@@ -623,7 +700,7 @@ export function clickPermanent(card: Card) {
   if (deciding || card.owner !== me) return;
   if (canTapForMana(g, me, card)) s.act({ type: 'tapMana', card: card.id });
   else if (canUntapMana(g, me, card)) s.act({ type: 'untapMana', card: card.id });
-  else if (canActivate(g, me, card)) propose('activate', card);
+  else if (activatable(g, me, card).length) propose('activate', card);
 }
 
 /**
@@ -671,11 +748,12 @@ export function clickGroup(cards: Card[]) {
 
   if (deciding === 'attackers') {
     const g = ctx.g;
-    const target = opponentsOf(g, me).find((o) => o.id === S().attackTarget) ?? opponentsOf(g, me)[0];
+    const target = attackTargetOf(g, me);
     const able = now().filter((c) => canAttack(g, c));
-    const attacking = (c: Card) => g.combat?.attacks.some((a) => a.id === c.id && a.defender === target.id);
+    if (!target) return;
+    const attacking = (c: Card) => sameOption(g.combat?.attacks.find((a) => a.id === c.id), target);
     if (able.length && able.every(attacking)) able.forEach((c) => S().act({ type: 'undeclareAttack', card: c.id }));
-    else able.filter((c) => !attacking(c)).forEach((c) => S().act({ type: 'declareAttack', card: c.id, defender: target.id }));
+    else able.filter((c) => !attacking(c)).forEach((c) => declare(c.id, target));
     return;
   }
 
@@ -707,7 +785,7 @@ export function clickPlayer(pid: PlayerId) {
   if (targetingOf(S())) return chooseTarget({ kind: 'player', id: pid });
   const ctx = myTurnToAct();
   if (ctx && ctx.g.decision?.type === 'attackers' && pid !== ctx.me && !ctx.g.players[pid].lost) {
-    useStore.setState({ attackTarget: pid });
+    useStore.setState({ attackTarget: { defender: pid, target: null } });
   }
 }
 

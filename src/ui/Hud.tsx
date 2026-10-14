@@ -8,7 +8,7 @@ import { ManaCost } from './Card';
 import { useRem } from './rem';
 import { useStore } from './store';
 import { SEATS, cx, deckColor, hoverProps } from './util';
-import { STEP_NAMES, cancel, clickStackItem, pickMode, setChoices, useView } from './view';
+import { STEP_NAMES, cancel, clickStackItem, pickAbility, pickMode, setChoices, useView } from './view';
 import type { Btn } from './view';
 
 // ---------- phase tracker + buttons (bottom right) ----------
@@ -238,7 +238,8 @@ export function ActionBar() {
  * times to pay kicker (702.33), and the mana cost or an alternative cost (118.9).
  */
 export function CastOptions() {
-  const { announce: a } = useView();
+  const { announce: a, loyalty } = useView();
+  if (loyalty) return <LoyaltyOptions options={loyalty.options} />;
   if (!a) return null;
   const { choices } = a;
   const x = choices.x ?? 0;
@@ -284,6 +285,16 @@ export function CastOptions() {
           ))}
         </div>
       )}
+      {a.protectors && a.protectors.length > 1 && (
+        <div className="cast-row">
+          <span className="cast-label">Protector</span>
+          {a.protectors.map((o) => (
+            <button key={o.id} className={cx('chip', choices.protector === o.id && 'on')} onClick={() => setChoices({ protector: o.id })}>
+              {o.name}
+            </button>
+          ))}
+        </div>
+      )}
       {a.maxX !== null && (
         <div className="cast-row">
           <span className="cast-label">X</span>
@@ -321,6 +332,23 @@ export function CastOptions() {
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+/** A planeswalker's loyalty abilities (606): click one to activate it. */
+function LoyaltyOptions({ options }: { options: { ability: number; cost: string; text: string; ok: boolean }[] }) {
+  return (
+    <div className="cast-options">
+      <div className="cast-modes">
+        {options.map((o) => (
+          <div key={o.ability} className="cast-row">
+            <button className="chip mode" disabled={!o.ok} onClick={() => pickAbility(o.ability)}>
+              <b className="loyalty-cost">{o.cost}</b> {o.text}
+            </button>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
@@ -580,7 +608,12 @@ export function ArrowLayer() {
   const g = useView().g;
   const svg = useRef<SVGSVGElement>(null);
   const arrows = (g.combat?.attacks ?? []).flatMap((a) => [
-    { key: `a-${a.id}-${a.defender}`, from: `[data-card="${a.id}"]`, to: `[data-avatar="${a.defender}"]`, kind: 'attack' },
+    {
+      key: `a-${a.id}-${a.defender}-${a.target}`,
+      from: `[data-card="${a.id}"]`,
+      to: a.target ? `[data-card="${a.target}"]` : `[data-avatar="${a.defender}"]`,
+      kind: 'attack',
+    },
     ...a.blockers.map((b) => ({ key: `b-${b}-${a.id}`, from: `[data-card="${b}"]`, to: `[data-card="${a.id}"]`, kind: 'block' })),
   ]);
   for (const item of g.stack) {

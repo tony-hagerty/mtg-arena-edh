@@ -20,21 +20,27 @@ import {
   creaturesOf,
   damageCard,
   data,
+  dealDamage,
   damagePlayer,
   describeRef,
   dieMany,
   draw,
   enterBattlefield,
   has,
+  canProtect,
+  isBattle,
   isCreature,
   isInstantSpeed,
+  isPlaneswalker,
   isLand,
   isPermanentCard,
   label,
   legalTargets,
   living,
   log,
+  loyaltyOf,
   makeCard,
+  removeCounters,
   moveCard,
   nextLiving,
   parseCost,
@@ -320,6 +326,7 @@ function choicesOk(g: Game, pid: PlayerId, c: Card, ch: CastChoices): boolean {
   if (!Number.isInteger(x) || x < 0 || !Number.isInteger(kicked) || kicked < 0) return false;
   if (kicked > (script.kicker ? (script.kicker.multi ? Infinity : 1) : 0)) return false;
   if (ch.alt !== undefined && !altCostsOf(g, c).includes(ch.alt)) return false;
+  if (ch.protector !== undefined && !(isBattle(c) && canProtect(g, c, ch.protector))) return false;
   // Modes: a set the spell allows, in printed order (700.2).
   const modes = ch.modes ?? [];
   if (script.modal ? !modeChoices(g, pid, c).some((m) => m.join() === modes.join()) : modes.length) return false;
@@ -353,7 +360,12 @@ export function maxX(g: Game, pid: PlayerId, c: Card, choices: CastChoices = {})
   return x;
 }
 
-export function canActivate(g: Game, pid: PlayerId, c: Card): boolean {
+/**
+ * Can `pid` activate one of `c`'s abilities now? `ability` names a loyalty ability by its
+ * index; left out, it means the card's `activated` ability.
+ */
+export function canActivate(g: Game, pid: PlayerId, c: Card, ability?: number): boolean {
+  if (ability !== undefined) return canActivateLoyalty(g, pid, c, ability);
   const ab = scriptOf(c.name).activated;
   if (!ab || c.owner !== pid || c.zone !== 'battlefield' || !timingOk(g, pid, !ab.sorcery)) return false;
   // A summoning-sick creature can't pay a tap cost (302.6).
@@ -364,6 +376,24 @@ export function canActivate(g: Game, pid: PlayerId, c: Card): boolean {
     if (!spec.optional && legalTargets(g, pid, spec, c).length === 0) return false;
   }
   return true;
+}
+
+/**
+ * A loyalty ability can be activated at sorcery speed, and only if none of that
+ * permanent's loyalty abilities has been activated this turn (606.3). A minus ability
+ * needs that much loyalty (606.6).
+ */
+function canActivateLoyalty(g: Game, pid: PlayerId, c: Card, i: number): boolean {
+  const ab = scriptOf(c.name).loyalty?.[i];
+  if (!ab || c.owner !== pid || c.zone !== 'battlefield' || !timingOk(g, pid, false)) return false;
+  if (c.loyaltyTurn === g.turn || loyaltyOf(c) + ab.cost < 0) return false;
+  return (ab.targets ?? []).every((spec) => spec.optional || legalTargets(g, pid, spec, c).length > 0);
+}
+
+/** The abilities of `c` that `pid` could activate now: loyalty abilities by index, `undefined` for its `activated` ability. */
+export function activatable(g: Game, pid: PlayerId, c: Card): (number | undefined)[] {
+  const loyalty = (scriptOf(c.name).loyalty ?? []).map((_, i) => i);
+  return [undefined, ...loyalty].filter((i) => canActivate(g, pid, c, i));
 }
 
 /**
@@ -387,6 +417,31 @@ function targetsOk(g: Game, pid: PlayerId, c: Card, specs: TargetSpec[], targets
 
 export const attackCandidates = (g: Game, pid: PlayerId) => creaturesOf(g, pid).filter((c) => canAttack(g, c));
 
+/** Something a creature can attack: a player, or a planeswalker or battle (`target`) and its defending player. */
+export interface AttackOption {
+  defender: PlayerId;
+  target: string | null;
+}
+
+/**
+ * What `pid`'s creatures can attack (506.3, 508.1b): each opponent, each planeswalker an
+ * opponent controls, and each battle whose protector is an opponent. A battle's protector
+ * can't attack it, but its controller can when that is someone else, as with a Siege (310.9b).
+ */
+export function attackOptions(g: Game, pid: PlayerId): AttackOption[] {
+  const out: AttackOption[] = [];
+  for (const o of living(g)) {
+    if (o.id !== pid) out.push({ defender: o.id, target: null });
+    for (const c of o.battlefield) {
+      if (isPlaneswalker(c) && o.id !== pid) out.push({ defender: o.id, target: c.id });
+      else if (isBattle(c) && c.protector !== null && c.protector !== pid && !g.players[c.protector].lost) {
+        out.push({ defender: c.protector, target: c.id });
+      }
+    }
+  }
+  return out;
+}
+
 /** The defender's creatures that could block at least one creature attacking them. */
 export function blockCandidates(g: Game, pid: PlayerId): Card[] {
   const attackers = (g.combat?.attacks ?? []).filter((a) => a.defender === pid).map((a) => permanent(g, a.id)!);
@@ -408,7 +463,7 @@ export function canAct(g: Game, pid: PlayerId): boolean {
   const p = g.players[pid];
   return (
     [...p.hand, ...p.command].some((c) => canCast(g, pid, c) || canPlayLand(g, pid, c)) ||
-    p.battlefield.some((c) => canActivate(g, pid, c))
+    p.battlefield.some((c) => activatable(g, pid, c).length > 0)
   );
 }
 
@@ -593,14 +648,15 @@ function attackersDeclared(g: Game) {
   for (const a of combat.attacks) {
     const c = permanent(g, a.id)!;
     if (!has(g, c, 'vigilance')) c.tapped = true;
-    names.push(`${label(c)} → ${g.players[a.defender].name}`);
-    attackers.push(c);
+    const target = a.target ? permanent(g, a.target) : undefined;
+    names.push(`${label(c)} → ${target ? label(target) : g.players[a.defender].name}`);
+    attackers.push(c, ...(target ? [target] : []));
   }
   log(g, `${says(g.players[g.active], 'attacks')}: ${names.join(', ')}.`, g.active, attackers);
   for (const a of combat.attacks) {
     const c = permanent(g, a.id)!;
-    trigger(g, c, 'onAttack', { defender: a.defender });
-    broadcast(g, 'onCreatureAttacks', { attacker: c, defender: a.defender });
+    trigger(g, c, 'onAttack', { defender: a.defender, target: a.target });
+    broadcast(g, 'onCreatureAttacks', { attacker: c, defender: a.defender, target: a.target });
   }
 }
 
@@ -646,12 +702,19 @@ function dealCombatDamage(g: Game, firstStrike: boolean, struckFirst: Set<string
   for (const a of g.combat!.attacks) {
     const atk = permanent(g, a.id);
     if (!atk) continue;
+    // Damage that gets through goes to the player, planeswalker or battle attacked. If
+    // that planeswalker or battle has gone, there is nothing to deal it to (506.4c, 510.1b).
+    const attacked = a.target ? permanent(g, a.target) : undefined;
+    const through = (n: number) => {
+      if (!a.target) hits.push({ src: atk, player: a.defender, n });
+      else if (attacked && (isPlaneswalker(attacked) || isBattle(attacked))) hits.push({ src: atk, card: attacked, n });
+    };
     const s = stats(g, atk);
     const blockers = a.blockers.map((id) => permanent(g, id)).filter((b): b is Card => !!b);
     if (deals(atk) && s.power > 0) {
       if (firstStrike) struckFirst.add(atk.id);
       if (!a.blocked) {
-        hits.push({ src: atk, player: a.defender, n: s.power });
+        through(s.power);
       } else {
         let left = s.power;
         blockers.forEach((b, i) => {
@@ -661,7 +724,7 @@ function dealCombatDamage(g: Game, firstStrike: boolean, struckFirst: Set<string
           if (n > 0) hits.push({ src: atk, card: b, n });
           left -= n;
         });
-        if (left > 0 && s.keywords.has('trample')) hits.push({ src: atk, player: a.defender, n: left });
+        if (left > 0 && s.keywords.has('trample')) through(left);
       }
     }
     for (const b of blockers) {
@@ -672,7 +735,8 @@ function dealCombatDamage(g: Game, firstStrike: boolean, struckFirst: Set<string
     }
   }
   for (const h of hits) {
-    if (h.card) damageCard(g, h.src, h.card, h.n);
+    if (h.card && !isCreature(h.card)) dealDamage(g, h.src, { kind: 'card', id: h.card.id }, h.n); // logged: a planeswalker or battle
+    else if (h.card) damageCard(g, h.src, h.card, h.n);
     else damagePlayer(g, h.src, h.player!, h.n, true);
   }
 }
@@ -720,7 +784,7 @@ function resolveTop(g: Game) {
       if (host) enterBattlefield(g, card, { attachTo: host.id });
       else moveCard(g, card, 'graveyard');
     } else if (isPermanentCard(card)) {
-      enterBattlefield(g, card); // 608.3
+      enterBattlefield(g, card, { protector: card.cast?.protector }); // 608.3
     } else if (!fizzled && script.modal) {
       // Each chosen mode in printed order, with its own share of the targets (700.2).
       let next = 0;
@@ -737,7 +801,16 @@ function resolveTop(g: Game) {
     // An ability uses its source as it is now, or as it last was if it has gone (113.7a).
     const ctx = { self: permanent(g, card.id) ?? card, you: controller, targets };
     if (item.kind === 'activated') {
-      script.activated!.resolve(g, ctx);
+      (item.ability === undefined ? script.activated! : script.loyalty![item.ability]).resolve(g, ctx);
+    } else if (item.hook === 'onDefeat') {
+      // A defeated Siege is exiled (310.12b), then its script does anything more.
+      const battle = permanent(g, card.id);
+      if (battle) {
+        log(g, `${label(battle)} is exiled.`, battle.owner, [battle]);
+        moveCard(g, battle, 'exile');
+      }
+      const t = script.onDefeat;
+      if (t) (typeof t === 'function' ? t : t.resolve)(g, ctx);
     } else {
       const t = script[item.hook!] as Trigger<object>;
       (typeof t === 'function' ? t : t.resolve)(g, { ...item.event, ...ctx });
@@ -799,6 +872,29 @@ function putTriggerOnStack(g: Game): boolean {
 
 // ---------- actions ----------
 
+/**
+ * Activates loyalty ability `i` of planeswalker `c`. Its cost is putting on or removing
+ * loyalty counters (606.4), and none of its other loyalty abilities can be activated
+ * this turn (606.3).
+ */
+function activateLoyalty(g: Game, pid: PlayerId, c: Card, i: number, a: Extract<Action, { type: 'activate' }>): boolean {
+  const ab = scriptOf(c.name).loyalty![i];
+  const specs = ab.targets ?? [];
+  const targets = specs.map((_, k) => a.targets?.[k] ?? null);
+  if (!targetsOk(g, pid, c, specs, targets) || a.crew?.length) return false;
+  if (ab.cost > 0) c.counters.loyalty = loyaltyOf(c) + ab.cost;
+  else removeCounters(c, -ab.cost, 'loyalty');
+  c.loyaltyTurn = g.turn;
+  const item: StackItem = { id: `s${g.nextId++}`, kind: 'activated', controller: pid, card: snapshot(c), targets, ability: i };
+  const chosen = targets.filter((t): t is TargetRef => !!t).map((t) => describeRef(g, t));
+  const cost = ab.cost > 0 ? `+${ab.cost}` : ab.cost === 0 ? '0' : `−${-ab.cost}`;
+  log(g, `${says(g.players[pid], 'activates')} ${label(c)}'s ${cost}${chosen.length ? ` targeting ${chosen.join(' and ')}` : ''}.`, pid, [c, ...refCards(g, targets)]);
+  g.stack.push(item);
+  g.passes = 0;
+  g.holding = a.hold ? pid : null;
+  return true;
+}
+
 function act(g: Game, a: Action): boolean {
   const pid = g.priority;
   const p = g.players[pid];
@@ -821,14 +917,14 @@ function act(g: Game, a: Action): boolean {
     // them leaves the game as if the spell was never started (733.1).
     case 'cast': {
       const c = p.hand.find((x) => x.id === a.card) ?? p.command.find((x) => x.id === a.card);
-      const choices: CastChoices = { x: a.x, kicked: a.kicked, alt: a.alt, sacrifice: a.sacrifice, modes: a.modes };
+      const choices: CastChoices = { x: a.x, kicked: a.kicked, alt: a.alt, sacrifice: a.sacrifice, modes: a.modes, protector: a.protector };
       if (!c || !canCast(g, pid, c, choices)) return false;
       const specs = castTargets(c, choices.modes);
       const targets = specs.map((_, i) => a.targets?.[i] ?? null);
       if (!targetsOk(g, pid, c, specs, targets)) return false;
       // An alternative cost without {X} makes X 0 (107.3b).
       const hasX = parseCost(choices.alt === undefined ? data(c).manaCost : scriptOf(c.name).alternativeCosts![choices.alt].mana).x > 0;
-      c.cast = { x: hasX ? (choices.x ?? 0) : 0, kicked: choices.kicked ?? 0, modes: choices.modes ?? [] };
+      c.cast = { x: hasX ? (choices.x ?? 0) : 0, kicked: choices.kicked ?? 0, modes: choices.modes ?? [], protector: choices.protector };
       pay(g, pid, castCost(g, c, choices)); // 601.2f-h
       const sacrificed = (choices.sacrifice ?? []).map((id) => permanent(g, id)!);
       const from = c.zone === 'command' ? p.command : p.hand;
@@ -861,7 +957,8 @@ function act(g: Game, a: Action): boolean {
 
     case 'activate': {
       const c = p.battlefield.find((x) => x.id === a.card);
-      if (!c || !canActivate(g, pid, c)) return false;
+      if (!c || !canActivate(g, pid, c, a.ability)) return false;
+      if (a.ability !== undefined) return activateLoyalty(g, pid, c, a.ability, a);
       const ab = scriptOf(c.name).activated!;
       const specs = ab.targets ?? [];
       const targets = specs.map((_, i) => a.targets?.[i] ?? null);
@@ -905,12 +1002,12 @@ function act(g: Game, a: Action): boolean {
 
     case 'declareAttack': {
       const c = p.battlefield.find((x) => x.id === a.card);
-      const defender = g.players[a.defender];
       if (deciding !== 'attackers' || !g.combat || !c || !canAttack(g, c)) return false;
-      if (!defender || defender.lost || defender.id === pid) return false;
+      const target = a.target ?? null;
+      if (!attackOptions(g, pid).some((o) => o.defender === a.defender && o.target === target)) return false;
       const existing = g.combat.attacks.find((x) => x.id === c.id);
-      if (existing) existing.defender = a.defender;
-      else g.combat.attacks.push({ id: c.id, defender: a.defender, blockers: [], blocked: false });
+      if (existing) Object.assign(existing, { defender: a.defender, target });
+      else g.combat.attacks.push({ id: c.id, defender: a.defender, target, blockers: [], blocked: false });
       return true;
     }
 

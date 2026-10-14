@@ -1,7 +1,7 @@
 // Real cards that aren't in the card pool yet, with scripts, so tests can try out rules
 // the pool doesn't use: X, hybrid, Phyrexian, kicker, sacrifice and alternative costs,
-// cost changes, counterspells, modal spells, copying spells, counters, Auras, Equipment
-// and Vehicles. Importing this file registers them. Their data is typed in by hand
+// cost changes, counterspells, modal spells, copying spells, counters, Auras, Equipment,
+// Vehicles, planeswalkers and battles. Importing this file registers them. Their data is typed in by hand
 // (Scryfall can't be reached from every machine), without images.
 import { registerCards } from '../src/cards/db';
 import {
@@ -17,6 +17,8 @@ import {
   battlefield,
   copySpell,
   counter,
+  createToken,
+  gainLife,
   creaturesOf,
   damageCard,
   damagePlayer,
@@ -91,9 +93,31 @@ registerCards({
   }),
   "Black Sun's Zenith": card("Black Sun's Zenith", '{X}{B}{B}', 2, ['B'], 'Sorcery', "Put X -1/-1 counters on each creature. Shuffle Black Sun's Zenith into its owner's library."),
   Reverberate: card('Reverberate', '{R}{R}', 2, ['R'], 'Instant', 'Copy target instant or sorcery spell. You may choose new targets for the copy.'),
+  'Jace Beleren': card('Jace Beleren', '{1}{U}{U}', 3, ['U'], 'Legendary Planeswalker — Jace', '+2: Each player draws a card.\n−1: Target player draws a card.\n−10: Target player mills twenty cards.', {
+    loyalty: '3',
+  }),
+  'Garruk Wildspeaker': card(
+    'Garruk Wildspeaker',
+    '{2}{G}{G}',
+    4,
+    ['G'],
+    'Legendary Planeswalker — Garruk',
+    '+1: Untap two target lands.\n−1: Create a 3/3 green Beast creature token.\n−4: Creatures you control get +3/+3 and gain trample until end of turn.',
+    { loyalty: '3' },
+  ),
+  'Invasion of Dominaria': card(
+    'Invasion of Dominaria',
+    '{2}{W}',
+    3,
+    ['W'],
+    'Battle — Siege',
+    "(As a Siege enters, choose an opponent to protect it. You and others can attack it. When it's defeated, exile it, then cast it transformed.)\nWhen this Siege enters, you gain 4 life and draw a card.",
+    { defense: '5' },
+  ),
 });
 
 const anyTarget: TargetSpec = { type: 'any', label: 'any target' };
+const land: TargetSpec = { type: 'permanent', label: 'target land', filter: (_g, c) => hasType(c, 'Land') };
 
 registerScripts({
   Blaze: { targets: [anyTarget], onResolve: (g, { self, targets }) => void dealDamage(g, self, targets[0], self.cast?.x ?? 0) },
@@ -225,6 +249,53 @@ registerScripts({
       for (const c of allCreatures(g)) addCounters(g, c, self.cast?.x ?? 0, '-1/-1');
       moveCard(g, self, 'library');
       shuffle(g, g.players[self.owner].library);
+    },
+  },
+  'Jace Beleren': {
+    loyalty: [
+      { cost: 2, text: 'Each player draws a card.', resolve: (g) => g.players.forEach((p) => draw(g, p.id, 1)) },
+      {
+        cost: -1,
+        text: 'Target player draws a card.',
+        targets: [{ type: 'player', label: 'target player' }],
+        resolve: (g, { targets }) => {
+          const p = refPlayer(g, targets[0]);
+          if (p) draw(g, p.id, 1);
+        },
+      },
+      {
+        cost: -10,
+        text: 'Target player mills twenty cards.',
+        targets: [{ type: 'player', label: 'target player' }],
+        resolve: (g, { targets }) => {
+          const p = refPlayer(g, targets[0]);
+          if (p) for (const c of p.library.slice(0, 20)) moveCard(g, c, 'graveyard');
+        },
+      },
+    ],
+  },
+  'Garruk Wildspeaker': {
+    loyalty: [
+      {
+        cost: 1,
+        text: 'Untap two target lands.',
+        targets: [land, land],
+        resolve: (g, { targets }) => {
+          for (const c of new Set(targets.map((t) => refCard(g, t)))) if (c) c.tapped = false;
+        },
+      },
+      { cost: -1, text: 'Create a 3/3 green Beast creature token.', resolve: (g, { you }) => createToken(g, you, 'Beast 3/3') },
+      {
+        cost: -4,
+        text: 'Creatures you control get +3/+3 and gain trample until end of turn.',
+        resolve: (g, { you }) => creaturesOf(g, you).forEach((c) => pump(g, c, 3, 3, ['trample'])),
+      },
+    ],
+  },
+  'Invasion of Dominaria': {
+    onEnter: (g, { you }) => {
+      gainLife(g, you, 4);
+      draw(g, you, 1);
     },
   },
   'Ruby Medallion': { costModifier: (_g, self, spell, caster) => (caster === self.owner && isColor(spell, 'R') ? -1 : 0) },
