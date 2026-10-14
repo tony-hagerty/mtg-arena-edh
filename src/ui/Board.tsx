@@ -230,7 +230,7 @@ function FaceUpPile({ player, zone }: { player: Player; zone: 'graveyard' | 'exi
 function Piles({ player }: { player: Player }) {
   return (
     <>
-      <div className="pile library" title={`Library: ${player.library.length} cards`}>
+      <div className="pile library" data-library={player.id} title={`Library: ${player.library.length} cards`}>
         <div className="card-back" />
         <span className="count">{player.library.length}</span>
       </div>
@@ -240,14 +240,37 @@ function Piles({ player }: { player: Player }) {
   );
 }
 
-/** An opponent's hand: face-down cards fanned out from their edge of the table. */
+/** `value` as it was on the previous render (the current one on the first). */
+function usePrevious<T>(value: T) {
+  const prev = useRef(value);
+  useEffect(() => {
+    prev.current = value;
+  });
+  return prev.current;
+}
+
+/**
+ * An opponent's hand: face-down cards fanned out from their edge of the table. The hand
+ * only shows a count, so a bigger hand next to a smaller library means the new cards were drawn.
+ */
 function OpponentHand({ player, span }: { player: Player; span: number }) {
+  const fanEl = useRef<HTMLDivElement>(null);
   const shown = Math.min(player.hand.length, 12);
+  const before = usePrevious({ hand: Math.min(player.hand.length, 12), library: player.library.length });
+  const drew = shown > before.hand && player.library.length < before.library;
   return (
     <div className="opp-hand" title={`${player.hand.length} cards in hand`}>
-      <div className="opp-fan">
+      <div className="opp-fan" ref={fanEl}>
         {Array.from({ length: shown }, (_, i) => (
-          <HandBack key={i} index={i} total={shown} span={span} />
+          <HandBack
+            key={i}
+            pid={player.id}
+            fanEl={fanEl}
+            index={i}
+            total={shown}
+            span={span}
+            drawn={drew && i >= before.hand ? i - before.hand : undefined}
+          />
         ))}
       </div>
       <span className="count">{player.hand.length}</span>
@@ -311,6 +334,9 @@ export function PlayerField({ player }: { player: Player }) {
     player.hand,
     useStore((s) => s.handOrder),
   );
+  // Cards that were in the library last time: the ones now in hand were just drawn, in draw order.
+  const library = usePrevious(new Set(player.library.map((c) => c.id)));
+  const drawn = player.hand.filter((c) => library.has(c.id)).map((c) => c.id);
   const moveCard = (from: number, to: number) => {
     const ids = hand.map((c) => c.id);
     ids.splice(to, 0, ...ids.splice(from, 1));
@@ -329,7 +355,14 @@ export function PlayerField({ player }: { player: Player }) {
       </div>
       <div className="hand">
         {hand.map((c, i) => (
-          <HandCard key={c.id} card={c} index={i} total={hand.length} onMove={(to) => moveCard(i, to)} />
+          <HandCard
+            key={c.id}
+            card={c}
+            index={i}
+            total={hand.length}
+            drawn={drawn.includes(c.id) ? drawn.indexOf(c.id) : undefined}
+            onMove={(to) => moveCard(i, to)}
+          />
         ))}
       </div>
     </>

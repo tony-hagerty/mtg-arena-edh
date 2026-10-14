@@ -1,4 +1,5 @@
 import { useRef, useState } from 'react';
+import type { RefObject } from 'react';
 import { motion } from 'motion/react';
 import { data, isCreature, scriptOf, stats } from '../engine';
 import type { Card, CardData } from '../engine';
@@ -43,6 +44,55 @@ const SPRING = { type: 'spring', stiffness: 420, damping: 36 } as const;
 
 /** One step from each table edge toward the middle, as [x, y]. */
 const INWARD = { bottom: [0, -1], left: [1, 0], top: [0, 1], right: [-1, 0] } as const;
+
+/** A drawn card's trip from the library to the hand. Cards drawn together leave the pile one after another. */
+const flight = (order: number) => ({ type: 'tween', duration: 0.55, ease: [0.25, 0.8, 0.35, 1], delay: order * 0.14 }) as const;
+
+/** Centre and width (px) of the top card of a player's library, or null if it isn't on screen. */
+function libraryTop(pid: number) {
+  const back = document.querySelector(`[data-library="${pid}"] .card-back`);
+  if (!back) return null;
+  const r = back.getBoundingClientRect();
+  // At the side seats the pile card is turned on its side, so its width is the shorter edge.
+  const turn = parseFloat(getComputedStyle(back).rotate) || 0;
+  return { x: r.left + r.width / 2, y: r.top + r.height / 2, w: Math.min(r.width, r.height), turn };
+}
+
+/**
+ * The pose a hand card starts from when it was just drawn: shrunk onto its owner's library
+ * pile. `anchor` is the point the card hangs from, `turn` how far the hand is rotated (deg),
+ * and `w`/`h` the card's size and `x` its place in the fan, all in px. Cards scale from their
+ * bottom edge (originY: 1), so the shift up is measured to the middle of the shrunk card.
+ */
+function onLibrary(pid: number, anchor: Element | null, turn: number, x: number, w: number, h: number) {
+  const top = libraryTop(pid);
+  if (!top || !anchor) return null;
+  const a = anchor.getBoundingClientRect();
+  const t = (turn * Math.PI) / 180;
+  // The pile's offset from the anchor, turned back into the hand's own frame.
+  const dx = top.x - a.left;
+  const dy = top.y - a.top;
+  const scale = top.w / w;
+  // A card back looks the same upside down, so never spin more than a quarter turn.
+  const rotate = ((((top.turn - turn) % 180) + 270) % 180) - 90;
+  return {
+    x: dx * Math.cos(t) + dy * Math.sin(t) - x,
+    y: -dx * Math.sin(t) + dy * Math.cos(t) - h + (scale * h) / 2,
+    scale,
+    rotate,
+  };
+}
+
+/**
+ * For a card that just came out of the library (`order` says how many were drawn before it in
+ * the same batch): where it starts, whether it is still on its way, and the transition to use.
+ * `measure` runs once, when the card first appears.
+ */
+function useFlight<T>(order: number | undefined, measure: () => T | null) {
+  const [start] = useState(() => (order === undefined ? null : measure()));
+  const [flying, setFlying] = useState(start !== null);
+  return { start, flying, transition: flying ? flight(order!) : SPRING, landed: () => setFlying(false) };
+}
 
 /** Where card `index` sits in a fanned hand of `total`: gap between cards, sideways shift and drop in rem, tilt in degrees. */
 function fan(index: number, total: number, maxGap: number, span: number) {
@@ -137,9 +187,22 @@ const HAND_W = 15;
  * A full card in the human's hand: fanned out, lifts and zooms on hover. Nothing happens on
  * a click, so rearranging can't play a card by accident. Dragging it sideways moves it to
  * another place in the hand (`onMove` gets the slot it is over); dragging it up toward the
- * table and letting go plays it.
+ * table and letting go plays it. A card just drawn (`drawn` is its place in the batch) flies
+ * in face down from the library and turns face up on the way.
  */
-export function HandCard({ card, index, total, onMove }: { card: Card; index: number; total: number; onMove: (to: number) => void }) {
+export function HandCard({
+  card,
+  index,
+  total,
+  drawn,
+  onMove,
+}: {
+  card: Card;
+  index: number;
+  total: number;
+  drawn?: number;
+  onMove: (to: number) => void;
+}) {
   const v = useView();
   const [hot, setHot] = useState(false);
   // While dragging: the shift that centres the card on the pointer, and whether letting go plays it.
@@ -150,15 +213,18 @@ export function HandCard({ card, index, total, onMove }: { card: Card; index: nu
   const d = data(card);
   const glow = v.glow.get(card.id);
   const { gap, x, tilt, drop } = fan(index, total, 10.5, 84);
+  const fly = useFlight(drawn, () =>
+    onLibrary(card.owner, document.querySelector('.hand'), 0, x * rem, HAND_W * rem, HAND_W * 1.4 * rem),
+  );
   // The next card covers this one's right side, so the cost sits at the right end of the part
   // that still shows. A card that is on top of the others gets it on its real corner.
   const onTop = hot || held !== null || index === total - 1;
   const costRight = onTop ? 0.5 : HAND_W - gap + 0.3;
   // -8.6rem keeps the zoomed card's bottom edge just past the screen edge, so the
-  // pointer never falls off the card and makes it flicker.
+  // pointer never falls off the card and makes it flicker. Hovering waits until the card lands.
   const pose = held
     ? { rotate: 0, x: held.x, y: held.y, scale: HELD_SCALE }
-    : hot
+    : hot && !fly.flying
       ? { rotate: 0, x: 0, y: -8.6 * rem, scale: 1.5 }
       : { rotate: tilt, x: 0, y: drop * rem, scale: 1 };
   return (
@@ -168,7 +234,7 @@ export function HandCard({ card, index, total, onMove }: { card: Card; index: nu
       layoutId={card.id}
       className="hand-slot"
       style={{ left: `${x}rem`, zIndex: held ? 101 : hot ? 100 : index }}
-      drag
+      drag={!fly.flying}
       dragSnapToOrigin
       dragMomentum={false}
       onDragStart={(_, info) => {
@@ -193,11 +259,13 @@ export function HandCard({ card, index, total, onMove }: { card: Card; index: nu
     >
       <motion.div
         className={cx('hand-card', glow && `glow-${glow}`, held?.armed && glow && 'armed')}
-        style={{ originY: 1 }}
-        initial={{ opacity: 0, y: 8 * rem }}
-        animate={{ opacity: 1, ...pose }}
-        transition={SPRING}
+        style={{ originY: 1, transformPerspective: 120 * rem }}
+        initial={fly.start ? { opacity: 1, rotateY: 180, ...fly.start } : { opacity: 0, y: 8 * rem }}
+        animate={{ opacity: 1, rotateY: 0, ...pose }}
+        transition={fly.transition}
+        onAnimationComplete={fly.landed}
       >
+        {fly.flying && <div className="card-back" />}
         <img src={d.image} alt={d.name} draggable={false} />
         {d.manaCost && (
           <div className="hand-cost" style={{ right: `${costRight}rem` }}>
@@ -209,17 +277,43 @@ export function HandCard({ card, index, total, onMove }: { card: Card; index: nu
   );
 }
 
-/** A face-down card in an opponent's hand, fanned like the human's but smaller and tighter. */
-export function HandBack({ index, total, span }: { index: number; total: number; span: number }) {
+/** Width of a face-down card in an opponent's hand in rem. Keep in step with .opp-fan .card-back. */
+const BACK_W = 9;
+
+/**
+ * A face-down card in an opponent's hand, fanned like the human's but smaller and tighter.
+ * `fanEl` is the hand's anchor; a card just drawn flies in from `pid`'s library.
+ */
+export function HandBack({
+  pid,
+  fanEl,
+  index,
+  total,
+  span,
+  drawn,
+}: {
+  pid: number;
+  fanEl: RefObject<HTMLDivElement | null>;
+  index: number;
+  total: number;
+  span: number;
+  drawn?: number;
+}) {
   const rem = useRem();
   const { x, tilt, drop } = fan(index, total, 4.6, span);
+  const fly = useFlight(drawn, () => {
+    const el = fanEl.current;
+    const turn = el ? parseFloat(getComputedStyle(el).rotate) || 0 : 0;
+    return onLibrary(pid, el, turn, 0, BACK_W * rem, BACK_W * 1.4 * rem);
+  });
   return (
     <motion.div
       className="card-back"
       style={{ originY: 1 }}
-      initial={{ opacity: 0, y: 6 * rem }}
-      animate={{ opacity: 1, x: x * rem, y: drop * 0.6 * rem, rotate: tilt }}
-      transition={SPRING}
+      initial={fly.start ? { opacity: 1, ...fly.start } : { opacity: 0, y: 6 * rem }}
+      animate={{ opacity: 1, x: x * rem, y: drop * 0.6 * rem, rotate: tilt, scale: 1 }}
+      transition={fly.transition}
+      onAnimationComplete={fly.landed}
     />
   );
 }
