@@ -1165,46 +1165,150 @@ button {
   color: #596171;
 }
 
-/* Whose turns the stops are for: one arrow per seat, laid out like the table. */
+/*
+  Whose turns the stops are for: a dial laid out like the table, one quarter per seat.
+  Each quarter is a whole button, so the target is the wedge, not just its arrow. It hangs
+  off the left of the action bar so the pips stay centred over the buttons below.
+*/
 .seat-arrows {
-  display: grid;
-  grid-template: repeat(3, 1.6rem) / repeat(3, 1.6rem);
-  flex: none;
+  position: absolute;
+  right: calc(100% + 1.2rem);
+  top: calc(50% - 3.6rem);
+  width: 7.2rem;
+  height: 7.2rem;
+  border-radius: 50%;
+  overflow: hidden;
+  background: radial-gradient(circle at 50% 35%, #2b3140, #10141c 75%);
+  box-shadow:
+    inset 0 0.2rem 0.3rem rgba(255, 255, 255, 0.12),
+    inset 0 -0.4rem 0.7rem rgba(0, 0, 0, 0.55),
+    0 0 0 0.15rem #3a4150,
+    0 0.5rem 1.4rem rgba(0, 0, 0, 0.75);
+}
+
+/* The diagonal seams between quarters, and the hub where they meet. Drawn over the buttons, never clickable. */
+.seat-arrows::before,
+.seat-arrows::after {
+  content: '';
+  position: absolute;
+  pointer-events: none;
+  z-index: 1;
+}
+
+.seat-arrows::before {
+  inset: 0;
+  background:
+    linear-gradient(45deg, transparent calc(50% - 0.16rem), #07090d calc(50% - 0.05rem), rgba(255, 255, 255, 0.1) calc(50% + 0.06rem), transparent calc(50% + 0.16rem)),
+    linear-gradient(-45deg, transparent calc(50% - 0.16rem), #07090d calc(50% - 0.05rem), rgba(255, 255, 255, 0.1) calc(50% + 0.06rem), transparent calc(50% + 0.16rem));
+}
+
+.seat-arrows::after {
+  left: calc(50% - 0.85rem);
+  top: calc(50% - 0.85rem);
+  width: 1.7rem;
+  height: 1.7rem;
+  border-radius: 50%;
+  background: radial-gradient(circle at 40% 35%, #4a5263, #171b24 70%);
+  box-shadow:
+    0 0 0 0.15rem #3a4150,
+    0 0.2rem 0.5rem rgba(0, 0, 0, 0.8);
+  transition: box-shadow 0.2s ease-out;
+}
+
+/* A seat is picked: the hub's ring takes that player's colour (--phase is set to it). */
+.seat-arrows:has(.on)::after {
+  box-shadow:
+    0 0 0 0.15rem var(--phase),
+    0 0 0.8rem color-mix(in srgb, var(--phase) 60%, transparent),
+    0 0.2rem 0.5rem rgba(0, 0, 0, 0.8);
 }
 
 .seat-arrow {
+  position: absolute;
+  inset: 0;
   display: flex;
   padding: 0;
-  background: none;
+  background: transparent;
   border: none;
+  transition: background 0.2s ease-out;
+}
+
+.seat-arrow.arrow-top {
+  clip-path: polygon(0 0, 100% 0, 50% 50%);
+  align-items: flex-start;
+  justify-content: center;
+}
+
+.seat-arrow.arrow-right {
+  clip-path: polygon(100% 0, 100% 100%, 50% 50%);
+  align-items: center;
+  justify-content: flex-end;
+}
+
+.seat-arrow.arrow-bottom {
+  clip-path: polygon(0 100%, 100% 100%, 50% 50%);
+  align-items: flex-end;
+  justify-content: center;
+}
+
+.seat-arrow.arrow-left {
+  clip-path: polygon(0 0, 0 100%, 50% 50%);
+  align-items: center;
+  justify-content: flex-start;
 }
 
 .seat-arrow svg {
-  width: 100%;
-  height: 100%;
-  fill: color-mix(in srgb, var(--deck) 45%, #2a303b);
-  transition: fill 0.2s, transform 0.2s;
+  width: 2.4rem;
+  height: 2.4rem;
+  margin: 0.45rem;
+  fill: color-mix(in srgb, var(--deck) 40%, #2a303b);
+  /* A stroke in the fill colour rounds the arrowhead's corners. */
+  stroke: color-mix(in srgb, var(--deck) 40%, #2a303b);
+  stroke-width: 2.5;
+  stroke-linejoin: round;
+  transition: fill 0.2s ease-out, stroke 0.2s ease-out, transform 0.15s ease-out, filter 0.2s ease-out;
 }
 
-.seat-arrow:hover svg,
+/* Whose turn it is now. */
 .seat-arrow.active svg {
-  fill: color-mix(in srgb, var(--deck) 75%, #2a303b);
+  fill: color-mix(in srgb, var(--deck) 70%, #2a303b);
+  stroke: color-mix(in srgb, var(--deck) 70%, #2a303b);
+}
+
+.seat-arrow:hover:not(:disabled),
+.seat-arrow:focus-visible {
+  background: radial-gradient(circle at 50% 50%, transparent 30%, color-mix(in srgb, var(--deck) 22%, transparent));
+}
+
+.seat-arrow:hover:not(:disabled) svg,
+.seat-arrow:focus-visible svg {
+  fill: color-mix(in srgb, var(--deck) 85%, #fff);
+  stroke: color-mix(in srgb, var(--deck) 85%, #fff);
+}
+
+.seat-arrow:focus-visible {
+  outline: none;
+}
+
+.seat-arrow:active:not(:disabled) svg {
+  transform: scale(0.88);
+}
+
+.seat-arrow.on {
+  background: radial-gradient(circle at 50% 50%, transparent 25%, color-mix(in srgb, var(--deck) 45%, transparent));
 }
 
 .seat-arrow.on svg {
-  fill: var(--deck);
-  transform: scale(1.25);
-  filter: drop-shadow(0 0 0.4rem var(--deck));
+  fill: color-mix(in srgb, var(--deck) 70%, #fff);
+  stroke: color-mix(in srgb, var(--deck) 70%, #fff);
+  filter: drop-shadow(0 0.1rem 0.5rem var(--deck));
 }
 
-.seat-arrow:disabled {
-  visibility: hidden;
+/* A player who is out: their quarter stays, so the dial keeps its shape, but goes dark. */
+.seat-arrow:disabled svg {
+  fill: #232831;
+  stroke: #232831;
 }
-
-.seat-arrow.arrow-top { grid-area: 1 / 2; }
-.seat-arrow.arrow-left { grid-area: 2 / 1; }
-.seat-arrow.arrow-right { grid-area: 2 / 3; }
-.seat-arrow.arrow-bottom { grid-area: 3 / 2; }
 
 .btn {
   height: 6.4rem;
