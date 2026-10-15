@@ -15,6 +15,9 @@ const NAME_MAX = 20;
 
 const SEAT_COUNTS = [2, 3, 4];
 
+/** "Ann", "Ann and Bo", "Ann, Bo and Cy". */
+const andList = (names: string[]) => (names.length < 2 ? names.join('') : `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`);
+
 /** Every deck this person can bring to a table: the built-in ones and the pasted decks that can be played. */
 function useDecks(): DeckDef[] {
   useStore((s) => s.cardsVersion);
@@ -249,7 +252,7 @@ export function WaitingRoom({ table }: { table: LobbyState }) {
         ) : (
           <p className="lobby-note">
             {waitingOn.length
-              ? `Waiting for ${waitingOn.map((s) => (s.you ? 'you' : s.name)).join(', ')} to be ready.`
+              ? `Waiting for ${andList(waitingOn.map((s) => (s.you ? 'you' : s.name)))} to be ready.`
               : hosting
                 ? 'Everyone is ready.'
                 : 'Everyone is ready. Waiting for the host to start.'}

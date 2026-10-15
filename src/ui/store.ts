@@ -378,6 +378,8 @@ export const useStore = create<Store>()((set, get) => ({
     if (get().tableGame) {
       remote.unwatch?.();
       remote.unwatch = null;
+      // Until the lobby hears it, it still says the game is on: that mustn't seat this window again.
+      remote.leaving = true;
       get().lobby?.leave().catch((err) => console.warn('Lobby:', err));
       set({ game: null, tableGame: false, hover: null, targeting: null, viewer: null, confirmExit: false });
       return;
@@ -431,7 +433,13 @@ export const useStore = create<Store>()((set, get) => ({
 const freshSeat = { handoff: null, targeting: null, attackTarget: null, pickedBlockers: [], handOrder: [], viewer: null, colorPick: null, hover: null };
 
 /** The connection's moving parts, outside the store's state: they don't change what's drawn. */
-const remote: { gameId: number; seq: Partial<Record<PlayerId, number>>; unwatch: (() => void) | null } = { gameId: 0, seq: {}, unwatch: null };
+const remote: { gameId: number; seq: Partial<Record<PlayerId, number>>; unwatch: (() => void) | null; leaving: boolean } = {
+  gameId: 0,
+  seq: {},
+  unwatch: null,
+  /** This window left a table's game and the lobby hasn't said so yet. */
+  leaving: false,
+};
 
 /** Streams `seat`'s view from the server, in place of the seat streamed before. */
 function watchSeat(seat: PlayerId | null) {
@@ -480,7 +488,8 @@ export function onView(m: ViewMessage) {
 export function onLobby(table: LobbyState) {
   const s = useStore.getState();
   useStore.setState({ table });
-  const seat = table.started ? table.yourSeat : null;
+  if (!table.started) remote.leaving = false;
+  const seat = table.started && !remote.leaving ? table.yourSeat : null;
   if (seat !== null && !s.tableGame && s.server) {
     useStore.setState({ tableGame: true, game: null, human: seat, humans: [seat], ...freshSeat, confirmExit: false });
     watchSeat(seat);
