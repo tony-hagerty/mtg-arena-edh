@@ -1,15 +1,36 @@
 // This computer's lobby (src/net/lobby.ts): not at a table, hosting one (hosting.ts), or at
-// a friend's (guest.ts). It also says which game the window's game endpoints play: the
-// one on this computer, or the friend's host's.
+// a friend's (guest.ts). It keeps this computer's copies of its tables' games (saves.ts),
+// which its player can carry on by hosting them again. It also says which game the
+// window's game endpoints play: the one on this computer, or the friend's host's.
 import type { Action, PlayerId } from '../../src/engine';
-import type { DeckRequest, HostRequest, JoinRequest, LobbyState, ReadyRequest, TableRequest } from '../../src/net/lobby';
+import type {
+  DeckRequest,
+  ForgetRequest,
+  HostRequest,
+  JoinRequest,
+  LobbyState,
+  PauseRequest,
+  ReadyRequest,
+  ResumeRequest,
+  SavedGame,
+  TableRequest,
+  VoteRequest,
+} from '../../src/net/lobby';
 import type { SeatPrefs, StartRequest, ViewMessage } from '../../src/net/protocol';
 import { Refused } from '../game';
 import type { GameHost, GameService } from '../game';
 import { decodeJoinCode, JoinCodeError } from '../net';
 import { GuestLink } from './guest';
 import { Hosting } from './hosting';
-import type { HostingOptions } from './hosting';
+import type { HostingEvents, HostingOptions } from './hosting';
+import { SaveStore } from './saves';
+import { Table } from './table';
+import type { Person } from './table';
+
+export interface LobbyOptions extends HostingOptions {
+  /** The folder saved games are kept in (ArenaEDH-data/saves beside the .exe). */
+  saves: string;
+}
 
 const NONE: LobbyState = { role: 'none', code: null, reach: null, seatCount: 0, fillBots: true, seats: [], yourSeat: null, started: false, error: null, votes: [], paused: null, resuming: false, saves: [] };
 
@@ -20,15 +41,20 @@ export class Lobby {
   /** The last thing that went wrong, until the next change. */
   private error: string | null = null;
   private watchers = new Set<(s: LobbyState) => void>();
+  private store: SaveStore;
+  private saves: SavedGame[];
 
   constructor(
     private game: GameHost,
-    private opts: HostingOptions,
-  ) {}
+    private opts: LobbyOptions,
+  ) {
+    this.store = new SaveStore(opts.saves);
+    this.saves = this.store.list();
+  }
 
   state(): LobbyState {
     const s = this.hosting?.state() ?? this.guest?.state ?? (this.connecting ? { ...NONE, role: 'connecting' as const } : NONE);
-    return { ...s, error: this.error ?? s.error };
+    return { ...s, saves: this.saves, error: this.error ?? s.error };
   }
 
   /** Calls `on` with the lobby now and after every change, until the returned function is called. */
@@ -39,10 +65,42 @@ export class Lobby {
   }
 
   async host(req: HostRequest) {
+    const host: Person = { name: String(req.name ?? '').trim() || 'Host', deck: req.deck ?? null, ready: false };
+    await this.open((changed) => new Table(this.game, host, req.seatCount, !!req.fillBots, changed));
+  }
+
+  /** Hosts a new table for a game saved here, with this computer's player in their own seat. */
+  async resume({ save }: ResumeRequest) {
+    const saved = this.store.read(String(save ?? ''));
+    if (!saved) throw new Refused('That saved game can’t be read any more.');
+    await this.open((changed) => Table.resume(this.game, saved, changed));
+  }
+
+  forget({ save }: ForgetRequest) {
+    this.store.remove(String(save ?? ''));
+    this.savesChanged();
+  }
+
+  vote({ seat, yes }: VoteRequest) {
+    if (this.hosting) return this.hosting.table.vote(this.hosting.table.host, Number(seat), !!yes);
+    this.atTable().request({ t: 'vote', seat: Number(seat), yes: !!yes });
+  }
+
+  pause({ paused }: PauseRequest) {
+    if (this.hosting) return this.hosting.table.setPaused(this.hosting.table.host, !!paused);
+    this.atTable().request({ t: 'pause', paused: !!paused });
+  }
+
+  private async open(table: (changed: () => void) => Table) {
     this.close();
     // A game played at this screen before ends: the table's game takes its place.
     this.game.end();
-    const hosting = new Hosting(this.game, req, this.opts, () => this.changed());
+    const events: HostingEvents = {
+      changed: () => this.changed(),
+      save: (copy, seat) => this.keep(() => this.store.write(copy, seat)),
+      forget: (id) => this.keep(() => this.store.remove(id)),
+    };
+    const hosting = new Hosting(this.game, table, this.opts, events);
     await hosting.open();
     this.hosting = hosting;
     this.changed();
@@ -70,6 +128,8 @@ export class Lobby {
           this.error = reason;
           this.changed(false);
         },
+        save: (copy, seat) => this.keep(() => this.store.write(copy, seat)),
+        forget: (id) => this.keep(() => this.store.remove(id)),
       });
     } catch (err) {
       this.error = err instanceof Error ? err.message : String(err);
@@ -128,6 +188,22 @@ export class Lobby {
     this.guest?.leave();
     this.guest = null;
     this.error = null;
+  }
+
+  /** Writes or removes a saved game. A full or read-only disk shouldn't stop the game. */
+  private keep(change: () => void) {
+    try {
+      change();
+    } catch {
+      return;
+    }
+    this.savesChanged();
+  }
+
+  private savesChanged() {
+    const before = JSON.stringify(this.saves);
+    this.saves = this.store.list();
+    if (JSON.stringify(this.saves) !== before) this.changed(false);
   }
 
   /** Tells the window. A change clears the last error unless `clear` is false. */

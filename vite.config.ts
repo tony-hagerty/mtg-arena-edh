@@ -1,5 +1,7 @@
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import type { IncomingMessage, ServerResponse } from 'node:http';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { defineConfig } from 'vitest/config';
 import type { Plugin } from 'vite';
 import react from '@vitejs/plugin-react';
@@ -50,7 +52,11 @@ function gameServer(): Plugin {
         const game = await server.ssrLoadModule('/server/game/index.ts');
         const lobby = await server.ssrLoadModule('/server/lobby/index.ts');
         const net = await server.ssrLoadModule('/server/net/index.ts');
-        const it = new lobby.Lobby(new game.GameHost(), { checkHost: (port: number) => net.checkHost(port) });
+        const it = new lobby.Lobby(new game.GameHost(), {
+          checkHost: (port: number) => net.checkHost(port),
+          // The dev server keeps its saved games out of the repository.
+          saves: join(tmpdir(), 'arena-edh-dev-saves'),
+        });
         return { handle: (req: IncomingMessage, res: ServerResponse, path: string) => lobby.handleApi(it, req, res, path) as boolean };
       };
       server.middlewares.use((req, res, next) => {
