@@ -2,6 +2,9 @@
 // The lobby's server side (phase 4 of multiplayer): one program hosts, another joins with the
 // code over TLS, and they play a game whose whole state only the host has. Both programs
 // run in this process, connected through 127.0.0.1.
+import { mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import './fixtures';
 import { DECKS, cardData } from '../src/cards/db';
@@ -53,11 +56,12 @@ afterEach(() => open.splice(0).forEach((l) => l.leave()));
 function program() {
   const clock = manualClock();
   const game = new GameHost(clock.schedule);
-  const lobby = new Lobby(game, { checkHost: noRouter, port: 0, bind: '127.0.0.1' });
+  const saves = mkdtempSync(join(tmpdir(), 'arena-saves-'));
+  const lobby = new Lobby(game, { checkHost: noRouter, port: 0, bind: '127.0.0.1', saves, saveEvery: 0 });
   open.push(lobby);
   let last!: LobbyState;
   lobby.watch((s) => (last = s));
-  return { clock, game, lobby, state: () => last };
+  return { clock, game, lobby, saves, state: () => last };
 }
 
 async function hostAndJoin(seatCount = 2, fillBots = false) {
@@ -68,6 +72,15 @@ async function hostAndJoin(seatCount = 2, fillBots = false) {
   await guest.lobby.join({ code: host.state().code!, name: 'Ben', deck: choice(DECKS[1]) });
   await until(() => !!host.state().seats[1]?.deck && !!guest.state().seats[1]?.deck);
   return { host, guest };
+}
+
+/** Everyone at the table says they're ready, and the host starts. */
+async function startGame(...programs: ReturnType<typeof program>[]) {
+  const [host] = programs;
+  for (const p of programs) p.lobby.ready({ ready: true });
+  await until(() => host.state().seats.every((s) => s.ready));
+  host.lobby.start();
+  await until(() => programs.every((p) => p.state().started));
 }
 
 describe('a table of friends', () => {
@@ -164,6 +177,8 @@ describe('a table of friends', () => {
     }
     await until(() => views[1].game!.step === 'gameOver');
     expect(views[1].game!.winner).toBe(host.game.full!.winner);
+    // A finished game can't be carried on, so no one keeps a copy of it.
+    await until(() => !host.state().saves.length && !guest.state().saves.length, 'the copies to go');
   });
 
   it('keeps the host’s window to the host’s own seat', async () => {
@@ -251,11 +266,114 @@ describe('a table of friends', () => {
   });
 });
 
+describe('when someone goes, and saved games', () => {
+  it('lets a bot play a gone friend’s seat once most of the table votes for it, until they come back', async () => {
+    const { host, guest } = await hostAndJoin(3);
+    const cat = program();
+    await cat.lobby.join({ code: host.state().code!, name: 'Cat', deck: choice(DECKS[2]) });
+    await until(() => !!host.state().seats[2]?.deck);
+    await startGame(host, guest, cat);
+    cat.lobby.leave();
+    await until(() => host.state().seats[2].away);
+    expect(host.state().votes).toEqual([{ seat: 2, name: 'Cat', yes: 0, no: 0, needed: 2, yours: null }]);
+
+    host.lobby.vote({ seat: 2, yes: true });
+    expect(host.state().votes[0]).toMatchObject({ yes: 1, yours: true });
+    guest.lobby.vote({ seat: 2, yes: false });
+    await until(() => guest.state().votes[0]?.yours === false);
+    expect(host.game.full!.players[2].isBot).toBe(false);
+    // A vote can be changed: now two of the two people here say yes.
+    guest.lobby.vote({ seat: 2, yes: true });
+    await until(() => host.state().seats[2].standIn);
+    expect(host.state().votes).toEqual([]);
+    expect(host.game.full!.players[2].isBot).toBe(true);
+    expect(host.game.full!.log.at(-1)?.text).toMatch(/A bot plays for Cat/);
+
+    const back = program();
+    await back.lobby.join({ code: host.state().code!, name: 'Cat', deck: null });
+    expect(back.state()).toMatchObject({ yourSeat: 2, started: true });
+    expect(host.state().seats[2]).toMatchObject({ away: false, standIn: false });
+    expect(host.game.full!.players[2].isBot).toBe(false);
+  });
+
+  it('pauses the game for everyone until someone carries on', async () => {
+    const { host, guest } = await hostAndJoin(3, true);
+    await startGame(host, guest);
+    guest.lobby.pause({ paused: true });
+    await until(() => !!host.state().paused);
+    expect(host.state().paused).toEqual({ by: 'Ben' });
+    // Nobody moves and the bots wait.
+    expect(host.clock.next()).toBe(false);
+    const g = host.game.full!;
+    expect(host.game.act(g.priority, 1, botAction(g, g.priority))).toBe(false);
+    expect(host.game.full).toBe(g);
+    host.lobby.pause({ paused: false });
+    await until(() => !guest.state().paused);
+    expect(host.game.isPaused).toBe(false);
+  });
+
+  it('keeps a copy of the game on every player’s computer, in their own seat', async () => {
+    const { host, guest } = await hostAndJoin();
+    await startGame(host, guest);
+    await until(() => host.state().saves.length === 1 && guest.state().saves.length === 1, 'the copies');
+    const [mine, theirs] = [host.state().saves[0], guest.state().saves[0]];
+    expect(mine.id).toBe(theirs.id);
+    expect(mine).toMatchObject({ yourSeat: 0, players: [{ name: 'Ana', bot: false }, { name: 'Ben', bot: false }] });
+    expect(theirs.yourSeat).toBe(1);
+    // A copy can be thrown away.
+    guest.lobby.forget({ save: theirs.id });
+    expect(guest.state().saves).toEqual([]);
+  });
+
+  it('lets a friend carry the game on as the new host after the host goes', async () => {
+    const { host, guest } = await hostAndJoin();
+    await startGame(host, guest);
+    await until(() => guest.state().saves.length === 1, 'the copy');
+    const game = host.game.full!;
+    host.lobby.leave();
+    await until(() => guest.state().role === 'none');
+
+    await guest.lobby.resume({ save: guest.state().saves[0].id });
+    await until(() => !!guest.state().code);
+    expect(guest.state()).toMatchObject({ role: 'hosting', resuming: true, started: false, yourSeat: 1 });
+    expect(guest.state().seats.map((s) => [s.name, s.away, s.host])).toEqual([
+      ['Ana', true, false],
+      ['Ben', false, true],
+    ]);
+    expect(() => guest.lobby.start()).toThrow(/Waiting for Ana/);
+
+    // The old host comes back as a friend, under the name they played as.
+    await expect(host.lobby.join({ code: guest.state().code!, name: 'Eve', deck: null })).rejects.toThrow(/name you played as: Ana/);
+    await host.lobby.join({ code: guest.state().code!, name: 'Ana', deck: null });
+    expect(host.state()).toMatchObject({ role: 'joined', yourSeat: 0, resuming: true });
+    guest.lobby.start();
+    expect(guest.game.full).toEqual(game);
+    await until(() => host.state().started);
+    let view: ViewMessage | null = null;
+    host.lobby.games().watch(0, (m) => (view = m));
+    await until(() => !!view?.game);
+    expect(view!.game!.players[0].hand).toEqual(game.players[0].hand);
+  });
+
+  it('carries a saved game on with a bot for someone who doesn’t come back, if the table agrees', async () => {
+    const { host, guest } = await hostAndJoin();
+    await startGame(host, guest);
+    await until(() => host.state().saves.length === 1, 'the copy');
+    guest.lobby.leave();
+    host.lobby.leave();
+    await host.lobby.resume({ save: host.state().saves[0].id });
+    host.lobby.vote({ seat: 1, yes: true });
+    expect(host.state().seats[1]).toMatchObject({ away: true, standIn: true });
+    host.lobby.start();
+    expect(host.game.full!.players.map((p) => p.isBot)).toEqual([false, true]);
+  });
+});
+
 describe('the lobby over HTTP', () => {
   it('hosts from the window, streams the lobby, and answers a bad code with the reason', async () => {
     const { makeServer, listen } = await import('../launcher/serve');
     const { handleApi } = await import('../server/lobby');
-    const lobby = new Lobby(new GameHost(manualClock().schedule), { checkHost: noRouter, port: 0, bind: '127.0.0.1' });
+    const lobby = new Lobby(new GameHost(manualClock().schedule), { checkHost: noRouter, port: 0, bind: '127.0.0.1', saves: mkdtempSync(join(tmpdir(), 'arena-saves-')) });
     open.push(lobby);
     const server = makeServer({
       files: () => undefined,
