@@ -5,16 +5,33 @@ import { checkList, norm, savedDeckIssues } from '../cards/decklist';
 import { clearFetchedCards, fetchCards, fetchedCount, requestFor } from '../cards/fetched';
 import { downloadRequests, keptRequests, reportRequests, writesFile } from './card-requests';
 import { type SeatPlayer, useStore } from './store';
+import { HostTable, JoinTable, WaitingRoom } from './LobbyScreen';
 import { CardImage } from './TextCard';
 import { cx, deckColor } from './util';
 
+type MenuScreen = 'decks' | 'paste' | 'host' | 'join';
+
 export function Menu() {
-  const [pasting, setPasting] = useState(false);
-  return pasting ? <PasteDeck close={() => setPasting(false)} /> : <DeckMenu paste={() => setPasting(true)} />;
+  const [screen, setScreen] = useState<MenuScreen>('decks');
+  const table = useStore((s) => s.table);
+  const atTable = !!table && table.role !== 'none';
+  const back = () => setScreen('decks');
+  // Leaving a table comes back to the decks, not to the form that opened it.
+  useEffect(() => {
+    if (atTable) back();
+  }, [atTable]);
+  // At a table, the waiting room stays up until the game starts or this person leaves.
+  if (atTable) return <WaitingRoom table={table} />;
+  if (screen === 'paste') return <PasteDeck close={back} />;
+  if (screen === 'host') return <HostTable close={back} />;
+  if (screen === 'join') return <JoinTable close={back} />;
+  return <DeckMenu go={setScreen} />;
 }
 
-function DeckMenu({ paste }: { paste: () => void }) {
+function DeckMenu({ go }: { go: (screen: MenuScreen) => void }) {
   const start = useStore((s) => s.start);
+  // Hosting and joining need the Windows program (or `npm run dev`): a file opened from disk has no lobby.
+  const lobby = useStore((s) => s.lobby);
   const saved = useStore((s) => s.savedDecks);
   // Saved decks are checked again once fetched cards load (`loadCards`).
   useStore((s) => s.cardsVersion);
@@ -32,7 +49,17 @@ function DeckMenu({ paste }: { paste: () => void }) {
       </div>
       <Opponents />
       <div className="menu-actions">
-        <button className="watch" onClick={paste}>
+        {lobby && (
+          <>
+            <button className="watch" onClick={() => go('host')}>
+              Host a table
+            </button>
+            <button className="watch" onClick={() => go('join')}>
+              Join a table
+            </button>
+          </>
+        )}
+        <button className="watch" onClick={() => go('paste')}>
           Paste a deck list
         </button>
         <button className="watch" onClick={() => start(null)}>
