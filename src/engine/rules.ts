@@ -681,7 +681,7 @@ function useManaAbility(g: Game, pid: PlayerId, c: Card, ab: ManaUse) {
   }
   if (ab.discardHand) discardHand(g, pid);
   if (ab.fromHand) {
-    log(g, `${says(p, 'exiles')} ${label(c)} from ${p.isBot ? 'their' : 'your'} hand for mana.`, pid, [c]);
+    log(g, `${says(p, 'exiles')} ${label(c)} from ${their(p)} hand for mana.`, pid, [c]);
     moveCard(g, c, 'exile');
     return;
   }
@@ -1162,13 +1162,39 @@ const SECOND_PERSON: Record<string, string> = {
   shuffles: 'shuffle',
 };
 
-/** Subject + verb for the log: "Cinder casts" for a bot, "You cast" for the human. */
-export const says = (p: Player, verb: string) => `${p.name} ${p.isBot ? verb : (SECOND_PERSON[verb] ?? verb)}`;
+/**
+ * A verb as the log writes it for this player: "casts" for everyone, "cast" for the one
+ * person playing alone against bots, whom the log calls "You" (`Player.you`).
+ */
+export const verbFor = (p: Player, verb: string) => (p.you ? (SECOND_PERSON[verb] ?? verb) : verb);
 
-/** Adds a line to the game log. `cards` are the cards the text names, for the UI to link. */
-export function log(g: Game, text: string, player?: PlayerId, cards: Card[] = []) {
+/** Subject + verb for the log: "Cinder casts", or "You cast" for `Player.you`. */
+export const says = (p: Player, verb: string) => `${p.name} ${verbFor(p, verb)}`;
+
+/** The possessive for this player in the log: "their", or "your" for `Player.you`. */
+export const their = (p: Player) => (p.you ? 'your' : 'their');
+
+/** The player's name as a possessive: "Cinder's", or "Your" for `Player.you`. */
+export const whose = (p: Player) => (p.you ? 'Your' : `${p.name}'s`);
+
+const cardNames = (cards: Card[]) => {
   const names = [...new Set(cards.map(label))];
-  g.log.push({ turn: g.turn, text, player, ...(names.length ? { cards: names } : {}) });
+  return names.length ? { cards: names } : {};
+};
+
+/**
+ * Adds a line to the game log. `cards` are the cards the text names, for the UI to link.
+ * `secret` is the line as some players see it when it names hidden cards, like the one a
+ * player found searching their library (701.23e); the rest see `text`.
+ */
+export function log(g: Game, text: string, player?: PlayerId, cards: Card[] = [], secret?: { players: PlayerId[]; text: string; cards?: Card[] }) {
+  g.log.push({
+    turn: g.turn,
+    text,
+    player,
+    ...cardNames(cards),
+    ...(secret ? { private: { players: secret.players, text: secret.text, ...cardNames(secret.cards ?? []) } } : {}),
+  });
   if (g.log.length > 400) g.log.splice(0, g.log.length - 400);
 }
 
@@ -1885,7 +1911,7 @@ export function discard(g: Game, c: Card) {
 export function discardHand(g: Game, pid: PlayerId) {
   const hand = [...g.players[pid].hand];
   if (!hand.length) return;
-  log(g, `${says(g.players[pid], 'discards')} ${g.players[pid].isBot ? 'their' : 'your'} hand: ${hand.map(label).join(', ')}.`, pid, hand);
+  log(g, `${says(g.players[pid], 'discards')} ${their(g.players[pid])} hand: ${hand.map(label).join(', ')}.`, pid, hand);
   for (const c of hand) moveCard(g, c, 'graveyard');
   for (const c of hand) broadcast(g, 'onDiscard', { card: c, player: pid });
 }

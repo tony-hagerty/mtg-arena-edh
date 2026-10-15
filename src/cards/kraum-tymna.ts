@@ -60,6 +60,9 @@ import {
   refStack,
   sacrifice,
   says,
+  their,
+  verbFor,
+  whose,
   search,
   stats,
   turnOrder,
@@ -133,7 +136,7 @@ const opponentLandColors = (g: Game, self: Card): ManaSym[] => {
  */
 function drawUnlessPays(g: Game, you: PlayerId, payer: PlayerId, cost: string, source: Card) {
   ask(g, payer, {
-    text: `Pay ${cost}, or ${g.players[you].name === 'You' ? 'you' : g.players[you].name} may draw a card (${label(source)}).`,
+    text: `Pay ${cost}, or ${g.players[you].you ? 'you' : g.players[you].name} may draw a card (${label(source)}).`,
     cost,
     yes: `Pay ${cost}`,
     no: "Don't Pay",
@@ -153,7 +156,7 @@ const botDraws = (g: Game, pid: PlayerId) => ({ type: 'answer' as const, yes: g.
 /** "Draw a card unless that player pays {N}" (Esper Sentinel): the draw isn't optional. */
 function drawsUnlessPays(g: Game, you: PlayerId, payer: PlayerId, cost: string, source: Card) {
   ask(g, payer, {
-    text: `Pay ${cost}, or ${g.players[you].name === 'You' ? 'you draw' : `${g.players[you].name} draws`} a card (${label(source)}).`,
+    text: `Pay ${cost}, or ${g.players[you].you ? 'you draw' : `${g.players[you].name} draws`} a card (${label(source)}).`,
     cost,
     yes: `Pay ${cost}`,
     no: "Don't Pay",
@@ -360,7 +363,7 @@ registerScripts({
     onResolve: (g, { you }) => {
       // The opponents it affects are the ones in the game as it resolves (611.2c).
       for (const o of opponentsOf(g, you)) addEffect(g, { kind: 'cantCast', player: o.id });
-      log(g, `${g.players[you].isBot ? `${g.players[you].name}'s` : 'Your'} opponents can't cast spells this turn.`, you);
+      log(g, `${whose(g.players[you])} opponents can't cast spells this turn.`, you);
     },
   },
   'Grand Abolisher': {
@@ -448,7 +451,7 @@ registerScripts({
   'Smothering Tithe': {
     onDraw: {
       when: (g, { self, player }) => isOpponent(g, self.controller, player),
-      resolve: (g, { self, player }) => payOr(g, player, '{2}', `Pay {2}, or ${g.players[self.controller].name === 'You' ? 'you create' : `${g.players[self.controller].name} creates`} a Treasure (${label(self)}).`),
+      resolve: (g, { self, player }) => payOr(g, player, '{2}', `Pay {2}, or ${g.players[self.controller].you ? 'you create' : `${g.players[self.controller].name} creates`} a Treasure (${label(self)}).`),
     },
     then: { unpaid: (g, { you, yes }) => !yes && void createToken(g, you, 'Treasure') },
   },
@@ -587,7 +590,7 @@ registerScripts({
         while (lib.length) {
           const c = lib[0];
           if (hasName(c, name)) {
-            log(g, `${says(g.players[you], 'reveals')} ${label(c)} and puts it into ${g.players[you].isBot ? 'their' : 'your'} hand.`, you, [c]);
+            log(g, `${says(g.players[you], 'reveals')} ${label(c)} and puts it into ${their(g.players[you])} hand.`, you, [c]);
             moveCard(g, c, 'hand');
             break;
           }
@@ -604,7 +607,7 @@ registerScripts({
       take: (g, { you, yes, data }) => {
         const card = g.players[you].exile.find((c) => c.id === data.card);
         if (yes && card) {
-          log(g, `${says(g.players[you], 'puts')} ${label(card)} into ${g.players[you].isBot ? 'their' : 'your'} hand.`, you, [card]);
+          log(g, `${says(g.players[you], 'puts')} ${label(card)} into ${their(g.players[you])} hand.`, you, [card]);
           moveCard(g, card, 'hand');
         } else taintedPact(g, you, data.names as string[]);
       },
@@ -643,7 +646,7 @@ function mayCast(g: Game, pid: PlayerId, cards: Card[], opts: { play?: boolean; 
 function exileTop(g: Game, pid: PlayerId, n: number): Card[] {
   const cards = g.players[pid].library.slice(0, n);
   for (const c of cards) moveCard(g, c, 'exile');
-  if (cards.length) log(g, `${says(g.players[pid], 'exiles')} ${cards.map(label).join(', ')} from the top of ${g.players[pid].isBot ? 'their' : 'your'} library.`, pid, cards);
+  if (cards.length) log(g, `${says(g.players[pid], 'exiles')} ${cards.map(label).join(', ')} from the top of ${their(g.players[pid])} library.`, pid, cards);
   return cards;
 }
 
@@ -654,7 +657,7 @@ const who = (g: Game, pid: PlayerId) => g.players[pid].name;
 function adNauseam(g: Game, pid: PlayerId) {
   const top = g.players[pid].library[0];
   if (!top) return;
-  log(g, `${says(g.players[pid], 'reveals')} ${label(top)} and ${g.players[pid].isBot ? 'puts' : 'put'} it into ${g.players[pid].isBot ? 'their' : 'your'} hand.`, pid, [top]);
+  log(g, `${says(g.players[pid], 'reveals')} ${label(top)} and ${verbFor(g.players[pid], 'puts')} it into ${their(g.players[pid])} hand.`, pid, [top]);
   moveCard(g, top, 'hand');
   loseLife(g, pid, manaValue(top));
   // "You may repeat this process any number of times."
@@ -724,7 +727,7 @@ registerScripts({
       resolve: (g, { card }) => {
         const c = g.players[card.owner].graveyard.find((x) => sameCard(x, card));
         if (!c) return;
-        log(g, `${label(c)} is exiled from ${g.players[c.owner].isBot ? `${g.players[c.owner].name}'s` : 'your'} graveyard (Necropotence).`, c.owner, [c]);
+        log(g, `${label(c)} is exiled from ${g.players[c.owner].you ? 'your' : `${g.players[c.owner].name}'s`} graveyard (Necropotence).`, c.owner, [c]);
         moveCard(g, c, 'exile');
       },
     },
@@ -737,7 +740,7 @@ registerScripts({
         if (!top) return;
         moveCard(g, top, 'exile');
         top.faceDown = true; // nobody may look at it, its owner included (406.3)
-        log(g, `${says(g.players[you], 'exiles')} the top card of ${g.players[you].isBot ? 'their' : 'your'} library face down.`, you);
+        log(g, `${says(g.players[you], 'exiles')} the top card of ${their(g.players[you])} library face down.`, you);
         delay(g, self, you, { key: 'hand', step: 'end', player: you, data: { id: top.id, moves: top.moves } });
       },
     },
@@ -746,7 +749,7 @@ registerScripts({
         const c = g.players[you].exile.find((x) => sameCard(x, data as { id: string; moves: number }));
         if (!c) return;
         moveCard(g, c, 'hand');
-        log(g, `${says(g.players[you], 'puts')} a card exiled with Necropotence into ${g.players[you].isBot ? 'their' : 'your'} hand.`, you);
+        log(g, `${says(g.players[you], 'puts')} a card exiled with Necropotence into ${their(g.players[you])} hand.`, you);
       },
     },
     // Bots pay a life a card in their second main phase while they have plenty, up to a full hand.
@@ -771,7 +774,7 @@ registerScripts({
       found: (g, { you, targets, picked }) => {
         const o = refPlayer(g, targets[0]);
         if (!o || !picked.length) return;
-        pickCards(g, o.id, picked, { min: 1, max: 1, text: `choose the card ${g.players[you].name === 'You' ? 'you put into your' : `${who(g, you)} puts into their`} hand`, button: 'Choose', then: 'chosen', data: { cards: picked.map((c) => c.id) } });
+        pickCards(g, o.id, picked, { min: 1, max: 1, text: `choose the card ${g.players[you].you ? 'you put into your' : `${who(g, you)} puts into their`} hand`, button: 'Choose', then: 'chosen', data: { cards: picked.map((c) => c.id) } });
       },
       // "Put that card into your hand and the rest into your graveyard. Then shuffle."
       chosen: (g, { you, picked, data }) => {
@@ -921,7 +924,7 @@ registerScripts({
       exile: (g, { you, picked }) => {
         const c = picked[0];
         if (!c || c.zone !== 'hand') return;
-        log(g, `${says(g.players[you], 'exiles')} ${label(c)} from ${g.players[you].isBot ? 'their' : 'your'} hand.`, you, [c]);
+        log(g, `${says(g.players[you], 'exiles')} ${label(c)} from ${their(g.players[you])} hand.`, you, [c]);
         moveCard(g, c, 'exile');
       },
     },
@@ -1188,7 +1191,7 @@ registerScripts({
       for (const c of g.players[you].battlefield.filter(isLand)) {
         c.mods.push({ power: 0, toughness: 0, keywords: [], mana: { amount: 1, colors: ['B'], noTap: true, sacrifice: true } });
       }
-      log(g, `${g.players[you].isBot ? `${who(g, you)}'s` : 'Your'} lands gain "Sacrifice this land: Add {B}" until end of turn.`, you);
+      log(g, `${whose(g.players[you])} lands gain "Sacrifice this land: Add {B}" until end of turn.`, you);
     },
   },
 });
@@ -1209,7 +1212,7 @@ function diamondToGraveyard(g: Game, c: Card) {
 function toHand(g: Game, pid: PlayerId, ref: { id: string; moves: number }) {
   const c = g.players[pid].exile.find((x) => sameCard(x, ref));
   if (!c) return;
-  log(g, `${says(g.players[pid], 'puts')} the card exiled with Beseech the Mirror into ${g.players[pid].isBot ? 'their' : 'your'} hand.`, pid);
+  log(g, `${says(g.players[pid], 'puts')} the card exiled with Beseech the Mirror into ${their(g.players[pid])} hand.`, pid);
   moveCard(g, c, 'hand');
 }
 

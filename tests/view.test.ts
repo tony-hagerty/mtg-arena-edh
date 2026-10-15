@@ -13,8 +13,9 @@ import { byName, emptyGame, put } from './helpers';
 function play(setup: (g: Game) => void) {
   const g = produce(emptyGame(setup), (d) => {
     d.players[0].isBot = false;
+    d.players[0].you = true;
   });
-  useStore.setState({ game: g, human: 0, targeting: null, pickedBlockers: [] });
+  useStore.setState({ game: g, human: 0, humans: [0], handoff: null, targeting: null, pickedBlockers: [] });
 }
 const game = () => useStore.getState().game!;
 const press = () => buildView().primary!.onClick();

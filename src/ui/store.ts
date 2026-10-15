@@ -1,7 +1,7 @@
 import { produce } from 'immer';
 import { create } from 'zustand';
 import { applyAction, applyBotAction, defaultStops, newGame } from '../engine';
-import type { Action, ApplyOptions, AttackOption, CastChoices, Game, ManaSym, PlayerId, Step, StopKind, Stops, TargetRef, TargetSpec, Zone } from '../engine';
+import type { Action, ApplyOptions, AttackOption, CastChoices, Game, ManaSym, PlayerId, SeatDef, Step, StopKind, Stops, TargetRef, TargetSpec, Zone } from '../engine';
 import { DECKS, isCardName } from '../cards/db';
 import type { DeckDef } from '../cards/db';
 import { savedDeckIssues } from '../cards/decklist';
@@ -46,7 +46,11 @@ export interface Targeting {
 
 const STOPS_KEY = 'arena-edh.stops';
 
-/** The human's stops from the last session, or the defaults. Storage can be missing or blocked. */
+/**
+ * The human's stops from the last session, or the defaults. Storage can be missing or blocked.
+ * They are kept by seat counted from the human's own: index 0 is their own turn, 1 the next
+ * player's, and so on, so they hold wherever the human sits.
+ */
 function loadStops(): Stops {
   try {
     const saved = JSON.parse(localStorage.getItem(STOPS_KEY) ?? 'null');
@@ -65,6 +69,10 @@ function saveStops(stops: Stops) {
   }
 }
 
+/** The human's stops (`loadStops`) turned into the engine's, by whose turn it is, for `seat` at a table of `players`. */
+export const absoluteStops = (stops: Stops, seat: PlayerId, players: number): Stops =>
+  Array.from({ length: players }, (_, turn) => stops[(turn - seat + players) % players] ?? {});
+
 const SETTINGS_KEY = 'arena-edh.settings';
 
 /** Choices the human makes once, not every game. Each defaults to the automatic way. */
@@ -73,9 +81,14 @@ export interface Settings {
   manualDamage: boolean;
   /** The deck each bot seat plays, by deck id, one per opponent; null picks one automatically (see `seatDecks`). */
   opponents: (string | null)[];
+  /** Who plays each opponent seat: a bot, another person at this screen, or nobody (a smaller table). */
+  players: SeatPlayer[];
 }
 
-const DEFAULT_SETTINGS: Settings = { manualDamage: false, opponents: [null, null, null] };
+export type SeatPlayer = 'bot' | 'person' | 'empty';
+const SEAT_PLAYERS: SeatPlayer[] = ['bot', 'person', 'empty'];
+
+const DEFAULT_SETTINGS: Settings = { manualDamage: false, opponents: [null, null, null], players: ['bot', 'bot', 'bot'] };
 
 /** The human's settings from the last session, or the defaults. Storage can be missing or blocked. */
 function loadSettings(): Settings {
@@ -83,7 +96,8 @@ function loadSettings(): Settings {
     const saved = JSON.parse(localStorage.getItem(SETTINGS_KEY) ?? 'null');
     if (saved && typeof saved === 'object') {
       const opponents = DEFAULT_SETTINGS.opponents.map((_, i) => (typeof saved.opponents?.[i] === 'string' ? (saved.opponents[i] as string) : null));
-      return { ...DEFAULT_SETTINGS, manualDamage: saved.manualDamage === true, opponents };
+      const players = DEFAULT_SETTINGS.players.map((d, i) => (SEAT_PLAYERS.includes(saved.players?.[i]) ? (saved.players[i] as SeatPlayer) : d));
+      return { ...DEFAULT_SETTINGS, manualDamage: saved.manualDamage === true, opponents, players };
     }
   } catch {
     // fall through to the defaults
@@ -155,8 +169,14 @@ interface Store {
   game: Game | null;
   /** Counts games started. The game screen is keyed on it, so a new game starts with fresh UI state. */
   gameNo: number;
-  /** Seat the human controls, or null when watching four bots. */
+  /** The seat at the bottom of the screen, whose cards are shown: the human's, or null when watching bots. */
   human: PlayerId | null;
+  /** Every seat a person at this screen plays. With more than one, they pass the screen between them. */
+  humans: PlayerId[];
+  /** The person at this screen who must act next, while the screen waits to be passed to them. */
+  handoff: PlayerId | null;
+  /** The person `handoff` names has the screen now. */
+  takeOver: () => void;
   targeting: Targeting | null;
   /** Keep priority after the spell or ability being paid for, to respond to it yourself (117.3c). One use. */
   hold: boolean;
@@ -174,7 +194,7 @@ interface Store {
   /** The "leave this game?" dialog is open. */
   confirmExit: boolean;
   speed: number;
-  /** Where the game stops for the human (seat 0), by whose turn it is. A UI preference passed to the engine. */
+  /** Where the game stops for the human, by seat counted from theirs (see `loadStops`). A UI preference passed to the engine. */
   stops: Stops;
   setStop: (turn: PlayerId, step: Step, kind: StopKind | undefined) => void;
   settings: Settings;
@@ -205,6 +225,8 @@ export const useStore = create<Store>()((set, get) => ({
   game: null,
   gameNo: 0,
   human: null,
+  humans: [],
+  handoff: null,
   targeting: null,
   hold: false,
   attackTarget: null,
@@ -232,9 +254,9 @@ export const useStore = create<Store>()((set, get) => ({
   setSetting: (change) => {
     const settings = { ...get().settings, ...change };
     saveSettings(settings);
-    const { game, human } = get();
+    const { game, humans } = get();
     // The game keeps the setting on the human's player, where the engine reads it.
-    const next = game && human !== null ? produce(game, (d) => void (d.players[human].manualDamage = settings.manualDamage)) : game;
+    const next = game && humans.length ? produce(game, (d) => void humans.forEach((h) => (d.players[h].manualDamage = settings.manualDamage))) : game;
     set({ settings, game: next });
   },
 
@@ -259,17 +281,21 @@ export const useStore = create<Store>()((set, get) => ({
     if (missing.length && (await fetchCards(missing)).cards.length) get().cardsChanged();
   },
 
-  start: (deck) =>
+  start: (deck) => {
+    const { settings, savedDecks, stops } = get();
+    const seats = tableOf(deck, settings, savedDecks);
+    const humans = seats.flatMap((s, i) => (s.human ? [i] : []));
+    const game = newGame({
+      seed: (Math.random() * 2 ** 31) | 0,
+      seats,
+      stops: Object.fromEntries(humans.map((h) => [h, absoluteStops(stops, h, seats.length)])),
+    });
     set({
-      game: newGame({
-        seed: (Math.random() * 2 ** 31) | 0,
-        humanDeck: deck === null ? null : 0,
-        decks: seatDecks(deck, get().settings.opponents, get().savedDecks, (d) => savedDeckIssues(d).length === 0),
-        stops: deck === null ? {} : { 0: get().stops },
-        manualDamage: get().settings.manualDamage,
-      }),
+      game,
       gameNo: get().gameNo + 1,
-      human: deck === null ? null : 0,
+      human: humans[0] ?? null,
+      humans,
+      ...follow(game, humans[0] ?? null, humans),
       deck,
       targeting: null,
       attackTarget: null,
@@ -279,7 +305,15 @@ export const useStore = create<Store>()((set, get) => ({
       viewer: null,
       colorPick: null,
       confirmExit: false,
-    }),
+    });
+  },
+
+  takeOver: () => {
+    const { handoff } = get();
+    if (handoff === null) return;
+    // The next person sees only their own hand: nothing the last one was doing carries over.
+    set({ human: handoff, handoff: null, targeting: null, attackTarget: null, pickedBlockers: [], handOrder: [], viewer: null, colorPick: null, hover: null });
+  },
 
   quit: () => set({ game: null, hover: null, targeting: null, viewer: null, confirmExit: false }),
 
@@ -292,18 +326,42 @@ export const useStore = create<Store>()((set, get) => ({
     const mana = a.type === 'tapMana' || a.type === 'untapMana';
     const keep = mana || a.type.includes('declare');
     // A land is still under the pointer after it is tapped, so its preview stays up too.
-    set({ game: next, ...(mana ? {} : { hover: null }), ...(keep ? {} : { targeting: null, pickedBlockers: [] }) });
+    set({ game: next, ...(mana ? {} : { hover: null }), ...(keep ? {} : { targeting: null, pickedBlockers: [] }), ...follow(next, get().human, get().humans) });
     return true;
   },
 
   botAct: (a) => {
     const g = get().game;
-    if (g) set({ game: applyBotAction(g, a, engineOptions()) });
+    if (!g) return;
+    const next = applyBotAction(g, a, engineOptions());
+    set({ game: next, ...follow(next, get().human, get().humans) });
   },
 }));
 
 /** The human's stops go to the engine with every action, bots' included: those decide when the human is asked too. */
 function engineOptions(): ApplyOptions {
-  const { human, stops } = useStore.getState();
-  return { stops: human === null ? {} : { [human]: stops } };
+  const { game, humans, stops } = useStore.getState();
+  const n = game?.players.length ?? 4;
+  return { stops: Object.fromEntries(humans.map((h) => [h, absoluteStops(stops, h, n)])) };
+}
+
+/**
+ * The seats for a new game: the human's deck in seat 0 (a bot's, when watching), then each
+ * opponent seat the settings fill, played by a bot or by another person at this screen.
+ * A table needs two players, so the first opponent seat is a bot if the settings leave none.
+ */
+export function tableOf(deck: DeckDef | null, settings: Settings, saved: DeckDef[]): SeatDef[] {
+  const decks = seatDecks(deck, settings.opponents, saved, (d) => savedDeckIssues(d).length === 0);
+  const players = settings.players.every((p) => p === 'empty') ? (['bot', ...settings.players.slice(1)] as SeatPlayer[]) : settings.players;
+  const opponents = decks.slice(1).flatMap((d, i) => (players[i] === 'empty' ? [] : [{ deck: d, human: deck !== null && players[i] === 'person' }]));
+  return [{ deck: decks[0], human: deck !== null }, ...opponents].map((s) => (s.human ? { ...s, manualDamage: settings.manualDamage } : s));
+}
+
+/**
+ * Passing the screen: when a person at this screen other than the one at the bottom must act,
+ * the screen waits to be handed to them, so nobody sees another's hand. One person never waits.
+ */
+function follow(g: Game, human: PlayerId | null, humans: PlayerId[]): Pick<Store, 'handoff'> {
+  const next = g.step === 'gameOver' ? null : g.priority;
+  return { handoff: next !== null && next !== human && humans.includes(next) ? next : null };
 }

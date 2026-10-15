@@ -910,6 +910,9 @@ export function botAction(g: Game, pid: PlayerId): Action {
     case 'assignDamage':
       // Only a human is asked, but a bot answering for one splits it automatically.
       return { type: 'assignDamage', assignments: autoAssignments(g) };
+    case 'commanderZone':
+      // Only a human is asked too; a bot always sends its commander home (903.9).
+      return { type: 'commanderZone', toCommand: true };
   }
   // With priority: sorcery-speed plays in the bot's own main phase, otherwise responses and tricks.
   const myMain = pid === g.active && !g.stack.length && (g.step === 'main1' || g.step === 'main2');

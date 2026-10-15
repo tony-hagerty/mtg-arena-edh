@@ -1,12 +1,35 @@
 import type { MouseEvent } from 'react';
-import type { Card, PlayerId } from '../engine';
+import type { Card, Game, PlayerId } from '../engine';
 import { useStore } from './store';
 
 /** Joins class names, skipping falsy ones. */
 export const cx = (...parts: (string | false | null | undefined)[]) => parts.filter(Boolean).join(' ');
 
-/** The table edge each player sits at, by player id: you at the bottom, then clockwise in turn order. */
+/** The edges of the table. */
 export const SEATS = ['bottom', 'left', 'top', 'right'] as const;
+export type Seat = (typeof SEATS)[number];
+
+/** Where the others sit, clockwise in turn order after you, by how many players there are. */
+const LAYOUTS: Record<number, Seat[]> = {
+  2: ['bottom', 'top'],
+  3: ['bottom', 'left', 'right'],
+  4: ['bottom', 'left', 'top', 'right'],
+};
+
+/**
+ * The table edge a player sits at as `viewer` sees it: the viewer at the bottom, then the
+ * others clockwise in turn order. Watching bots, seat 0 is at the bottom.
+ */
+export function seatOf(g: Game, viewer: PlayerId | null, pid: PlayerId): Seat {
+  const n = g.players.length;
+  return LAYOUTS[n][(pid - (viewer ?? 0) + n) % n];
+}
+
+/** The players in the order the viewer sees them: themself first, then clockwise in turn order. */
+export function fromSeat<T extends { id: PlayerId }>(players: T[], viewer: PlayerId | null): T[] {
+  const at = viewer ?? 0;
+  return [...players.slice(at), ...players.slice(0, at)];
+}
 
 /** Can the human look at this card? Not one exiled face down, unless they may look at it (406.3). */
 export const faceUp = (c: Card, me: PlayerId | null) => !c.faceDown || (me !== null && c.known.includes(me));

@@ -4,7 +4,7 @@ import { motion } from 'motion/react';
 import { activatedAbilities, attachmentsOf, data, defenseOf, isBattle, isCreature, isPlaneswalker, loyaltyOf, scriptFor, stats } from '../engine';
 import type { Card, CardData } from '../engine';
 import { useRem } from './rem';
-import { SEATS, cx, hoverProps } from './util';
+import { cx, hoverProps, seatOf } from './util';
 import { clickGroup, clickPermanent, loyaltyCost, playHandCard, useView } from './view';
 
 function frameOf(d: CardData): string {
@@ -170,7 +170,7 @@ export function Permanent({ card, badge }: { card: Card; badge?: Card[] }) {
   const blocking = g.combat?.attacks.some((a) => a.blockers.includes(card.id)) ?? false;
   const glow = v.glow.get(card.id);
   const rem = useRem();
-  const [dx, dy] = INWARD[SEATS[card.controller]];
+  const [dx, dy] = INWARD[seatOf(g, v.me, card.controller)];
   const lift = (attacking ? 2 : blocking ? 1 : 0) * rem;
   const printed = { power: parseInt(d.power ?? '0', 10) || 0, toughness: parseInt(d.toughness ?? '0', 10) || 0 };
   const ptClass =
