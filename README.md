@@ -56,7 +56,8 @@ npm run build    # type-check and production build
   Planeswalkers and battles you can attack glow yellow: click one to send your next
   attackers at it instead.
 - **Planeswalkers:** click yours to see its loyalty abilities and pick one. It happens
-  right away (after any target): loyalty abilities cost loyalty, not mana. Loyalty is the
+  right away (after any target): loyalty abilities cost loyalty, not mana. A −X ability
+  first asks for X, like an ability with {X} in its cost does. Loyalty is the
   shield in the corner; a battle's defense is the orange box. When you cast a Siege
   battle, the cast panel asks which opponent protects it.
 - **Cards with two faces:** a split card, an adventurer card or a modal double-faced card
@@ -131,6 +132,12 @@ Rule numbers below are from the Comprehensive Rules in `docs/rules/`.
 - Costs (107.3, 107.4, 118, 601.2b, 601.2f):
   - {X}: the caster picks X before choosing targets; it is paid as generic mana. Scripts
     read it as `self.cast.x`.
+  - {X} in an activated ability's cost and −X loyalty abilities (107.3a, 606.4): X is
+    picked before targets with the same − / + / Max panel, starting at the most that can
+    be paid. A −X ability can't take X above the loyalty (606.6). Each ability's X is its
+    own (107.3k): it is kept on the stack item and scripts read it as `ctx.x`. "Spend only
+    black mana on X" (Crypt Rats) is `cost.xColor`. Bots try X from 1 up to what they can
+    pay (six values spread over the range when there are more) and keep the best.
   - Hybrid ({R/W}), monocoloured hybrid ({2/W}) and Phyrexian ({W/P}) symbols. Auto-pay
     tries coloured mana first, then {2}, then 2 life, and backs up if a choice leaves
     the rest unpayable.
@@ -334,10 +341,10 @@ These are deliberate cuts for a prototype, roughly in the order I'd tackle them 
   undone). The test-only cards are in `tests/fixtures.ts` (Delver of Secrets, Kazandu
   Mammoth, Needleverge Pathway, Dead // Gone, Murderous Rider, History of Benalia, Wizard
   Class, Think Twice, Strike It Rich, Thraben Inspector, Bake into a Pie).
-- Loyalty abilities with an X cost (−X) aren't supported, and "two target lands" can
-  name the same land twice. Trample over planeswalkers (702.19c) isn't supported.
+- "Two target lands" can name the same land twice. Trample over planeswalkers (702.19c) isn't supported.
   No card on the menu is a planeswalker or battle yet; the test-only ones are in
-  `tests/fixtures.ts` (Jace Beleren, Garruk Wildspeaker, Invasion of Dominaria). A
+  `tests/fixtures.ts` (Jace Beleren, Garruk Wildspeaker, Chandra Nalaar, Invasion of
+  Dominaria). A
   planeswalker that says it "can be your commander" is accepted as one (903.3a).
 - Auras can only enchant permanents, not players (702.5d). Proliferate, shield,
   stun and other counters with their own rules (122.1c-j) do nothing special yet.
@@ -355,8 +362,10 @@ These are deliberate cuts for a prototype, roughly in the order I'd tackle them 
   Splinters, Flawless Maneuver, Thalia, Ruby Medallion, Boros Recruit).
 - Phyrexian mana is always paid with mana when the mana is there; you can't choose to pay
   life instead. Tapping lands by hand first lets you steer it.
-- Not supported yet: X in activated abilities, targets that exist only when kicked
-  (702.33g) and snow mana {S}. A spell's mana value counts X on the stack (202.3e) only
+- No card on the menu has X in an ability's cost yet; the test-only ones are in
+  `tests/fixtures.ts` (Crypt Rats, Chandra Nalaar). A bot never announces X = 0 for one:
+  it pays nothing and, for these cards, does nothing.
+- Not supported yet: targets that exist only when kicked (702.33g) and snow mana {S}. A spell's mana value counts X on the stack (202.3e) only
   where a card checks it (`manaValue`; Mental Misstep).
 - Cultivate asks for its two lands one at a time (battlefield, then hand), not as one pick
   of two. It is still one search with one shuffle (701.23h).
@@ -466,7 +475,8 @@ stack as `Game.resolving` until it is answered. What happens next is the script'
    `activated: crew(3)`. A card with several activated abilities lists them in printed
    order (`activated: [ab1, equip('{1}')]`); an `activate` action and its stack item
    name one by `activated` (its index). Counters: `addCounters(g, card, n, kind)`. A planeswalker lists
-   its `loyalty` abilities (`{ cost: -2, text, targets, resolve }`); a target spec of
+   its `loyalty` abilities (`{ cost: -2, text, targets, resolve }`, or `cost: '-X'`); an
+   ability with {X} or −X in its cost reads the announced X as `ctx.x`. A target spec of
    `'player or planeswalker'` or `'creature or planeswalker'` matches cards that say so.
    A Siege's script can add `onDefeat`.
    A card with faces (double-faced, split, adventurer) gets one script per face, under

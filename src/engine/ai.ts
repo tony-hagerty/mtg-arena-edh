@@ -3,6 +3,7 @@
 // position. Attacks and blocks use hand-written heuristics, since their outcome depends
 // on what other players do next.
 import {
+  abilityHasX,
   activatable,
   applyAction,
   attackCandidates,
@@ -21,6 +22,7 @@ import {
   crewOptions,
   crewPower,
   exileOptions,
+  maxAbilityX,
   maxX,
   modeChoices,
   sacrificeOptions,
@@ -300,7 +302,19 @@ function candidateActions(g: Game, pid: PlayerId): { action: Action; spendsCard:
   return out;
 }
 
-/** The ways the bot considers activating ability `ref` of `c`: each set of targets, discarding the card it wants least. */
+/**
+ * The values of X the bot tries for an ability with X in its cost (107.3a): every one from 1
+ * up to the most it can pay, or six spread over that range when there are more. X = 0 is
+ * left out: it pays nothing and does nothing.
+ */
+function xChoices(g: Game, pid: PlayerId, c: Card, ref: AbilityRef): (number | undefined)[] {
+  if (!abilityHasX(c, ref)) return [undefined];
+  const most = maxAbilityX(g, pid, c, ref);
+  if (most <= 6) return Array.from({ length: Math.max(0, most) }, (_, i) => i + 1);
+  return [...new Set(Array.from({ length: 6 }, (_, i) => Math.round((most * (i + 1)) / 6)))];
+}
+
+/** The ways the bot considers activating ability `ref` of `c`: each X and set of targets, discarding the card it wants least. */
 function activations(g: Game, pid: PlayerId, c: Card, ref: AbilityRef): Action[] {
   const { ability, activated } = ref;
   // One of its activated abilities, a loyalty ability, or a Class level bar (which has no targets).
@@ -313,16 +327,20 @@ function activations(g: Game, pid: PlayerId, c: Card, ref: AbilityRef): Action[]
   // "Sacrifice a creature": the least valuable one, and not the source itself if there is another.
   const fodder = ab?.cost.sacrificeOne ? [...activationSacrificeOptions(g, pid, c, activated)].sort((a, b) => sacrificeWorth(g, a) - sacrificeWorth(g, b)) : [];
   const victim = fodder.find((x) => x.id !== c.id) ?? fodder[0];
-  return targetChoices(g, pid, specs, c).map((targets) => ({
-    type: 'activate',
-    card: c.id,
-    ability,
-    ...(activated ? { activated } : {}),
-    targets,
-    crew,
-    ...(discard ? { discard } : {}),
-    ...(victim ? { sacrifice: [victim.id] } : {}),
-  }));
+  const targetSets = targetChoices(g, pid, specs, c);
+  return xChoices(g, pid, c, ref).flatMap((x) =>
+    targetSets.map((targets): Action => ({
+      type: 'activate',
+      card: c.id,
+      ability,
+      ...(activated ? { activated } : {}),
+      ...(x !== undefined ? { x } : {}),
+      targets,
+      crew,
+      ...(discard ? { discard } : {}),
+      ...(victim ? { sacrifice: [victim.id] } : {}),
+    })),
+  );
 }
 
 // Look-ahead turns auto-pass off, so that passing only ever resolves the stack or ends one

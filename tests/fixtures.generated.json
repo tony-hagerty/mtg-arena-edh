@@ -914,6 +914,41 @@
    ],
    "image": "https://cards.scryfall.io/normal/front/e/1/e1375f17-bc25-4a65-98b7-4785bbdbe974.jpg",
    "art": "https://cards.scryfall.io/art_crop/front/e/1/e1375f17-bc25-4a65-98b7-4785bbdbe974.jpg"
+  },
+  "Crypt Rats": {
+   "name": "Crypt Rats",
+   "manaCost": "{2}{B}",
+   "cmc": 3,
+   "colors": [
+    "B"
+   ],
+   "colorIdentity": [
+    "B"
+   ],
+   "typeLine": "Creature — Rat",
+   "oracleText": "{X}: This creature deals X damage to each creature and each player. Spend only black mana on X.",
+   "power": "1",
+   "toughness": "1",
+   "keywords": [],
+   "image": "https://cards.scryfall.io/normal/front/9/6/96916db2-5121-4ff1-880c-369744f11ecf.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/9/6/96916db2-5121-4ff1-880c-369744f11ecf.jpg"
+  },
+  "Chandra Nalaar": {
+   "name": "Chandra Nalaar",
+   "manaCost": "{3}{R}{R}",
+   "cmc": 5,
+   "colors": [
+    "R"
+   ],
+   "colorIdentity": [
+    "R"
+   ],
+   "typeLine": "Legendary Planeswalker — Chandra",
+   "oracleText": "+1: Chandra Nalaar deals 1 damage to target player or planeswalker.\n−X: Chandra Nalaar deals X damage to target creature.\n−8: Chandra Nalaar deals 10 damage to target player or planeswalker and each creature that player or that planeswalker's controller controls.",
+   "loyalty": "6",
+   "keywords": [],
+   "image": "https://cards.scryfall.io/normal/front/4/4/44108e96-1fb5-41e0-a391-0c111e0f4f11.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/4/4/44108e96-1fb5-41e0-a391-0c111e0f4f11.jpg"
   }
  }
 }
