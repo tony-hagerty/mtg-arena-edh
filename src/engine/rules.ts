@@ -1126,6 +1126,7 @@ const SECOND_PERSON: Record<string, string> = {
   casts: 'cast',
   activates: 'activate',
   attacks: 'attack',
+  assigns: 'assign',
   discards: 'discard',
   fetches: 'fetch',
   finds: 'find',

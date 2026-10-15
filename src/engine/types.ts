@@ -243,6 +243,11 @@ export interface Player {
   noncreatureSpellsCast: number;
   /** Cards this player has drawn this turn (121.1). */
   drawn: number;
+  /**
+   * A setting: this (human) player divides their attackers' combat damage by hand when
+   * there is a choice (510.1c, 702.19b). Off, it is split automatically.
+   */
+  manualDamage?: boolean;
 }
 
 /** An effect that lasts until end of turn (514.2) and isn't attached to a permanent. */
@@ -310,6 +315,33 @@ export interface Attack {
   target: string | null;
   blockers: string[];
   blocked: boolean; // set once blocks are locked in; stays true even if the blockers leave
+}
+
+/**
+ * How one attacker assigns its combat damage (510.1): so much to each creature blocking it,
+ * by id, and `through` to the player, planeswalker or battle it is attacking (trample, 702.19b).
+ * Together they add up to its power (510.1a).
+ */
+export interface DamageAssignment {
+  attacker: string;
+  blockers: Record<string, number>;
+  through: number;
+}
+
+/**
+ * What an attacker can do with its combat damage this step: its power, the creatures
+ * blocking it with the damage that is lethal to each (702.19b, 702.2c), and whether any can
+ * go to what it attacked. `choice`: its controller decides how to divide it (510.1c, 702.19b).
+ */
+export interface DamageRoom {
+  attacker: string;
+  power: number;
+  blocked: boolean;
+  blockers: { id: string; lethal: number }[];
+  trample: boolean;
+  /** Damage can go to what it attacked: unblocked, or with trample, and that is still there (510.1b). */
+  canThrough: boolean;
+  choice: boolean;
 }
 
 export interface Combat {
@@ -523,7 +555,9 @@ export type Decision =
   | { type: 'player'; choice: PlayerChoice }
   | { type: 'cast'; choice: CastChoice }
   | { type: 'retarget'; choice: RetargetChoice }
-  | { type: 'commanderZone'; card: string; resume: PlayerId };
+  | { type: 'commanderZone'; card: string; resume: PlayerId }
+  /** The active player divides combat damage for these attackers (510.1), in the first-strike step or the regular one (510.4). */
+  | { type: 'assignDamage'; attackers: string[]; firstStrike: boolean };
 
 export interface Game {
   players: Player[];
@@ -612,6 +646,8 @@ export type Action =
   | { type: 'choosePlayer'; player: PlayerId }
   /** Answers `commanderZone`: true moves the commander to the command zone, false leaves it where it is. */
   | { type: 'commanderZone'; toCommand: boolean }
+  /** Answers `assignDamage`: one assignment for each attacker it lists (510.1, 510.1e). */
+  | { type: 'assignDamage'; assignments: DamageAssignment[] }
   /** Pass priority, or finish declaring attackers or blockers. */
   | { type: 'pass' };
 
