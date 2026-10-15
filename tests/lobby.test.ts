@@ -93,6 +93,8 @@ function startedTable() {
 }
 
 afterEach(() => {
+  // Away from any table, so a test that left one doesn't carry that into the next.
+  onLobby(lobbyState({ role: 'none', seats: [], yourSeat: null }));
   useStore.setState({ server: null, lobby: null, table: null, tableGame: false, game: null, human: null, humans: [], handoff: null });
   vi.unstubAllGlobals();
 });
@@ -133,6 +135,21 @@ describe('a table’s game', () => {
     expect(host.full).not.toBe(null);
     expect(S().game).toBe(null);
     expect(S().tableGame).toBe(false);
+  });
+
+  it('stays out of the game it left while the lobby catches up', () => {
+    const { game, lobby } = startedTable();
+    lobby.conn.watch(onLobby);
+    lobby.say(lobbyState({ started: true }));
+    S().quit();
+    // A change sent before the lobby heard this window leave.
+    lobby.say(lobbyState({ started: true }));
+    expect(S().game).toBe(null);
+    expect(game.log).toEqual(['watch 1']);
+    lobby.say(lobbyState({ role: 'none', seats: [], yourSeat: null }));
+    // At a new table, its game is played again.
+    lobby.say(lobbyState({ started: true }));
+    expect(S().tableGame).toBe(true);
   });
 
   it('never starts a game of its own over the table’s', () => {
@@ -190,6 +207,7 @@ describe('the lobby screens', () => {
   it('show a friend who joined the seats and Ready, but not the host’s settings', () => {
     useStore.setState({ lobby: fakeLobby().conn });
     const html = render(WaitingRoom, { table: lobbyState({ error: 'The host left the table.' }) });
+    expect(html).toContain('Waiting for you to be ready.');
     expect(html).toContain('Ann');
     expect(html).toContain('Dragons (Miirym)');
     expect(html).toContain('>Ready<');
