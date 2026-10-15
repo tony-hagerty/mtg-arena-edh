@@ -37,6 +37,10 @@ function fakeLobby() {
     table: record('table'),
     start: record('start'),
     leave: record('leave'),
+    vote: record('vote'),
+    pause: record('pause'),
+    resume: record('resume'),
+    forget: record('forget'),
   };
   return { conn, calls, say: (s: LobbyState) => watchers.forEach((on) => on(s)) };
 }
@@ -64,7 +68,7 @@ function loopback(host: GameHost) {
   return { conn, log };
 }
 
-const seat = (over: Partial<LobbySeat>): LobbySeat => ({ kind: 'person', name: '', deck: null, ready: false, you: false, host: false, ...over });
+const seat = (over: Partial<LobbySeat>): LobbySeat => ({ kind: 'person', name: '', deck: null, ready: false, you: false, host: false, away: false, standIn: false, ...over });
 
 const lobbyState = (over: Partial<LobbyState> = {}): LobbyState => ({
   role: 'joined',
@@ -79,6 +83,10 @@ const lobbyState = (over: Partial<LobbyState> = {}): LobbyState => ({
   yourSeat: 1,
   started: false,
   error: null,
+  votes: [],
+  paused: null,
+  resuming: false,
+  saves: [],
   ...over,
 });
 

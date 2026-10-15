@@ -29,6 +29,42 @@ export interface LobbySeat {
   you: boolean;
   /** The host's seat. */
   host: boolean;
+  /**
+   * A person who left or lost their connection during a game, or who hasn't come back yet
+   * to a resumed one. Their seat waits for them: they come back by joining with the
+   * table's code under the same name.
+   */
+  away: boolean;
+  /** A bot plays this away person's seat, because the table voted for it, until they come back. */
+  standIn: boolean;
+}
+
+/**
+ * The table's vote on letting a bot play an away person's seat (Tony's rule: only when a
+ * majority of the people still at the table agree). It opens when they go and stays open,
+ * with no time limit, until it passes or they come back. A vote can be changed.
+ */
+export interface SeatVote {
+  seat: number;
+  name: string;
+  yes: number;
+  no: number;
+  /** Yes votes it takes to pass: more than half the people at the table now. */
+  needed: number;
+  /** This window's vote, or null if it hasn't voted. */
+  yours: boolean | null;
+}
+
+/** A game saved on this computer, which this player can resume by hosting it again. */
+export interface SavedGame {
+  id: string;
+  /** When it was last saved, in ms since 1970. */
+  savedAt: number;
+  turn: number;
+  /** The players in turn order. */
+  players: { name: string; bot: boolean }[];
+  /** This computer's player's seat in it. */
+  yourSeat: number;
 }
 
 export interface LobbyState {
@@ -57,6 +93,22 @@ export interface LobbyState {
   started: boolean;
   /** The last thing that went wrong, in plain words (a bad code, the host left), or null. */
   error: string | null;
+  /** Open votes, one for each away person whose seat no bot plays. */
+  votes: SeatVote[];
+  /** The game is paused, and who paused it. Nobody can move, the bots wait, until someone resumes it. */
+  paused: { by: string } | null;
+  /**
+   * This table resumes a saved game: its seats are the game's, and people come back by
+   * joining under the names they played as. `start` resumes the game once nobody is away
+   * without a stand-in.
+   */
+  resuming: boolean;
+  /**
+   * Games saved on this computer, newest first, in every role. Every player's program
+   * keeps a copy of the table's game, updated as it's played and when it's paused, so if
+   * the host goes, anyone can resume it (`resume`) as the new host.
+   */
+  saves: SavedGame[];
 }
 
 /** POST `${LOBBY_API}/host`: open a table on this computer and sit at its first seat. */
@@ -90,10 +142,35 @@ export interface TableRequest {
   fillBots: boolean;
 }
 
+/** POST `${LOBBY_API}/vote`: this window's vote on letting a bot play `seat` (an away person's). */
+export interface VoteRequest {
+  seat: number;
+  yes: boolean;
+}
+
+/** POST `${LOBBY_API}/pause`: pause the table's game, or carry on. Anyone at the table may. */
+export interface PauseRequest {
+  paused: boolean;
+}
+
+/**
+ * POST `${LOBBY_API}/resume`: host a new table for saved game `save` (from `saves`), with a
+ * new code, sitting in this player's own seat. Leaves any table this computer is at.
+ */
+export interface ResumeRequest {
+  save: string;
+}
+
+/** POST `${LOBBY_API}/forget`: delete saved game `save` from this computer. */
+export interface ForgetRequest {
+  save: string;
+}
+
 // POST `${LOBBY_API}/start` (host only, empty body): start the game. Refused (409, with
 // the reason) unless every person is ready and, without the checkbox, at least 2 seats
 // are filled. Open seats become bots when the checkbox is ticked; otherwise the table
-// shrinks to the filled seats.
+// shrinks to the filled seats. At a resuming table, `start` resumes the saved game
+// instead, refused while someone is away and no bot plays their seat.
 // POST `${LOBBY_API}/leave` (empty body): leave the table. For the host, this ends it.
 // GET `${LOBBY_API}/events`: a stream of `LobbyState` (server-sent events), sent when it
 // opens and after every change.
@@ -110,4 +187,8 @@ export interface LobbyConnection {
   table(req: TableRequest): Promise<void>;
   start(): Promise<void>;
   leave(): Promise<void>;
+  vote(req: VoteRequest): Promise<void>;
+  pause(req: PauseRequest): Promise<void>;
+  resume(req: ResumeRequest): Promise<void>;
+  forget(req: ForgetRequest): Promise<void>;
 }

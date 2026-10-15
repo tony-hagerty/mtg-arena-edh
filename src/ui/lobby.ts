@@ -46,6 +46,10 @@ export async function connectLobby(): Promise<LobbyConnection | null> {
     table: (req) => post('table', req),
     start: () => post('start'),
     leave: () => post('leave'),
+    vote: (req) => post('vote', req),
+    pause: (req) => post('pause', req),
+    resume: (req) => post('resume', req),
+    forget: (req) => post('forget', req),
   };
 }
 
