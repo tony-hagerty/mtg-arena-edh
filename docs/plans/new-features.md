@@ -4,7 +4,7 @@ Goal: the features the user asked for after the Commander-decks plan
 (`docs/plans/commander-decks.md`) was finished. Each is its own session, started only when
 the user says so, one at a time.
 
-**Status: sessions 1 to 5 done. The user answered the first round of questions; the decisions
+**Status: sessions 1 to 6 done. The user answered the first round of questions; the decisions
 are written into each session.**
 
 ## Rules every session follows
@@ -186,7 +186,7 @@ screen and opponent pickers in `src/ui/Menu.tsx`, saved decks and `seatDecks` in
 exports put the commander in the sideboard, so a sideboard of one or two cards is read as
 the commanders when the list names none.
 
-### 6. Automatic scripting from Oracle text
+### 6. Automatic scripting from Oracle text (done)
 
 A parser that turns common, regular Oracle wording into a `CardScript`, and refuses any
 card it can't handle completely. It never approximates: one clause it doesn't understand
@@ -226,6 +226,16 @@ means the whole card is refused, with the clause named.
 - A report (`npm run parse-report`) lists, for the current card data, which cards it
   scripts and why each other card was refused, so its reach can be measured.
 - Plain TypeScript with no Node-only parts, so session 7 can run it in the browser.
+
+Done: `src/cards/oracle.ts` (`parseCard`, `scriptCards`; registers parsed scripts for
+pool cards without a hand script, so `unsupported` and the card-pool test count them),
+`src/cards/oracle-report.ts` and `scripts/parse-report.mjs` (loads the TypeScript through
+Vite), tests in `tests/oracle.test.ts`. First reach: 60 of the 263 pool cards with rules
+text. Two additions beyond the list, both exact: clauses joined by "and" ("you draw a card
+and you lose 1 life"), and target words "you don't control" and "creature or
+planeswalker". Not done: "enters tapped" and keyword abilities with costs (equip, ward),
+left for a later session. Session 7 can call `scriptCards(names)` after registering
+fetched cards; it returns the refusals with their clauses.
 
 ### 7. Paste a deck with any card
 

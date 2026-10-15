@@ -10,6 +10,7 @@
     "test": "vitest run",
     "fetch-cards": "node scripts/fetch-cards.mjs",
     "fetch-rules": "node scripts/fetch-rules.mjs",
+    "parse-report": "node scripts/parse-report.mjs",
     "build:single": "tsc --noEmit && vite build --mode single"
   },
   "dependencies": {

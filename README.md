@@ -9,6 +9,7 @@ npm run dev      # http://localhost:5180
 npm test         # rules tests + full bot-vs-bot games
 npm run build    # type-check and production build
 npm run build:single  # one self-contained dist-single/index.html to share
+npm run parse-report  # which pool cards the Oracle text parser can script, and why not the rest
 ```
 
 `build:single` inlines the code, styles, fonts and cursor into one `index.html` that
@@ -505,6 +506,37 @@ These are deliberate cuts for a prototype. The biggest ones come first.
   ask with no opponent dealt combat damage: paying would change nothing. Both still
   trigger.
 
+### Scripts from Oracle text
+
+`src/cards/oracle.ts` reads common, regular Oracle wording into a script, for cards with
+no hand script. It matches each ability, clause by clause, against a short list of
+templates and builds the script from the helpers in `rules.ts`. One clause it can't read
+refuses the whole card, naming the clause: it never guesses. Hand scripts always win.
+
+- **Abilities:** "When this enters", "When this dies" and "Whenever this attacks" (603.1);
+  activated abilities (602) with `{T}`, mana (with `{X}`, 107.3a), "Sacrifice this" and
+  "Sacrifice a/another [creature, artifact, land, permanent]" costs, and "Activate only as
+  a sorcery"; mana abilities "{T}: Add {G}", "{C}{C}", "{W} or {B}", "one mana of any
+  color" (605); "[Other] [Soldier] creatures you control get +N/+N [and have flying]" and
+  "... have haste" (613); instants and sorceries.
+- **Effects:** draw, gain or lose life, mill, surveil, deal damage, destroy, exile, return
+  to its owner's hand, create a token listed in `decklists.json`, put +1/+1 counters,
+  "gets +N/+N until end of turn", search for a basic land, "each opponent loses N life".
+  Clauses join with "and" ("you draw a card and you lose 1 life"); a subject carried over
+  is the same target ("target player draws two cards and loses 2 life").
+- **Targets (115):** "any target", "target player/opponent", "target player or
+  planeswalker", and "target [non-type or colour words] creature / permanent / artifact /
+  enchantment / land / planeswalker / artifact or enchantment / creature or planeswalker
+  [you control / an opponent controls / you don't control]".
+- **"You may" (608.2d)** asks the player each time; the rest of the ability waits for the
+  answer.
+- **Refused:** anything else, including modal text, "instead", "for each", conditions,
+  X outside a cost, other triggers, and cards with faces.
+- `npm run parse-report` prints, for the pool, the cards it scripts on its own (60 of 263
+  with rules text today) and every refusal grouped by reason. A test plays a sample of
+  42 pool cards with the parsed script and with the hand script and checks the table
+  ends the same.
+
 ### Bots
 
 - They win with Thassa's Oracle plus Demonic Consultation or Tainted Pact when they can
@@ -520,6 +552,7 @@ These are deliberate cuts for a prototype. The biggest ones come first.
 - They don't try Underworld Breach loops.
 - A bot never announces X = 0 for an ability with X in its cost: it pays nothing and, for
   the current cards, does nothing.
+- A bot always says yes to a parsed "you may" effect.
 
 ### Features tested only with extra cards
 
@@ -544,6 +577,8 @@ Those cards are scripted in `tests/fixtures.ts`.
 src/cards/      decklists.json        the decks and tokens
                 db.ts                 card lookup, deck colours, deck legality (deckProblems)
                 decklist.ts           reading a pasted deck list (parseDeckList, checkList)
+                oracle.ts             scripts from Oracle text, for cards without a hand script
+                oracle-report.ts      the parse report (npm run parse-report)
                 support.ts            can the engine play a card (unsupported)
                 creature-types.json   every creature type (205.3m; npm run fetch-rules)
                 cards.generated.json  card data from Scryfall (npm run fetch-cards)
@@ -624,7 +659,10 @@ fixed spot on a 192 × 108 grid.
 2. Run `npm run fetch-cards` to pull its data and art from Scryfall. Behind an HTTPS
    proxy (as in a Claude Code cloud session) run `NODE_USE_ENV_PROXY=1 npm run fetch-cards`:
    Node's `fetch` ignores the proxy otherwise.
-3. Read `docs/card-scripting.md` first: the script must follow the card's exact Oracle
+3. Run `npm run parse-report`. If the card is listed as scripted, the parser handles it
+   and you're done. Otherwise it names the clause it couldn't read: either add a template
+   to `src/cards/oracle.ts` (for wording many cards share) or write a hand script. Read
+   `docs/card-scripting.md` first: the script must follow the card's exact Oracle
    text, clause by clause. If it does more than its printed keywords, add an entry to
    `src/cards/scripts.ts` (or the deck's own file, like `kraum-tymna.ts`). The
    [script reference](#script-reference) below lists the hooks.
