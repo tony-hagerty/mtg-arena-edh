@@ -109,3 +109,9 @@ recoloured copy of it.
 
 Magic: The Gathering is © Wizards of the Coast. This is an unofficial fan prototype, not
 affiliated with or endorsed by them.
+
+## License
+
+The code is under the [MIT License](LICENSE). It covers this project's own code only, not
+Magic card names, text or images, the Comprehensive Rules in `docs/rules/`, or the
+third-party assets credited above.
