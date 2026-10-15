@@ -182,6 +182,50 @@ describe('Auras, Equipment and crew in the UI', () => {
   });
 });
 
+describe('several activated abilities in the UI (602)', () => {
+  it('opens a menu of the abilities, then targets the chosen one', () => {
+    play((d) => {
+      put(d, 0, 'Deathrite Shaman');
+      put(d, 0, 'Swamp');
+      put(d, 1, 'Forest', 'graveyard');
+      put(d, 1, 'Lightning Bolt', 'graveyard');
+    });
+    clickPermanent(byName(game(), 0, 'Deathrite Shaman')!);
+    const v = buildView();
+    expect(v.prompt).toContain('choose an ability');
+    // No creature card in any graveyard, and no {G}: the third ability can't be used.
+    expect(v.loyalty?.options.map((o) => [o.text.slice(0, 7), o.ok])).toEqual([
+      ['{T}: Ex', true],
+      ['{B}, {T', true],
+      ['{G}, {T', false],
+    ]);
+    pickAbility({ activated: 2 }); // not usable: nothing happens
+    expect(useStore.getState().targeting?.pickingAbility).toBe(true);
+    pickAbility({ activated: 1 });
+    const w = buildView();
+    expect(w.graveTargets?.options.map((c) => c.name)).toEqual(['Lightning Bolt']);
+    chooseGraveyardTarget(w.graveTargets!.options[0].id);
+    press(); // Pay {B}; the bots pass and it resolves
+    expect(game().players.map((p) => p.life)).toEqual([40, 38, 38, 38]);
+  });
+
+  it('goes straight to the targets when only one of the abilities can be used now', () => {
+    play((d) => {
+      d.active = 1;
+      d.priority = 0;
+      put(d, 0, 'Cranial Plating');
+      put(d, 0, 'Swamp', 'battlefield', 2);
+      put(d, 0, 'Llanowar Elves');
+    });
+    clickPermanent(byName(game(), 0, 'Cranial Plating')!);
+    expect(buildView().loyalty).toBe(null);
+    expect(useStore.getState().targeting?.activated ?? 0).toBe(0);
+    clickPermanent(byName(game(), 0, 'Llanowar Elves')!);
+    press(); // Pay {B}{B}
+    expect(byName(game(), 0, 'Cranial Plating')!.attachedTo).toBe(byName(game(), 0, 'Llanowar Elves')!.id);
+  });
+});
+
 describe('planeswalkers and battles in the UI (306, 310, 606)', () => {
   it('picks a loyalty ability, then its target, and activates it without paying mana', () => {
     play((d) => {
@@ -196,7 +240,7 @@ describe('planeswalkers and battles in the UI (306, 310, 606)', () => {
       ['−1', true],
       ['−10', false],
     ]);
-    pickAbility(1);
+    pickAbility({ ability: 1 });
     expect(buildView().targetPlayers.has(0)).toBe(true);
     clickPlayer(0);
     expect(useStore.getState().targeting).toBe(null);
@@ -291,7 +335,7 @@ describe('card faces, Classes and graveyard casting in the UI (709, 712, 715, 71
       ['{2}{U}', true],
       ['{4}{U}', false],
     ]);
-    pickAbility(0);
+    pickAbility({ ability: 0 });
     expect(buildView().prompt).toContain('Pay the cost');
     press();
     expect(byName(game(), 0, 'Wizard Class')!.level).toBe(2);

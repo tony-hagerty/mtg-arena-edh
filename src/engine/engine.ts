@@ -6,6 +6,8 @@ import { CREATURE_TYPES, DECKS, cardData, deckColors, deckLibrary, isCardName } 
 import type { DeckDef } from '../cards/db';
 import {
   STARTING_LIFE,
+  activatedAbilities,
+  activatedAt,
   broadcast,
   canAttack,
   canBlock,
@@ -87,12 +89,14 @@ import {
   tap,
   tapForMana,
   targetSpecs,
+  triggerOf,
   trigger,
   turnOrder,
   untapMana,
   scriptFor,
 } from './rules';
 import type {
+  AbilityRef,
   Action,
   AskChoice,
   Card,
@@ -110,10 +114,12 @@ import type {
   TargetSpec,
   RetargetChoice,
   ThenCtx,
-  Trigger,
   TriggerEvents,
   Zone,
 } from './types';
+
+/** The five colours, by mana symbol (105.1), for naming a colour. */
+const COLORS = ['W', 'U', 'B', 'R', 'G'];
 
 // ---------- setup ----------
 
@@ -658,12 +664,12 @@ export function maxX(g: Game, pid: PlayerId, c: Card, choices: CastChoices = {})
 }
 
 /**
- * Can `pid` activate one of `c`'s abilities now? `ability` names a loyalty ability by its
- * index; left out, it means the card's `activated` ability.
+ * Can `pid` activate one of `c`'s abilities now? `ability` names a loyalty ability or Class
+ * level bar by its index; left out, it means `c`'s activated ability number `activated`.
  */
-export function canActivate(g: Game, pid: PlayerId, c: Card, ability?: number): boolean {
+export function canActivate(g: Game, pid: PlayerId, c: Card, ability?: number, activated = 0): boolean {
   if (ability !== undefined) return scriptFor(c).levels ? canLevelUp(g, pid, c, ability) : canActivateLoyalty(g, pid, c, ability);
-  const ab = scriptFor(c).activated;
+  const ab = activatedAt(c, activated);
   if (!ab) return false;
   // Its controller activates it from the battlefield; its owner from their hand, like channel.
   if (ab.fromHand ? c.zone !== 'hand' || c.owner !== pid : c.zone !== 'battlefield' || c.controller !== pid) return false;
@@ -673,7 +679,7 @@ export function canActivate(g: Game, pid: PlayerId, c: Card, ability?: number): 
   if (ab.cost.crew && crewPower(g, pid, c, crewOptions(g, pid, c)) < ab.cost.crew) return false;
   if (ab.cost.counters && counterCount(c, ab.cost.counters.kind) < ab.cost.counters.n) return false;
   if (ab.cost.discard && discardOptions(g, pid, c).length < ab.cost.discard) return false;
-  if (ab.cost.sacrificeOne && !activationSacrificeOptions(g, pid, c).length) return false;
+  if (ab.cost.sacrificeOne && !activationSacrificeOptions(g, pid, c, activated).length) return false;
   // The source can't also make the mana if tapping or sacrificing it is part of the cost.
   if ((ab.cost.mana || ab.cost.life) && !planPayment(g, pid, abilityCost(ab, g, c), undefined, ab.cost.tap || ab.cost.sacrifice ? [c.id] : [])) return false;
   for (const spec of ab.targets ?? []) {
@@ -682,9 +688,9 @@ export function canActivate(g: Game, pid: PlayerId, c: Card, ability?: number): 
   return true;
 }
 
-/** Permanents `pid` could sacrifice to pay a "Sacrifice a creature" cost of `c`'s ability, itself included. */
-export function activationSacrificeOptions(g: Game, pid: PlayerId, c: Card): Card[] {
-  const spec = scriptFor(c).activated?.cost.sacrificeOne;
+/** Permanents `pid` could sacrifice to pay a "Sacrifice a creature" cost of `c`'s activated ability `activated`, itself included. */
+export function activationSacrificeOptions(g: Game, pid: PlayerId, c: Card, activated = 0): Card[] {
+  const spec = activatedAt(c, activated)?.cost.sacrificeOne;
   return spec ? g.players[pid].battlefield.filter((p) => fitsSpec(g, p, spec, c)) : [];
 }
 
@@ -717,10 +723,13 @@ function canLevelUp(g: Game, pid: PlayerId, c: Card, i: number): boolean {
  * The abilities of `c` that `pid` could activate now: `undefined` for its `activated`
  * ability, and its loyalty abilities (606) or Class level bars (716.2) by index.
  */
-export function activatable(g: Game, pid: PlayerId, c: Card): (number | undefined)[] {
+export function activatable(g: Game, pid: PlayerId, c: Card): AbilityRef[] {
   const script = scriptFor(c);
-  const numbered = (script.loyalty ?? script.levels ?? []).map((_, i) => i);
-  return [undefined, ...numbered].filter((i) => canActivate(g, pid, c, i));
+  const refs: AbilityRef[] = [
+    ...activatedAbilities(c).map((_, i) => ({ activated: i })),
+    ...(script.loyalty ?? script.levels ?? []).map((_, i) => ({ ability: i })),
+  ];
+  return refs.filter((r) => canActivate(g, pid, c, r.ability, r.activated));
 }
 
 /**
@@ -1213,7 +1222,7 @@ function resolveTop(g: Game) {
         trigger(g, cls, 'onLevel', { level: cls.level });
       }
     } else if (item.kind === 'activated') {
-      (item.ability === undefined ? script.activated! : script.loyalty![item.ability]).resolve(g, ctx);
+      (item.ability === undefined ? activatedAt(card, item.activated)! : script.loyalty![item.ability]).resolve(g, ctx);
     } else if (item.hook === 'onStorm') {
       // A copy for each other spell cast before it this turn (702.40a).
       const { count, item: spell } = item.event as TriggerEvents['onStorm'];
@@ -1258,10 +1267,10 @@ function resolveTop(g: Game) {
         moveCard(g, battle, 'exile');
         castTransformed(g, controller, battle);
       }
-      const t = script.onDefeat;
+      const t = triggerOf(item);
       if (t) (typeof t === 'function' ? t : t.resolve)(g, ctx);
     } else {
-      const t = script[item.hook!] as Trigger<object>;
+      const t = triggerOf(item)!;
       (typeof t === 'function' ? t : t.resolve)(g, { ...item.event, ...ctx });
     }
   }
@@ -1591,10 +1600,11 @@ function act(g: Game, a: Action): boolean {
 
     case 'activate': {
       const c = [...p.battlefield, ...p.hand].find((x) => x.id === a.card);
-      if (!c || !canActivate(g, pid, c, a.ability)) return false;
+      if (!c || !canActivate(g, pid, c, a.ability, a.activated)) return false;
       if (a.ability !== undefined && scriptFor(c).levels) return activateLevel(g, pid, c, a.ability, a);
       if (a.ability !== undefined) return activateLoyalty(g, pid, c, a.ability, a);
-      const ab = scriptFor(c).activated!;
+      const ab = activatedAt(c, a.activated)!;
+      const several = activatedAbilities(c).length > 1;
       const specs = ab.targets ?? [];
       const targets = specs.map((_, i) => a.targets?.[i] ?? null);
       if (!targetsOk(g, pid, c, specs, targets)) return false;
@@ -1608,10 +1618,10 @@ function act(g: Game, a: Action): boolean {
       const discarding = (a.discard ?? []).map((id) => discardOptions(g, pid, c).find((x) => x.id === id));
       if (discarding.length !== (ab.cost.discard ?? 0) || discarding.some((x) => !x) || new Set(a.discard).size !== discarding.length) return false;
       // "Sacrifice a creature": exactly one that fits.
-      const sacrificing = (a.sacrifice ?? []).map((id) => activationSacrificeOptions(g, pid, c).find((x) => x.id === id));
+      const sacrificing = (a.sacrifice ?? []).map((id) => activationSacrificeOptions(g, pid, c, a.activated).find((x) => x.id === id));
       if (sacrificing.length !== (ab.cost.sacrificeOne ? 1 : 0) || sacrificing.some((x) => !x)) return false;
       // The ability goes on the stack as its own object, apart from its source (602.2a).
-      const item: StackItem = { id: `s${g.nextId++}`, kind: 'activated', controller: pid, card: snapshot(c), targets };
+      const item: StackItem = { id: `s${g.nextId++}`, kind: 'activated', controller: pid, card: snapshot(c), targets, ...(a.activated && { activated: a.activated }) };
       if (sacrificing.length) {
         item.sacrificed = sacrificing.map((x) => snapshot(x!));
         item.sacrificedPower = sacrificing.map((x) => stats(g, x!).power);
@@ -1624,7 +1634,7 @@ function act(g: Game, a: Action): boolean {
       for (const x of crewing) tap(g, x!);
       if (crewing.length) log(g, `${crewing.map((x) => label(x!)).join(' and ')} crew${crewing.length === 1 ? 's' : ''} ${label(c)}.`, pid, [...(crewing as Card[]), c]);
       const chosen = targets.filter((t): t is TargetRef => !!t).map((t) => describeRef(g, t));
-      log(g, `${says(p, 'activates')} ${label(c)}${chosen.length ? ` targeting ${chosen.join(' and ')}` : ''}.`, pid, [c, ...refCards(g, targets)]);
+      log(g, `${says(p, 'activates')} ${label(c)}${several ? ` (${ab.text})` : ''}${chosen.length ? ` targeting ${chosen.join(' and ')}` : ''}.`, pid, [c, ...refCards(g, targets)]);
       for (const x of discarding) discard(g, x!);
       if (ab.cost.discardSelf) discard(g, c);
       if (ab.cost.sacrifice) dieMany(g, [c], 'is sacrificed');
@@ -1784,9 +1794,11 @@ function act(g: Game, a: Action): boolean {
     case 'name': {
       if (g.decision?.type !== 'name') return false;
       const { choice } = g.decision;
-      if (choice.of === 'creature type' ? !CREATURE_TYPES.includes(a.name) : !isCardName(a.name)) return false;
+      const valid = choice.of === 'creature type' ? CREATURE_TYPES.includes(a.name) : choice.of === 'color' ? COLORS.includes(a.name) : isCardName(a.name);
+      if (!valid) return false;
       g.decision = null;
-      log(g, `${says(p, choice.of ? 'chooses' : 'names')} ${a.name}${choice.of ? ` (${choice.source})` : ''}.`, pid);
+      const named = choice.of === 'color' ? `{${a.name}}` : a.name;
+      log(g, `${says(p, choice.of ? 'chooses' : 'names')} ${named}${choice.of ? ` (${choice.source})` : ''}.`, pid);
       runThen(g, choice, { name: a.name });
       afterChoice(g);
       return true;

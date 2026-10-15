@@ -5,7 +5,7 @@
 // `CardPicker` is the reusable part; `Decisions` chooses which one the game is asking for.
 import { useState } from 'react';
 import { CREATURE_TYPES, cardNames, isCardName } from '../cards/db';
-import { canCast, canMulligan, canSayYes, choiceOptions, commanderTax, data, findCard, label, nextMulliganBottom, resolvingItem } from '../engine';
+import { canCast, canMulligan, canSayYes, choiceOptions, commanderTax, data, findCard, label, nextMulliganBottom, resolvingItem, triggerText } from '../engine';
 import type { Action, AskChoice, Card, CardChoice, CastChoice, Game, NameChoice, PlayerChoice, PlayerId } from '../engine';
 import { ManaCost } from './Card';
 import { useStore } from './store';
@@ -305,6 +305,40 @@ function NamePanel({ g, choice }: { g: Game; choice: NameChoice }) {
   );
 }
 
+/** Choosing a colour while a spell or ability resolves (105.1), like Deathrite Shaman's "one mana of any color". */
+function ColorPanel({ g, choice }: { g: Game; choice: NameChoice }) {
+  const [folded, setFolded] = useState(false);
+  const source = resolvingItem(g)?.card;
+  if (folded) {
+    return (
+      <button className="picker-pill" onClick={() => setFolded(false)}>
+        Back to: {choice.source}
+      </button>
+    );
+  }
+  return (
+    <div className="modal">
+      <div className="viewer picker">
+        <div className="picker-head">
+          <h2>{choice.source}: choose a colour</h2>
+          <button className="picker-fold" onClick={() => setFolded(true)}>
+            View table
+          </button>
+        </div>
+        <p className="picker-hint">{choice.text}</p>
+        <div className="name-row">
+          {source && <img className="name-source" src={data(source).image} alt={label(source)} draggable={false} />}
+          {(['W', 'U', 'B', 'R', 'G'] as const).map((c) => (
+            <button key={c} className="chip" onClick={() => act({ type: 'name', name: c })} aria-label={c}>
+              <ManaCost cost={`{${c}}`} />
+            </button>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /** Choosing a player while a spell or ability resolves, like "an opponent" (Wishclaw Talisman). */
 function PlayerPanel({ g, choice }: { g: Game; choice: PlayerChoice }) {
   const source = resolvingItem(g)?.card;
@@ -410,6 +444,8 @@ function TriggerOrder({ g, me }: { g: Game; me: PlayerId }) {
                 <img src={data(t.card).image} alt={label(t.card)} draggable={false} />
                 <span className="picker-num">{ORDINAL[i] ?? `${i + 1}th`}</span>
               </div>
+              {/* A card with several abilities for one event says which one this is. */}
+              {triggerText(t) && <p className="picker-ability">{triggerText(t)}</p>}
               <div className="picker-move">
                 <button disabled={i === 0} onClick={() => move(i, -1)} aria-label="Resolve sooner">
                   ◀
@@ -479,7 +515,7 @@ export function Decisions() {
     case 'ask':
       return <AskPanel key={`${g.log.length}:${d.choice.text}`} g={g} choice={d.choice} />;
     case 'name':
-      return <NamePanel key={g.log.length} g={g} choice={d.choice} />;
+      return d.choice.of === 'color' ? <ColorPanel g={g} choice={d.choice} /> : <NamePanel key={g.log.length} g={g} choice={d.choice} />;
     case 'player':
       return <PlayerPanel key={g.log.length} g={g} choice={d.choice} />;
     case 'cast':

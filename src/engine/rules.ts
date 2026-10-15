@@ -3,6 +3,7 @@
 import { cardData } from '../cards/db';
 import { scriptOf } from './registry';
 import type {
+  ActivatedAbility,
   BroadcastHook,
   AskChoice,
   Choice,
@@ -132,6 +133,15 @@ export function scriptFor(c: Card, zone = c.zone, face = c.face): CardScript {
   const d = cardData(c.name);
   return scriptOf(d.faces ? faceData(d, zone, face).name : c.name);
 }
+
+/** `c`'s activated abilities, in printed order (602). */
+export function activatedAbilities(c: Card): ActivatedAbility[] {
+  const a = scriptFor(c).activated;
+  return Array.isArray(a) ? a : a ? [a] : [];
+}
+
+/** `c`'s activated ability number `i` (the first if left out). */
+export const activatedAt = (c: Card, i = 0): ActivatedAbility | undefined => activatedAbilities(c)[i];
 
 /** `c` as it would be as a spell cast with face `face` up, for checking what that spell would be (601.2, 709.3a, 712.11c). */
 export const asSpell = (c: Card, face = 0, controller = c.controller): Card => ({ ...c, zone: 'stack', face, controller });
@@ -634,6 +644,9 @@ function pickColor(g: Game, pid: PlayerId, options: ManaSym[]): ManaSym {
   return mine.reduce((best, x) => (colorNeed(g, pid, x) > colorNeed(g, pid, best) ? x : best));
 }
 
+/** The colour a player's bot would choose when a spell or ability asks for one, like "one mana of any color". */
+export const preferredColor = (g: Game, pid: PlayerId): ManaSym => pickColor(g, pid, ['W', 'U', 'B', 'R', 'G']);
+
 /** How much more of colour `sym` the player's hand and command zone want than their pool and one-colour sources give. */
 function colorNeed(g: Game, pid: PlayerId, sym: ManaSym): number {
   const p = g.players[pid];
@@ -995,11 +1008,12 @@ export function spellTargets(c: Card, modes: number[] = [], gift = c.cast?.gift)
 /** The targets a spell or ability on the stack has to choose. */
 export function targetSpecs(item: StackItem): TargetSpec[] {
   const script = scriptFor(item.card);
-  if (item.kind === 'activated') return (item.ability === undefined ? script.activated : script.loyalty?.[item.ability])?.targets ?? [];
+  if (item.kind === 'activated') return (item.ability === undefined ? activatedAt(item.card, item.activated) : script.loyalty?.[item.ability])?.targets ?? [];
   if (item.kind === 'triggered' && item.hook === 'onChapter') return script.chapters?.[(item.event as { chapter: number }).chapter - 1]?.targets ?? [];
-  if (item.kind === 'triggered' && item.hook === 'onEnter') return script.targets ?? [];
+  // A lone "enters" ability uses the card's `targets`; one in a list names its own.
+  if (item.kind === 'triggered' && item.hook === 'onEnter' && !Array.isArray(script.onEnter)) return script.targets ?? [];
   if (item.kind === 'triggered') {
-    const t = script[item.hook!] as Trigger<object> | undefined;
+    const t = triggerOf(item);
     return (t && typeof t !== 'function' && t.targets) || [];
   }
   return spellTargets(item.card, item.card.cast?.modes);
@@ -1293,19 +1307,35 @@ const isCard = (v: unknown): v is Card => typeof v === 'object' && v !== null &&
  * waits in `g.triggers` and goes on the stack the next time a player would get priority (603.3).
  */
 export function trigger<H extends TriggerHook>(g: Game, source: Card, hook: H, event: TriggerEvents[H]) {
-  const t = scriptFor(source)[hook] as Trigger<object> | undefined;
-  if (!t) return;
-  if (typeof t !== 'function' && !t.when(g, { self: source, ...event })) return;
-  const remembered = Object.fromEntries(Object.entries(event).map(([k, v]) => [k, isCard(v) ? snapshot(v) : v]));
-  g.triggers.push({
-    id: `s${g.nextId++}`,
-    kind: 'triggered',
-    controller: source.controller,
-    card: snapshot(source),
-    hook,
-    event: remembered,
-    targets: [],
+  const raw = scriptFor(source)[hook] as Trigger<object> | Trigger<object>[] | undefined;
+  // Each of a card's abilities for this event triggers on its own (603.2), in printed order.
+  (Array.isArray(raw) ? raw : raw ? [raw] : []).forEach((t, i) => {
+    if (typeof t !== 'function' && t.when && !t.when(g, { self: source, ...event })) return;
+    const remembered = Object.fromEntries(Object.entries(event).map(([k, v]) => [k, isCard(v) ? snapshot(v) : v]));
+    g.triggers.push({
+      id: `s${g.nextId++}`,
+      kind: 'triggered',
+      controller: source.controller,
+      card: snapshot(source),
+      hook,
+      ...(Array.isArray(raw) && { trigger: i }),
+      event: remembered,
+      targets: [],
+    });
   });
+}
+
+/** The triggered ability a stack item is: its hook's ability, or the one it names in the hook's list. */
+export function triggerOf(item: StackItem): Trigger<object> | undefined {
+  const raw = scriptFor(item.card)[item.hook!] as Trigger<object> | Trigger<object>[] | undefined;
+  return Array.isArray(raw) ? raw[item.trigger ?? 0] : raw;
+}
+
+/** The text of a triggered ability that has one (for a card with several for one event), or undefined. */
+export function triggerText(item: StackItem): string | undefined {
+  if (item.kind !== 'triggered' || !item.hook) return undefined;
+  const t = triggerOf(item);
+  return t && typeof t !== 'function' ? t.text : undefined;
 }
 
 /** Offers an event to every permanent on the battlefield. */
@@ -1657,12 +1687,13 @@ export const canEquip = (eq: Card, host: Card | undefined) =>
 export function attach(g: Game, att: Card | undefined, host: Card | undefined) {
   if (!att || !host || att.zone !== 'battlefield') return;
   if (isAura(att) ? !canEnchant(g, att, host) : !canEquip(att, host)) return; // an illegal attach does nothing (701.3b)
+  if (att.attachedTo === host.id) return; // nor does attaching it to what it is already on (701.3b)
   att.attachedTo = host.id;
   log(g, `${label(att)} is attached to ${label(host)}.`, att.controller, [att, host]);
 }
 
 /** "Equip [cost]": attach to target creature you control, as a sorcery (702.6a). */
-export const equip = (mana: string): CardScript['activated'] => ({
+export const equip = (mana: string): ActivatedAbility => ({
   cost: { mana },
   sorcery: true,
   targets: [{ type: 'creature', who: 'you', label: 'target creature you control', filter: (_g, c, self) => c.id !== self.id && c.id !== self.attachedTo }],
@@ -1671,7 +1702,7 @@ export const equip = (mana: string): CardScript['activated'] => ({
 });
 
 /** "Crew N": tap other creatures with total power N or more, and this becomes an artifact creature until end of turn (702.122a). */
-export const crew = (n: number): CardScript['activated'] => ({
+export const crew = (n: number): ActivatedAbility => ({
   cost: { crew: n },
   text: `Crew ${n}`,
   resolve: (g, { self }) => {
@@ -1791,7 +1822,7 @@ export function ask(g: Game, pid: PlayerId, q: Omit<AskChoice, 'kind' | 'player'
   queue(g, { kind: 'ask', player: pid, source: q.script ? label(findCard(g, q.script)!) : sourceName(g), ...q });
 }
 
-/** Asks a player to name a card (201.3), or a creature type with `of`; `then` runs with the name. */
+/** Asks a player to name a card (201.3), or a creature type or colour with `of`; `then` runs with the name. */
 export function nameCard(g: Game, pid: PlayerId, q: Omit<NameChoice, 'kind' | 'player' | 'source'>) {
   queue(g, { kind: 'name', player: pid, source: q.script ? label(findCard(g, q.script)!) : sourceName(g), ...q });
 }

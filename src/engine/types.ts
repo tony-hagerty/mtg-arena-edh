@@ -344,6 +344,10 @@ export interface StackItem {
   card: Card;
   /** Triggered abilities: the script hook that resolves it, and what it was told about the event. */
   hook?: TriggerHook;
+  /** Which of the hook's triggered abilities it is, when the hook holds a list. */
+  trigger?: number;
+  /** An activated ability: which of the script's `activated` list, when it has several. */
+  activated?: number;
   /** A loyalty ability: its index in the script's `loyalty` list (606). */
   ability?: number;
   event?: object;
@@ -436,8 +440,8 @@ export interface NameChoice extends Then {
   player: PlayerId;
   source: string;
   text: string;
-  /** What is named. Left out, a card. */
-  of?: 'creature type';
+  /** What is named. Left out, a card. A colour is named by its mana symbol: W, U, B, R or G. */
+  of?: 'creature type' | 'color';
 }
 
 /** A player chooses a player, such as "an opponent" (Wishclaw Talisman). */
@@ -570,9 +574,12 @@ export type Action =
   /** `hold`: keep priority afterwards instead of letting auto-pass pass it (117.3c). */
   | ({ type: 'cast'; card: string; targets?: (TargetRef | null)[]; hold?: boolean } & CastChoices)
   /** `crew`: the creatures tapped to pay a crew cost (702.122a). */
-  /** `ability`: which loyalty ability (606), by index into the script's `loyalty`. Left out, the `activated` ability. */
+  /**
+   * `ability`: which loyalty ability (606) or Class level bar, by index. Left out, one of
+   * the `activated` abilities: `activated` is its index in the list (left out, the first).
+   */
   /** `discard`: the cards discarded to pay a "Discard a card" cost. `sacrifice`: the permanent for a "Sacrifice a creature" cost. */
-  | { type: 'activate'; card: string; ability?: number; targets?: (TargetRef | null)[]; hold?: boolean; crew?: string[]; discard?: string[]; sacrifice?: string[] }
+  | { type: 'activate'; card: string; ability?: number; activated?: number; targets?: (TargetRef | null)[]; hold?: boolean; crew?: string[]; discard?: string[]; sacrifice?: string[] }
   /**
    * `ability`: which of its mana abilities (`manaAbilities`). Left out, the one that suits
    * the player best. `color`: the colour to make, for an ability with a choice.
@@ -715,13 +722,25 @@ export type TriggerHook = keyof TriggerEvents;
  * A triggered ability. A plain function triggers on every event of its kind and runs when
  * the ability resolves. Use `{ when, resolve }` to trigger on only some events: `when` is
  * checked as the event happens (603.2), `resolve` runs later, from the stack. `targets`
- * are chosen as it goes on the stack (603.3d); an `onEnter` ability uses `CardScript.targets`.
+ * are chosen as it goes on the stack (603.3d); a lone `onEnter` ability uses `CardScript.targets`.
+ * `text` names the ability on the stack and when ordering triggers; left out, `when` means
+ * it triggers on every event.
  */
 export type Trigger<E> =
   | ((g: Game, e: Ctx & E) => void)
-  | { when: (g: Game, e: { self: Card } & E) => boolean; resolve: (g: Game, e: Ctx & E) => void; targets?: TargetSpec[] };
+  | {
+      when?: (g: Game, e: { self: Card } & E) => boolean;
+      resolve: (g: Game, e: Ctx & E) => void;
+      targets?: TargetSpec[];
+      text?: string;
+    };
 
-type Triggers = { [H in TriggerHook]?: Trigger<TriggerEvents[H]> };
+/**
+ * A hook holds one triggered ability, or a list when the card has several for the same
+ * kind of event (Dragon Tempest's two "enters" abilities). Each triggers on its own (603.2).
+ * In a list, every ability names its own `targets`, `onEnter` ones too.
+ */
+type Triggers = { [H in TriggerHook]?: Trigger<TriggerEvents[H]> | Trigger<TriggerEvents[H]>[] };
 
 /** One mode of a modal spell (700.2). */
 export interface Mode {
@@ -776,6 +795,47 @@ export interface LoyaltyAbility {
   text: string;
   targets?: TargetSpec[];
   resolve: (g: Game, ctx: Ctx) => void;
+}
+
+/**
+ * An activated ability (602): "[cost]: [effect]". Build equip with `equip(cost)` and crew
+ * with `crew(n)`. `crew` in the cost means tapping other untapped creatures with that much
+ * total power (702.122a). `sorcery` limits it to sorcery timing, like equip (702.6a).
+ */
+export interface ActivatedAbility {
+  /**
+   * `life`: life paid as part of the cost (119.4), like a fetch land's. `discard`: cards
+   * discarded from the hand, chosen by the player. `discardSelf`: this card is discarded
+   * (channel, activated from the hand). `counters`: counters removed from it.
+   */
+  cost: {
+    tap?: boolean;
+    mana?: string;
+    sacrifice?: boolean;
+    crew?: number;
+    life?: number;
+    discard?: number;
+    discardSelf?: boolean;
+    counters?: { kind: string; n: number };
+    /** "Sacrifice a creature:": one permanent its controller controls that fits, chosen as it is activated. */
+    sacrificeOne?: TargetSpec;
+  };
+  sorcery?: boolean;
+  /** Activated from its owner's hand rather than the battlefield, like channel. */
+  fromHand?: boolean;
+  /** "Activate only if ..." / "Activate only during your turn." */
+  when?: (g: Game, self: Card) => boolean;
+  /** Generic mana its cost is reduced by. */
+  reduction?: (g: Game, self: Card) => number;
+  targets?: TargetSpec[];
+  text: string;
+  resolve: (g: Game, ctx: Ctx) => void;
+}
+
+/** Names one of a card's activated abilities: a loyalty ability or Class level bar (`ability`), or one of its `activated` list. */
+export interface AbilityRef {
+  ability?: number;
+  activated?: number;
 }
 
 /** Behaviour for one card name. Anything a card does beyond its printed keywords lives here. */
@@ -843,39 +903,10 @@ export interface CardScript extends Triggers {
    */
   enchant?: TargetSpec;
   /**
-   * One activated ability. Build equip with `equip(cost)` and crew with `crew(n)`.
-   * `crew` in the cost means tapping other untapped creatures with that much total power
-   * (702.122a). `sorcery` limits it to sorcery timing, like equip (702.6a).
+   * Its activated abilities (602): one, or a list in printed order when it has several
+   * (Deathrite Shaman). An action or stack item names one by its index (`activated`).
    */
-  activated?: {
-    /**
-     * `life`: life paid as part of the cost (119.4), like a fetch land's. `discard`: cards
-     * discarded from the hand, chosen by the player. `discardSelf`: this card is discarded
-     * (channel, activated from the hand). `counters`: counters removed from it.
-     */
-    cost: {
-      tap?: boolean;
-      mana?: string;
-      sacrifice?: boolean;
-      crew?: number;
-      life?: number;
-      discard?: number;
-      discardSelf?: boolean;
-      counters?: { kind: string; n: number };
-      /** "Sacrifice a creature:": one permanent its controller controls that fits, chosen as it is activated. */
-      sacrificeOne?: TargetSpec;
-    };
-    sorcery?: boolean;
-    /** Activated from its owner's hand rather than the battlefield, like channel. */
-    fromHand?: boolean;
-    /** "Activate only if ..." / "Activate only during your turn." */
-    when?: (g: Game, self: Card) => boolean;
-    /** Generic mana its cost is reduced by. */
-    reduction?: (g: Game, self: Card) => number;
-    targets?: TargetSpec[];
-    text: string;
-    resolve: (g: Game, ctx: Ctx) => void;
-  };
+  activated?: ActivatedAbility | ActivatedAbility[];
   /** A planeswalker's loyalty abilities, in printed order (606). */
   loyalty?: LoyaltyAbility[];
   /** Flashback [cost]: it may be cast from its owner's graveyard for this cost (702.34a). */
@@ -950,7 +981,7 @@ export interface CardScript extends Triggers {
    */
   ai?: 'alpha' | 'tutor' | 'ritual' | 'extraTurn';
   /** Bot hint: should a bot activate this permanent's `activated` ability now? The look-ahead can't see what it is worth. */
-  botActivate?: (g: Game, pid: PlayerId, self: Card) => boolean;
+  botActivate?: (g: Game, pid: PlayerId, self: Card, activated: number) => boolean;
 }
 
 /** Hooks that every permanent on the battlefield hears, not only the card the event is about. */
