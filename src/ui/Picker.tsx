@@ -24,7 +24,7 @@ import {
   triggerText,
 } from '../engine';
 import type { Action, AskChoice, Card, CardChoice, CastChoice, DamageAssignment, DamageRoom, Game, NameChoice, PlayerChoice, PlayerId } from '../engine';
-import { ManaCost } from './Card';
+import { CardImage, ManaCost } from './TextCard';
 import { useStore } from './store';
 import { cx, hoverProps } from './util';
 import { chooseEscape, chooseGraveyardTarget, playHandCard, useView } from './view';
@@ -115,7 +115,7 @@ export function CardPicker({ title, hint, cards, selectable = () => false, max =
                 onClick={() => toggle(tile)}
                 {...hoverProps(c.name)}
               >
-                <img src={data(c).image} alt={label(c)} draggable={false} />
+                <CardImage d={data(c)} alt={label(c)} draggable={false} />
                 {numbered && n >= 0 && <span className="picker-num">{n + 1}</span>}
                 {tile.length > 1 && <span className="picker-count">×{tile.length}</span>}
               </button>
@@ -292,7 +292,7 @@ function NamePanel({ g, choice }: { g: Game; choice: NameChoice }) {
         </div>
         <p className="picker-hint">{choice.text}</p>
         <div className="name-row">
-          {source && <img className="name-source" src={data(source).image} alt={label(source)} draggable={false} />}
+          {source && <CardImage className="name-source" d={data(source)} alt={label(source)} draggable={false} />}
           <input
             className="name-input"
             list="card-names"
@@ -344,7 +344,7 @@ function ColorPanel({ g, choice }: { g: Game; choice: NameChoice }) {
         </div>
         <p className="picker-hint">{choice.text}</p>
         <div className="name-row">
-          {source && <img className="name-source" src={data(source).image} alt={label(source)} draggable={false} />}
+          {source && <CardImage className="name-source" d={data(source)} alt={label(source)} draggable={false} />}
           {(['W', 'U', 'B', 'R', 'G'] as const).map((c) => (
             <button key={c} className="chip" onClick={() => act({ type: 'name', name: c })} aria-label={c}>
               <ManaCost cost={`{${c}}`} />
@@ -458,7 +458,7 @@ function TriggerOrder({ g, me }: { g: Game; me: PlayerId }) {
           {order.map((t, i) => (
             <div key={t.id} className="picker-slot">
               <div className="picker-card" {...hoverProps(t.card.name)}>
-                <img src={data(t.card).image} alt={label(t.card)} draggable={false} />
+                <CardImage d={data(t.card)} alt={label(t.card)} draggable={false} />
                 <span className="picker-num">{ORDINAL[i] ?? `${i + 1}th`}</span>
               </div>
               {/* A card with several abilities for one event says which one this is. */}
@@ -558,7 +558,7 @@ function DamagePanel({ g, attackers }: { g: Game; attackers: string[] }) {
             return (
               <div key={room.attacker} className="damage-attacker">
                 <div className="picker-card" {...hoverProps(atk.name)}>
-                  <img src={data(atk).image} alt={label(atk)} draggable={false} />
+                  <CardImage d={data(atk)} alt={label(atk)} draggable={false} />
                 </div>
                 <div className="damage-rows">
                   <div className="cast-label">

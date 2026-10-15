@@ -5,6 +5,7 @@ import { cardData } from '../cards/db';
 import { COMMANDER_DAMAGE, attachmentsOf, creaturesOf, data, isCreature, isLand, permanent } from '../engine';
 import type { Card, ManaSym, Player } from '../engine';
 import { HandBack, HandCard, Permanent } from './Card';
+import { CardImage } from './TextCard';
 import { useRem } from './rem';
 import { useStore } from './store';
 import { cx, deckColor, faceUp, hoverProps, seatOf } from './util';
@@ -256,7 +257,7 @@ function FaceUpPile({ player, zone }: { player: Player; zone: 'graveyard' | 'exi
       title={`${name}: ${cards.length} cards${top ? ' — click to view' : ''}`}
       onClick={() => top && useStore.setState({ viewer: { pid: player.id, zone } })}
     >
-      {top && (faceUp(top, v.me) ? <img src={data(top).image} alt="" draggable={false} /> : <div className="card-back" />)}
+      {top && (faceUp(top, v.me) ? <CardImage d={data(top)} alt="" draggable={false} /> : <div className="card-back" />)}
       <i className={`ms ms-${zone}`} />
       <span className="count">{cards.length}</span>
     </div>
