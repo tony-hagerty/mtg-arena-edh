@@ -22,7 +22,16 @@ export interface ScryfallCard extends ScryfallFace {
   color_identity?: string[];
   keywords?: string[];
   card_faces?: ScryfallFace[];
+  /** Format name to "legal", "not_legal", "banned" or "restricted". */
+  legalities?: Record<string, string>;
 }
+
+/**
+ * Whether a card may be played in Commander, as Scryfall says: "legal", "banned" (on the
+ * Commander ban list, which the format's rules committee keeps, not the Comprehensive
+ * Rules), "not_legal" (such as Un-set and Alchemy cards), or "restricted".
+ */
+export type Legality = 'legal' | 'banned' | 'not_legal' | 'restricted';
 
 // Layouts whose faces the engine uses: double-faced (712), split (709) and adventurer (715) cards.
 const FACED = ['transform', 'modal_dfc', 'split', 'adventure'];
@@ -97,6 +106,8 @@ export function toCard(c: ScryfallCard): CardData {
 /** What fetching a list of names came to. `error` is a plain-language reason the rest couldn't be fetched. */
 export interface FetchResult {
   cards: CardData[];
+  /** Each fetched card's Commander legality, by its name in `cards`. */
+  legality: Record<string, Legality>;
   /** Names Scryfall doesn't know. */
   notFound: string[];
   /** Names not fetched because Scryfall couldn't be reached or refused, and why. */
@@ -117,7 +128,7 @@ export async function fetchCollection(
   opts: { fetch?: typeof fetch; pause?: number; headers?: Record<string, string> } = {},
 ): Promise<FetchResult> {
   const get = opts.fetch ?? fetch;
-  const out: FetchResult = { cards: [], notFound: [], failed: [], error: null };
+  const out: FetchResult = { cards: [], legality: {}, notFound: [], failed: [], error: null };
   for (let i = 0; i < names.length; i += BATCH) {
     if (i > 0) await new Promise((r) => setTimeout(r, opts.pause ?? 100));
     const batch = names.slice(i, i + BATCH);
@@ -149,7 +160,11 @@ export async function fetchCollection(
       out.failed = names.slice(i);
       return out;
     }
-    for (const c of body.data ?? []) out.cards.push(toCard(c));
+    for (const c of body.data ?? []) {
+      out.cards.push(toCard(c));
+      // A card Scryfall sends without legalities is taken as not legal, so it is never let in unchecked.
+      out.legality[c.name] = (c.legalities?.commander as Legality | undefined) ?? 'not_legal';
+    }
     out.notFound.push(...(body.not_found ?? []).map((x) => x.name ?? '').filter(Boolean));
   }
   return out;

@@ -35,11 +35,17 @@ async function fetchTokenArt(query) {
 
 /**
  * Fetches cards by name. They are keyed by their full Scryfall name ("Delver of Secrets //
- * Insectile Aberration"); a list may use just the front face's name.
+ * Insectile Aberration"); a list may use just the front face's name. With `legalOnly`, a
+ * card that isn't legal in Commander fails the run: the game takes every pool card as legal.
  */
-async function fetchCards(all) {
+async function fetchCards(all, { legalOnly = false } = {}) {
   const res = await fetchCollection(all, { pause: 500, headers: { 'User-Agent': HEADERS['User-Agent'] } });
   if (res.error) throw new Error(`${res.error} (${res.failed.length} cards not fetched)`);
+  const illegal = Object.entries(res.legality).filter(([, l]) => l !== 'legal');
+  if (legalOnly && illegal.length) {
+    console.error('NOT LEGAL IN COMMANDER:', illegal.map(([n, l]) => `${n} (${l})`).join(', '));
+    process.exitCode = 1;
+  }
   const cards = {};
   for (const c of res.cards) cards[c.name] = c;
   if (res.notFound.length) {
@@ -55,7 +61,7 @@ async function fetchCards(all) {
   return cards;
 }
 
-const cards = await fetchCards([...names]);
+const cards = await fetchCards([...names], { legalOnly: true });
 
 const tokens = {};
 for (const [key, t] of Object.entries(lists.tokens)) {
