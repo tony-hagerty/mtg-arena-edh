@@ -660,10 +660,13 @@ src/engine/     types.ts              game state, actions, card-script types
                 engine.ts             setup, turn structure, priority, the stack, applyAction()
                 ai.ts                 the bots
 src/net/        protocol.ts           what the game window and game server send each other
+                lobby.ts              what the window and the lobby send each other
 server/game/    host.ts               the game server: the whole game, bots, each seat's view
                 http.ts               its web endpoints (/api/game/...)
 src/ui/         store.ts              Zustand store (game + what the player is selecting)
                 remote.ts             the window's connection to the game server
+                lobby.ts              the window's connection to the lobby; the name you play under
+                LobbyScreen.tsx       hosting a table, joining one with a code, the waiting room
                 view.ts               highlights, prompt, buttons, click handlers
                 Card/Board/Hud.tsx    components
                 TextCard.tsx          a card drawn as text when its image doesn't load
@@ -718,6 +721,19 @@ A choice in the middle of a spell's effect waits in `Game.choices` until the eff
 far has run; the spell stays on the stack as `Game.resolving` until it is answered. What
 happens next is the script's `then[key]`, which the choice names, so a card can ask
 several questions in a row.
+
+### The lobby
+
+Playing with friends on other computers starts in the lobby (`src/net/lobby.ts`). The
+window only talks to the program on its own computer: `connectLobby` (src/ui/lobby.ts)
+streams `LobbyState` from `/api/lobby/events` and POSTs requests (host, join, deck,
+ready, table, start, leave); a refusal comes back as a reason in plain words, which the
+screen shows. A page with no lobby (a build opened from disk) gets no Host or Join
+buttons. The menu shows the waiting room while `LobbyState.role` isn't `none`. Once
+`started` is true, the store (`onLobby`) plays the game through the game server as
+`yourSeat` alone: it streams only that seat, never passes the screen, and never starts a
+game itself (the host's Play Again asks the lobby to start the next one). Leaving that game leaves the table (for the host, that closes it), and the
+server's game goes on for the others.
 
 ### Sizing the UI
 
