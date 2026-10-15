@@ -850,7 +850,9 @@ export function GameOver() {
 /** The end-of-game screen. It can be hidden to look over the final board. Mounted only once the game is over, so each game starts with it showing. */
 function Results() {
   const { g, me } = useView();
-  const { start, quit, deck, tableGame } = useStore.getState();
+  const { start, quit, deck, tableGame, lobby, table } = useStore.getState();
+  // At a table, only the host starts the next game, through the lobby; it arrives as a new view.
+  const again = !tableGame ? () => start(deck) : table?.role === 'hosting' && lobby ? () => void lobby.start().catch((err) => console.warn('Lobby:', err)) : null;
   const [hidden, setHidden] = useState(false);
   if (hidden) {
     return (
@@ -871,9 +873,8 @@ function Results() {
           </p>
         )}
         <div className="game-over-buttons">
-          {/* A table's next game is the host's to start, from the lobby. */}
-          {!tableGame && (
-            <button className="btn btn-go small" onClick={() => start(deck)}>
+          {again && (
+            <button className="btn btn-go small" onClick={again}>
               <span className="btn-label">Play Again</span>
             </button>
           )}
