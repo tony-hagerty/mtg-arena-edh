@@ -2,6 +2,7 @@
 // It serves the built game on 127.0.0.1 and opens it in an Edge app window whose profile is
 // in the folder beside the .exe. Closing the window quits the program. The same program is
 // the game server (server/game): it holds the whole game and gives each window its view.
+// It also hosts tables for friends, or joins a friend's, over the internet (server/lobby).
 //
 // Flags, for development: `--no-window` only serves the game and prints its address,
 // `--browser <path>` opens the window in that Chromium-based browser instead of Edge, and
@@ -11,7 +12,9 @@ import type { IncomingMessage, Server, ServerResponse } from 'node:http';
 import { resolve } from 'node:path';
 import { getAsset, isSea } from 'node:sea';
 import { findEdge, openDefaultBrowser, openEdge, showError } from './edge';
-import { GameHost, handleGameApi } from '../server/game';
+import { GameHost } from '../server/game';
+import { handleApi, Lobby } from '../server/lobby';
+import { checkHost } from '../server/net';
 import { createLifetime } from './lifetime';
 import type { Lifetime } from './lifetime';
 import { pathsFor } from './paths';
@@ -100,9 +103,12 @@ async function main() {
   if (!files('index.html')) fail(sea ? 'This copy of Arena EDH is damaged: the game files are missing.' : 'No dist/index.html: run `npm run build` first.');
 
   let server: Server | undefined;
+  let lobby: Lobby | undefined;
   const lifetime = createLifetime({
     quit() {
       log('Game window closed; quitting.');
+      // Friends at a table this computer hosts are told, and the router's port is closed.
+      lobby?.leave();
       server?.close();
       process.exit(0);
     },
@@ -120,9 +126,10 @@ async function main() {
     },
   };
 
-  // The game server: it holds the whole game and gives each window its own player's view.
-  const host = new GameHost();
-  const api = (req: IncomingMessage, res: ServerResponse, path: string) => handleGameApi(host, req, res, path);
+  // The game server: it holds the whole game and gives each window its own player's view,
+  // and the lobby, for tables of friends.
+  lobby = new Lobby(new GameHost(), { checkHost: (port) => checkHost(port) });
+  const api = (req: IncomingMessage, res: ServerResponse, path: string) => handleApi(lobby!, req, res, path);
   for (let port = PORT; port < PORT + TRIES; port++) {
     const candidate = makeServer({ files, pages, hello: { app: 'arena-edh', data: paths.data }, api });
     if (await listen(candidate, port)) {
