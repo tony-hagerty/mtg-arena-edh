@@ -639,6 +639,7 @@ src/engine/     types.ts              game state, actions, card-script types
 src/ui/         store.ts              Zustand store (game + what the player is selecting)
                 view.ts               highlights, prompt, buttons, click handlers
                 Card/Board/Hud.tsx    components
+                TextCard.tsx          a card drawn as text when its image doesn't load
                 Menu.tsx              deck menu, opponent seats, the paste screen
                 card-requests.ts      sends refused cards to the dev server or a download
                 Picker.tsx            card picker: search, mulligan, bottom, trigger order,
@@ -821,7 +822,8 @@ when the look-ahead can't see the cost (Pact of Negation). `ai: 'ritual'` or
 ## Credits
 
 Card data and images come from [Scryfall](https://scryfall.com) and are loaded from its
-image server at runtime. Mana and ability icons are from
+image server at runtime. If an image or art crop doesn't load, the card is drawn as text
+instead (name, cost, type line, rules text, P/T), from the card data the game already has. Mana and ability icons are from
 [mana-font](https://github.com/andrewgioia/mana). The mouse cursor (`src/ui/cursor.png`)
 is ["MTGA cursor"](https://www.cursor.cc/?action=icon&file_id=114958) by Tales on
 cursor.cc, shared under Creative Commons with no attribution required; `cursor-down.png`
