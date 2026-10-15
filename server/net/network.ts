@@ -2,17 +2,9 @@
 // Can friends reach this computer? Opens the port, reads the router's public address, and
 // spots carrier-grade NAT (CGNAT): an internet provider sharing one public address among
 // many homes, so nobody outside can connect in and a friend on another network must host.
-import { request as httpsRequest } from 'node:https';
-import { isIPv4 } from 'node:net';
+// The public address comes from the router itself; nothing here asks an outside server.
 import { addressKind } from './addresses';
 import { openPort, PortMapError, type MapFailure, type PortMapOptions, type PortMapping } from './portmap';
-
-/**
- * Plain-text "what is my IP" services. They are outside servers, so nothing calls them
- * unless the caller passes `allowExternalLookup`: the router reports the public address
- * itself whenever UPnP or NAT-PMP works.
- */
-export const PUBLIC_IP_SERVICES = ['https://api.ipify.org', 'https://checkip.amazonaws.com', 'https://icanhazip.com'];
 
 /**
  * What a router's own public (WAN) address says about the network:
@@ -51,16 +43,11 @@ export type HostCheck =
       mapping: PortMapping | null;
     };
 
-export interface HostCheckOptions extends PortMapOptions {
-  /** Ask PUBLIC_IP_SERVICES for the public address when the router can't say. Off by default. */
-  allowExternalLookup?: boolean;
-}
-
 /**
  * Gets this computer ready to host on `port`: forwards the port and works out the address
  * friends connect to. Any forward it opens stays open; close it with `mapping.close()`.
  */
-export async function checkHost(port: number, opts: HostCheckOptions = {}): Promise<HostCheck> {
+export async function checkHost(port: number, opts: PortMapOptions = {}): Promise<HostCheck> {
   let mapping: PortMapping;
   try {
     mapping = await openPort(port, opts);
@@ -69,12 +56,9 @@ export async function checkHost(port: number, opts: HostCheckOptions = {}): Prom
     const { routerAddress, localAddress, failures } = err;
     const kind = routerAddress ? classifyRouterAddress(routerAddress) : null;
     if (routerAddress && (kind === 'cgnat' || kind === 'double-nat')) return { kind, routerAddress, localAddress, mapping: null };
-    let publicAddress = routerAddress;
-    if (!publicAddress && opts.allowExternalLookup) publicAddress = await lookupPublicAddress().catch(() => null);
-    return { kind: 'manual', publicAddress, port: opts.externalPort ?? port, localAddress, failures, mapping: null };
+    return { kind: 'manual', publicAddress: routerAddress, port: opts.externalPort ?? port, localAddress, failures, mapping: null };
   }
-  let address = mapping.routerAddress;
-  if (!address && opts.allowExternalLookup) address = await lookupPublicAddress().catch(() => null);
+  const address = mapping.routerAddress;
   if (!address) {
     // The router forwarded the port but won't say its address: friends can't be told where to go.
     return { kind: 'manual', publicAddress: null, port: mapping.externalPort, localAddress: mapping.localAddress, failures: [], mapping };
@@ -109,32 +93,4 @@ export function explainHostCheck(check: HostCheck): string {
             `${check.localAddress ? ` to ${check.localAddress}` : ' to this computer'}, or turn on UPnP there.`
       );
   }
-}
-
-/** Asks the plain-text services in turn for this network's public address. Only called when allowed. */
-export async function lookupPublicAddress(urls: string[] = PUBLIC_IP_SERVICES, timeoutMs = 4000): Promise<string> {
-  for (const url of urls) {
-    const ip = await getText(url, timeoutMs).then((t) => t.trim(), () => '');
-    if (isIPv4(ip)) return ip;
-  }
-  throw new Error('no public address service answered');
-}
-
-function getText(url: string, timeoutMs: number): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const req = httpsRequest(url, { timeout: timeoutMs, agent: false }, (res) => {
-      if (res.statusCode !== 200) {
-        res.resume();
-        reject(new Error(`${url} answered HTTP ${res.statusCode}`));
-        return;
-      }
-      let body = '';
-      res.setEncoding('utf8');
-      res.on('data', (chunk: string) => (body = (body + chunk).slice(0, 100)));
-      res.on('end', () => resolve(body));
-    });
-    req.on('timeout', () => req.destroy(new Error(`${url} did not answer`)));
-    req.on('error', reject);
-    req.end();
-  });
 }
