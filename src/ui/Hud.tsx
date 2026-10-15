@@ -4,7 +4,7 @@ import { AnimatePresence, motion } from 'motion/react';
 import { cardData } from '../cards/db';
 import { data, findCard, label, triggerText } from '../engine';
 import type { Game, LogEntry, PlayerId, Step, StopKind } from '../engine';
-import { ManaCost } from './Card';
+import { CardImage, ManaCost } from './TextCard';
 import { useRem } from './rem';
 import { useStore } from './store';
 import { type Seat, cx, deckColor, faceUp, hoverProps, seatOf } from './util';
@@ -637,7 +637,7 @@ export function Preview() {
   }
   return (
     <div className="preview" key={hover.name} style={shown.current}>
-      <img src={d.image} alt={d.name} />
+      <CardImage d={d} alt={d.name} />
     </div>
   );
 }
@@ -664,7 +664,7 @@ export function StackPanel() {
             title={triggerText(item)}
             {...hoverProps(data(item.card).name)}
           >
-            <img src={data(item.card).image} alt={label(item.card)} draggable={false} />
+            <CardImage d={data(item.card)} alt={label(item.card)} draggable={false} />
             <span className="stack-tag">
               {who} {item.copy ? 'copy' : item.kind === 'spell' ? 'spell' : 'ability'}
               {item.x !== undefined && ` (X = ${item.x})`}
@@ -674,7 +674,7 @@ export function StackPanel() {
       })}
       {paying && (
         <div key={`paying-${paying.card.id}`} className="stack-item top paying" {...hoverProps(data(paying.card).name)}>
-          <img src={data(paying.card).image} alt={label(paying.card)} draggable={false} />
+          <CardImage d={data(paying.card)} alt={label(paying.card)} draggable={false} />
           <span className="stack-tag">Pay to {paying.kind === 'spell' ? 'cast' : 'activate'}</span>
         </div>
       )}
@@ -707,7 +707,7 @@ export function SpellFlash() {
           exit={{ opacity: 0, scale: 0.9 }}
         >
           <div className="spell-caster">{shown.caster === me ? 'You cast' : `${g.players[shown.caster].name} casts`}</div>
-          <img src={cardData(shown.name).image} alt={cardData(shown.name).name} draggable={false} />
+          <CardImage d={cardData(shown.name)} alt={cardData(shown.name).name} draggable={false} />
         </motion.div>
       )}
     </AnimatePresence>
@@ -802,9 +802,9 @@ export function ZoneViewer() {
             // A flashback card or an exiled adventurer card can be cast from here (702.34a, 715.3d).
             const castable = glow.get(c.id) === 'play';
             return (
-              <img
+              <CardImage
                 key={c.id}
-                src={data(c).image}
+                d={data(c)}
                 alt={data(c).name}
                 className={cx(castable && 'glow-play')}
                 title={castable ? `Cast ${data(c).name}` : undefined}

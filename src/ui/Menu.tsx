@@ -5,6 +5,7 @@ import { checkList, norm, savedDeckIssues } from '../cards/decklist';
 import { clearFetchedCards, fetchCards, fetchedCount, requestFor } from '../cards/fetched';
 import { downloadRequests, keptRequests, reportRequests, writesFile } from './card-requests';
 import { type SeatPlayer, useStore } from './store';
+import { CardImage } from './TextCard';
 import { cx, deckColor } from './util';
 
 export function Menu() {
@@ -53,7 +54,7 @@ function DeckTile({ deck, issues, play, pasted }: { deck: DeckDef; issues: strin
       <button className={cx('deck', broken && 'broken')} onClick={play} disabled={broken} style={{ borderColor: broken ? undefined : deckColor(colors) }}>
         {/* Partners show side by side. */}
         <div className="deck-art">
-          {deck.commanders.map((name) => (broken ? <div key={name} className="deck-art-missing" /> : <img key={name} src={cardData(name).image} alt={name} draggable={false} />))}
+          {deck.commanders.map((name) => (broken ? <div key={name} className="deck-art-missing" /> : <CardImage key={name} d={cardData(name)} alt={name} draggable={false} />))}
         </div>
         <div className="deck-title">
           {!broken && (colors.length ? colors.map((c) => <i key={c} className={`ms ms-cost ms-${c.toLowerCase()}`} />) : <i className="ms ms-cost ms-c" />)} {deck.title}

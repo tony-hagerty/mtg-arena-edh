@@ -311,7 +311,7 @@ button {
 }
 
 .pile .card-back,
-.pile img {
+.pile :is(img, .text-card) {
   position: absolute;
   left: 50%;
   top: 50%;
@@ -333,14 +333,14 @@ button {
   border-radius: 0.4rem;
 }
 
-.pile.graveyard img,
-.pile.exile img {
+.pile.graveyard :is(img, .text-card),
+.pile.exile :is(img, .text-card) {
   border-radius: 0.4rem;
   filter: saturate(0.5) brightness(0.8);
 }
 
 /* Exiled cards look washed out and ringed in pale blue, so the pile isn't mistaken for the graveyard. */
-.pile.exile img {
+.pile.exile :is(img, .text-card) {
   filter: saturate(0.25) brightness(1.05) contrast(0.85);
   box-shadow:
     0 0 0 0.15rem rgba(190, 215, 255, 0.75),
@@ -759,6 +759,30 @@ button {
   background-position: center 22%;
 }
 
+/* A tile whose art didn't load shows its type line and rules text instead (TextCard.tsx). */
+.tile-text {
+  padding: 1.85em 0.5em 0.4em;
+  overflow: hidden;
+  color: #e8e2d0;
+  font-family: var(--serif);
+  background: linear-gradient(170deg, color-mix(in srgb, var(--frame) 30%, #11141a), #0b0d12);
+}
+
+.tile-text div {
+  font-size: 0.62em;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tile-text p {
+  margin: 0.3em 0 0;
+  font-size: 0.56em;
+  line-height: 1.25;
+  white-space: pre-line;
+}
+
 .tile.commander .tile-art {
   border-color: var(--f-gold);
 }
@@ -896,6 +920,8 @@ button {
 
 .tile-attached-art {
   flex: none;
+  /* Shows if the art doesn't load. */
+  background-color: var(--frame);
   width: 1.2em;
   height: 1.2em;
   border-radius: 50%;
@@ -952,6 +978,115 @@ button {
 .tile-badge:hover {
   background: var(--cyan);
   color: #05060a;
+}
+
+/* ---------- cards drawn as text, when an image doesn't load (TextCard.tsx) ---------- */
+
+/* A card-shaped box. It is a size container, so the text inside scales with it: 1cqw is 1% of its width. */
+.text-card {
+  display: block;
+  width: 100%;
+  aspect-ratio: 63 / 88;
+  container-type: inline-size;
+  overflow: hidden;
+  border-radius: 4.75% / 3.5%;
+  background: #0d0f14;
+}
+
+.text-card-face {
+  display: flex;
+  flex-direction: column;
+  gap: 2.4cqw;
+  height: 100%;
+  padding: 3.5cqw;
+  border: 2.4cqw solid color-mix(in srgb, var(--frame) 70%, #000);
+  border-radius: inherit;
+  font-family: var(--serif);
+  text-align: left;
+  color: #f6f1e4;
+  background: linear-gradient(170deg, color-mix(in srgb, var(--frame) 22%, #11141a), #0b0d12 60%);
+}
+
+.text-card-head,
+.text-card-type {
+  padding: 1cqw 3cqw;
+  border-radius: 2cqw;
+  background: linear-gradient(90deg, color-mix(in srgb, var(--frame) 60%, #000), rgba(8, 10, 14, 0.85));
+}
+
+.text-card-head {
+  display: flex;
+  align-items: center;
+  gap: 2cqw;
+  font-size: 7cqw;
+  font-weight: 700;
+  line-height: 1.35;
+}
+
+.text-card-name {
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.text-card-head .mana-cost {
+  flex: none;
+  display: flex;
+  gap: 0.6cqw;
+  font-size: 0.75em;
+}
+
+.text-card-type {
+  font-size: 5.4cqw;
+  font-weight: 600;
+  line-height: 1.35;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.text-card-rules {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  padding: 0 2cqw;
+  font-size: 6.2cqw;
+  line-height: 1.3;
+}
+
+/* Long rules text gets smaller so more of it fits. */
+.text-card-rules.long {
+  font-size: 5cqw;
+}
+
+.text-card-rules.longer {
+  font-size: 4.2cqw;
+}
+
+.text-card-rules p {
+  margin: 0 0 0.45em;
+}
+
+.text-card-rules em {
+  color: #b9b2a0;
+}
+
+.text-card-rules .ms {
+  font-size: 0.8em;
+}
+
+/* Power/toughness, loyalty or defense, in the corner like the tiles show it. */
+.text-card-corner {
+  align-self: flex-end;
+  padding: 0 3cqw;
+  font-size: 8cqw;
+  font-weight: 700;
+  line-height: 1.3;
+  background: linear-gradient(#333843, #14161b);
+  border: 0.4cqw solid #b3bccd;
+  border-radius: 2cqw;
 }
 
 /* ---------- highlights (shared by tiles, hand cards and the commander) ---------- */
@@ -1132,7 +1267,7 @@ button {
   gap: 0.2rem;
 }
 
-.hand-card img {
+.hand-card :is(img, .text-card) {
   display: block;
   width: 100%;
   border-radius: 0.75rem;
@@ -1226,7 +1361,7 @@ button {
   flex: none;
 }
 
-.damage-attacker .picker-card img {
+.damage-attacker .picker-card :is(img, .text-card) {
   width: 14rem;
   border-radius: 0.9rem;
 }
@@ -1801,14 +1936,14 @@ button {
   margin-top: -22.6rem;
 }
 
-.stack-item img {
+.stack-item :is(img, .text-card) {
   display: block;
   width: 100%;
   border-radius: 4.75% / 3.5%;
   box-shadow: 0 0.6rem 1.6rem #000;
 }
 
-.stack-item.top img {
+.stack-item.top :is(img, .text-card) {
   box-shadow:
     0 0 2.4rem 0.4rem rgba(255, 210, 122, 0.6),
     0 0.6rem 1.6rem #000;
@@ -1837,7 +1972,7 @@ button {
   cursor: pointer;
 }
 
-.stack-item.targetable img {
+.stack-item.targetable :is(img, .text-card) {
   box-shadow:
     0 0 0 0.35rem #ffe45c,
     0 0 2rem 0.5rem rgba(255, 228, 92, 0.8),
@@ -1854,7 +1989,7 @@ button {
   animation: appear 0.15s both;
 }
 
-.stack-item.paying img {
+.stack-item.paying :is(img, .text-card) {
   animation: hover-bob 2.4s ease-in-out infinite;
   box-shadow:
     0 0 0 0.3rem #fff,
@@ -1873,7 +2008,7 @@ button {
   z-index: 40;
 }
 
-.spell-flash img {
+.spell-flash :is(img, .text-card) {
   display: block;
   width: 100%;
   border-radius: 4.75% / 3.5%;
@@ -1895,7 +2030,7 @@ button {
   animation: appear 0.12s 0.15s both;
 }
 
-.preview img {
+.preview :is(img, .text-card) {
   display: block;
   width: 100%;
   border-radius: 4.75% / 3.5%;
@@ -1939,7 +2074,7 @@ button {
   gap: 1.2rem;
 }
 
-.viewer-cards img {
+.viewer-cards :is(img, .text-card) {
   width: 19rem;
   border-radius: 0.9rem;
 }
@@ -1951,7 +2086,7 @@ button {
 }
 
 /* A card that can be cast from the graveyard or exile (flashback, an Adventure). */
-.viewer-cards img.glow-play {
+.viewer-cards :is(img, .text-card).glow-play {
   cursor: pointer;
 }
 
@@ -2013,7 +2148,7 @@ button {
   transition: transform 0.12s, box-shadow 0.12s, filter 0.12s;
 }
 
-.picker-card img {
+.picker-card :is(img, .text-card) {
   display: block;
 }
 
@@ -2307,7 +2442,7 @@ button {
   gap: 0.6rem;
 }
 
-.deck-art img {
+.deck-art :is(img, .text-card) {
   display: block;
   flex: 1;
   min-width: 0;
