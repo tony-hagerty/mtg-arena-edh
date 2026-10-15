@@ -212,8 +212,11 @@ export class Hosting {
           // Someone back at a game in progress gets its copy to keep at once.
           const copy = this.table.saveCopy();
           if (copy) send(socket, { t: 'save', copy });
-          // A deck the table can't play leaves them seated, told why, to pick another.
-          if (m.deck) this.guestDeck(guest, m.deck);
+          // A deck the table can't play leaves them seated, told why, to pick another. Someone
+          // back at a game, or at a saved one, plays the deck they had: their window sends
+          // its pick anyway, not knowing, so it's ignored.
+          const back = this.table.stateFor(person).started || this.table.resuming;
+          if (m.deck && !back) this.guestDeck(guest, m.deck);
         } catch (err) {
           refuse(err instanceof Error ? err.message : String(err));
         }
