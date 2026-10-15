@@ -1,7 +1,10 @@
 // The parse report (`npm run parse-report`): what the Oracle text parser can script on its
 // own across the card pool, and why it refused the rest.
+// First, so the engine registers the hand scripts before the parser scripts the rest.
+import { unsupported } from './support';
 import { ALL_CARD_NAMES, cardData } from './db';
-import { needsScript, parseCard } from './oracle';
+import { needsScript, parseCard, refusalOf } from './oracle';
+import type { CardRequest } from './requests';
 
 export interface ReportLine {
   name: string;
@@ -43,4 +46,18 @@ export function parseReport(): string {
     for (const r of lines) out.push(`    ${r.name}: ${r.clause}`);
   }
   return out.join('\n');
+}
+
+/**
+ * Pool cards the game can't play, with neither a hand script nor a parsed one (cards of
+ * unfinished decks), as entries for docs/card-requests.json.
+ */
+export function poolRequests(now = new Date()): CardRequest[] {
+  return ALL_CARD_NAMES.flatMap((name) => {
+    const problems = unsupported(name);
+    if (!problems.length) return [];
+    const refused = refusalOf(name);
+    const d = cardData(name);
+    return [{ name, oracleText: d.oracleText, clause: refused?.clause ?? problems.join('; '), reason: refused?.reason ?? 'not supported', count: 1, last: now.toISOString() }];
+  });
 }

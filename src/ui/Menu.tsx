@@ -1,7 +1,9 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { DECKS, cardData, deckColors } from '../cards/db';
 import type { DeckDef } from '../cards/db';
-import { checkList, savedDeckIssues } from '../cards/decklist';
+import { checkList, norm, savedDeckIssues } from '../cards/decklist';
+import { clearFetchedCards, fetchCards, fetchedCount, requestFor } from '../cards/fetched';
+import { downloadRequests, keptRequests, reportRequests, writesFile } from './card-requests';
 import { useStore } from './store';
 import { cx, deckColor } from './util';
 
@@ -13,6 +15,8 @@ export function Menu() {
 function DeckMenu({ paste }: { paste: () => void }) {
   const start = useStore((s) => s.start);
   const saved = useStore((s) => s.savedDecks);
+  // Saved decks are checked again once fetched cards load (`loadCards`).
+  useStore((s) => s.cardsVersion);
   return (
     <div className="stage menu">
       <h1>Commander Table</h1>
@@ -75,6 +79,7 @@ function DeckTile({ deck, issues, play, pasted }: { deck: DeckDef; issues: strin
 function Opponents() {
   const opponents = useStore((s) => s.settings.opponents);
   const setSetting = useStore((s) => s.setSetting);
+  useStore((s) => s.cardsVersion);
   const saved = useStore((s) => s.savedDecks).filter((d) => savedDeckIssues(d).length === 0);
   const pick = (seat: number, id: string) => setSetting({ opponents: opponents.map((o, i) => (i === seat ? id || null : o)) });
   return (
@@ -114,14 +119,100 @@ Deck
 32 Plains
 ...`;
 
-/** The paste screen: a text box, the list as read, a commander picker and every problem. Save is enabled once there are none. */
+/** Names being fetched from Scryfall, and what the last fetches came to. */
+interface Fetching {
+  pending: string[];
+  /** Names Scryfall doesn't know, or knows by another name. */
+  notFound: string[];
+  /** Names not fetched because Scryfall couldn't be reached, and why in plain words. */
+  failed: string[];
+  error: string | null;
+}
+
+const NO_FETCH: Fetching = { pending: [], notFound: [], failed: [], error: null };
+
+/** Waits this long after the last keystroke before asking Scryfall, so typing doesn't send a request per letter. */
+const DEBOUNCE = 800;
+
+/**
+ * The paste screen: a text box, the list as read, a commander picker and every problem. Save
+ * is enabled once there are none. Cards the game doesn't have are fetched from Scryfall and
+ * scripted from their Oracle text; one it can't read is listed with the clause, and written
+ * down for Claude to script later (docs/card-requests.json).
+ */
 function PasteDeck({ close }: { close: () => void }) {
   const save = useStore((s) => s.saveDeck);
+  const version = useStore((s) => s.cardsVersion);
+  const cardsChanged = useStore((s) => s.cardsChanged);
   const [text, setText] = useState('');
   const [title, setTitle] = useState('');
   const [picked, setPicked] = useState<string[] | null>(null);
-  const check = useMemo(() => checkList(text, picked, title, `pasted-${Date.now()}`), [text, picked, title]);
+  const [fetching, setFetching] = useState<Fetching>(NO_FETCH);
+  const [kept, setKept] = useState(() => keptRequests().cards.length);
+  /** Names asked for on this screen (compared as `norm` does), so each is fetched once unless retried. */
+  const tried = useRef(new Set<string>());
+  /** Refused cards already written down from this screen: each counts once per screen. */
+  const reported = useRef(new Set<string>());
+  /** Fetches run one after another, keeping to Scryfall's pace (50-100 ms between requests). */
+  const queue = useRef(Promise.resolve());
+
+  const why = (name: string) =>
+    fetching.pending.includes(name)
+      ? 'is being fetched from Scryfall'
+      : fetching.failed.includes(name)
+        ? "couldn't be fetched from Scryfall"
+        : tried.current.has(norm(name))
+          ? "isn't a card Scryfall knows by this name. Check the spelling"
+          : "isn't in the card pool";
+  // `version` and `fetching` change what the check sees: new cards, and why the rest are missing.
+  const check = useMemo(() => checkList(text, picked, title, `pasted-${Date.now()}`, why), [text, picked, title, version, fetching]);
   const count = [...check.list.commanders, ...check.list.cards].reduce((n, e) => n + e.count, 0);
+
+  const run = (names: string[]) => {
+    names.forEach((n) => tried.current.add(norm(n)));
+    setFetching((f) => ({ ...f, pending: [...f.pending, ...names], failed: f.failed.filter((n) => !names.includes(n)) }));
+    queue.current = queue.current.then(async () => {
+      const res = await fetchCards(names);
+      if (res.cards.length) cardsChanged();
+      setFetching((f) => ({
+        pending: f.pending.filter((n) => !names.includes(n)),
+        notFound: [...f.notFound, ...res.notFound],
+        failed: [...f.failed, ...res.failed],
+        error: res.error ?? (f.failed.length ? f.error : null),
+      }));
+      await new Promise((r) => setTimeout(r, 100));
+    });
+  };
+
+  // Unknown names are fetched once the list stops changing.
+  const unknown = check.parts.unknown.filter((n) => !tried.current.has(norm(n)));
+  const unknownKey = unknown.join('\n');
+  useEffect(() => {
+    if (!unknown.length) return;
+    const t = setTimeout(() => run(unknown), DEBOUNCE);
+    return () => clearTimeout(t);
+  }, [unknownKey]);
+
+  // Fetched cards the game can't play are written down, once each per screen.
+  const names = [...new Set([...check.parts.commanders, ...check.parts.cards])];
+  const refused = names.flatMap((n) => requestFor(n) ?? []);
+  const refusedKey = refused.map((r) => r.name).join('\n');
+  useEffect(() => {
+    const fresh = refused.filter((r) => !reported.current.has(r.name));
+    if (!fresh.length) return;
+    fresh.forEach((r) => reported.current.add(r.name));
+    reportRequests(fresh);
+    setKept(keptRequests().cards.length);
+  }, [refusedKey]);
+
+  const stored = useMemo(fetchedCount, [version]);
+  const clear = async () => {
+    if (!window.confirm(`Forget the ${stored} cards fetched from Scryfall? Saved decks that use them fetch them again next time, which needs the internet.`)) return;
+    await clearFetchedCards();
+    // Cards already added stay until the page reloads.
+    window.location.reload();
+  };
+
   // A third pick replaces the first: at most two commanders, and only partners pair (702.124).
   const toggle = (name: string) => {
     const now = check.commanders;
@@ -148,7 +239,20 @@ function PasteDeck({ close }: { close: () => void }) {
             <span>Name</span>
             <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder={check.deck?.title ?? check.list.title ?? 'Named after the commander'} />
           </label>
-          <div className="paste-count">{count} cards read</div>
+          <div className="paste-count">
+            {count} cards read
+            {fetching.pending.length > 0 && <span className="paste-fetching"> · fetching {fetching.pending.length} from Scryfall…</span>}
+          </div>
+          {fetching.error && fetching.failed.length > 0 && (
+            <div className="paste-error" role="alert">
+              <p>
+                {fetching.error} {fetching.failed.length === 1 ? '1 card was' : `${fetching.failed.length} cards were`} not fetched. Every other card still works.
+              </p>
+              <button className="btn btn-plain small" onClick={() => run(fetching.failed)}>
+                <span className="btn-label">Retry</span>
+              </button>
+            </div>
+          )}
           {check.candidates.length > 0 && (
             <div className="paste-commanders">
               <span>Commander</span>
@@ -164,8 +268,34 @@ function PasteDeck({ close }: { close: () => void }) {
           <ul className={cx('paste-problems', !check.problems.length && 'ok')}>
             {check.problems.length ? check.problems.map((p, i) => <li key={i}>{p}</li>) : <li>Ready to save: a legal Commander deck.</li>}
           </ul>
-          <p className="paste-note">Only cards in the game's card pool can be played. Set codes, collector numbers and foil marks are ignored.</p>
+          {refused.length > 0 && (
+            <p className="paste-note">
+              A card the game can't read yet can't be played: replace it with another. {writesFile ? 'It is written down in docs/card-requests.json' : 'Download the report and add it to the project'} so
+              Claude can script it later.
+            </p>
+          )}
+          <p className="paste-note">
+            Cards the game doesn't have are fetched from Scryfall and kept in this browser, so the deck works offline. Set codes, collector numbers and foil marks
+            are ignored.
+          </p>
           <div className="paste-buttons">
+            {stored > 0 && (
+              <button className="btn btn-plain small" onClick={clear} title="Forget the cards fetched from Scryfall">
+                <span className="btn-label">Clear {stored} fetched</span>
+              </button>
+            )}
+            {!writesFile && kept > 0 && (
+              <button
+                className="btn btn-plain small"
+                title="Save the cards the game couldn't read as card-requests.json, then empty the list here"
+                onClick={() => {
+                  downloadRequests();
+                  setKept(0);
+                }}
+              >
+                <span className="btn-label">Download report</span>
+              </button>
+            )}
             <button className="btn btn-plain small" onClick={close}>
               <span className="btn-label">Cancel</span>
             </button>

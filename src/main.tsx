@@ -17,6 +17,9 @@ for (const type of ['pointerdown', 'pointerup', 'pointermove', 'pointercancel'] 
   window.addEventListener(type, syncPressed, { capture: true, passive: true });
 }
 
+// Cards fetched from Scryfall for pasted decks, kept from earlier visits.
+void useStore.getState().loadCards();
+
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <App />

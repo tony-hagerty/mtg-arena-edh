@@ -3,6 +3,7 @@
 // deck paste screen uses it to refuse cards the engine can't play.
 import { SUPPORTED_KEYWORDS, hasScript } from '../engine';
 import { cardData, isCardName } from './db';
+import { refusalOf } from './oracle';
 
 /** Ability words and keyword actions: they label a rule that the card's script implements. */
 export const ABILITY_WORDS = ['landfall', 'treasure', 'mill', 'threshold', 'metalcraft', 'recruit', "scions' secretary", 'delirium', 'surveil', 'imprint', 'channel', 'ferocious', 'bloodrush', 'populate'];
@@ -24,7 +25,8 @@ const isKeywordLine = (line: string) =>
 
 /**
  * Why the engine can't play card `name`, one reason per problem, or an empty list if it
- * can: a keyword it doesn't know, or rules text on a face with no script (712, 709).
+ * can: a keyword it doesn't know, or rules text on a face with no script (712, 709). When
+ * the Oracle text parser refused the card, the reason names the clause it couldn't read.
  */
 export function unsupported(name: string): string[] {
   if (!isCardName(name)) return ['not in the card pool'];
@@ -35,7 +37,9 @@ export function unsupported(name: string): string[] {
     if (!SUPPORTED_KEYWORDS.includes(k) && !ABILITY_WORDS.includes(k)) out.push(`unsupported keyword "${k}"`);
   }
   for (const face of d.faces ?? [d]) {
-    if (abilities(face.oracleText).some((line) => !isKeywordLine(line)) && !hasScript(face.name)) out.push(`${face.name} has rules text but no script`);
+    if (!abilities(face.oracleText).some((line) => !isKeywordLine(line)) || hasScript(face.name)) continue;
+    const refused = refusalOf(face.name);
+    out.push(refused ? `the game can't read "${refused.clause}" yet` : `${face.name} has rules text but no script`);
   }
   return out;
 }
