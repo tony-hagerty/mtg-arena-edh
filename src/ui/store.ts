@@ -7,6 +7,7 @@ import type { DeckDef } from '../cards/db';
 import { savedDeckIssues } from '../cards/decklist';
 import { fetchCards, isFetched, loadFetchedCards } from '../cards/fetched';
 import type { StartRequest, ViewMessage } from '../net/protocol';
+import type { DeckChoice, LobbyConnection, LobbyState } from '../net/lobby';
 import type { Connection } from './remote';
 
 /**
@@ -186,6 +187,17 @@ interface Store {
   server: Connection | null;
   /** Looks for the game server the page came from. */
   connect: (find: () => Promise<Connection | null>) => Promise<void>;
+  /** The lobby of the program this page came from, for hosting and joining tables, or null if there is none. */
+  lobby: LobbyConnection | null;
+  /** The lobby as it last said it was: the table this window sits at, if any. */
+  table: LobbyState | null;
+  /** Looks for the lobby, then follows it. Connect the game server first: a started table plays through it. */
+  connectLobby: (find: () => Promise<LobbyConnection | null>) => Promise<void>;
+  /**
+   * The game on screen is a table's (the lobby started it): this window plays only its own
+   * seat, and leaving the game leaves the table instead of ending the server's game.
+   */
+  tableGame: boolean;
   /** Changes how fast the bots play. */
   setSpeed: (speed: number) => void;
   targeting: Targeting | null;
@@ -239,6 +251,9 @@ export const useStore = create<Store>()((set, get) => ({
   humans: [],
   handoff: null,
   server: null,
+  lobby: null,
+  table: null,
+  tableGame: false,
   targeting: null,
   hold: false,
   attackTarget: null,
@@ -274,6 +289,13 @@ export const useStore = create<Store>()((set, get) => ({
     if (server) set({ server });
   },
 
+  connectLobby: async (find) => {
+    const lobby = await find();
+    if (!lobby) return;
+    set({ lobby });
+    lobby.watch(onLobby);
+  },
+
   setSetting: (change) => {
     const settings = { ...get().settings, ...change };
     saveSettings(settings);
@@ -307,6 +329,8 @@ export const useStore = create<Store>()((set, get) => ({
 
   start: (deck) => {
     const { settings, savedDecks, stops, server } = get();
+    // A table's game is the host's to start: a new game here would end it for everyone.
+    if (get().tableGame) return;
     const seats = tableOf(deck, settings, savedDecks);
     const humans = seats.flatMap((s, i) => (s.human ? [i] : []));
     const seed = (Math.random() * 2 ** 31) | 0;
@@ -351,6 +375,13 @@ export const useStore = create<Store>()((set, get) => ({
   },
 
   quit: () => {
+    if (get().tableGame) {
+      remote.unwatch?.();
+      remote.unwatch = null;
+      get().lobby?.leave().catch((err) => console.warn('Lobby:', err));
+      set({ game: null, tableGame: false, hover: null, targeting: null, viewer: null, confirmExit: false });
+      return;
+    }
     if (get().server) {
       remote.unwatch?.();
       remote.unwatch = null;
@@ -422,6 +453,8 @@ export function onView(m: ViewMessage) {
     remote.seq = {};
     if (!m.game) return;
     useStore.setState({ game: m.game, gameNo: s.gameNo + 1, human: m.seat, ...freshSeat, ...follow(m.game, m.seat, s.humans) });
+    // The host started a table's game without this person's stops and settings.
+    if (s.tableGame) sendPrefs();
     return;
   }
   if (m.seat !== null && m.ack < (remote.seq[m.seat] ?? 0)) return;
@@ -434,6 +467,28 @@ export function onView(m: ViewMessage) {
   const seat = m.seat !== s.human ? { human: m.seat, ...freshSeat } : {};
   useStore.setState({ game: m.game, ...seat, ...follow(m.game, m.seat, s.humans) });
 }
+
+/**
+ * The lobby changed. When the table's game starts, this window plays it as its own seat
+ * through the game server, alone at its screen; when the game is over for the table (the
+ * host left, say), the window goes back to the menu.
+ */
+export function onLobby(table: LobbyState) {
+  const s = useStore.getState();
+  useStore.setState({ table });
+  const seat = table.started ? table.yourSeat : null;
+  if (seat !== null && !s.tableGame && s.server) {
+    useStore.setState({ tableGame: true, game: null, human: seat, humans: [seat], ...freshSeat, confirmExit: false });
+    watchSeat(seat);
+  } else if (seat === null && s.tableGame) {
+    remote.unwatch?.();
+    remote.unwatch = null;
+    useStore.setState({ tableGame: false, game: null, hover: null, targeting: null, viewer: null, confirmExit: false });
+  }
+}
+
+/** A deck to send to a table, with the fetched cards the host can't know. */
+export const deckChoice = (deck: DeckDef): DeckChoice => ({ deck, cards: fetchedCardsOf([deck]) });
 
 /** The cards fetched from Scryfall that these decks use, for the server, which can't fetch them itself. */
 function fetchedCardsOf(decks: DeckDef[]) {
