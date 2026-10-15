@@ -4,7 +4,7 @@ Goal: the features the user asked for after the Commander-decks plan
 (`docs/plans/commander-decks.md`) was finished. Each is its own session, started only when
 the user says so, one at a time.
 
-**Status: sessions 1 to 6 done. The user answered the first round of questions; the decisions
+**Status: sessions 1 to 7 done. The user answered the first round of questions; the decisions
 are written into each session.**
 
 ## Rules every session follows
@@ -237,7 +237,7 @@ planeswalker". Not done: "enters tapped" and keyword abilities with costs (equip
 left for a later session. Session 7 can call `scriptCards(names)` after registering
 fetched cards; it returns the refusals with their clauses.
 
-### 7. Paste a deck with any card
+### 7. Paste a deck with any card (done)
 
 Builds on 5 and 6.
 
@@ -274,3 +274,15 @@ Builds on 5 and 6.
     approximation;
   - runs `npm test` and `npm run build`, then removes the handled cards from the file;
   - asks before committing, like every session.
+
+Done: `src/cards/scryfall.ts` (the mapping, shared with `scripts/fetch-cards.mjs`, which
+Node runs with its types stripped), `src/cards/fetched.ts` (add, script, refuse),
+`src/cards/cache.ts` (IndexedDB; card data only, scripts are parsed again on load since
+functions can't be stored), `src/cards/requests.ts` and `src/ui/card-requests.ts` (the
+request file, the dev-server endpoint in `vite.config.ts`, the Download report button),
+`scripts/card-requests.mjs` (`npm run card-requests -- <download>` merges a downloaded
+report, so the skill needs only the one file), the skill in
+`.claude/skills/script-requested-cards/`, tests in `tests/fetched.test.ts` (a fake
+Scryfall, never the real API). A refusal counts once per paste screen that meets the card;
+the parse report adds pool cards without changing counts. Saved decks whose fetched cards
+the cache lost are fetched again at start-up.

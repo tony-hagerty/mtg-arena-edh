@@ -2495,6 +2495,27 @@ button {
   gap: 1.6rem;
 }
 
+.paste-fetching {
+  color: var(--f-gold);
+}
+
+/* Scryfall couldn't be reached: why, and Retry. */
+.paste-error {
+  display: flex;
+  align-items: center;
+  gap: 1.2rem;
+  padding: 1rem 1.2rem;
+  color: #ffd59a;
+  background: rgba(60, 40, 12, 0.7);
+  border: 0.15rem solid #8a6a2c;
+  border-radius: 1rem;
+}
+
+.paste-error p {
+  flex: 1;
+  margin: 0;
+}
+
 /* ---------- animation ---------- */
 
 @keyframes breathe {
