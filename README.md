@@ -273,6 +273,10 @@ Rule numbers are from the Comprehensive Rules in `docs/rules/`.
   so if the host goes, anyone can resume it as the new host: the others join the new
   code under the names they played as. The copies are scrambled with a key every copy of
   the program shares, which stops a glance at a file for hidden cards and no more.
+  Everyone at a table needs the same build of the program, since each window checks its
+  own moves: the .exe carries a version (`server/lobby/version.ts`, package.json's
+  version plus a hash of the source), and the host turns away a friend with another one,
+  as resuming does for a game saved by another build.
 - **Commander zone changes:** a commander that dies or is exiled really goes there (so
   "dies" abilities see it), then its owner may move it to the command zone (903.9a). One
   headed for a hand or library may go to the command zone instead (903.9b). You're asked;
