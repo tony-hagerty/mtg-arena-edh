@@ -13,7 +13,7 @@ import { resolve } from 'node:path';
 import { getAsset, isSea } from 'node:sea';
 import { findEdge, openDefaultBrowser, openEdge, showError } from './edge';
 import { GameHost } from '../server/game';
-import { handleApi, Lobby } from '../server/lobby';
+import { APP_VERSION, handleApi, Lobby } from '../server/lobby';
 import { checkHost } from '../server/net';
 import { createLifetime } from './lifetime';
 import type { Lifetime } from './lifetime';
@@ -97,7 +97,7 @@ async function main() {
   } catch (err) {
     fail(`Arena EDH can't write its data folder:\n${paths.data}\n\nMove ArenaEDH.exe to a folder you can write to, such as Documents or a USB stick.`, err);
   }
-  log(`Arena EDH launcher, data in ${paths.data}`);
+  log(`Arena EDH launcher ${APP_VERSION}, data in ${paths.data}`);
 
   const files = builtFiles();
   if (!files('index.html')) fail(sea ? 'This copy of Arena EDH is damaged: the game files are missing.' : 'No dist/index.html: run `npm run build` first.');

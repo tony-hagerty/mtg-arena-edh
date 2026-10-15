@@ -28,10 +28,14 @@ const FUSE = 'NODE_SEA_FUSE_fce680ab2cc467b6e072b8b5df1996b2';
 if (!existsSync(join(dist, 'index.html'))) fail('No dist/index.html: run `npm run build` first.');
 mkdirSync(work, { recursive: true });
 
-// 1. The launcher, bundled into one CommonJS file (what Node embeds).
+// 1. The launcher, bundled into one CommonJS file (what Node embeds). It carries its
+// version: package.json's, plus a hash of the source, since friends' programs must be the
+// same build to play together (server/lobby/version.ts).
+const version = `${JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')).version}-${sourceHash()}`;
 await build({
   configFile: false,
   logLevel: 'warn',
+  define: { __ARENA_VERSION__: JSON.stringify(version) },
   build: {
     ssr: join(root, 'launcher', 'main.ts'),
     outDir: work,
@@ -43,7 +47,7 @@ await build({
   ssr: { noExternal: true, target: 'node' },
 });
 const bundle = join(work, 'launcher.cjs');
-console.log(`Bundled ${relative(root, bundle)}`);
+console.log(`Bundled ${relative(root, bundle)}, version ${version}`);
 if (process.argv.includes('--bundle-only')) process.exit(0);
 
 // 2. The blob Node embeds: the launcher, plus every file in dist/ as an asset keyed by
@@ -144,6 +148,14 @@ function windowed(image) {
 
 function walk(dir) {
   return readdirSync(dir, { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? walk(join(dir, e.name)) : [join(dir, e.name)]));
+}
+
+/** The first 8 hex digits of a hash of every source file the program is built from. */
+function sourceHash() {
+  const hash = createHash('sha256');
+  const files = ['src', 'server', 'launcher'].flatMap((d) => walk(join(root, d))).map((f) => relative(root, f).split(sep).join('/'));
+  for (const f of files.sort()) hash.update(f).update('\0').update(readFileSync(join(root, f))).update('\0');
+  return hash.digest('hex').slice(0, 8);
 }
 
 function fail(message) {

@@ -53,7 +53,7 @@ export class GuestLink implements GameService {
   private closing: string | null = null;
 
   /** Connects to the host a code names and takes a seat. Throws `Refused` with the reason in plain words. */
-  static async join(code: string, name: string, deck: DeckChoice | null, events: GuestEvents): Promise<GuestLink> {
+  static async join(code: string, name: string, deck: DeckChoice | null, version: string, events: GuestEvents): Promise<GuestLink> {
     let info;
     try {
       info = decodeJoinCode(code);
@@ -84,7 +84,7 @@ export class GuestLink implements GameService {
         heard = (m) => early.push(m);
         resolve(m);
       };
-      send(socket, { t: 'hello', password: Buffer.from(info.password).toString('hex'), name, deck });
+      send(socket, { t: 'hello', password: Buffer.from(info.password).toString('hex'), name, deck, version });
     }).catch((err) => {
       socket.destroy();
       throw err;

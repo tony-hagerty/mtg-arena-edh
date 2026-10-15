@@ -12,6 +12,7 @@ import { Refused } from '../game';
 import { createHostIdentity, encodeJoinCode, explainHostCheck, newJoinPassword, passwordsMatch, tlsServerOptions } from '../net';
 import type { HostCheck } from '../net';
 import type { SaveCopy } from './saves';
+import { APP_VERSION } from './version';
 import type { Person, Table, TableState } from './table';
 import { receive, send } from './wire';
 import type { GuestMessage } from './wire';
@@ -31,6 +32,8 @@ export interface HostingOptions {
   bind?: string;
   /** The most often the game is saved while it's played, in ms. A pause saves it at once. */
   saveEvery?: number;
+  /** This program's build (`APP_VERSION`). Tests pass their own. */
+  version?: string;
 }
 
 /** What the host's own program hears from the table. */
@@ -202,6 +205,10 @@ export class Hosting {
     receive<GuestMessage>(socket, (m) => {
       if (!guest) {
         if (m.t !== 'hello' || !passwordsMatch(fromHex(m.password), this.password)) return refuse('That code is wrong or out of date. Ask the host for the code again.');
+        const version = this.opts.version ?? APP_VERSION;
+        if (m.version !== version) {
+          return refuse(`The host has a different version of Arena EDH (${version}; yours is ${String(m.version ?? 'older')}). Everyone at a table needs the same copy of the program.`);
+        }
         clearTimeout(timer);
         try {
           const person = this.table.join(String(m.name ?? ''), null);
