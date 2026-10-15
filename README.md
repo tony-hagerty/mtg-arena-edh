@@ -227,6 +227,15 @@ Rule numbers are from the Comprehensive Rules in `docs/rules/`.
   alone against bots (`Player.you`). A line that names a hidden card, like the one found
   searching a library into a hand (701.23e), carries a `private` version that only the
   searcher's log shows; everyone else reads "for a card".
+- **One player's view:** `viewFor(game, seat)` (src/engine/view.ts) is the game as that
+  player may know it, for the host's server to send each player. Other hands, every
+  library and cards exiled face down they may not look at (406.3) become blank stand-ins
+  (`isHidden`) whose ids only say where they are, so the counts stay right (402.3) but no
+  id follows a hidden card. A choice in front of the player shows what it needs: their
+  library while they search it, sorted so its order stays hidden (701.23a, 401.2), or the
+  cards they pick from. Private log lines read in full only for their player, and the
+  random seed is dropped. `viewFor(game, null)` is an onlooker's view. The UI doesn't use
+  it yet; the server will (phase 3).
 - **Commander zone changes:** a commander that dies or is exiled really goes there (so
   "dies" abilities see it), then its owner may move it to the command zone (903.9a). One
   headed for a hand or library may go to the command zone instead (903.9b). You're asked;
