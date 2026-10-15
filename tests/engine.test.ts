@@ -48,8 +48,9 @@ import {
   manaValue,
   maxModes,
   triggerText,
+  activatable,
 } from '../src/engine';
-import type { Action, ApplyOptions, Game, TurnStops } from '../src/engine';
+import type { Action, ActivatedAbility, ApplyOptions, Game, TurnStops } from '../src/engine';
 import { DECKS } from '../src/cards/db';
 import './fixtures';
 import { byName, emptyGame, onBattlefield, put, run, runWith, twoCommanderDeck } from './helpers';
@@ -3039,7 +3040,7 @@ describe('graveyard, exile and odd cards (session 7b)', () => {
         put(d, 1, 'Sol Ring');
       });
       const otawara = byName(g, 0, 'Otawara, Soaring City', 'hand')!;
-      expect(abilityCost(scriptOf('Otawara, Soaring City').activated!, g, otawara)).toMatchObject({ generic: 2, pips: ['U'] });
+      expect(abilityCost(scriptOf('Otawara, Soaring City').activated as ActivatedAbility, g, otawara)).toMatchObject({ generic: 2, pips: ['U'] });
       g = run(g, { type: 'activate', card: otawara.id, targets: [card(byName(g, 1, 'Sol Ring')!)] });
       expect(byName(g, 0, 'Otawara, Soaring City', 'graveyard')).toBeDefined();
       expect(byName(g, 1, 'Sol Ring', 'hand')).toBeDefined();
@@ -3742,5 +3743,94 @@ describe('several triggered abilities for one event (603.2)', () => {
     const lost = g.players.reduce((n, p) => n + 40 - p.life, 0);
     expect(lost).toBe(1);
     expect(stats(g, byName(g, 1, 'Shivan Dragon')!).keywords.has('haste')).toBe(true);
+  });
+});
+
+describe('several activated abilities on one card (602)', () => {
+  const byHand = { autoPass: false };
+  const card = (c: { id: string }) => ({ kind: 'card', id: c.id }) as const;
+  const shaman = (setup: (d: Game) => void = () => {}) =>
+    emptyGame((d) => {
+      d.players[0].isBot = false;
+      put(d, 0, 'Deathrite Shaman');
+      put(d, 0, 'Swamp');
+      put(d, 0, 'Forest');
+      put(d, 1, 'Forest', 'graveyard');
+      put(d, 1, 'Lightning Bolt', 'graveyard');
+      put(d, 1, 'Llanowar Elves', 'graveyard');
+      setup(d);
+    });
+
+  it('Deathrite Shaman: each ability can be activated, and each has its own targets', () => {
+    const g = shaman();
+    const dr = byName(g, 0, 'Deathrite Shaman')!;
+    expect(activatable(g, 0, dr)).toEqual([{ activated: 0 }, { activated: 1 }, { activated: 2 }]);
+    // An instant or sorcery card can't be the target of the creature-card ability.
+    expect(applyAction(g, { type: 'activate', card: dr.id, activated: 2, targets: [card(byName(g, 1, 'Lightning Bolt', 'graveyard')!)] })).toBe(g);
+    // "{B}, {T}: Exile target instant or sorcery card from a graveyard. Each opponent loses 2 life."
+    let h = runWith(byHand, g, { type: 'activate', card: dr.id, activated: 1, targets: [card(byName(g, 1, 'Lightning Bolt', 'graveyard')!)] });
+    expect(h.stack.map((x) => [x.kind, x.activated])).toEqual([['activated', 1]]);
+    expect(activatable(h, 0, byName(h, 0, 'Deathrite Shaman')!)).toEqual([]); // it is tapped now
+    h = runWith(byHand, h, pass, pass, pass, pass);
+    expect(h.players.map((p) => p.life)).toEqual([40, 38, 38, 38]);
+    expect(byName(h, 1, 'Lightning Bolt', 'exile')).toBeDefined();
+    // "{G}, {T}: Exile target creature card from a graveyard. You gain 2 life."
+    let k = runWith(byHand, g, { type: 'activate', card: dr.id, activated: 2, targets: [card(byName(g, 1, 'Llanowar Elves', 'graveyard')!)] }, pass, pass, pass, pass);
+    expect(k.players[0].life).toBe(42);
+    expect(byName(k, 1, 'Llanowar Elves', 'exile')).toBeDefined();
+  });
+
+  it('Deathrite Shaman: the mana ability with a target uses the stack and asks for a colour (605.1a)', () => {
+    let g = shaman();
+    const dr = byName(g, 0, 'Deathrite Shaman')!;
+    g = runWith(byHand, g, { type: 'activate', card: dr.id, targets: [card(byName(g, 1, 'Forest', 'graveyard')!)] });
+    expect(g.stack).toHaveLength(1); // not a mana ability: it waits on the stack
+    expect(g.players[0].pool).toEqual([]);
+    g = runWith(byHand, g, pass, pass, pass, pass);
+    expect(g.decision?.type).toBe('name');
+    expect(applyAction(g, { type: 'name', name: 'Purple' })).toBe(g);
+    g = runWith(byHand, g, { type: 'name', name: 'R' });
+    expect(g.players[0].pool.map((m) => m.sym)).toEqual(['R']);
+    expect(byName(g, 1, 'Forest', 'exile')).toBeDefined();
+  });
+
+  it('Deathrite Shaman: with its target gone, the ability does nothing at all and adds no mana (608.2b)', () => {
+    let g = shaman();
+    const dr = byName(g, 0, 'Deathrite Shaman')!;
+    g = runWith(byHand, g, { type: 'activate', card: dr.id, targets: [card(byName(g, 1, 'Forest', 'graveyard')!)] });
+    g = produce(g, (d) => void moveCard(d, d.players[1].graveyard.find((c) => c.name === 'Forest')!, 'exile'));
+    g = runWith(byHand, g, pass, pass, pass, pass);
+    expect([g.decision, g.stack.length, g.players[0].pool.length]).toEqual([null, 0, 0]);
+  });
+
+  it('Cranial Plating: {B}{B} attaches it at instant speed; equip waits for a sorcery-speed moment', () => {
+    let g = emptyGame((d) => {
+      d.active = 1;
+      d.priority = 0;
+      d.players[0].isBot = false;
+      put(d, 0, 'Cranial Plating');
+      put(d, 0, 'Sol Ring');
+      put(d, 0, 'Swamp', 'battlefield', 3);
+      put(d, 0, 'Llanowar Elves');
+    });
+    const plating = byName(g, 0, 'Cranial Plating')!;
+    const elves = byName(g, 0, 'Llanowar Elves')!;
+    // On an opponent's turn only the {B}{B} ability can be activated, not equip (702.6a).
+    expect(activatable(g, 0, plating)).toEqual([{ activated: 0 }]);
+    expect(applyAction(g, { type: 'activate', card: plating.id, activated: 1, targets: [card(elves)] })).toBe(g);
+    g = runWith(byHand, g, { type: 'activate', card: plating.id, activated: 0, targets: [card(elves)] }, pass, pass, pass, pass);
+    expect(byName(g, 0, 'Cranial Plating')!.attachedTo).toBe(elves.id);
+    // "+1/+0 for each artifact you control": the Plating and Sol Ring.
+    expect(stats(g, byName(g, 0, 'Llanowar Elves')!).power).toBe(3);
+  });
+
+  it('a bot can use any of a card\'s activated abilities', () => {
+    const g = emptyGame((d) => {
+      put(d, 0, 'Deathrite Shaman');
+      put(d, 0, 'Swamp');
+      put(d, 1, 'Lightning Bolt', 'graveyard');
+    });
+    // Only the instant-or-sorcery ability has both a target and the mana: each opponent loses 2.
+    expect(botAction(g, 0)).toMatchObject({ type: 'activate', activated: 1 });
   });
 });

@@ -63,6 +63,10 @@ npm run build    # type-check and production build
   opens the cast panel with a **Face** row: pick the half, the Adventure, or the face to
   play. A modal card's land face says "(land)"; pressing Continue on it plays the land.
 - **Classes:** click yours to see its level bars; pick the next one and pay for it.
+- **Several abilities:** click a permanent with more than one activated ability you could
+  use now (Deathrite Shaman) to see them all and pick one; the others are dimmed. With
+  only one usable, clicking goes straight to it. An effect that asks for a colour while
+  it resolves ("one mana of any color") opens a window with the five colours.
 - **Graveyard and exile:** a pile glows when something in it can be cast (flashback,
   escape, an adventurer card whose Adventure you cast, or a card an effect lets you cast or
   play, in anyone's exile). Open it and click the glowing card. With escape (Underworld
@@ -163,6 +167,10 @@ Rule numbers below are from the Comprehensive Rules in `docs/rules/`.
   the graveyard (704.5m). "Can't attack" and "can't block" work (Pacifism).
 - Equipment (301.5, 702.6): equip at sorcery speed to a creature you control; it falls
   off a permanent that stops being a creature, and stays on the battlefield (704.5n).
+- Activated abilities (602): a card can have several, each with its own cost, timing,
+  targets and effect. An ability that adds mana but has a target isn't a mana ability and
+  uses the stack (605.1a, Deathrite Shaman). Attaching an Equipment to the creature it is
+  already on does nothing (701.3b). Bots consider every ability.
 - Vehicles (301.7, 702.122): crew by tapping other untapped creatures with enough total
   power (summoning-sick ones can crew). The Vehicle is an artifact creature until end
   of turn. Bots crew before combat with their weakest or summoning-sick creatures.
@@ -331,11 +339,12 @@ These are deliberate cuts for a prototype, roughly in the order I'd tackle them 
   No card on the menu is a planeswalker or battle yet; the test-only ones are in
   `tests/fixtures.ts` (Jace Beleren, Garruk Wildspeaker, Invasion of Dominaria). A
   planeswalker that says it "can be your commander" is accepted as one (903.3a).
-- Auras can only enchant permanents, not players (702.5d). A card can have only one
-  activated ability, so an Equipment's equip is its only one. Proliferate, shield,
+- Auras can only enchant permanents, not players (702.5d). Proliferate, shield,
   stun and other counters with their own rules (122.1c-j) do nothing special yet.
   The test-only cards are in `tests/fixtures.ts` (Pacifism, Holy Strength, Bonesplitter,
-  Loxodon Warhammer, Untethered Express, Black Sun's Zenith).
+  Loxodon Warhammer, Cranial Plating, Untethered Express, Black Sun's Zenith).
+- No card on the menu has several activated abilities yet; the test-only ones are in
+  `tests/fixtures.ts` (Deathrite Shaman, Cranial Plating).
 - Only spells can be modal: modal triggered and activated abilities (700.2b) aren't
   supported. A copy's controller must pick legal new targets or keep all the old ones
   (707.10c allows keeping some). Copying abilities isn't supported yet. The test-only cards for this are in `tests/fixtures.ts` too
@@ -454,7 +463,9 @@ stack as `Game.resolving` until it is answered. What happens next is the script'
    `modal` instead of `targets`/`onResolve`; a counterspell targets `{ type: 'spell' }`
    and calls `counter`. An Aura sets `enchant` and `static: attachedBonus({...})`; an
    Equipment uses `attachedBonus` with `activated: equip('{2}')`; a Vehicle uses
-   `activated: crew(3)`. Counters: `addCounters(g, card, n, kind)`. A planeswalker lists
+   `activated: crew(3)`. A card with several activated abilities lists them in printed
+   order (`activated: [ab1, equip('{1}')]`); an `activate` action and its stack item
+   name one by `activated` (its index). Counters: `addCounters(g, card, n, kind)`. A planeswalker lists
    its `loyalty` abilities (`{ cost: -2, text, targets, resolve }`); a target spec of
    `'player or planeswalker'` or `'creature or planeswalker'` matches cards that say so.
    A Siege's script can add `onDefeat`.
@@ -474,7 +485,8 @@ stack as `Game.resolving` until it is answered. What happens next is the script'
    `fromHand` or `manual`. `addMana(g, pid, ['B', 'B', 'B'], self)` for rituals;
    `noUntap: true` for "doesn't untap".
    Choices while resolving: `search(g, pid, to, find, { then })`, `ask(g, pid, { text,
-   cost, yes, no, then })`, `pickCards(...)` and `nameCard(...)` queue a question; the
+   cost, yes, no, then })`, `pickCards(...)` and `nameCard(...)` (a card, or `of:
+   'creature type'` or `'color'`, answered as W, U, B, R or G) queue a question; the
    answer runs the script's `then[key]` with `picked`, `yes` or `name`. `botChoice[key]`
    says how a bot answers, and `botCast` stops a bot casting it when the look-ahead can't
    see the cost (Pact of Negation).
@@ -492,7 +504,7 @@ stack as `Game.resolving` until it is answered. What happens next is the script'
    `offerRetarget`, `choosePlayer`, `surveil`, `copyOf`, `abilitySource` (the source if
    it is still the same object). Mana abilities can be `discardHand`, `instant` or
    `chosenType`; `addMana(..., { keep: true })` lasts the turn. Bot hints: `ai: 'ritual'`
-   or `'extraTurn'`, `botActivate`. An ability's cost can `sacrificeOne` permanent that fits
+   or `'extraTurn'`, `botActivate` (told which activated ability). An ability's cost can `sacrificeOne` permanent that fits
    a spec ("Sacrifice a creature:"); the resolve sees `sacrificed` and `sacrificedPower`
    (as it was, 608.2h), and so does a spell with a sacrifice cost. `entersTapped` can be a
    function (check lands). `chooseToSacrifice` and `chooseToDiscard` let a player choose;
