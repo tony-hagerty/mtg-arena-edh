@@ -78,7 +78,7 @@ export class Hosting {
 
   /** The table as the host's window sees it. */
   state(): LobbyState {
-    return { role: 'hosting', code: this.code, reach: this.reach, error: null, ...this.table.stateFor(this.table.host) };
+    return { role: 'hosting', code: this.code, reach: this.reach, error: null, votes: [], paused: null, resuming: false, saves: [], ...this.table.stateFor(this.table.host) };
   }
 
   /** Ends the table: friends are told, the router's port is closed. */
@@ -130,7 +130,7 @@ export class Hosting {
   }
 
   private guestState(person: Person): LobbyState {
-    return { role: 'joined', code: null, reach: null, error: null, ...this.table.stateFor(person) };
+    return { role: 'joined', code: null, reach: null, error: null, votes: [], paused: null, resuming: false, saves: [], ...this.table.stateFor(person) };
   }
 
   /** A friend's program connected: it must say hello with the code's password before anything else. */

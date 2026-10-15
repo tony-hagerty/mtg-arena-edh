@@ -149,7 +149,7 @@ export class Table {
   stateFor(person: Person): TableState {
     const g = this.started ? this.game.full : null;
     const seats: LobbySeat[] = this.seats.map((p, i) => {
-      const common = { you: p === person, host: i === 0 };
+      const common = { you: p === person, host: i === 0, away: false, standIn: false };
       if (p) return { kind: 'person', name: p.name, deck: p.deck && summary(p.deck.deck), ready: p.ready, ...common };
       const bot = g?.players[i];
       const deck = this.bots[i];
