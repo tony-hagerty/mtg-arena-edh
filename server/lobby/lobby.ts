@@ -11,7 +11,7 @@ import { GuestLink } from './guest';
 import { Hosting } from './hosting';
 import type { HostingOptions } from './hosting';
 
-const NONE: LobbyState = { role: 'none', code: null, reach: null, seatCount: 0, fillBots: true, seats: [], yourSeat: null, started: false, error: null };
+const NONE: LobbyState = { role: 'none', code: null, reach: null, seatCount: 0, fillBots: true, seats: [], yourSeat: null, started: false, error: null, votes: [], paused: null, resuming: false, saves: [] };
 
 export class Lobby {
   private hosting: Hosting | null = null;
