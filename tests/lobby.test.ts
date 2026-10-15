@@ -11,7 +11,7 @@ import type { LobbyConnection, LobbySeat, LobbyState } from '../src/net/lobby';
 import type { StartRequest, ViewMessage } from '../src/net/protocol';
 import { GameHost } from '../server/game';
 import { connectLobby } from '../src/ui/lobby';
-import { HostTable, WaitingRoom } from '../src/ui/LobbyScreen';
+import { HostTable, Paused, SavedGames, SeatVotes, TableEnded, WaitingRoom } from '../src/ui/LobbyScreen';
 import type { Connection } from '../src/ui/remote';
 import { onLobby, useStore } from '../src/ui/store';
 
@@ -181,7 +181,7 @@ describe('a table’s game', () => {
 });
 
 describe('the lobby screens', () => {
-  const render = <P extends object>(el: (props: P) => ReturnType<typeof HostTable>, props: P) => renderToStaticMarkup(createElement(el, props));
+  const render = <P extends object>(el: (props: P) => ReturnType<typeof HostTable> | null, props: P) => renderToStaticMarkup(createElement(el, props));
 
   it('open a table of 4 with empty seats filled by bots, unless the host says otherwise', () => {
     const html = render(HostTable, { close: () => {} });
@@ -223,6 +223,82 @@ describe('the lobby screens', () => {
     expect(html).not.toContain('Start');
     expect(html).not.toContain('Fill empty seats');
     expect(html).not.toContain('Copy');
+  });
+});
+
+describe('phase 5: away players, votes, the pause and saved games', () => {
+  const render = <P extends object>(el: (props: P) => ReturnType<typeof HostTable> | null, props: P) => renderToStaticMarkup(createElement(el, props));
+  const ben = seat({ name: 'Ben', away: true, deck: { title: 'Dragons', commanders: ['Miirym'] } });
+
+  it('ask whether a bot may play an away person’s seat, with the count so far and this window’s vote', () => {
+    const html = render(SeatVotes, { votes: [{ seat: 2, name: 'Ben', yes: 1, no: 0, needed: 2, yours: true }] });
+    expect(html).toContain('Ben left. Let a bot play their seat until they’re back?'.replace('’', '&#x27;'));
+    expect(html).toContain('<button class="chip on" aria-pressed="true">Yes</button>');
+    expect(html).toContain('<button class="chip" aria-pressed="false">No</button>');
+    expect(html).toContain('1 yes, 0 no. 2 yes votes needed.');
+    expect(render(SeatVotes, { votes: [] })).toBe('');
+  });
+
+  it('show an away seat in the waiting room, and whether a bot plays it', () => {
+    const table = lobbyState({ seats: [...lobbyState().seats, ben], votes: [{ seat: 2, name: 'Ben', yes: 0, no: 0, needed: 2, yours: null }] });
+    let html = render(WaitingRoom, { table });
+    expect(html).toContain('Ben left.');
+    expect(html).toMatch(/class="lobby-seat person away">.*Ben.*>Away</);
+    html = render(WaitingRoom, { table: { ...table, seats: [...lobbyState().seats, { ...ben, standIn: true }], votes: [] } });
+    expect(html).toContain('Away, a bot is playing');
+  });
+
+  it('resume a saved game at a table whose seats are fixed, once everyone is back', () => {
+    const resuming = lobbyState({
+      role: 'hosting',
+      code: 'CODE',
+      resuming: true,
+      yourSeat: 0,
+      seats: [seat({ name: 'Ann', you: true, host: true }), ben],
+    });
+    let html = render(WaitingRoom, { table: resuming });
+    expect(html).toContain('Resuming a game');
+    expect(html).toContain('Waiting for Ben to join with the code');
+    expect(html).toMatch(/<button[^>]*disabled=""[^>]*><span class="btn-label">Resume Game<\/span>/);
+    expect(html).not.toContain('Fill empty seats');
+    expect(html).not.toContain('Your deck');
+    expect(html).not.toContain('>Ready<');
+    html = render(WaitingRoom, { table: { ...resuming, seats: [resuming.seats[0], { ...ben, away: false }] } });
+    expect(html).toContain('Everyone is back.');
+    expect(html).toMatch(/<button class="btn btn-go small"><span class="btn-label">Resume Game<\/span>/);
+  });
+
+  it('list saved games, newest first as the lobby sends them, and point to them when the host has gone', () => {
+    const saves = [
+      { id: 'b', savedAt: Date.UTC(2026, 9, 15, 20), turn: 7, yourSeat: 1, players: [{ name: 'Tony', bot: false }, { name: 'Sam', bot: false }, { name: 'Bot 3', bot: true }] },
+      { id: 'a', savedAt: Date.UTC(2026, 9, 14, 20), turn: 3, yourSeat: 0, players: [{ name: 'Sam', bot: false }, { name: 'Tony', bot: false }] },
+    ];
+    const ended = lobbyState({ role: 'none', seats: [], yourSeat: null, saves, error: 'The host closed the table.' });
+    expect(render(TableEnded, { table: ended })).toContain('The host closed the table. Your copy of the game is under Saved games');
+    expect(render(TableEnded, { table: { ...ended, saves: [] } })).not.toContain('Saved games');
+    expect(render(TableEnded, { table: { ...ended, error: null } })).toBe('');
+    const html = render(SavedGames, { table: ended, close: () => {} });
+    expect(html.indexOf('Turn 7')).toBeLessThan(html.indexOf('Turn 3'));
+    expect(html).toContain('Tony, Sam (you), Bot 3 (bot)');
+    expect(html.match(/>Resume</g)).toHaveLength(2);
+    expect(html.match(/>Forget</g)).toHaveLength(2);
+  });
+
+  it('cover a paused game with who paused it and a Resume anyone can press', () => {
+    const html = render(Paused, { by: 'Ann' });
+    expect(html).toContain('Paused by Ann');
+    expect(html).toContain('>Resume<');
+  });
+
+  it('take no moves while the table’s game is paused', () => {
+    const { host, lobby } = startedTable();
+    const mine = host.full!.priority;
+    lobby.conn.watch(onLobby);
+    lobby.say(lobbyState({ started: true, yourSeat: mine, paused: { by: 'Ann' } }));
+    expect(S().game).not.toBe(null);
+    expect(S().act({ type: 'keep' })).toBe(false);
+    lobby.say(lobbyState({ started: true, yourSeat: mine, paused: null }));
+    expect(S().act({ type: 'keep' })).toBe(true);
   });
 });
 

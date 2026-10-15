@@ -5,11 +5,11 @@ import { checkList, norm, savedDeckIssues } from '../cards/decklist';
 import { clearFetchedCards, fetchCards, fetchedCount, requestFor } from '../cards/fetched';
 import { downloadRequests, keptRequests, reportRequests, writesFile } from './card-requests';
 import { type SeatPlayer, useStore } from './store';
-import { HostTable, JoinTable, WaitingRoom } from './LobbyScreen';
+import { HostTable, JoinTable, SavedGames, TableEnded, WaitingRoom } from './LobbyScreen';
 import { CardImage } from './TextCard';
 import { cx, deckColor } from './util';
 
-type MenuScreen = 'decks' | 'paste' | 'host' | 'join';
+type MenuScreen = 'decks' | 'paste' | 'host' | 'join' | 'saves';
 
 export function Menu() {
   const [screen, setScreen] = useState<MenuScreen>('decks');
@@ -25,6 +25,7 @@ export function Menu() {
   if (screen === 'paste') return <PasteDeck close={back} />;
   if (screen === 'host') return <HostTable close={back} />;
   if (screen === 'join') return <JoinTable close={back} />;
+  if (screen === 'saves' && table) return <SavedGames table={table} close={back} />;
   return <DeckMenu go={setScreen} />;
 }
 
@@ -32,6 +33,7 @@ function DeckMenu({ go }: { go: (screen: MenuScreen) => void }) {
   const start = useStore((s) => s.start);
   // Hosting and joining need the Windows program (or `npm run dev`): a file opened from disk has no lobby.
   const lobby = useStore((s) => s.lobby);
+  const table = useStore((s) => s.table);
   const saved = useStore((s) => s.savedDecks);
   // Saved decks are checked again once fetched cards load (`loadCards`).
   useStore((s) => s.cardsVersion);
@@ -48,6 +50,7 @@ function DeckMenu({ go }: { go: (screen: MenuScreen) => void }) {
         ))}
       </div>
       <Opponents />
+      {lobby && table?.role === 'none' && <TableEnded table={table} />}
       <div className="menu-actions">
         {lobby && (
           <>
@@ -57,6 +60,11 @@ function DeckMenu({ go }: { go: (screen: MenuScreen) => void }) {
             <button className="watch" onClick={() => go('join')}>
               Join a table
             </button>
+            {!!table?.saves.length && (
+              <button className="watch" onClick={() => go('saves')}>
+                Saved games ({table.saves.length})
+              </button>
+            )}
           </>
         )}
         <button className="watch" onClick={() => go('paste')}>

@@ -756,6 +756,14 @@ buttons. The menu shows the waiting room while `LobbyState.role` isn't `none`. O
 game itself (the host's Play Again asks the lobby to start the next one). Leaving that game leaves the table (for the host, that closes it), and the
 server's game goes on for the others.
 
+During a table's game the lobby also says who is away and the table's open votes on a
+bot for their seat (`SeatVotes`, in the waiting room and over the board), and whether the
+game is paused: **Pause** in the log bar sends `pause`, and while `paused` an overlay
+covers the board with Resume and the store takes no moves. **Saved games** on the menu
+lists the table games saved on this computer (`SavedGames`), and when a table ends (the
+host left) the menu says so and points there (`TableEnded`). Resume hosts one again at a new table, where
+`resuming` fixes the seats and Start reads Resume Game until the away players are back.
+
 ### Sizing the UI
 
 The root font-size scales with the window so the screen is always at least 192 × 108
