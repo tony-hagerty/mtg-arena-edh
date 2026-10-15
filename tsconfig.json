@@ -15,5 +15,7 @@
     "noEmit": true,
     "types": ["vite/client"]
   },
-  "include": ["src", "tests"]
+  "include": ["src", "tests"],
+  // Runs in Node, so it's checked with Node's types by launcher/tsconfig.json.
+  "exclude": ["tests/launcher.test.ts"]
 }
