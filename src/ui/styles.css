@@ -1167,7 +1167,7 @@ button {
   text-align: center;
 }
 
-:is(.cast-options, .damage-split) .chip {
+:is(.cast-options, .damage-split, .paste-commanders) .chip {
   min-width: 4rem;
   padding: 0.4rem 1.2rem;
   font: 600 1.6rem 'Segoe UI', sans-serif;
@@ -1188,12 +1188,12 @@ button {
   text-align: left;
 }
 
-:is(.cast-options, .damage-split) .chip.on {
+:is(.cast-options, .damage-split, .paste-commanders) .chip.on {
   border-color: var(--f-gold);
   background: #3a3324;
 }
 
-:is(.cast-options, .damage-split) .chip:disabled {
+:is(.cast-options, .damage-split, .paste-commanders) .chip:disabled {
   opacity: 0.4;
 }
 
@@ -2044,7 +2044,7 @@ button {
   border-radius: 1.6rem;
 }
 
-.picker-buttons .btn:disabled {
+:is(.picker-buttons, .paste-buttons) .btn:disabled {
   filter: grayscale(0.85) brightness(0.65);
 }
 
@@ -2254,13 +2254,24 @@ button {
   color: #cfd6e4;
 }
 
+/* Scrolls sideways once pasted decks no longer fit. The padding leaves room for the hover lift. */
 .deck-list {
   display: flex;
-  gap: 3.5rem;
+  gap: 3rem;
+  max-width: 186rem;
+  padding: 1.6rem 1rem 1.2rem;
+  overflow-x: auto;
+  scrollbar-color: #4a5366 transparent;
+}
+
+.deck-slot {
+  position: relative;
+  flex: none;
 }
 
 .deck {
-  width: 33rem;
+  width: 29rem;
+  height: 100%;
   padding: 1.8rem 1.8rem 2.2rem;
   color: #fff;
   text-align: center;
@@ -2270,7 +2281,7 @@ button {
   transition: transform 0.15s, box-shadow 0.15s;
 }
 
-.deck:hover {
+.deck:hover:not(:disabled) {
   transform: translateY(-1.2rem);
   box-shadow: 0 2rem 5rem rgba(0, 0, 0, 0.8), 0 0 3rem rgba(255, 223, 154, 0.25);
 }
@@ -2324,6 +2335,154 @@ button {
 
 .watch:hover {
   color: #fff;
+}
+
+.deck.broken {
+  border-color: #4a5366;
+  opacity: 0.6;
+}
+
+.deck-art-missing {
+  flex: 1;
+  aspect-ratio: 488 / 680;
+  background: #1a1e27;
+  border-radius: 1.35rem;
+}
+
+.deck-delete {
+  position: absolute;
+  top: -0.8rem;
+  right: -0.8rem;
+  width: 4rem;
+  height: 4rem;
+  font-size: 2.6rem;
+  line-height: 1;
+  color: #cfd6e4;
+  background: #1a1e27;
+  border: 0.2rem solid #4a5366;
+  border-radius: 50%;
+}
+
+.deck-delete:hover {
+  color: #fff;
+  border-color: #e0553a;
+}
+
+.opponents {
+  display: flex;
+  align-items: center;
+  gap: 1.2rem;
+  margin-top: 2.4rem;
+  font-size: 1.8rem;
+  color: #cfd6e4;
+}
+
+.opponents select,
+.paste-title input {
+  padding: 0.6rem 1rem;
+  font: inherit;
+  font-size: 1.7rem;
+  color: #fff;
+  background: #1a1e27;
+  border: 0.15rem solid #4a5366;
+  border-radius: 0.8rem;
+}
+
+.menu-actions {
+  display: flex;
+  gap: 4rem;
+}
+
+/* ---------- paste a deck ---------- */
+
+.paste h2 {
+  margin: 0 0 2.4rem;
+  font: 700 5rem var(--serif);
+  color: #ffdf9a;
+}
+
+.paste-body {
+  display: flex;
+  gap: 3rem;
+  width: 150rem;
+  height: 80rem;
+}
+
+.paste-text {
+  flex: 1;
+  padding: 1.6rem;
+  font: 1.7rem/1.45 Consolas, 'Cascadia Mono', monospace;
+  color: #eef1f7;
+  background: rgba(12, 14, 20, 0.9);
+  border: 0.2rem solid #4a5366;
+  border-radius: 1.2rem;
+  resize: none;
+  user-select: text;
+}
+
+.paste-text:focus {
+  outline: none;
+  border-color: var(--f-gold);
+}
+
+.paste-side {
+  width: 56rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1.6rem;
+  font-size: 1.7rem;
+  color: #cfd6e4;
+}
+
+.paste-title {
+  display: flex;
+  align-items: center;
+  gap: 1.2rem;
+}
+
+.paste-title input {
+  flex: 1;
+  user-select: text;
+}
+
+.paste-commanders > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  margin-top: 0.6rem;
+  max-height: 16rem;
+  overflow-y: auto;
+}
+
+.paste-problems {
+  flex: 1;
+  margin: 0;
+  padding: 1.2rem 1.2rem 1.2rem 3.2rem;
+  overflow-y: auto;
+  color: #ffb4a3;
+  background: rgba(12, 14, 20, 0.7);
+  border-radius: 1rem;
+  user-select: text;
+}
+
+.paste-problems li + li {
+  margin-top: 0.4rem;
+}
+
+.paste-problems.ok {
+  color: #9fe0ad;
+}
+
+.paste-note {
+  margin: 0;
+  font-size: 1.5rem;
+  color: #9aa4b8;
+}
+
+.paste-buttons {
+  display: flex;
+  justify-content: flex-end;
+  gap: 1.6rem;
 }
 
 /* ---------- animation ---------- */
