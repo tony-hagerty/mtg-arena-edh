@@ -234,8 +234,22 @@ Rule numbers are from the Comprehensive Rules in `docs/rules/`.
   id follows a hidden card. A choice in front of the player shows what it needs: their
   library while they search it, sorted so its order stays hidden (701.23a, 401.2), or the
   cards they pick from. Private log lines read in full only for their player, and the
-  random seed is dropped. `viewFor(game, null)` is an onlooker's view. The UI doesn't use
-  it yet; the server will (phase 3).
+  random seed is dropped. `viewFor(game, null)` is an onlooker's view.
+- **The game server:** under `npm run dev` and in the .exe, the page plays through a game
+  server on the same computer (`server/game/`). `GameHost` alone holds the whole game,
+  plays the bots after a short pause, and takes a move only from the seat the game is
+  waiting on (`Game.priority`), never for a bot. Each window streams its seat's
+  `viewFor` as server-sent events from `/api/game/events?seat=N` and POSTs its moves
+  (`src/net/protocol.ts`, `src/ui/remote.ts`). The window checks a move against its own
+  view first, so a refused click says so at once. It doesn't pass priority on for others
+  (that depends on their hands), and a move that gets past the engine's checks and then
+  reaches a hidden card, like the last mulligan keep (103.6), is left to the server. Tapping mana and declaring attackers or blockers show at
+  once; anything else waits for the server's next view. Each move carries a number the
+  server echoes back (`ack`), so a view sent before the move arrived is ignored. Passing
+  the screen to another person at the same computer switches which seat the window
+  streams. A POST must come from the game's own page (its `Origin`), so another web page
+  can't send moves. A plain `vite build` opened from disk, and the tests, have no server
+  and run the whole game in the page.
 - **Commander zone changes:** a commander that dies or is exiled really goes there (so
   "dies" abilities see it), then its owner may move it to the command zone (903.9a). One
   headed for a hand or library may go to the command zone instead (903.9b). You're asked;
@@ -645,7 +659,11 @@ src/engine/     types.ts              game state, actions, card-script types
                 rules.ts              queries (stats, mana, targets) + effect primitives
                 engine.ts             setup, turn structure, priority, the stack, applyAction()
                 ai.ts                 the bots
+src/net/        protocol.ts           what the game window and game server send each other
+server/game/    host.ts               the game server: the whole game, bots, each seat's view
+                http.ts               its web endpoints (/api/game/...)
 src/ui/         store.ts              Zustand store (game + what the player is selecting)
+                remote.ts             the window's connection to the game server
                 view.ts               highlights, prompt, buttons, click handlers
                 Card/Board/Hud.tsx    components
                 TextCard.tsx          a card drawn as text when its image doesn't load

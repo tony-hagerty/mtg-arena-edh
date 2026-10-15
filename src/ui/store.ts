@@ -1,11 +1,13 @@
 import { produce } from 'immer';
 import { create } from 'zustand';
-import { applyAction, applyBotAction, defaultStops, newGame } from '../engine';
+import { HIDDEN, applyAction, applyBotAction, defaultStops, newGame } from '../engine';
 import type { Action, ApplyOptions, AttackOption, CastChoices, Game, ManaSym, PlayerId, SeatDef, Step, StopKind, Stops, TargetRef, TargetSpec, Zone } from '../engine';
-import { DECKS, isCardName } from '../cards/db';
+import { DECKS, cardData, isCardName } from '../cards/db';
 import type { DeckDef } from '../cards/db';
 import { savedDeckIssues } from '../cards/decklist';
-import { fetchCards, loadFetchedCards } from '../cards/fetched';
+import { fetchCards, isFetched, loadFetchedCards } from '../cards/fetched';
+import type { StartRequest, ViewMessage } from '../net/protocol';
+import type { Connection } from './remote';
 
 /**
  * A spell or ability the human is part-way through. `cast` and `activate` are proposals
@@ -177,6 +179,15 @@ interface Store {
   handoff: PlayerId | null;
   /** The person `handoff` names has the screen now. */
   takeOver: () => void;
+  /**
+   * The game server this window plays through, or null to run the game in the page. With a
+   * server, `game` is the view of the seat at the bottom of the screen (`viewFor`).
+   */
+  server: Connection | null;
+  /** Looks for the game server the page came from. */
+  connect: (find: () => Promise<Connection | null>) => Promise<void>;
+  /** Changes how fast the bots play. */
+  setSpeed: (speed: number) => void;
   targeting: Targeting | null;
   /** Keep priority after the spell or ability being paid for, to respond to it yourself (117.3c). One use. */
   hold: boolean;
@@ -227,6 +238,7 @@ export const useStore = create<Store>()((set, get) => ({
   human: null,
   humans: [],
   handoff: null,
+  server: null,
   targeting: null,
   hold: false,
   attackTarget: null,
@@ -249,6 +261,17 @@ export const useStore = create<Store>()((set, get) => ({
     if (!kind) delete stops[turn][step];
     saveStops(stops);
     set({ stops });
+    sendPrefs();
+  },
+
+  setSpeed: (speed) => {
+    set({ speed });
+    get().server?.speed(speed);
+  },
+
+  connect: async (find) => {
+    const server = await find();
+    if (server) set({ server });
   },
 
   setSetting: (change) => {
@@ -256,8 +279,9 @@ export const useStore = create<Store>()((set, get) => ({
     saveSettings(settings);
     const { game, humans } = get();
     // The game keeps the setting on the human's player, where the engine reads it.
-    const next = game && humans.length ? produce(game, (d) => void humans.forEach((h) => (d.players[h].manualDamage = settings.manualDamage))) : game;
+    const next = game && humans.length && !get().server ? produce(game, (d) => void humans.forEach((h) => (d.players[h].manualDamage = settings.manualDamage))) : game;
     set({ settings, game: next });
+    sendPrefs();
   },
 
   saveDeck: (deck) => {
@@ -282,20 +306,30 @@ export const useStore = create<Store>()((set, get) => ({
   },
 
   start: (deck) => {
-    const { settings, savedDecks, stops } = get();
+    const { settings, savedDecks, stops, server } = get();
     const seats = tableOf(deck, settings, savedDecks);
     const humans = seats.flatMap((s, i) => (s.human ? [i] : []));
-    const game = newGame({
-      seed: (Math.random() * 2 ** 31) | 0,
-      seats,
-      stops: Object.fromEntries(humans.map((h) => [h, absoluteStops(stops, h, seats.length)])),
-    });
+    const seed = (Math.random() * 2 ** 31) | 0;
+    const seatStops = Object.fromEntries(humans.map((h) => [h, absoluteStops(stops, h, seats.length)]));
+    // With a server, the game starts there and the screen changes once its first view arrives.
+    const game = server ? get().game : newGame({ seed, seats, stops: seatStops });
+    if (server) {
+      const prefs = Object.fromEntries(humans.map((h) => [h, { stops: seatStops[h], manualDamage: settings.manualDamage }]));
+      const req: StartRequest = { seed, seats: seats.map(({ deck, human }) => ({ deck, human: !!human })), prefs, cards: fetchedCardsOf(seats.map((s) => s.deck)) };
+      // Stop listening to the old game's seat first: its next view would be of the new game.
+      remote.unwatch?.();
+      remote.unwatch = null;
+      server
+        .start(req)
+        .then(() => watchSeat(humans[0] ?? null))
+        .catch((err) => console.warn('Game server:', err));
+    }
     set({
       game,
-      gameNo: get().gameNo + 1,
+      gameNo: server ? get().gameNo : get().gameNo + 1,
       human: humans[0] ?? null,
       humans,
-      ...follow(game, humans[0] ?? null, humans),
+      ...(game && !server ? follow(game, humans[0] ?? null, humans) : { handoff: null }),
       deck,
       targeting: null,
       attackTarget: null,
@@ -309,34 +343,126 @@ export const useStore = create<Store>()((set, get) => ({
   },
 
   takeOver: () => {
-    const { handoff } = get();
+    const { handoff, server } = get();
     if (handoff === null) return;
-    // The next person sees only their own hand: nothing the last one was doing carries over.
-    set({ human: handoff, handoff: null, targeting: null, attackTarget: null, pickedBlockers: [], handOrder: [], viewer: null, colorPick: null, hover: null });
+    // With a server, the screen stays covered until the next person's view arrives (`onView`).
+    if (server) return watchSeat(handoff);
+    set({ human: handoff, ...freshSeat });
   },
 
-  quit: () => set({ game: null, hover: null, targeting: null, viewer: null, confirmExit: false }),
+  quit: () => {
+    if (get().server) {
+      remote.unwatch?.();
+      remote.unwatch = null;
+      get().server!.end();
+    }
+    set({ game: null, hover: null, targeting: null, viewer: null, confirmExit: false });
+  },
 
   act: (a) => {
-    const g = get().game;
-    if (!g) return false;
-    const next = applyAction(g, a, engineOptions());
-    if (next === g) return false;
+    const { game: g, server, human } = get();
+    // The server takes moves only from the player the game is waiting on.
+    if (!g || (server && g.priority !== human)) return false;
     // Declaring attackers/blockers and tapping for mana keep the current selection; anything else resets it.
     const mana = a.type === 'tapMana' || a.type === 'untapMana';
     const keep = mana || a.type.includes('declare');
     // A land is still under the pointer after it is tapped, so its preview stays up too.
-    set({ game: next, ...(mana ? {} : { hover: null }), ...(keep ? {} : { targeting: null, pickedBlockers: [] }), ...follow(next, get().human, get().humans) });
+    const ui = { ...(mana ? {} : { hover: null }), ...(keep ? {} : { targeting: null, pickedBlockers: [] }) };
+    if (!server || human === null) {
+      const next = applyAction(g, a, engineOptions());
+      if (next === g) return false;
+      set({ game: next, ...ui, ...follow(next, human, get().humans) });
+      return true;
+    }
+    // With a server, the move is checked against this seat's view first, so a click the
+    // engine refuses still says so at once. The server then has the last word.
+    const next = checkOnView(g, a);
+    if (next === g) return false;
+    const seq = (remote.seq[human] ?? 0) + 1;
+    remote.seq[human] = seq;
+    server.act({ seat: human, seq, action: a });
+    // Those same moves touch nothing hidden, so the window shows them at once and the
+    // server's view agrees. Anything else waits for the server: it may draw a card, or
+    // reveal one, that this view can't know.
+    set({ ...(keep && next ? { game: next } : {}), ...ui });
     return true;
   },
 
   botAct: (a) => {
     const g = get().game;
-    if (!g) return;
+    if (!g || get().server) return;
     const next = applyBotAction(g, a, engineOptions());
     set({ game: next, ...follow(next, get().human, get().humans) });
   },
 }));
+
+/** What a new person at the screen starts with: nothing the last one was doing carries over. */
+const freshSeat = { handoff: null, targeting: null, attackTarget: null, pickedBlockers: [], handOrder: [], viewer: null, colorPick: null, hover: null };
+
+/** The connection's moving parts, outside the store's state: they don't change what's drawn. */
+const remote: { gameId: number; seq: Partial<Record<PlayerId, number>>; unwatch: (() => void) | null } = { gameId: 0, seq: {}, unwatch: null };
+
+/** Streams `seat`'s view from the server, in place of the seat streamed before. */
+function watchSeat(seat: PlayerId | null) {
+  const server = useStore.getState().server;
+  if (!server) return;
+  remote.unwatch?.();
+  remote.unwatch = server.watch(seat, onView);
+}
+
+/**
+ * A view from the server. It is shown unless this window has sent moves the server hasn't
+ * dealt with yet: the window already shows those, and a later view will include them.
+ */
+export function onView(m: ViewMessage) {
+  const s = useStore.getState();
+  if (m.gameId !== remote.gameId) {
+    // A new game: the screen starts afresh, and moves count from 1 again.
+    remote.gameId = m.gameId;
+    remote.seq = {};
+    if (!m.game) return;
+    useStore.setState({ game: m.game, gameNo: s.gameNo + 1, human: m.seat, ...freshSeat, ...follow(m.game, m.seat, s.humans) });
+    return;
+  }
+  if (m.seat !== null && m.ack < (remote.seq[m.seat] ?? 0)) return;
+  if (!m.game) {
+    // The game ended elsewhere (another window left it).
+    if (s.game) useStore.setState({ game: null, hover: null, targeting: null, viewer: null, confirmExit: false });
+    return;
+  }
+  // The first view of the next person at the screen: their seat goes to the bottom.
+  const seat = m.seat !== s.human ? { human: m.seat, ...freshSeat } : {};
+  useStore.setState({ game: m.game, ...seat, ...follow(m.game, m.seat, s.humans) });
+}
+
+/** The cards fetched from Scryfall that these decks use, for the server, which can't fetch them itself. */
+function fetchedCardsOf(decks: DeckDef[]) {
+  const names = new Set(decks.flatMap((d) => [...d.commanders, ...d.cards, ...Object.keys(d.basics)]));
+  return [...names].filter(isFetched).map((n) => cardData(n));
+}
+
+/** Tells the server each person's stops and settings, when there is a server. */
+function sendPrefs() {
+  const { server, game, humans, stops, settings } = useStore.getState();
+  if (!server || !game) return;
+  for (const h of humans) server.prefs({ seat: h, prefs: { stops: absoluteStops(stops, h, game.players.length), manualDamage: settings.manualDamage } });
+}
+
+/**
+ * Runs a move on this seat's view of the game, to refuse an illegal one at once. Priority
+ * isn't passed on: whether another player would want it depends on their hand. The engine
+ * checks a move before carrying it out, so if carrying it out reaches a card this view
+ * hides (the opening hands' actions after the last mulligan, say), the move was legal
+ * and the server works out the rest: the result is null, meaning nothing to show yet.
+ */
+function checkOnView(g: Game, a: Action): Game | null {
+  try {
+    return applyAction(g, a, { ...engineOptions(), autoPass: false });
+  } catch (err) {
+    if (err instanceof Error && err.message === `Unknown card: ${HIDDEN}`) return null;
+    throw err;
+  }
+}
 
 /** The human's stops go to the engine with every action, bots' included: those decide when the human is asked too. */
 function engineOptions(): ApplyOptions {

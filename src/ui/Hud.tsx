@@ -503,7 +503,7 @@ export function LogPanel() {
         <button onClick={() => useStore.setState({ showLog: !show })} aria-expanded={show}>
           {show ? 'Hide log' : 'Show log'}
         </button>
-        <button onClick={() => useStore.setState({ speed: SPEEDS[(SPEEDS.indexOf(speed) + 1) % SPEEDS.length] })} title="Bot speed">
+        <button onClick={() => useStore.getState().setSpeed(SPEEDS[(SPEEDS.indexOf(speed) + 1) % SPEEDS.length])} title="Bot speed">
           Speed {speed}×
         </button>
         {human !== null && (

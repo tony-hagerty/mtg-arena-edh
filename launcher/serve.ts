@@ -60,9 +60,11 @@ export interface ServeOptions {
   files: Files;
   pages: PageWatcher;
   hello: Hello;
+  /** Answers the requests it knows (the game server's), and returns false for the rest. */
+  api?: (req: IncomingMessage, res: ServerResponse, path: string) => boolean;
 }
 
-export function makeServer({ files, pages, hello }: ServeOptions): Server {
+export function makeServer({ files, pages, hello, api }: ServeOptions): Server {
   return createServer((req, res) => {
     // Only pages from this server, by its own address. This stops a web page elsewhere
     // from reaching it through a hostname that points at 127.0.0.1 (DNS rebinding).
@@ -70,10 +72,14 @@ export function makeServer({ files, pages, hello }: ServeOptions): Server {
     if (req.headers.host !== `127.0.0.1:${port}` && req.headers.host !== `localhost:${port}`) {
       return send(res, 403, 'text/plain', 'Forbidden');
     }
-    if (req.method !== 'GET' && req.method !== 'HEAD') return send(res, 405, 'text/plain', 'Method not allowed');
-
     const path = decodePath(req);
     if (path === undefined) return send(res, 400, 'text/plain', 'Bad request');
+    const reading = req.method === 'GET' || req.method === 'HEAD';
+    // A web page elsewhere can still send this server a POST. Browsers say where it came
+    // from, so moves are taken only from this server's own pages.
+    if (!reading && req.headers.origin !== `http://${req.headers.host}`) return send(res, 403, 'text/plain', 'Forbidden');
+    if (api?.(req, res, path)) return;
+    if (!reading) return send(res, 405, 'text/plain', 'Method not allowed');
     if (path === '__launcher/hello') return send(res, 200, TYPES.json, JSON.stringify(hello));
     if (path === '__launcher/alive') return alive(req, res, pages);
 
