@@ -14,13 +14,16 @@ import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join, relative, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { Resvg } from '@resvg/resvg-js';
 import { inject } from 'postject';
+import { Data, NtExecutable, NtExecutableResource, Resource } from 'resedit';
 import { build } from 'vite';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const dist = join(root, 'dist');
 const work = join(root, 'dist-exe');
 const exe = join(root, 'release', 'ArenaEDH.exe');
+const icon = join(root, 'src', 'ui', 'icon.svg');
 
 // Fixed by Node for every single executable application.
 const FUSE = 'NODE_SEA_FUSE_fce680ab2cc467b6e072b8b5df1996b2';
@@ -71,11 +74,12 @@ writeFileSync(
 );
 execFileSync(process.execPath, ['--experimental-sea-config', join(work, 'sea-config.json')], { stdio: 'inherit' });
 
-// 3. Windows' node.exe for this Node version, unsigned, with the blob injected. Node's
-// signature can't cover our changes, and Windows trusts a broken signature less than none.
+// 3. Windows' node.exe for this Node version, unsigned, with our icon and name, and the
+// blob injected. Node's signature can't cover our changes, and Windows trusts a broken
+// signature less than none.
 mkdirSync(dirname(exe), { recursive: true });
 rmSync(exe, { force: true });
-writeFileSync(exe, unsigned(readFileSync(await windowsNode())));
+writeFileSync(exe, branded(unsigned(readFileSync(await windowsNode())), version));
 await inject(exe, 'NODE_SEA_BLOB', readFileSync(blob), { sentinelFuse: FUSE });
 
 // 4. Mark it a windowed program, so double-clicking it opens no console window.
@@ -133,6 +137,50 @@ function unsigned(image) {
   out.writeUInt32LE(0, entry);
   out.writeUInt32LE(0, entry + 4);
   return out;
+}
+
+/**
+ * A copy of a Windows program with our icon (src/ui/icon.svg) in place of Node's, and our
+ * name and version in place of Node's in its details (what Explorer's Properties and Task
+ * Manager show).
+ */
+function branded(image, version) {
+  const program = NtExecutable.from(image);
+  const res = NtExecutableResource.from(program);
+
+  // Every size Explorer and the taskbar ask for, each a PNG drawn from the SVG.
+  const svg = readFileSync(icon);
+  const icons = [16, 20, 24, 32, 40, 48, 64, 128, 256].map((size) => {
+    const png = new Resvg(svg, { fitTo: { mode: 'width', value: size } }).render().asPng();
+    return Data.RawIconItem.from(png, size, size, 32);
+  });
+  const groups = Resource.IconGroupEntry.fromEntries(res.entries);
+  if (groups.length === 0) fail('node.exe has no icon to replace');
+  for (const g of groups) Resource.IconGroupEntry.replaceIconsForResource(res.entries, g.id, g.lang, icons);
+
+  const [info] = Resource.VersionInfo.fromEntries(res.entries);
+  if (!info) fail('node.exe has no version information to replace');
+  const [major, minor, patch] = version.split('-')[0].split('.').map(Number);
+  info.setFileVersion(major, minor, patch, 0);
+  info.setProductVersion(major, minor, patch, 0);
+  for (const language of info.getAllLanguagesForStringValues()) {
+    info.removeAllStringValues(language, false);
+    info.setStringValues(language, {
+      FileDescription: 'Arena EDH',
+      ProductName: 'Arena EDH',
+      InternalName: 'ArenaEDH',
+      OriginalFilename: 'ArenaEDH.exe',
+      FileVersion: version,
+      ProductVersion: version,
+      LegalCopyright: 'Copyright (c) 2026 tony-hagerty. MIT License.',
+    });
+  }
+  info.outputToResourceEntries(res.entries);
+
+  // Our icons are smaller than Node's. Let the section shrink, raw size and virtual size
+  // together: kept at its old raw size, the section would overlap the one moved up after it.
+  res.outputResource(program, false, true);
+  return Buffer.from(program.generate());
 }
 
 /**
