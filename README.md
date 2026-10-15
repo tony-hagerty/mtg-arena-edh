@@ -265,8 +265,14 @@ Rule numbers are from the Comprehensive Rules in `docs/rules/`.
   host and the host's views back, so the window plays exactly as on one computer. The
   host's own window may play and watch only the host's seat. A friend who leaves or loses
   the connection during a game keeps their seat, and the game waits for them; joining
-  again with the same code and name puts them back in it. Handing a dropped seat to a
-  bot when the table agrees is still to come (phase 5).
+  again with the same code and name puts them back in it. Meanwhile the people still at
+  the table vote on a bot playing that seat: it does once more than half of them say yes,
+  until the person comes back. Anyone may pause the game (no moves, the bots wait) and
+  carry on. Every player's program keeps a copy of the game (`server/lobby/saves.ts`,
+  in `ArenaEDH-data/saves`), sent by the host every few seconds and at once on a pause,
+  so if the host goes, anyone can resume it as the new host: the others join the new
+  code under the names they played as. The copies are scrambled with a key every copy of
+  the program shares, which stops a glance at a file for hidden cards and no more.
 - **Commander zone changes:** a commander that dies or is exiled really goes there (so
   "dies" abilities see it), then its owner may move it to the command zone (903.9a). One
   headed for a hand or library may go to the command zone instead (903.9b). You're asked;
