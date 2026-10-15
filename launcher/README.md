@@ -18,6 +18,10 @@ Node version from nodejs.org the first time, checks its published SHA-256, and k
   Windows' `node.exe` with the launcher (this folder, bundled into one file) and every file
   of `dist/` embedded in it. `scripts/build-exe.mjs` makes it, removes Node's signature
   (it can't cover our changes), and marks the program windowed so no console window opens.
+- **Its icon and name:** the build swaps Node's icon for `src/ui/icon.svg`, drawn as PNGs
+  from 16 to 256 px, and Node's name and version in the file's details for Arena EDH's
+  (what Explorer's Properties and Task Manager show). The game window uses the same SVG
+  as its icon.
 - **The window** is Microsoft Edge in app mode (`--app`): the normal title bar, no tabs or
   address bar. Edge gets its own profile folder (`--user-data-dir`) beside the .exe, so it
   is separate from the user's everyday Edge.
