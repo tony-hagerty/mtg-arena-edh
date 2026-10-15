@@ -584,3 +584,25 @@ describe('X in ability costs in the UI (107.3a)', () => {
     expect(byName(game(), 1, 'Shivan Dragon')!.damage).toBe(2);
   });
 });
+
+describe('the combat damage setting (510.1c)', () => {
+  it('applies to the game in progress, and the human is asked once it is on', () => {
+    play((d) => {
+      put(d, 0, 'Kalonian Tusker');
+      put(d, 1, 'Walking Corpse');
+      put(d, 1, 'Goblin Piker');
+    });
+    useStore.getState().setSetting({ manualDamage: true });
+    expect(game().players[0].manualDamage).toBe(true);
+    const tusker = byName(game(), 0, 'Kalonian Tusker')!;
+    let g = applyAction(game(), { type: 'pass' });
+    g = applyAction(g, { type: 'declareAttack', card: tusker.id, defender: 1 });
+    g = applyAction(g, { type: 'pass' });
+    for (const b of ['Walking Corpse', 'Goblin Piker']) g = applyAction(g, { type: 'declareBlock', blocker: byName(g, 1, b)!.id, attacker: tusker.id });
+    for (let i = 0; i < 10 && g.decision?.type !== 'assignDamage'; i++) g = applyAction(g, { type: 'pass' });
+    useStore.setState({ game: g });
+    expect(buildView().prompt).toContain('combat damage');
+    useStore.getState().setSetting({ manualDamage: false });
+    expect(game().players[0].manualDamage).toBe(false);
+  });
+});

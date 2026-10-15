@@ -4,7 +4,7 @@ Goal: the features the user asked for after the Commander-decks plan
 (`docs/plans/commander-decks.md`) was finished. Each is its own session, started only when
 the user says so, one at a time.
 
-**Status: sessions 1, 2 and 3 done. The user answered the first round of questions; the decisions
+**Status: sessions 1 to 4 done. The user answered the first round of questions; the decisions
 are written into each session.**
 
 ## Rules every session follows
@@ -112,7 +112,7 @@ yet: X in activated abilities"), nor do loyalty abilities with −X.
   −X it warns when X would leave no loyalty. Bots try every X from 1 up to what they can
   pay, or six values spread over that range when it is larger, to keep the look-ahead quick.
 
-### 4. Manual combat damage assignment
+### 4. Manual combat damage assignment (done)
 
 Today damage is split automatically: lethal to each blocker in order, the rest to the last
 one, or past them with trample (`dealCombatDamage` in `src/engine/engine.ts`).
@@ -149,6 +149,14 @@ Plan:
 - Bots keep auto-assigning.
 - Remove "Combat damage is assigned automatically" from Known simplifications. Trample
   over planeswalkers (702.19c) stays out unless asked.
+- Done. The setting is `Player.manualDamage` (set from `newGame({ manualDamage })` and by
+  the store's `setSetting`), saved in the browser as `arena-edh.settings`, and switched by
+  the **Damage** button in the log bar. `damageRooms` says what each attacker can do,
+  `autoAssignment` is the old split, `legalAssignment` checks one attacker (510.1e checks
+  them all together in the `assignDamage` action). The automatic split now gives a
+  trampler's excess to its last blocker when what it attacked has gone, instead of losing
+  it (510.1a). 510.1d (one blocker, several attackers) stays automatic: no card blocks
+  more than one attacker.
 
 ### 5. Paste a deck list in the app
 

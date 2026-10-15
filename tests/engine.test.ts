@@ -50,6 +50,7 @@ import {
   triggerText,
   activatable,
   maxAbilityX,
+  damageRooms,
 } from '../src/engine';
 import type { Action, ActivatedAbility, ApplyOptions, Game, TurnStops } from '../src/engine';
 import { DECKS } from '../src/cards/db';
@@ -3938,5 +3939,181 @@ describe('X in activated and loyalty ability costs (107.3a)', () => {
     expect(x).toBeGreaterThan(0);
     expect(x).toBeLessThanOrEqual(3);
     expect(applyAction(g, a)).not.toBe(g);
+  });
+});
+
+describe('dividing combat damage by hand (510.1c, 702.19b)', () => {
+  /** Player 0 is a human who assigns damage by hand; `setup` adds the creatures. */
+  const table = (setup: (d: Game) => void, manualDamage = true) =>
+    emptyGame((d) => {
+      d.players[0].isBot = false;
+      d.players[0].manualDamage = manualDamage;
+      setup(d);
+    });
+  /** Attacks player 1 with `attackers`, has player 1 make `blocks` ([blocker, attacker] names), and plays on to combat damage. */
+  const fight = (g: Game, attackers: string[], blocks: [string, string][]) => {
+    g = run(g, pass, ...attackers.map((n) => ({ type: 'declareAttack', card: byName(g, 0, n)!.id, defender: 1 }) as const), pass);
+    g = run(g, ...blocks.map(([b, a]) => ({ type: 'declareBlock', blocker: byName(g, 1, b)!.id, attacker: byName(g, 0, a)!.id }) as const));
+    return toDamage(g);
+  };
+  /** Passes until the game asks for a damage assignment, or combat is over. */
+  const toDamage = (g: Game) => {
+    for (let i = 0; i < 20 && g.decision?.type !== 'assignDamage' && g.step !== 'main2'; i++) g = run(g, pass);
+    return g;
+  };
+  const asg = (g: Game, attacker: string, blockers: [string, number][], through = 0) => ({
+    attacker: byName(g, 0, attacker)!.id,
+    blockers: Object.fromEntries(blockers.map(([n, x]) => [byName(g, 1, n)!.id, x])),
+    through,
+  });
+
+  it('is automatic unless the setting is on: lethal to each blocker in turn, the rest past them with trample', () => {
+    let g = table((d) => {
+      put(d, 0, 'Colossal Dreadmaw'); // 6/6 trample
+      put(d, 1, 'Walking Corpse'); // 2/2
+      put(d, 1, 'Goblin Piker'); // 2/1
+    }, false);
+    g = fight(g, ['Colossal Dreadmaw'], [['Walking Corpse', 'Colossal Dreadmaw'], ['Goblin Piker', 'Colossal Dreadmaw']]);
+    expect(g.step).toBe('main2');
+    // 2 to the Corpse, 1 to the Piker, 3 tramples over.
+    expect(g.players[1].life).toBe(37);
+  });
+
+  it('asks only about attackers with a choice: two or more blockers, or trample', () => {
+    let g = table((d) => {
+      put(d, 0, 'Kalonian Tusker'); // 3/3, blocked by two
+      put(d, 0, 'Child of Night'); // 2/1, blocked by one: no choice
+      put(d, 0, 'Youthful Knight'); // 2/1 first strike, unblocked
+      put(d, 1, 'Walking Corpse');
+      put(d, 1, 'Goblin Piker');
+      put(d, 1, 'Typhoid Rats');
+    });
+    g = fight(g, ['Kalonian Tusker', 'Child of Night', 'Youthful Knight'], [
+      ['Walking Corpse', 'Kalonian Tusker'],
+      ['Goblin Piker', 'Kalonian Tusker'],
+      ['Typhoid Rats', 'Child of Night'],
+    ]);
+    // The first-strike step had nothing to ask: only the Knight dealt damage, unblocked (510.4).
+    expect(g.players[1].life).toBe(38);
+    expect(g.decision).toEqual({ type: 'assignDamage', attackers: [byName(g, 0, 'Kalonian Tusker')!.id], firstStrike: false });
+    // Without trample, all of it may go to one blocker: there is no damage assignment order (510.1c).
+    g = run(g, { type: 'assignDamage', assignments: [asg(g, 'Kalonian Tusker', [['Goblin Piker', 3]])] });
+    expect(byName(g, 1, 'Goblin Piker', 'graveyard')).toBeDefined();
+    expect(byName(g, 1, 'Walking Corpse')).toBeDefined();
+    expect(byName(g, 1, 'Typhoid Rats', 'graveyard')).toBeDefined(); // the Child's lone blocker: no choice, dealt automatically
+    expect(g.log.some((l) => /assigns? Kalonian Tusker's damage: 3 to Goblin Piker\./.test(l.text))).toBe(true);
+  });
+
+  it('refuses an assignment that breaks the rules, and the whole of it is checked (510.1e)', () => {
+    let g = table((d) => {
+      put(d, 0, 'Colossal Dreadmaw'); // 6/6 trample
+      put(d, 0, 'Kalonian Tusker'); // 3/3
+      put(d, 1, 'Walking Corpse'); // 2/2
+      put(d, 1, 'Goblin Piker'); // 2/1
+      put(d, 1, 'Typhoid Rats'); // 1/1
+    });
+    g = fight(g, ['Colossal Dreadmaw', 'Kalonian Tusker'], [
+      ['Walking Corpse', 'Colossal Dreadmaw'],
+      ['Goblin Piker', 'Kalonian Tusker'],
+      ['Typhoid Rats', 'Kalonian Tusker'],
+    ]);
+    expect(g.decision?.type).toBe('assignDamage');
+    const tusker = asg(g, 'Kalonian Tusker', [['Goblin Piker', 1], ['Typhoid Rats', 2]]);
+    const maw = asg(g, 'Colossal Dreadmaw', [['Walking Corpse', 6]]);
+    const bad = [
+      // Less than its power (510.1a).
+      [asg(g, 'Colossal Dreadmaw', [['Walking Corpse', 2]], 3), tusker],
+      // Past the blocker before it has lethal damage (702.19b).
+      [asg(g, 'Colossal Dreadmaw', [['Walking Corpse', 1]], 5), tusker],
+      // Past its blockers without trample.
+      [maw, asg(g, 'Kalonian Tusker', [['Goblin Piker', 1]], 2)],
+      // To a creature that isn't blocking it.
+      [maw, asg(g, 'Kalonian Tusker', [['Goblin Piker', 1], ['Walking Corpse', 2]])],
+      // One attacker left out.
+      [maw],
+      // A negative amount.
+      [asg(g, 'Colossal Dreadmaw', [['Walking Corpse', 7]], -1), tusker],
+    ];
+    for (const assignments of bad) expect(applyAction(g, { type: 'assignDamage', assignments })).toBe(g);
+    // Lethal to the Corpse, then 4 tramples over.
+    g = run(g, { type: 'assignDamage', assignments: [asg(g, 'Colossal Dreadmaw', [['Walking Corpse', 2]], 4), tusker] });
+    expect(g.players[1].life).toBe(36);
+    expect(g.players[1].battlefield.filter((c) => isCreature(c))).toEqual([]);
+  });
+
+  it('lets a trampler put more than lethal damage on its blocker', () => {
+    let g = table((d) => {
+      put(d, 0, 'Colossal Dreadmaw');
+      put(d, 1, 'Walking Corpse');
+    });
+    g = fight(g, ['Colossal Dreadmaw'], [['Walking Corpse', 'Colossal Dreadmaw']]);
+    expect(damageRooms(g)).toMatchObject([{ power: 6, trample: true, canThrough: true, choice: true, blockers: [{ lethal: 2 }] }]);
+    g = run(g, { type: 'assignDamage', assignments: [asg(g, 'Colossal Dreadmaw', [['Walking Corpse', 6]])] });
+    expect(g.players[1].life).toBe(40);
+  });
+
+  it('counts damage already marked, and any damage from deathtouch, toward lethal (702.19b, 702.2c)', () => {
+    let g = table((d) => {
+      put(d, 0, 'Colossal Dreadmaw');
+      put(d, 0, 'Harvester of Souls'); // 5/5 deathtouch
+      put(d, 1, 'Walking Corpse').damage = 1;
+      put(d, 1, 'Serra Angel');
+    });
+    g = produce(g, (d) => void pump(d, byName(d, 0, 'Harvester of Souls')!, 0, 0, ['trample']));
+    g = fight(g, ['Colossal Dreadmaw', 'Harvester of Souls'], [['Walking Corpse', 'Colossal Dreadmaw'], ['Serra Angel', 'Harvester of Souls']]);
+    expect(damageRooms(g).map((r) => r.blockers[0].lethal)).toEqual([1, 1]);
+    g = run(g, {
+      type: 'assignDamage',
+      assignments: [asg(g, 'Colossal Dreadmaw', [['Walking Corpse', 1]], 5), asg(g, 'Harvester of Souls', [['Serra Angel', 1]], 4)],
+    });
+    expect(g.players[1].life).toBe(31);
+    expect(byName(g, 1, 'Serra Angel', 'graveyard')).toBeDefined();
+  });
+
+  it('asks in each of the two damage steps first strike makes (510.4)', () => {
+    let g = table((d) => {
+      put(d, 0, 'Fencing Ace'); // 1/1 double strike, pumped to 3/1
+      put(d, 1, 'Serra Angel'); // 4/4
+      put(d, 1, 'Walking Corpse'); // 2/2
+    });
+    g = produce(g, (d) => void pump(d, byName(d, 0, 'Fencing Ace')!, 2, 0));
+    g = fight(g, ['Fencing Ace'], [['Serra Angel', 'Fencing Ace'], ['Walking Corpse', 'Fencing Ace']]);
+    expect(g.decision).toMatchObject({ type: 'assignDamage', firstStrike: true });
+    g = run(g, { type: 'assignDamage', assignments: [asg(g, 'Fencing Ace', [['Serra Angel', 3]])] });
+    // Both blockers live through the first step, so the regular one asks again.
+    g = toDamage(g);
+    expect(g.decision).toMatchObject({ type: 'assignDamage', firstStrike: false });
+    g = run(g, { type: 'assignDamage', assignments: [asg(g, 'Fencing Ace', [['Serra Angel', 1], ['Walking Corpse', 2]])] });
+    expect(byName(g, 1, 'Serra Angel', 'graveyard')).toBeDefined();
+    expect(byName(g, 1, 'Walking Corpse', 'graveyard')).toBeDefined();
+  });
+
+  it("doesn't wait on a bot, even one with the setting", () => {
+    let g = emptyGame((d) => {
+      d.players[0].manualDamage = true;
+      put(d, 0, 'Kalonian Tusker');
+      put(d, 1, 'Walking Corpse');
+      put(d, 1, 'Goblin Piker');
+    });
+    g = run(g, pass, { type: 'declareAttack', card: byName(g, 0, 'Kalonian Tusker')!.id, defender: 1 }, pass);
+    g = run(
+      g,
+      { type: 'declareBlock', blocker: byName(g, 1, 'Walking Corpse')!.id, attacker: byName(g, 0, 'Kalonian Tusker')!.id },
+      { type: 'declareBlock', blocker: byName(g, 1, 'Goblin Piker')!.id, attacker: byName(g, 0, 'Kalonian Tusker')!.id },
+      pass,
+    );
+    // Dealt automatically: 2 to the Corpse, 1 to the Piker.
+    expect(byName(g, 1, 'Walking Corpse', 'graveyard')).toBeDefined();
+    expect(byName(g, 1, 'Goblin Piker', 'graveyard')).toBeDefined();
+  });
+
+  it('a bot answering for a human splits the damage automatically', () => {
+    let g = table((d) => {
+      put(d, 0, 'Kalonian Tusker');
+      put(d, 1, 'Walking Corpse');
+      put(d, 1, 'Goblin Piker');
+    });
+    g = fight(g, ['Kalonian Tusker'], [['Walking Corpse', 'Kalonian Tusker'], ['Goblin Piker', 'Kalonian Tusker']]);
+    expect(botAction(g, 0)).toEqual({ type: 'assignDamage', assignments: [asg(g, 'Kalonian Tusker', [['Walking Corpse', 2], ['Goblin Piker', 1]])] });
   });
 });
