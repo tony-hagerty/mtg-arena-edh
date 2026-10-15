@@ -29,6 +29,10 @@ Node version from nodejs.org the first time, checks its published SHA-256, and k
   window to one already running on that profile, it quits once no game page has been open
   for 3 seconds instead. Each page holds a connection to `/__launcher/alive`, added to
   `index.html` as it's served.
+- **The game** runs in the launcher (`server/game/`, see the main README's "The game
+  server"); the page streams its seat's view from `/api/game/`. Any request other than a
+  GET must carry this server's own address as its `Origin`, so another web page open in
+  the browser can't start games or send moves.
 - **Double-clicking it again** while it runs opens another window on the running copy.
 - **Alt+Enter** toggles fullscreen (`src/ui/fullscreen.ts`). F11 works too.
 

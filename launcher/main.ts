@@ -1,16 +1,17 @@
 // The Arena EDH program: double-click ArenaEDH.exe and the game opens in its own window.
 // It serves the built game on 127.0.0.1 and opens it in an Edge app window whose profile is
-// in the folder beside the .exe. Closing the window quits the program. Phase 3 adds the game
-// server to this same program.
+// in the folder beside the .exe. Closing the window quits the program. The same program is
+// the game server (server/game): it holds the whole game and gives each window its view.
 //
 // Flags, for development: `--no-window` only serves the game and prints its address,
 // `--browser <path>` opens the window in that Chromium-based browser instead of Edge, and
 // `--dist <folder>` serves that folder instead of dist/ when run from source.
 import { appendFileSync, mkdirSync, statSync, writeFileSync } from 'node:fs';
-import type { Server } from 'node:http';
+import type { IncomingMessage, Server, ServerResponse } from 'node:http';
 import { resolve } from 'node:path';
 import { getAsset, isSea } from 'node:sea';
 import { findEdge, openDefaultBrowser, openEdge, showError } from './edge';
+import { GameHost, handleGameApi } from '../server/game';
 import { createLifetime } from './lifetime';
 import type { Lifetime } from './lifetime';
 import { pathsFor } from './paths';
@@ -119,8 +120,11 @@ async function main() {
     },
   };
 
+  // The game server: it holds the whole game and gives each window its own player's view.
+  const host = new GameHost();
+  const api = (req: IncomingMessage, res: ServerResponse, path: string) => handleGameApi(host, req, res, path);
   for (let port = PORT; port < PORT + TRIES; port++) {
-    const candidate = makeServer({ files, pages, hello: { app: 'arena-edh', data: paths.data } });
+    const candidate = makeServer({ files, pages, hello: { app: 'arena-edh', data: paths.data }, api });
     if (await listen(candidate, port)) {
       server = candidate;
       const url = `http://127.0.0.1:${port}/`;
