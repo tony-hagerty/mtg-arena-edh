@@ -2,25 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { ALL_CARD_NAMES, ALL_DECKS, DECKS, cardData, deckColors, deckProblems } from '../src/cards/db';
 import type { DeckDef } from '../src/cards/db';
 import type { CardData } from '../src/engine';
-import { SUPPORTED_KEYWORDS, hasScript } from '../src/engine';
+import { unsupported } from '../src/cards/support';
 import { MANA_ROCKS } from './helpers';
-
-// Ability words and keyword actions: they label a rule that the card's script implements.
-const ABILITY_WORDS = ['landfall', 'treasure', 'mill', 'threshold', 'metalcraft', 'recruit', "scions' secretary", 'delirium', 'surveil', 'imprint', 'channel', 'ferocious', 'bloodrush', 'populate'];
-
-/** Oracle text split into abilities, with reminder text removed. */
-const abilities = (text: string) =>
-  text
-    .replace(/\([^)]*\)/g, '')
-    .split('\n')
-    .map((l) => l.trim())
-    .filter(Boolean);
-
-const isKeywordLine = (line: string) =>
-  line
-    .toLowerCase()
-    .split(',')
-    .every((part) => SUPPORTED_KEYWORDS.includes(part.trim()));
 
 describe('card pool', () => {
   it('every deck is legal (903.5), unfinished ones too', () => {
@@ -30,16 +13,8 @@ describe('card pool', () => {
   it('every card is fully implemented: supported keywords only, or a script', () => {
     const problems: string[] = [];
     for (const name of ALL_CARD_NAMES) {
+      problems.push(...unsupported(name).map((p) => `${name}: ${p}`));
       const d = cardData(name);
-      if (d.typeLine.startsWith('Basic Land')) continue;
-      for (const k of d.keywords.map((x) => x.toLowerCase())) {
-        if (!SUPPORTED_KEYWORDS.includes(k) && !ABILITY_WORDS.includes(k)) problems.push(`${name}: unsupported keyword "${k}"`);
-      }
-      // A card with faces has a script for each face that has rules text (712, 709).
-      for (const face of d.faces ?? [d]) {
-        const needsScript = abilities(face.oracleText).some((line) => !isKeywordLine(line));
-        if (needsScript && !hasScript(face.name)) problems.push(`${face.name}: has rules text but no script`);
-      }
       if (!d.image || !d.art) problems.push(`${name}: missing image`);
     }
     expect(problems).toEqual([]);

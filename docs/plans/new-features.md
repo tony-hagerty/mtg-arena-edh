@@ -4,7 +4,7 @@ Goal: the features the user asked for after the Commander-decks plan
 (`docs/plans/commander-decks.md`) was finished. Each is its own session, started only when
 the user says so, one at a time.
 
-**Status: sessions 1 to 4 done. The user answered the first round of questions; the decisions
+**Status: sessions 1 to 5 done. The user answered the first round of questions; the decisions
 are written into each session.**
 
 ## Rules every session follows
@@ -158,7 +158,7 @@ Plan:
   it (510.1a). 510.1d (one blocker, several attackers) stays automatic: no card blocks
   more than one attacker.
 
-### 5. Paste a deck list in the app
+### 5. Paste a deck list in the app (done)
 
 - A menu screen with a text box. Accepts plain names ("1 Sol Ring", "Sol Ring") and
   Arena/Moxfield exports (set codes and collector numbers ignored, "Commander" /
@@ -178,6 +178,13 @@ Plan:
   and the user is told.
 - Tests: the list parser, and that a known-good list builds the same `DeckDef` as the one
   in `decklists.json`.
+
+Done: `src/cards/decklist.ts` (parser, name matching, `checkList` for the screen),
+`src/cards/support.ts` (the card-pool test's "is it implemented" check, shared), the paste
+screen and opponent pickers in `src/ui/Menu.tsx`, saved decks and `seatDecks` in
+`src/ui/store.ts`, tests in `tests/decklist.test.ts`. Bot seats fit in this session. MTGO
+exports put the commander in the sideboard, so a sideboard of one or two cards is read as
+the commanders when the list names none.
 
 ### 6. Automatic scripting from Oracle text
 

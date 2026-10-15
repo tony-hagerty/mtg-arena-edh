@@ -21,6 +21,16 @@ npm run build    # type-check and production build
 ### Starting a game
 
 - Pick a deck on the menu (or "watch four bots play").
+- **Opponents:** under the decks, pick the deck each bot plays, built-in or pasted.
+  **Automatic** (the default) takes the next built-in deck no one else has. Saved in the
+  browser.
+- **Paste a deck list:** opens a text box. Paste a plain list ("1 Sol Ring" or "Sol
+  Ring") or an Arena, Moxfield or MTGO export; set codes, collector numbers and foil
+  marks are ignored. The commander comes from a "Commander" section, a `*CMDR*` mark or
+  a one- or two-card sideboard; otherwise click one (or two partners) among the list's
+  legendary creatures. Every problem is listed: cards the game doesn't have, and broken
+  deck rules (100 cards, one of each, colour identity, commander). **Save Deck** works
+  once there are none. The deck joins the menu, saved in the browser; **×** deletes it.
 - **Mulligan:** before the first turn you see your seven cards. Press **Keep**, or
   **Mulligan** to shuffle them away and draw seven new ones. Your first mulligan is free;
   after that you pick one card per extra mulligan to put on the bottom of your library.
@@ -160,6 +170,15 @@ Rule numbers are from the Comprehensive Rules in `docs/rules/`.
 - **Deck checks:** `deckProblems` in `src/cards/db.ts` checks 100 cards, singleton except
   basics (903.5b), every card inside the colour identity (903.5c), legendary creature
   commanders (903.3), and a valid partner pair (plain partner or "partner with").
+- **Pasted decks:** `parseDeckList` in `src/cards/decklist.ts` reads the text,
+  `poolName` matches each name to the card pool (any case, either apostrophe, a card
+  with faces by its full or first-face name, 712), and `checkList` builds the `DeckDef`
+  and runs `deckProblems`. A card the pool lacks, or one the engine can't play
+  (`unsupported` in `src/cards/support.ts`, the same check as the card-pool test), stops
+  the deck being saved. Saved decks live in `localStorage` (`arena-edh.decks`); one whose
+  cards a newer pool lacks stays on the menu, greyed out with the reason.
+- **Seats:** the store's `seatDecks` picks each seat's deck from the menu's choices and
+  passes them to `newGame({ decks })`. Play Again replays the same deck and opponents.
 - **Commander zone changes:** a commander that dies or is exiled really goes there (so
   "dies" abilities see it), then its owner may move it to the command zone (903.9a). One
   headed for a hand or library may go to the command zone instead (903.9b). You're asked;
@@ -460,6 +479,10 @@ These are deliberate cuts for a prototype. The biggest ones come first.
 - Partner variants other than plain partner and "partner with" (Background, Doctor's
   companion, "partner—[text]") aren't recognised. Vehicles can't be commanders yet. A
   planeswalker that says it "can be your commander" is accepted as one (903.3a).
+- **Pasted decks use only the card pool:** the cards in `decklists.json`. Anything else
+  is listed as missing. Companions, sideboards and maybeboards in a list are ignored. A
+  saved deck can't be edited: delete it and paste it again. Saved decks stay in the
+  browser they were pasted in.
 
 ### Mana and paying
 
@@ -512,6 +535,8 @@ Those cards are scripted in `tests/fixtures.ts`.
 ```
 src/cards/      decklists.json        the decks and tokens
                 db.ts                 card lookup, deck colours, deck legality (deckProblems)
+                decklist.ts           reading a pasted deck list (parseDeckList, checkList)
+                support.ts            can the engine play a card (unsupported)
                 creature-types.json   every creature type (205.3m; npm run fetch-rules)
                 cards.generated.json  card data from Scryfall (npm run fetch-cards)
                 scripts.ts            what each card does (starter decks)
@@ -524,6 +549,7 @@ src/engine/     types.ts              game state, actions, card-script types
 src/ui/         store.ts              Zustand store (game + what the player is selecting)
                 view.ts               highlights, prompt, buttons, click handlers
                 Card/Board/Hud.tsx    components
+                Menu.tsx              deck menu, opponent seats, the paste screen
                 Picker.tsx            card picker: search, mulligan, bottom, trigger order,
                                       yes/no questions, naming, players, legend rule,
                                       escape, casting while a spell resolves
@@ -595,6 +621,9 @@ fixed spot on a 192 × 108 grid.
    `src/cards/scripts.ts` (or the deck's own file, like `kraum-tymna.ts`). The
    [script reference](#script-reference) below lists the hooks.
 4. Run `npm test`. The card-pool test tells you if anything is still missing.
+
+Once a card is in the pool it can also be used in a pasted deck, by any name `poolName`
+matches.
 
 ### Script reference
 

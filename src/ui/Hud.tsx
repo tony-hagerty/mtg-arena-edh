@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { CSSProperties, ReactNode } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
-import { DECKS, cardData } from '../cards/db';
+import { cardData } from '../cards/db';
 import { data, findCard, label, triggerText } from '../engine';
 import type { Game, LogEntry, PlayerId, Step, StopKind } from '../engine';
 import { ManaCost } from './Card';
@@ -838,7 +838,7 @@ export function GameOver() {
 /** The end-of-game screen. It can be hidden to look over the final board. Mounted only once the game is over, so each game starts with it showing. */
 function Results() {
   const { g, me } = useView();
-  const { start, quit } = useStore.getState();
+  const { start, quit, deck } = useStore.getState();
   const [hidden, setHidden] = useState(false);
   if (hidden) {
     return (
@@ -849,7 +849,6 @@ function Results() {
   }
   const winner = g.winner === 'draw' || g.winner === null ? null : g.players[g.winner];
   const title = !winner ? 'Draw' : me === null ? `${winner.name} wins` : winner.id === me ? 'Victory' : 'Defeat';
-  const deck = me === null ? null : DECKS.findIndex((d) => d.id === g.players[me].deckId);
   return (
     <div className="modal">
       <motion.div className={cx('game-over', winner?.id === me && 'won')} initial={{ opacity: 0, scale: 0.8 }} animate={{ opacity: 1, scale: 1 }}>
