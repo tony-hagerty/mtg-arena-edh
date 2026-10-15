@@ -1,5 +1,5 @@
 import { useEffect, useMemo } from 'react';
-import { botAction } from '../engine';
+import { botAction, botPause } from '../engine';
 import { OpponentPanel, PlayerField } from './Board';
 import { ActionBar, ArrowLayer, CastOptions, ColorPicker, ExitConfirm, GameOver, LogPanel, Preview, Prompt, SpellFlash, StackPanel, ZoneViewer } from './Hud';
 import { Decisions, EscapePicker, GraveyardTargets } from './Picker';
@@ -43,11 +43,10 @@ export function GameScreen() {
 
   // Bot driver: whenever a bot has the decision, let it act after a short, readable pause.
   useEffect(() => {
-    if (game.step === 'gameOver' || !game.players[game.priority].isBot) return;
+    // With a game server, the server plays the bots.
+    if (useStore.getState().server || game.step === 'gameOver' || !game.players[game.priority].isBot) return;
     const action = botAction(game, game.priority);
-    const quick = action.type === 'pass' || action.type === 'keep' || action.type === 'orderTriggers';
-    const pause = quick ? 450 : action.type.includes('declare') ? 320 : 1000;
-    const t = setTimeout(() => useStore.getState().botAct(action), pause / speed);
+    const t = setTimeout(() => useStore.getState().botAct(action), botPause(action) / speed);
     return () => clearTimeout(t);
   }, [game, speed]);
 

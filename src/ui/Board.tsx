@@ -371,9 +371,12 @@ export function PlayerField({ player }: { player: Player }) {
     player.hand,
     useStore((s) => s.handOrder),
   );
-  // Cards that were in the library last time: the ones now in hand were just drawn, in draw order.
-  const library = usePrevious(new Set(player.library.map((c) => c.id)));
-  const drawn = player.hand.filter((c) => library.has(c.id)).map((c) => c.id);
+  // Cards new to the hand since last time, as many as the library shrank by, were just
+  // drawn, in draw order. Counted, not matched by id: a player's own view of the game hides
+  // their library's cards (`viewFor`), so their ids change once they're in hand.
+  const before = usePrevious({ hand: new Set(player.hand.map((c) => c.id)), library: player.library.length });
+  const fresh = player.hand.filter((c) => !before.hand.has(c.id)).map((c) => c.id);
+  const drawn = fresh.slice(Math.max(0, fresh.length - Math.max(0, before.library - player.library.length)));
   const moveCard = (from: number, to: number) => {
     const ids = hand.map((c) => c.id);
     ids.splice(to, 0, ...ids.splice(from, 1));

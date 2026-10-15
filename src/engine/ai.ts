@@ -936,3 +936,13 @@ export function applyBotAction(g: Game, a: Action, opts?: ApplyOptions): Game {
   if (next === g && g.decision?.type === 'assignDamage') next = applyAction(g, { type: 'assignDamage', assignments: autoAssignments(g) }, opts);
   return next;
 }
+
+/**
+ * How long a bot waits before `action`, in ms at normal speed, so people can follow along:
+ * quick for passing and keeping a hand, a little longer for each attacker or blocker, a
+ * second for anything that changes the board.
+ */
+export function botPause(action: Action): number {
+  const quick = action.type === 'pass' || action.type === 'keep' || action.type === 'orderTriggers';
+  return quick ? 450 : action.type.includes('declare') ? 320 : 1000;
+}
