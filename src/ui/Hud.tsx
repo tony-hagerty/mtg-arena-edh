@@ -203,6 +203,8 @@ export function ActionBar() {
   // Space/Enter = main button, Escape = cancel, like Arena.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      // A paused table's game takes no moves, from the keys either.
+      if (useStore.getState().tableGame && useStore.getState().table?.paused) return;
       // While the exit dialog is open the keys belong to it: Esc stays, Enter presses the focused button.
       if (useStore.getState().confirmExit) {
         if (e.code === 'Escape') useStore.setState({ confirmExit: false });
@@ -491,6 +493,7 @@ export function LogPanel() {
   const speed = useStore((s) => s.speed);
   const human = useStore((s) => s.human);
   const manualDamage = useStore((s) => s.settings.manualDamage);
+  const tableGame = useStore((s) => s.tableGame);
   const lines = useRef<HTMLDivElement>(null);
   useEffect(() => {
     lines.current?.scrollTo({ top: lines.current.scrollHeight });
@@ -512,6 +515,11 @@ export function LogPanel() {
             title="When an attacker of yours is blocked by two or more creatures, or has trample, choose how its damage is divided"
           >
             Damage: {manualDamage ? 'By hand' : 'Auto'}
+          </button>
+        )}
+        {tableGame && (
+          <button onClick={() => useStore.getState().lobby?.pause({ paused: true }).catch((err) => console.warn('Lobby:', err))} title="Pause the game for everyone at the table">
+            Pause
           </button>
         )}
         <button onClick={() => useStore.setState({ confirmExit: true })}>Exit</button>
@@ -570,7 +578,7 @@ export function ExitConfirm() {
               {!tableGame
                 ? 'The game ends here and you go back to the deck menu.'
                 : hosting
-                  ? 'You host this table, so leaving ends the game for everyone.'
+                  ? 'You host this table, so leaving ends the game for everyone. Every player keeps a saved copy that any of them can resume.'
                   : 'You leave the table and go back to the deck menu.'}
             </p>
             <div className="confirm-buttons">
