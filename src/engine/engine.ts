@@ -128,11 +128,11 @@ const COLORS = ['W', 'U', 'B', 'R', 'G'];
 
 export interface NewGameOptions {
   seed: number;
-  /** Deck index the human plays in seat 0, or null for four bots. */
+  /** Deck index the human plays in seat 0, or null for four bots. With `decks`, any number seats the human in seat 0. */
   humanDeck: number | null;
   /** Players' own stops, as in `ApplyOptions`. */
   stops?: ApplyOptions['stops'];
-  /** The deck in each seat, instead of the menu's decks. For tests; every seat is a bot unless `humanDeck` is set. */
+  /** The deck in each seat, instead of the menu's decks: the menu's seat choices, and tests. Every seat is a bot unless `humanDeck` is set. */
   decks?: DeckDef[];
   /** The human divides combat damage by hand when there is a choice (`Player.manualDamage`). */
   manualDamage?: boolean;

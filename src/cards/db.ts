@@ -113,6 +113,13 @@ export function deckLibrary(deck: DeckDef): string[] {
   return [...basics, ...deck.cards];
 }
 
+/**
+ * Can this card be a commander? A legendary creature (Vehicles and Spacecraft aren't
+ * supported yet), or a card that says it can be your commander, like some planeswalkers
+ * (903.3, 903.3a).
+ */
+export const canBeCommander = (c: CardData) => c.typeLine.includes('Legendary Creature') || c.oracleText.includes('can be your commander');
+
 /** Can these two cards be commanders together? Plain partner (702.124h) or partner with (702.124j). */
 function partners(a: CardData, b: CardData): boolean {
   const partnerWith = (x: CardData, y: CardData) => x.oracleText.includes(`Partner with ${y.name}`);
@@ -130,11 +137,7 @@ export function deckProblems(deck: DeckDef, lookup = cardData): string[] {
   const out: string[] = [];
   const commanders = deck.commanders.map(lookup);
   if (commanders.length < 1 || commanders.length > 2) out.push(`has ${commanders.length} commanders`);
-  // 903.3: a commander is a legendary creature (Vehicles and Spacecraft aren't supported
-  // yet), or a card that says it can be your commander, like some planeswalkers (903.3a).
-  for (const c of commanders) {
-    if (!c.typeLine.includes('Legendary Creature') && !c.oracleText.includes('can be your commander')) out.push(`${c.name} isn't a legendary creature`);
-  }
+  for (const c of commanders) if (!canBeCommander(c)) out.push(`${c.name} isn't a legendary creature`);
   if (commanders.length === 2 && !partners(commanders[0], commanders[1])) {
     out.push(`${commanders[0].name} and ${commanders[1].name} aren't partners`);
   }
