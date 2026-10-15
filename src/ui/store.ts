@@ -2,6 +2,9 @@ import { produce } from 'immer';
 import { create } from 'zustand';
 import { applyAction, applyBotAction, defaultStops, newGame } from '../engine';
 import type { Action, ApplyOptions, AttackOption, CastChoices, Game, ManaSym, PlayerId, Step, StopKind, Stops, TargetRef, TargetSpec, Zone } from '../engine';
+import { DECKS } from '../cards/db';
+import type { DeckDef } from '../cards/db';
+import { savedDeckIssues } from '../cards/decklist';
 
 /**
  * A spell or ability the human is part-way through. `cast` and `activate` are proposals
@@ -67,15 +70,20 @@ const SETTINGS_KEY = 'arena-edh.settings';
 export interface Settings {
   /** Divide combat damage by hand when an attacker has a choice (510.1c, 702.19b). Off: split automatically. */
   manualDamage: boolean;
+  /** The deck each bot seat plays, by deck id, one per opponent; null picks one automatically (see `seatDecks`). */
+  opponents: (string | null)[];
 }
 
-const DEFAULT_SETTINGS: Settings = { manualDamage: false };
+const DEFAULT_SETTINGS: Settings = { manualDamage: false, opponents: [null, null, null] };
 
 /** The human's settings from the last session, or the defaults. Storage can be missing or blocked. */
 function loadSettings(): Settings {
   try {
     const saved = JSON.parse(localStorage.getItem(SETTINGS_KEY) ?? 'null');
-    if (saved && typeof saved === 'object') return { ...DEFAULT_SETTINGS, manualDamage: saved.manualDamage === true };
+    if (saved && typeof saved === 'object') {
+      const opponents = DEFAULT_SETTINGS.opponents.map((_, i) => (typeof saved.opponents?.[i] === 'string' ? (saved.opponents[i] as string) : null));
+      return { ...DEFAULT_SETTINGS, manualDamage: saved.manualDamage === true, opponents };
+    }
   } catch {
     // fall through to the defaults
   }
@@ -88,6 +96,53 @@ function saveSettings(settings: Settings) {
   } catch {
     // settings just won't outlast the page
   }
+}
+
+const DECKS_KEY = 'arena-edh.decks';
+
+/**
+ * Decks the human pasted, from the last session. A saved deck is kept even if a newer card
+ * pool lacks one of its cards; the menu shows why it can't be played (`savedDeckIssues`).
+ */
+function loadDecks(): DeckDef[] {
+  try {
+    const saved = JSON.parse(localStorage.getItem(DECKS_KEY) ?? '[]');
+    if (Array.isArray(saved)) {
+      return saved.filter(
+        (d): d is DeckDef =>
+          d && typeof d.id === 'string' && typeof d.title === 'string' && Array.isArray(d.commanders) && Array.isArray(d.cards) && typeof d.basics === 'object',
+      );
+    }
+  } catch {
+    // fall through to none
+  }
+  return [];
+}
+
+function saveDecks(decks: DeckDef[]) {
+  try {
+    localStorage.setItem(DECKS_KEY, JSON.stringify(decks));
+  } catch {
+    // pasted decks just won't outlast the page
+  }
+}
+
+/**
+ * The deck in each seat: the human's in seat 0 (or a bot's, when watching), then one per
+ * opponent. A seat set to a deck id plays that deck, even one another seat plays too: it's
+ * the player's choice. An automatic seat (null, or a deck that has since been deleted)
+ * takes the first built-in deck no seat has yet.
+ */
+export function seatDecks(human: DeckDef | null, opponents: (string | null)[], saved: DeckDef[], playable = (_: DeckDef) => true): DeckDef[] {
+  const all = [...DECKS, ...saved].filter(playable);
+  const picked = [human, ...opponents.map((id) => all.find((d) => d.id === id) ?? null)];
+  const used = new Set(picked.flatMap((d) => (d ? [d.id] : [])));
+  return picked.map((d) => {
+    if (d) return d;
+    const next = DECKS.find((x) => !used.has(x.id)) ?? DECKS[0];
+    used.add(next.id);
+    return next;
+  });
 }
 
 export interface Hover {
@@ -124,7 +179,14 @@ interface Store {
   settings: Settings;
   /** Changes a setting, saves it, and applies it to the game in progress. */
   setSetting: (change: Partial<Settings>) => void;
-  start: (deck: number | null) => void;
+  /** Starts a game with the human playing `deck`, or four bots when null. The opponents come from the settings. */
+  start: (deck: DeckDef | null) => void;
+  /** The deck the human played in the last game started, for Play Again. */
+  deck: DeckDef | null;
+  /** Decks the human pasted, saved in the browser. */
+  savedDecks: DeckDef[];
+  saveDeck: (deck: DeckDef) => void;
+  deleteDeck: (id: string) => void;
   quit: () => void;
   act: (a: Action) => boolean;
   botAct: (a: Action) => void;
@@ -147,6 +209,8 @@ export const useStore = create<Store>()((set, get) => ({
   speed: 1,
   stops: loadStops(),
   settings: loadSettings(),
+  deck: null,
+  savedDecks: loadDecks(),
 
   setStop: (turn, step, kind) => {
     const stops = get().stops.map((t, i) => (i === turn ? { ...t, [step]: kind } : t));
@@ -164,16 +228,30 @@ export const useStore = create<Store>()((set, get) => ({
     set({ settings, game: next });
   },
 
+  saveDeck: (deck) => {
+    const savedDecks = [...get().savedDecks.filter((d) => d.id !== deck.id), deck];
+    saveDecks(savedDecks);
+    set({ savedDecks });
+  },
+
+  deleteDeck: (id) => {
+    const savedDecks = get().savedDecks.filter((d) => d.id !== id);
+    saveDecks(savedDecks);
+    set({ savedDecks });
+  },
+
   start: (deck) =>
     set({
       game: newGame({
         seed: (Math.random() * 2 ** 31) | 0,
-        humanDeck: deck,
+        humanDeck: deck === null ? null : 0,
+        decks: seatDecks(deck, get().settings.opponents, get().savedDecks, (d) => savedDeckIssues(d).length === 0),
         stops: deck === null ? {} : { 0: get().stops },
         manualDamage: get().settings.manualDamage,
       }),
       gameNo: get().gameNo + 1,
       human: deck === null ? null : 0,
+      deck,
       targeting: null,
       attackTarget: null,
       pickedBlockers: [],
