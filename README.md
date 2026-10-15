@@ -8,7 +8,13 @@ npm install
 npm run dev      # http://localhost:5180
 npm test         # rules tests + full bot-vs-bot games
 npm run build    # type-check and production build
+npm run build:single  # one self-contained dist-single/index.html to share
 ```
+
+`build:single` inlines the code, styles, fonts and cursor into one `index.html` that
+opens straight from disk (double-click it). Send just that file; the `.svg` fonts beside
+it are an old format browsers skip. Card art still loads from Scryfall, so it needs an
+internet connection.
 
 **Contents:** [How to play](#how-to-play) ·
 [What is implemented](#what-is-implemented) ·
@@ -721,7 +727,7 @@ when the look-ahead can't see the cost (Pact of Negation). `ai: 'ritual'` or
 
 Card data and images come from [Scryfall](https://scryfall.com) and are loaded from its
 image server at runtime. Mana and ability icons are from
-[mana-font](https://github.com/andrewgioia/mana). The mouse cursor (`public/cursor.png`)
+[mana-font](https://github.com/andrewgioia/mana). The mouse cursor (`src/ui/cursor.png`)
 is ["MTGA cursor"](https://www.cursor.cc/?action=icon&file_id=114958) by Tales on
 cursor.cc, shared under Creative Commons with no attribution required; `cursor-down.png`
 is a shrunk, recoloured copy of it. Magic: The Gathering is © Wizards of the Coast; this

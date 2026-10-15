@@ -20,8 +20,8 @@ html {
   --cyan: #39e3ff;
   --orange: #ff9a2e;
   --serif: 'Palatino Linotype', 'Book Antiqua', Palatino, Georgia, serif;
-  /* Arena-style arrow (public/cursor.png, see README credits). Its tip is the top-left pixel. */
-  --cursor: url('/cursor.png') 0 0, auto;
+  /* Arena-style arrow (cursor.png, see README credits). Its tip is the top-left pixel. */
+  --cursor: url('./cursor.png') 0 0, auto;
   /* How cards are turned and which way rows run. Each opponent's seat overrides these. */
   --face: 0deg;
   --dir: row;
@@ -35,7 +35,7 @@ html {
 
 /* While a mouse button is held (main.tsx sets the class): a pressed-in arrow with the same tip. */
 :root.pressing {
-  --cursor: url('/cursor-down.png') 0 0, auto;
+  --cursor: url('./cursor-down.png') 0 0, auto;
 }
 
 body {
