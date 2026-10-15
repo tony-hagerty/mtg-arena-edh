@@ -97,11 +97,13 @@ internet connection.
 
 - Every portrait is that player's commander; hover it to read the card. A player with two
   partner commanders has a portrait split in two.
-- To cast yours, click the **crown** on the top left of your portrait (a second
-  commander's crown sits below it, at 9 o'clock). It glows when you can cast it and is
-  dimmed while that commander is anywhere but the command zone.
+- To cast yours, click the **crown** on the top left of your portrait. It glows when you
+  can cast it and is dimmed while that commander is anywhere but the command zone.
 - The badge on the top right of a portrait is that commander's tax: each recast costs 2
-  more (`+2`, `+4`, …). Partners each have their own tax badge.
+  more (`+2`, `+4`, …).
+- With partners, each commander's badges sit on its own half of the portrait: the left
+  one's crown at top left and tax on the left edge, the right one's crown at top right
+  and tax on the right edge.
 - When your commander dies, is exiled, or would go to your hand or library, a window asks
   whether it goes to the **Command Zone** (castable again, with tax) or stays where it
   went.
