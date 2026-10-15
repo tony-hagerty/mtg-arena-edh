@@ -38,7 +38,8 @@ is the rules, clause by clause, and rule numbers from `docs/rules/` go in commen
   session: `NODE_USE_ENV_PROXY=1 npm run fetch-cards`) and test each clause that could go
   wrong in `tests/engine.test.ts`.
 - **Can't be done exactly** (the engine lacks a rule the card needs): don't approximate.
-  Ask the user. An approved difference goes in the README's "Known simplifications".
+  Ask the user. An approved difference goes under "Known simplifications" in
+  `docs/rules-coverage.md`.
   Leave a card the user doesn't approve in the file.
 - Bots must at least not break on a new ability (`src/engine/ai.ts`).
 - Check the result: `npm run parse-report` shows which pool cards the parser now scripts;
@@ -51,6 +52,6 @@ is the rules, clause by clause, and rule numbers from `docs/rules/` go in commen
 2. Take the handled cards out of `docs/card-requests.json` (by name; keep the rest as
    they are). The `removeRequests` helper in `src/cards/requests.ts` does it the same
    way the app writes the file.
-3. Update `README.md`: the parser's reach under "Known simplifications" → "Scripts from
+3. Update `docs/rules-coverage.md`: the parser's reach under "Known simplifications" → "Scripts from
    Oracle text" if it grew, and any approved simplification.
 4. Tell the user what was scripted, what was left and why, then ask before committing.

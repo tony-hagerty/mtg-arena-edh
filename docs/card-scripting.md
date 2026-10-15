@@ -17,7 +17,7 @@ a small rules question, and check each clause before writing code for it.
    next to it.
 5. Write a test for each clause that could go wrong, especially the edge cases below.
 6. If the engine can't do a clause exactly, don't approximate quietly. Ask the user,
-   and list the approved difference in `README.md` under "Known simplifications".
+   and list the approved difference in `docs/rules-coverage.md` under "Known simplifications".
 
 ## Words to check
 
