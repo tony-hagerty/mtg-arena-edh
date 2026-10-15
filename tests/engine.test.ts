@@ -90,6 +90,7 @@ describe('commander rules', () => {
   it('asks a human whether their dead commander goes to the command zone (903.9a)', () => {
     let g = emptyGame((d) => {
       d.players[0].isBot = false;
+      d.players[0].you = true;
       put(d, 0, 'Plains', 'battlefield', 12);
       put(d, 0, 'Murder', 'hand');
       put(d, 0, 'Swamp', 'battlefield', 3);
@@ -108,6 +109,7 @@ describe('commander rules', () => {
   it('lets a human leave their commander in exile, and asks only once', () => {
     let g = emptyGame((d) => {
       d.players[0].isBot = false;
+      d.players[0].you = true;
       put(d, 0, 'Plains', 'battlefield', 6);
       put(d, 0, 'Swords to Plowshares', 'hand');
     });
@@ -137,6 +139,7 @@ describe('commander rules', () => {
   it('asks a human whose commander goes to their hand, and lets them keep it there (903.9b)', () => {
     let g = emptyGame((d) => {
       d.players[0].isBot = false;
+      d.players[0].you = true;
       d.players[0].commanderCasts = [1];
       put(d, 0, 'Plains', 'battlefield', 5);
       moveCard(d, d.players[0].command[0], 'hand');
@@ -154,6 +157,7 @@ describe('commander rules', () => {
   it('lets a human send their commander from the library to the command zone (903.9b)', () => {
     let g = emptyGame((d) => {
       d.players[0].isBot = false;
+      d.players[0].you = true;
       put(d, 0, 'Plains');
       moveCard(d, d.players[0].command[0], 'library');
     });
@@ -1692,6 +1696,7 @@ describe('searching a library (701.23)', () => {
   const searchGame = (spell: string) =>
     emptyGame((d) => {
       d.players[0].isBot = false;
+      d.players[0].you = true;
       d.players[0].library = [];
       put(d, 0, 'Forest', 'battlefield', 3);
       put(d, 0, spell, 'hand');
@@ -3691,6 +3696,7 @@ describe('several triggered abilities for one event (603.2)', () => {
   const tempest = (creature: string, setup: (d: Game) => void = () => {}) =>
     emptyGame((d) => {
       d.players[0].isBot = false;
+      d.players[0].you = true;
       put(d, 0, 'Dragon Tempest');
       put(d, 0, 'Mountain', 'battlefield', 6);
       put(d, 0, creature, 'hand');
@@ -3754,6 +3760,7 @@ describe('several activated abilities on one card (602)', () => {
   const shaman = (setup: (d: Game) => void = () => {}) =>
     emptyGame((d) => {
       d.players[0].isBot = false;
+      d.players[0].you = true;
       put(d, 0, 'Deathrite Shaman');
       put(d, 0, 'Swamp');
       put(d, 0, 'Forest');
@@ -3810,6 +3817,7 @@ describe('several activated abilities on one card (602)', () => {
       d.active = 1;
       d.priority = 0;
       d.players[0].isBot = false;
+      d.players[0].you = true;
       put(d, 0, 'Cranial Plating');
       put(d, 0, 'Sol Ring');
       put(d, 0, 'Swamp', 'battlefield', 3);
@@ -3843,6 +3851,7 @@ describe('X in activated and loyalty ability costs (107.3a)', () => {
   const rats = () =>
     emptyGame((d) => {
       d.players[0].isBot = false;
+      d.players[0].you = true;
       put(d, 0, 'Crypt Rats');
       put(d, 0, 'Swamp', 'battlefield', 2);
       put(d, 0, 'Mountain');
@@ -3890,6 +3899,7 @@ describe('X in activated and loyalty ability costs (107.3a)', () => {
   const chandra = (loyalty = 6, setup: (d: Game) => void = () => {}) =>
     emptyGame((d) => {
       d.players[0].isBot = false;
+      d.players[0].you = true;
       put(d, 0, 'Chandra Nalaar').counters.loyalty = loyalty;
       put(d, 1, 'Shivan Dragon');
       setup(d);
@@ -3947,6 +3957,7 @@ describe('dividing combat damage by hand (510.1c, 702.19b)', () => {
   const table = (setup: (d: Game) => void, manualDamage = true) =>
     emptyGame((d) => {
       d.players[0].isBot = false;
+      d.players[0].you = true;
       d.players[0].manualDamage = manualDamage;
       setup(d);
     });

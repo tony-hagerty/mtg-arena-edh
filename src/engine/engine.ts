@@ -60,6 +60,8 @@ import {
   returnCommander,
   sameRef,
   says,
+  their,
+  verbFor,
   searchable,
   shuffle,
   snapshot,
@@ -126,19 +128,46 @@ const COLORS = ['W', 'U', 'B', 'R', 'G'];
 
 // ---------- setup ----------
 
-export interface NewGameOptions {
-  seed: number;
-  /** Deck index the human plays in seat 0, or null for four bots. With `decks`, any number seats the human in seat 0. */
-  humanDeck: number | null;
-  /** Players' own stops, as in `ApplyOptions`. */
-  stops?: ApplyOptions['stops'];
-  /** The deck in each seat, instead of the menu's decks: the menu's seat choices, and tests. Every seat is a bot unless `humanDeck` is set. */
-  decks?: DeckDef[];
-  /** The human divides combat damage by hand when there is a choice (`Player.manualDamage`). */
+/** One seat at the table: the deck played there, and who plays it. */
+export interface SeatDef {
+  deck: DeckDef;
+  /** A person plays this seat; otherwise a bot does. */
+  human?: boolean;
+  /** The player's name. Left out, a bot is named after its deck's pilot and a human "Player N", or "You" when they are the only human. */
+  name?: string;
+  /** This (human) player divides combat damage by hand when there is a choice (`Player.manualDamage`). */
   manualDamage?: boolean;
 }
 
-export function newGame({ seed, humanDeck, stops, decks, manualDamage }: NewGameOptions): Game {
+/** How many players a game can have. */
+export const MIN_SEATS = 2;
+export const MAX_SEATS = 4;
+
+export interface NewGameOptions {
+  seed: number;
+  /** The seats in turn order, 2 to 4 of them, people and bots in any mix. Takes the place of `humanDeck` and `decks`. */
+  seats?: SeatDef[];
+  /** Deck index the human plays in seat 0, or null for four bots. With `decks`, any number seats the human in seat 0. */
+  humanDeck?: number | null;
+  /** Players' own stops, as in `ApplyOptions`. */
+  stops?: ApplyOptions['stops'];
+  /** The deck in each seat, instead of the menu's decks: tests. Every seat is a bot unless `humanDeck` is set. */
+  decks?: DeckDef[];
+  /** With `humanDeck`: the human divides combat damage by hand when there is a choice (`Player.manualDamage`). */
+  manualDamage?: boolean;
+}
+
+/** The seats `humanDeck` and `decks` describe: the human's deck in seat 0, and the bots take the next decks on the menu. */
+function seatsOf({ humanDeck = null, decks, manualDamage }: NewGameOptions): SeatDef[] {
+  const others = DECKS.filter((_, i) => i !== humanDeck);
+  const list = (decks ?? (humanDeck === null ? others : [DECKS[humanDeck], ...others])).slice(0, MAX_SEATS);
+  return list.map((deck, seat) => (humanDeck !== null && seat === 0 ? { deck, human: true, manualDamage } : { deck }));
+}
+
+export function newGame(opts: NewGameOptions): Game {
+  const { seed, stops } = opts;
+  const seats = opts.seats ?? seatsOf(opts);
+  if (seats.length < MIN_SEATS || seats.length > MAX_SEATS) throw new Error(`A game has ${MIN_SEATS} to ${MAX_SEATS} players, not ${seats.length}.`);
   const g: Game = {
     players: [],
     active: 0,
@@ -165,15 +194,14 @@ export function newGame({ seed, humanDeck, stops, decks, manualDamage }: NewGame
     delayed: [],
     extraTurns: [],
   };
-  // The human's deck goes in seat 0 and the bots take the next decks on the menu.
-  const others = DECKS.filter((_, i) => i !== humanDeck);
-  const seats = decks ?? (humanDeck === null ? others : [DECKS[humanDeck], ...others]).slice(0, 4);
-  seats.forEach((deck, seat) => {
-    const human = humanDeck !== null && seat === 0;
+  // With one person at the table, the log and prompts speak to them as "you".
+  const alone = seats.filter((s) => s.human).length === 1;
+  seats.forEach(({ deck, human = false, name, manualDamage }, seat) => {
     const p: Player = {
       id: seat,
-      name: human ? 'You' : deck.pilot,
+      name: name ?? (!human ? deck.pilot : alone ? 'You' : `Player ${seat + 1}`),
       isBot: !human,
+      ...(human && alone ? { you: true } : {}),
       deckId: deck.id,
       commanders: deck.commanders,
       colors: deckColors(deck),
@@ -205,7 +233,7 @@ export function newGame({ seed, humanDeck, stops, decks, manualDamage }: NewGame
     g.players.push(p);
   });
   for (const p of g.players) p.commanderDamage = g.players.map((o) => o.commanders.map(() => 0));
-  beginMulligans(g, Math.floor(rand(g) * 4));
+  beginMulligans(g, Math.floor(rand(g) * g.players.length));
   settle(g, true, stops);
   return g;
 }
@@ -224,8 +252,8 @@ function drawHand(p: Player) {
 
 /**
  * In a multiplayer game a player's first mulligan is free: it doesn't count toward the
- * cards they put on the bottom or the mulligans they may take (103.5c). Games always have
- * four players for now, but a two-player game would make this false.
+ * cards they put on the bottom or the mulligans they may take (103.5c). A two-player game
+ * is not multiplayer (100.1a), so there it counts.
  */
 const freeMulligan = (g: Game) => g.players.length > 2;
 
@@ -273,7 +301,8 @@ function continueMulligans(g: Game) {
     }
     g.mulligan = null;
     g.decision = null;
-    // In a multiplayer game nobody skips their first draw (103.8c).
+    // The starting player of a two-player game skips their first draw step (103.8a); in a
+    // multiplayer game nobody does (103.8c). See `nextStep`.
     beginTurn(g, g.active);
     return;
   }
@@ -391,7 +420,7 @@ const ENGINE_THEN: Record<string, (g: Game, ctx: ThenCtx) => void> = {
   '@surveil': (g, { chooser, picked }) => {
     const p = g.players[chooser];
     for (const c of picked) moveCard(g, c, 'graveyard');
-    log(g, picked.length ? `${says(p, 'surveils')} and ${p.isBot ? 'puts' : 'put'} ${picked.map(label).join(', ')} into ${p.isBot ? 'their' : 'your'} graveyard.` : `${says(p, 'surveils')}.`, chooser, picked);
+    log(g, picked.length ? `${says(p, 'surveils')} and ${verbFor(p, 'puts')} ${picked.map(label).join(', ')} into ${their(p)} graveyard.` : `${says(p, 'surveils')}.`, chooser, picked);
   },
   // "Sacrifices a creature of their choice" (701.21a).
   '@sacrifice': (g, { picked }) => {
@@ -422,10 +451,13 @@ function doChoice(g: Game, choice: CardChoice, cards: Card[]) {
   if (choice.kind === 'pick') return runThen(g, choice, { picked: cards });
   const [found] = cards;
   // A card found is shown only if the effect says to reveal it, or it goes onto the battlefield (701.23e).
-  const shown = found && (choice.reveal || choice.to === 'battlefield' || !p.isBot);
+  // Otherwise only the searcher sees which card it is: the others' log says "a card".
+  const shown = found && (choice.reveal || choice.to === 'battlefield');
   const many = cards.length > 1 ? `${cards.length} cards` : 'a card';
-  if (found) log(g, `${says(p, 'searches')} ${p.isBot ? 'their' : 'your'} library for ${shown ? cards.map(label).join(', ') : many}.`, p.id, shown ? cards : []);
-  else log(g, `${says(p, 'searches')} ${p.isBot ? 'their' : 'your'} library and ${p.isBot ? 'finds' : 'find'} nothing.`, p.id);
+  const named = `${says(p, 'searches')} ${their(p)} library for ${cards.map(label).join(', ')}.`;
+  if (found && shown) log(g, named, p.id, cards);
+  else if (found) log(g, `${says(p, 'searches')} ${their(p)} library for ${many}.`, p.id, [], { players: [p.id], text: named, cards });
+  else log(g, `${says(p, 'searches')} ${their(p)} library and ${verbFor(p, 'finds')} nothing.`, p.id);
   if (found && choice.to === 'battlefield') enterBattlefield(g, found, { tapped: choice.tapped });
   else if (found && choice.to === 'hand') moveCard(g, found, 'hand');
   // Several searches of one library in a row are one search, and it is shuffled once (701.23h).
@@ -1020,8 +1052,13 @@ function nextStep(g: Game) {
   switch (g.step) {
     case 'upkeep':
       // "Skip your draw step" (614.1b): the step doesn't happen at all (614.10).
+      // The player who goes first in a two-player game skips the draw step of their first turn (103.8a).
+      if (g.turn === 1 && g.players.length === 2) {
+        log(g, `${says(g.players[g.active], 'skips')} ${their(g.players[g.active])} first draw step.`, g.active);
+        return beginStep(g, 'main1');
+      }
       if (g.players[g.active].battlefield.some((c) => scriptFor(c).skipDrawStep)) {
-        log(g, `${says(g.players[g.active], 'skips')} ${g.players[g.active].isBot ? 'their' : 'your'} draw step.`, g.active);
+        log(g, `${says(g.players[g.active], 'skips')} ${their(g.players[g.active])} draw step.`, g.active);
         return beginStep(g, 'main1');
       }
       return beginStep(g, 'draw');
@@ -1713,7 +1750,7 @@ function act(g: Game, a: Action): boolean {
         moveCard(g, x, 'exile');
       }
       if (escapedWith.length) {
-        log(g, `${says(p, 'exiles')} ${escapedWith.map(label).join(', ')} from ${p.isBot ? 'their' : 'your'} graveyard to pay for it.`, pid, escapedWith);
+        log(g, `${says(p, 'exiles')} ${escapedWith.map(label).join(', ')} from ${their(p)} graveyard to pay for it.`, pid, escapedWith);
         for (const x of escapedWith) moveCard(g, x, 'exile');
       }
       castDone(g, pid, item);

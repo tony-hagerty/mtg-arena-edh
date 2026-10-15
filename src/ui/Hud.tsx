@@ -7,7 +7,7 @@ import type { Game, LogEntry, PlayerId, Step, StopKind } from '../engine';
 import { ManaCost } from './Card';
 import { useRem } from './rem';
 import { useStore } from './store';
-import { SEATS, cx, deckColor, faceUp, hoverProps } from './util';
+import { type Seat, cx, deckColor, faceUp, hoverProps, seatOf } from './util';
 import { STEP_NAMES, activateFromHand, cancel, clickStackItem, pickAbility, pickColor, pickFace, pickMode, playHandCard, setAbilityX, setChoices, exileForMana, useView } from './view';
 import type { AbilityOption, Btn } from './view';
 
@@ -55,7 +55,7 @@ const nextStop = (k: StopKind | undefined) => STOP_CYCLE[(STOP_CYCLE.indexOf(k) 
 const STOP_TEXT: Record<StopKind, string> = { ifAble: 'stop if you can act', always: 'always stop' };
 
 /** The arrow for each seat, pointing at that side of the table. */
-const ARROW_PATH: Record<(typeof SEATS)[number], string> = {
+const ARROW_PATH: Record<Seat, string> = {
   bottom: 'M4 8h16l-8 9Z',
   left: 'M16 4v16l-9-8Z',
   top: 'M4 16h16l-8-9Z',
@@ -81,7 +81,9 @@ function PhaseTracker() {
   const root = useRef<HTMLDivElement>(null);
   const editing = me !== null && seat !== null && !g.players[seat].lost ? seat : null;
   const turn = editing ?? g.active;
-  const turnStops = me === null ? {} : (stops[turn] ?? {});
+  // Your stops are kept by seat counted from yours, so they follow you to any seat (see `absoluteStops`).
+  const rel = me === null ? 0 : (turn - me + g.players.length) % g.players.length;
+  const turnStops = me === null ? {} : (stops[rel] ?? {});
   const live = turn === g.active;
 
   // A split pip closes again on a click anywhere else.
@@ -94,7 +96,7 @@ function PhaseTracker() {
 
   const deckVar = (pid: PlayerId) => deckColor(g.players[pid].colors);
   // Your turn is orange and everyone else's blue; a picked arrow shows that player's deck colour.
-  const tone = editing !== null ? { '--phase': deckVar(editing), '--phase-glow': deckVar(editing) } : g.active === 0 ? {} : { '--phase': '#8ccbff', '--phase-glow': '#2f8fff' };
+  const tone = editing !== null ? { '--phase': deckVar(editing), '--phase-glow': deckVar(editing) } : g.active === me ? {} : { '--phase': '#8ccbff', '--phase-glow': '#2f8fff' };
   const strongest = (steps: Step[]) =>
     steps.some((s) => turnStops[s] === 'always') ? 'always' : steps.some((s) => turnStops[s] === 'ifAble') ? 'ifAble' : undefined;
   const whose = (pid: PlayerId) => (pid === me ? 'your' : `${g.players[pid].name}'s`);
@@ -106,14 +108,14 @@ function PhaseTracker() {
           {g.players.map((p) => (
             <button
               key={p.id}
-              className={cx('seat-arrow', `arrow-${SEATS[p.id]}`, editing === p.id && 'on', g.active === p.id && 'active')}
+              className={cx('seat-arrow', `arrow-${seatOf(g, me, p.id)}`, editing === p.id && 'on', g.active === p.id && 'active')}
               style={{ '--deck': deckVar(p.id) } as CSSProperties}
               disabled={p.lost}
               title={editing === p.id ? 'Back to the current turn' : `Set stops for ${whose(p.id)} turns`}
               onClick={() => setSeat(editing === p.id ? null : p.id)}
             >
               <svg viewBox="0 0 24 24">
-                <path d={ARROW_PATH[SEATS[p.id]]} />
+                <path d={ARROW_PATH[seatOf(g, me, p.id)]} />
               </svg>
             </button>
           ))}
@@ -128,7 +130,7 @@ function PhaseTracker() {
                 className={cx('step-btn', live && g.step === step && 'on')}
                 disabled={NO_PRIORITY.includes(step)}
                 title={stopTitle(step, turnStops[step])}
-                onClick={() => setStop(turn, step, nextStop(turnStops[step]))}
+                onClick={() => setStop(rel, step, nextStop(turnStops[step]))}
               >
                 {SHORT[step]}
                 <StopMark kind={turnStops[step]} />
@@ -145,7 +147,7 @@ function PhaseTracker() {
                 className={cx('pip-btn', open === i && 'open')}
                 disabled={me === null}
                 title={single ? stopTitle(p.steps[0], turnStops[p.steps[0]]) : `${p.steps.map((s) => STEP_NAMES[s]).join(', ')}: click to set stops`}
-                onClick={() => (single ? setStop(turn, p.steps[0], nextStop(turnStops[p.steps[0]])) : setOpen(open === i ? null : i))}
+                onClick={() => (single ? setStop(rel, p.steps[0], nextStop(turnStops[p.steps[0]])) : setOpen(open === i ? null : i))}
               >
                 <svg viewBox="0 0 24 24" className={cx('pip', live && p.steps.includes(g.step) && 'on')}>
                   {ICONS[p.icon]}
@@ -462,7 +464,7 @@ const SPEEDS = [1, 2, 4];
 const escapeRegExp = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 /** A log line with the cards it names underlined. Hover one to see the card. */
-function LogText({ entry }: { entry: LogEntry }) {
+function LogText({ entry }: { entry: Pick<LogEntry, 'text' | 'cards'> }) {
   if (!entry.cards?.length) return <>{entry.text}</>;
   // Longest names first, so a name that contains another is matched whole.
   const names = [...entry.cards].sort((a, b) => b.length - a.length).map(escapeRegExp);
@@ -526,10 +528,12 @@ export function LogPanel() {
           >
             <div className="log-lines" ref={lines}>
               {g.log.slice(start).map((l, i) => {
+                // A line that names a hidden card reads in full only for the players it shows it to.
+                const line = human !== null && l.private?.players.includes(human) ? l.private : l;
                 const color = l.player === undefined ? '#fff' : deckColor(g.players[l.player].colors);
                 return (
                   <div key={start + i} className={cx('log-line', l.text.startsWith('Turn ') && 'turn')} style={{ '--deck': color } as CSSProperties}>
-                    <LogText entry={l} />
+                    <LogText entry={line} />
                   </div>
                 );
               })}
@@ -789,7 +793,7 @@ export function ZoneViewer() {
     <div className="modal" onClick={() => useStore.setState({ viewer: null })}>
       <div className="viewer">
         <h2>
-          {p.name === 'You' ? 'Your' : `${p.name}'s`} {viewer.zone} ({cards.length})
+          {p.id === me ? 'Your' : `${p.name}'s`} {viewer.zone} ({cards.length})
         </h2>
         <div className="viewer-cards">
           {cards.map((c) => {
@@ -855,7 +859,7 @@ function Results() {
         <h1>{title}</h1>
         {winner && (
           <p>
-            {winner.name === 'You' ? 'You win' : `${winner.name} wins`} with {winner.commanders.join(' and ')} on turn {g.turn}.
+            {winner.id === me ? 'You win' : `${winner.name} wins`} with {winner.commanders.join(' and ')} on turn {g.turn}.
           </p>
         )}
         <div className="game-over-buttons">
