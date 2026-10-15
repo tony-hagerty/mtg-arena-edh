@@ -12,6 +12,7 @@ import { gunzipSync, gzipSync } from 'node:zlib';
 import type { CardData, Game, PlayerId } from '../../src/engine';
 import type { SavedGame } from '../../src/net/lobby';
 import type { SeatPrefs } from '../../src/net/protocol';
+import { Refused } from '../game';
 
 /** What it takes to carry on with a game, as `GameHost.snapshot` gives it, plus the bots' decks for the table. */
 export interface SaveData {
@@ -57,7 +58,14 @@ export const newSaveId = () => randomBytes(10).toString('hex');
 
 /** The saved games in one folder (ArenaEDH-data/saves beside the .exe). */
 export class SaveStore {
-  constructor(private dir: string) {}
+  /**
+   * `version` is this program's build: a saved game is only resumed by the same build as
+   * the table played it with.
+   */
+  constructor(
+    private dir: string,
+    private version: string,
+  ) {}
 
   /** Keeps `copy` as this computer's player's (in `yourSeat`), replacing an older one of the same game. */
   write(copy: SaveCopy, yourSeat: number) {
@@ -65,7 +73,7 @@ export class SaveStore {
     mkdirSync(this.dir, { recursive: true });
     const file = join(this.dir, copy.id + EXT);
     // Written beside it and renamed over it, so a crash mid-write leaves the last good copy.
-    writeFileSync(file + '.part', JSON.stringify({ ...copy, yourSeat }));
+    writeFileSync(file + '.part', JSON.stringify({ ...copy, yourSeat, version: this.version }));
     renameSync(file + '.part', file);
   }
 
@@ -85,10 +93,15 @@ export class SaveStore {
     return out.sort((a, b) => b.savedAt - a.savedAt);
   }
 
-  /** A saved game, with this computer's seat in it. Null if it's gone or damaged. */
+  /** A saved game, with this computer's seat in it. Null if it's gone or damaged; refused if another build saved it. */
   read(id: string): (SavedGame & { data: SaveData }) | null {
     const file = this.file(id);
     if (!file) return null;
+    if (file.version !== this.version) {
+      throw new Refused(
+        `That game was saved by a different version of Arena EDH (${file.version ?? 'older'}; this is ${this.version}). Resume it with the copy of the program it was played with.`,
+      );
+    }
     try {
       const { data, ...header } = file;
       return { ...header, data: unscramble(data) };
@@ -106,7 +119,7 @@ export class SaveStore {
     return f && { id: f.id, savedAt: f.savedAt, turn: f.turn, players: f.players, yourSeat: f.yourSeat };
   }
 
-  private file(id: string): (SaveCopy & { yourSeat: number }) | null {
+  private file(id: string): (SaveCopy & { yourSeat: number; version?: string }) | null {
     if (!isId(id)) return null;
     try {
       const f = JSON.parse(readFileSync(join(this.dir, id + EXT), 'utf8'));

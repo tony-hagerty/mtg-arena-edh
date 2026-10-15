@@ -53,11 +53,10 @@ const open: Lobby[] = [];
 afterEach(() => open.splice(0).forEach((l) => l.leave()));
 
 /** A program: its game, its lobby, and the lobby its window last heard. */
-function program() {
+function program(version = 'test', saves = mkdtempSync(join(tmpdir(), 'arena-saves-'))) {
   const clock = manualClock();
   const game = new GameHost(clock.schedule);
-  const saves = mkdtempSync(join(tmpdir(), 'arena-saves-'));
-  const lobby = new Lobby(game, { checkHost: noRouter, port: 0, bind: '127.0.0.1', saves, saveEvery: 0 });
+  const lobby = new Lobby(game, { checkHost: noRouter, port: 0, bind: '127.0.0.1', saves, saveEvery: 0, version });
   open.push(lobby);
   let last!: LobbyState;
   lobby.watch((s) => (last = s));
@@ -106,6 +105,17 @@ describe('a table of friends', () => {
     const guest = program();
     await expect(guest.lobby.join({ code: wrong, name: 'Eve', deck: null })).rejects.toThrow(/wrong or out of date/);
     expect(guest.state()).toMatchObject({ role: 'none', error: expect.stringMatching(/wrong/) });
+    expect(host.state().seats.filter((s) => s.kind === 'person')).toHaveLength(1);
+  });
+
+  it('turns away a friend whose program is a different version', async () => {
+    const host = program('0.1.0-aaaa');
+    await host.lobby.host({ name: 'Ana', deck: choice(DECKS[0]), seatCount: 2, fillBots: false });
+    await until(() => !!host.state().code);
+    const guest = program('0.1.0-bbbb');
+    await expect(guest.lobby.join({ code: host.state().code!, name: 'Ben', deck: null })).rejects.toThrow(
+      /different version of Arena EDH \(0\.1\.0-aaaa; yours is 0\.1\.0-bbbb\)/,
+    );
     expect(host.state().seats.filter((s) => s.kind === 'person')).toHaveLength(1);
   });
 
@@ -356,6 +366,17 @@ describe('when someone goes, and saved games', () => {
     host.lobby.games().watch(0, (m) => (view = m));
     await until(() => !!view?.game);
     expect(view!.game!.players[0].hand).toEqual(game.players[0].hand);
+  });
+
+  it('resumes a saved game only with the version of the program it was played with', async () => {
+    const { host, guest } = await hostAndJoin();
+    await startGame(host, guest);
+    await until(() => guest.state().saves.length === 1, 'the copy');
+    host.lobby.leave();
+    // The same folder, after the friend got a newer copy of the program.
+    const newer = program('newer', guest.saves);
+    await expect(newer.lobby.resume({ save: newer.state().saves[0].id })).rejects.toThrow(/saved by a different version of Arena EDH \(test; this is newer\)/);
+    expect(newer.state().role).toBe('none');
   });
 
   it('carries a saved game on with a bot for someone who doesn’t come back, if the table agrees', async () => {

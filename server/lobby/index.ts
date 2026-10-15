@@ -3,3 +3,4 @@
 export { Lobby } from './lobby';
 export { handleApi, handleLobbyApi } from './http';
 export { HOST_PORT, type HostingOptions } from './hosting';
+export { APP_VERSION } from './version';
