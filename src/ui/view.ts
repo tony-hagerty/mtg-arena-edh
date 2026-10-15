@@ -702,6 +702,9 @@ export function buildView(): View {
       }
       break;
     }
+    case 'assignDamage':
+      view.prompt = 'Divide your attackers\' combat damage.';
+      break;
     case 'discard': {
       const n = p.hand.length - maxHandSize(g, me);
       for (const c of p.hand) view.glow.set(c.id, 'discard');

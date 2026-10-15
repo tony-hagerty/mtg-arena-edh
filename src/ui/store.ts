@@ -1,3 +1,4 @@
+import { produce } from 'immer';
 import { create } from 'zustand';
 import { applyAction, applyBotAction, defaultStops, newGame } from '../engine';
 import type { Action, ApplyOptions, AttackOption, CastChoices, Game, ManaSym, PlayerId, Step, StopKind, Stops, TargetRef, TargetSpec, Zone } from '../engine';
@@ -60,6 +61,35 @@ function saveStops(stops: Stops) {
   }
 }
 
+const SETTINGS_KEY = 'arena-edh.settings';
+
+/** Choices the human makes once, not every game. Each defaults to the automatic way. */
+export interface Settings {
+  /** Divide combat damage by hand when an attacker has a choice (510.1c, 702.19b). Off: split automatically. */
+  manualDamage: boolean;
+}
+
+const DEFAULT_SETTINGS: Settings = { manualDamage: false };
+
+/** The human's settings from the last session, or the defaults. Storage can be missing or blocked. */
+function loadSettings(): Settings {
+  try {
+    const saved = JSON.parse(localStorage.getItem(SETTINGS_KEY) ?? 'null');
+    if (saved && typeof saved === 'object') return { ...DEFAULT_SETTINGS, manualDamage: saved.manualDamage === true };
+  } catch {
+    // fall through to the defaults
+  }
+  return DEFAULT_SETTINGS;
+}
+
+function saveSettings(settings: Settings) {
+  try {
+    localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
+  } catch {
+    // settings just won't outlast the page
+  }
+}
+
 export interface Hover {
   name: string;
   el: HTMLElement;
@@ -91,6 +121,9 @@ interface Store {
   /** Where the game stops for the human (seat 0), by whose turn it is. A UI preference passed to the engine. */
   stops: Stops;
   setStop: (turn: PlayerId, step: Step, kind: StopKind | undefined) => void;
+  settings: Settings;
+  /** Changes a setting, saves it, and applies it to the game in progress. */
+  setSetting: (change: Partial<Settings>) => void;
   start: (deck: number | null) => void;
   quit: () => void;
   act: (a: Action) => boolean;
@@ -113,6 +146,7 @@ export const useStore = create<Store>()((set, get) => ({
   confirmExit: false,
   speed: 1,
   stops: loadStops(),
+  settings: loadSettings(),
 
   setStop: (turn, step, kind) => {
     const stops = get().stops.map((t, i) => (i === turn ? { ...t, [step]: kind } : t));
@@ -121,9 +155,23 @@ export const useStore = create<Store>()((set, get) => ({
     set({ stops });
   },
 
+  setSetting: (change) => {
+    const settings = { ...get().settings, ...change };
+    saveSettings(settings);
+    const { game, human } = get();
+    // The game keeps the setting on the human's player, where the engine reads it.
+    const next = game && human !== null ? produce(game, (d) => void (d.players[human].manualDamage = settings.manualDamage)) : game;
+    set({ settings, game: next });
+  },
+
   start: (deck) =>
     set({
-      game: newGame({ seed: (Math.random() * 2 ** 31) | 0, humanDeck: deck, stops: deck === null ? {} : { 0: get().stops } }),
+      game: newGame({
+        seed: (Math.random() * 2 ** 31) | 0,
+        humanDeck: deck,
+        stops: deck === null ? {} : { 0: get().stops },
+        manualDamage: get().settings.manualDamage,
+      }),
       gameNo: get().gameNo + 1,
       human: deck === null ? null : 0,
       targeting: null,

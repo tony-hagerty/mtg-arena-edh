@@ -5,6 +5,7 @@
 import {
   abilityHasX,
   activatable,
+  autoAssignments,
   applyAction,
   attackCandidates,
   attackOptions,
@@ -358,6 +359,7 @@ function anyTargets(g: Game): Action {
   if (g.decision?.type === 'retarget') return { type: 'chooseTargets', targets: g.stack.find((x) => x.id === (g.decision as { choice: { item: string } }).choice.item)?.targets ?? [] };
   if (g.decision?.type === 'orderTriggers') return defaultOrder(g, g.priority);
   if (g.decision?.type === 'commanderZone') return { type: 'commanderZone', toCommand: true };
+  if (g.decision?.type === 'assignDamage') return { type: 'assignDamage', assignments: autoAssignments(g) };
   if (g.decision?.type !== 'targets') return PASS;
   const { item } = g.decision;
   // An opponent or something of theirs if there is one: most triggered abilities that target harm.
@@ -404,7 +406,7 @@ function resolveStack(g: Game, pid: PlayerId, depth = 0): Game {
   for (let i = 0; i < 200 && g.step !== 'gameOver'; i++) {
     let action: Action;
     const deciding = g.decision?.type;
-    if (deciding === 'chooseCards' || deciding === 'orderTriggers' || deciding === 'commanderZone' || deciding === 'ask' || deciding === 'name' || deciding === 'player' || deciding === 'cast' || deciding === 'retarget') {
+    if (deciding === 'chooseCards' || deciding === 'orderTriggers' || deciding === 'commanderZone' || deciding === 'assignDamage' || deciding === 'ask' || deciding === 'name' || deciding === 'player' || deciding === 'cast' || deciding === 'retarget') {
       action = anyTargets(g);
     } else if (g.decision?.type === 'targets') action = g.priority === pid && depth < 1 ? bestTargets(g, pid, depth) : anyTargets(g);
     else if (g.stack.length && !g.decision) action = PASS;
@@ -905,6 +907,9 @@ export function botAction(g: Game, pid: PlayerId): Action {
       return castNow(g, pid);
     case 'retarget':
       return bestTargets(g, pid);
+    case 'assignDamage':
+      // Only a human is asked, but a bot answering for one splits it automatically.
+      return { type: 'assignDamage', assignments: autoAssignments(g) };
   }
   // With priority: sorcery-speed plays in the bot's own main phase, otherwise responses and tricks.
   const myMain = pid === g.active && !g.stack.length && (g.step === 'main1' || g.step === 'main2');
@@ -925,5 +930,6 @@ export function applyBotAction(g: Game, a: Action, opts?: ApplyOptions): Game {
   if (next === g && g.decision?.type === 'cast') next = applyAction(g, { type: 'answer', yes: false }, opts);
   if (next === g && g.decision?.type === 'retarget') next = applyAction(g, anyTargets(g), opts);
   if (next === g && g.decision?.type === 'mulligan') next = applyAction(g, { type: 'keep' }, opts);
+  if (next === g && g.decision?.type === 'assignDamage') next = applyAction(g, { type: 'assignDamage', assignments: autoAssignments(g) }, opts);
   return next;
 }

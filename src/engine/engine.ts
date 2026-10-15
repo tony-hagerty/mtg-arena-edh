@@ -104,6 +104,8 @@ import type {
   CastChoices,
   CastInfo,
   Choice,
+  DamageAssignment,
+  DamageRoom,
   ExtraTurn,
   Game,
   LoyaltyAbility,
@@ -132,9 +134,11 @@ export interface NewGameOptions {
   stops?: ApplyOptions['stops'];
   /** The deck in each seat, instead of the menu's decks. For tests; every seat is a bot unless `humanDeck` is set. */
   decks?: DeckDef[];
+  /** The human divides combat damage by hand when there is a choice (`Player.manualDamage`). */
+  manualDamage?: boolean;
 }
 
-export function newGame({ seed, humanDeck, stops, decks }: NewGameOptions): Game {
+export function newGame({ seed, humanDeck, stops, decks, manualDamage }: NewGameOptions): Game {
   const g: Game = {
     players: [],
     active: 0,
@@ -191,6 +195,7 @@ export function newGame({ seed, humanDeck, stops, decks }: NewGameOptions): Game
       spellsCast: 0,
       noncreatureSpellsCast: 0,
       drawn: 0,
+      ...(human && manualDamage ? { manualDamage } : {}),
     };
     // Every commander starts in the command zone, both partners included (903.6, 702.124b).
     for (const name of deck.commanders) p.command.push(makeCard(g, name, seat, 'command', { isCommander: true }));
@@ -1059,6 +1064,12 @@ function cleanup(g: Game) {
 
 // ---------- combat ----------
 
+/** What attacker `id` is attacking: the planeswalker or battle, or else the player (506.3). */
+function attackedRef(g: Game, id: string): TargetRef {
+  const a = g.combat!.attacks.find((x) => x.id === id)!;
+  return a.target ? { kind: 'card', id: a.target } : { kind: 'player', id: a.defender };
+}
+
 /** Locks in the chosen attackers: they tap, and "attacks" abilities trigger (508.1f, 508.1m). */
 function attackersDeclared(g: Game) {
   const combat = g.combat!;
@@ -1111,62 +1122,152 @@ function blockersDeclared(g: Game) {
   g.priority = firstPriority(g); // 509.2
 }
 
-/** The turn-based action of a combat damage step (510.1, 510.2). */
+/**
+ * The turn-based action of a combat damage step (510.1, 510.2). The active player is asked
+ * how to divide damage when they assign it by hand and one of their attackers has a choice;
+ * otherwise it is split automatically and dealt at once.
+ */
 function combatDamage(g: Game) {
   const combat = g.combat!;
   const fighters = combat.attacks.flatMap((a) => [a.id, ...a.blockers]).map((id) => permanent(g, id));
   // Only first strikers and double strikers deal damage in the first of two damage steps (510.4).
   const firstStrike =
     combat.struckFirst === null && fighters.some((c) => c && (has(g, c, 'first strike') || has(g, c, 'double strike')));
+  const p = g.players[g.active];
+  const asked = damageRooms(g, firstStrike).filter((r) => r.choice).map((r) => r.attacker);
+  if (asked.length && !p.isBot && p.manualDamage) {
+    g.decision = { type: 'assignDamage', attackers: asked, firstStrike };
+    g.priority = g.active;
+    return;
+  }
+  finishDamage(g, firstStrike);
+}
+
+/** Deals this step's combat damage, with the attackers in `assigned` divided as chosen, and notes who struck first (510.2, 510.4). */
+function finishDamage(g: Game, firstStrike: boolean, assigned: DamageAssignment[] = []) {
+  const combat = g.combat!;
   const struckFirst = new Set(combat.struckFirst ?? []);
-  dealCombatDamage(g, firstStrike, struckFirst);
+  dealCombatDamage(g, firstStrike, struckFirst, assigned);
   combat.struckFirst = [...struckFirst];
   combat.moreDamage = firstStrike;
 }
 
+/** Does `c` deal combat damage in this step: first and double strikers in the first of two steps, then the rest and double strikers again (510.4)? */
+function dealsNow(g: Game, c: Card, firstStrike: boolean, struckFirst: Set<string>): boolean {
+  const kw = stats(g, c).keywords;
+  if (firstStrike) return kw.has('first strike') || kw.has('double strike');
+  return !struckFirst.has(c.id) || kw.has('double strike');
+}
+
 /**
- * All damage is worked out first, then dealt at the same time (510.2). The split between
- * several blockers is automatic: lethal damage to each in order, the rest to the last one,
- * or to the defending player with trample (702.19b).
+ * For each attacker that deals combat damage in this step, what it can do with it (see
+ * `DamageRoom`). With `firstStrike` left out, for the step the game is in now.
  */
-function dealCombatDamage(g: Game, firstStrike: boolean, struckFirst: Set<string>) {
+export function damageRooms(g: Game, firstStrike?: boolean): DamageRoom[] {
+  const combat = g.combat;
+  if (!combat) return [];
+  const d = g.decision;
+  const first = firstStrike ?? (d?.type === 'assignDamage' ? d.firstStrike : false);
+  const struckFirst = new Set(combat.struckFirst ?? []);
+  const out: DamageRoom[] = [];
+  for (const a of combat.attacks) {
+    const atk = permanent(g, a.id);
+    if (!atk || !dealsNow(g, atk, first, struckFirst)) continue;
+    const s = stats(g, atk);
+    // A creature with 0 or less power assigns no combat damage (510.1a).
+    if (s.power <= 0) continue;
+    const trample = s.keywords.has('trample');
+    const deathtouch = s.keywords.has('deathtouch');
+    const blockers = a.blockers
+      .map((id) => permanent(g, id))
+      .filter((b): b is Card => !!b)
+      // Lethal counts damage already marked; any damage from a deathtouch source is lethal (702.19b, 702.2c).
+      .map((b) => ({ id: b.id, lethal: deathtouch ? 1 : Math.max(1, stats(g, b).toughness - b.damage) }));
+    // What it attacked must still be there: a planeswalker or battle may have gone (506.4c, 510.1b).
+    const attacked = a.target ? permanent(g, a.target) : undefined;
+    const there = !a.target || (!!attacked && (isPlaneswalker(attacked) || isBattle(attacked)));
+    const canThrough = there && (!a.blocked || trample);
+    // Two or more blockers to divide among (510.1c), or a trampler's excess to place (702.19b).
+    const choice = a.blocked && (blockers.length >= 2 || (trample && canThrough && blockers.length === 1));
+    out.push({ attacker: a.id, power: s.power, blocked: a.blocked, blockers, trample, canThrough, choice });
+  }
+  return out;
+}
+
+/**
+ * The automatic split (510.1c, 702.19b): lethal damage to each blocker in turn, then the
+ * rest to the last one, or past them with trample. A blocked trampler with no blockers left
+ * assigns it all to what it attacked (702.19d).
+ */
+export function autoAssignment(room: DamageRoom): DamageAssignment {
+  const out: DamageAssignment = { attacker: room.attacker, blockers: {}, through: 0 };
+  if (!room.blocked || (room.trample && !room.blockers.length)) {
+    if (room.canThrough) out.through = room.power;
+    return out;
+  }
+  let left = room.power;
+  room.blockers.forEach((b, i) => {
+    const last = i === room.blockers.length - 1 && !(room.trample && room.canThrough);
+    const n = last ? left : Math.min(left, b.lethal);
+    out.blockers[b.id] = n;
+    left -= n;
+  });
+  // A blocked creature without trample assigns nothing past its blockers, even with none left (510.1c).
+  out.through = room.canThrough ? left : 0;
+  return out;
+}
+
+/**
+ * Is this a legal way for the attacker to assign its damage (510.1e)? All of its power, in
+ * whole amounts, to the creatures blocking it; and to what it attacked only if that can take
+ * it and, when blocked, every blocker has been assigned lethal damage (702.19b).
+ */
+export function legalAssignment(room: DamageRoom, asg: DamageAssignment): boolean {
+  const amounts = [...Object.values(asg.blockers), asg.through];
+  if (amounts.some((n) => !Number.isInteger(n) || n < 0)) return false;
+  if (Object.keys(asg.blockers).some((id) => !room.blockers.some((b) => b.id === id))) return false;
+  if (amounts.reduce((a, b) => a + b, 0) !== room.power) return false;
+  if (!asg.through) return true;
+  if (!room.canThrough) return false;
+  return !room.blocked || room.blockers.every((b) => (asg.blockers[b.id] ?? 0) >= b.lethal);
+}
+
+/** Every attacker the active player was asked about, split the automatic way: what a bot answers. */
+export function autoAssignments(g: Game): DamageAssignment[] {
+  const d = g.decision;
+  if (d?.type !== 'assignDamage') return [];
+  return damageRooms(g).filter((r) => d.attackers.includes(r.attacker)).map(autoAssignment);
+}
+
+/**
+ * All damage is worked out first, then dealt at the same time (510.2). An attacker in
+ * `assigned` divides its damage as its controller chose; the rest split automatically.
+ */
+function dealCombatDamage(g: Game, firstStrike: boolean, struckFirst: Set<string>, assigned: DamageAssignment[] = []) {
   const hits: { src: Card; card?: Card; player?: PlayerId; n: number }[] = [];
-  const deals = (c: Card) => {
-    const kw = stats(g, c).keywords;
-    if (firstStrike) return kw.has('first strike') || kw.has('double strike');
-    return !struckFirst.has(c.id) || kw.has('double strike');
-  };
+  const rooms = damageRooms(g, firstStrike);
   for (const a of g.combat!.attacks) {
     const atk = permanent(g, a.id);
     if (!atk) continue;
-    // Damage that gets through goes to the player, planeswalker or battle attacked. If
-    // that planeswalker or battle has gone, there is nothing to deal it to (506.4c, 510.1b).
-    const attacked = a.target ? permanent(g, a.target) : undefined;
-    const through = (n: number) => {
-      if (!a.target) hits.push({ src: atk, player: a.defender, n });
-      else if (attacked && (isPlaneswalker(attacked) || isBattle(attacked))) hits.push({ src: atk, card: attacked, n });
-    };
-    const s = stats(g, atk);
-    const blockers = a.blockers.map((id) => permanent(g, id)).filter((b): b is Card => !!b);
-    if (deals(atk) && s.power > 0) {
+    const room = rooms.find((r) => r.attacker === a.id);
+    if (room) {
       if (firstStrike) struckFirst.add(atk.id);
-      if (!a.blocked) {
-        through(s.power);
-      } else {
-        let left = s.power;
-        blockers.forEach((b, i) => {
-          const lethal = s.keywords.has('deathtouch') ? 1 : Math.max(1, stats(g, b).toughness - b.damage);
-          const last = i === blockers.length - 1 && !s.keywords.has('trample');
-          const n = last ? left : Math.min(left, lethal);
-          if (n > 0) hits.push({ src: atk, card: b, n });
-          left -= n;
-        });
-        if (left > 0 && s.keywords.has('trample')) through(left);
+      const asg = assigned.find((x) => x.attacker === a.id) ?? autoAssignment(room);
+      for (const b of room.blockers) {
+        const n = asg.blockers[b.id] ?? 0;
+        if (n > 0) hits.push({ src: atk, card: permanent(g, b.id)!, n });
+      }
+      // Damage that gets through goes to the player, planeswalker or battle attacked.
+      if (asg.through > 0) {
+        if (!a.target) hits.push({ src: atk, player: a.defender, n: asg.through });
+        else hits.push({ src: atk, card: permanent(g, a.target)!, n: asg.through });
       }
     }
-    for (const b of blockers) {
+    for (const id of a.blockers) {
+      const b = permanent(g, id);
+      if (!b || !dealsNow(g, b, firstStrike, struckFirst)) continue;
       const bs = stats(g, b);
-      if (!deals(b) || bs.power <= 0) continue;
+      if (bs.power <= 0) continue;
       if (firstStrike) struckFirst.add(b.id);
       hits.push({ src: b, card: atk, n: bs.power });
     }
@@ -1857,6 +1958,31 @@ function act(g: Game, a: Action): boolean {
       for (const t of theirs) t.ordered = true;
       g.priority = g.decision.resume;
       g.decision = null;
+      return true;
+    }
+
+    case 'assignDamage': {
+      // The whole assignment is checked at once; an illegal one is refused, to be made again (510.1e).
+      if (g.decision?.type !== 'assignDamage') return false;
+      const { attackers, firstStrike } = g.decision;
+      const rooms = damageRooms(g, firstStrike);
+      const ok = attackers.every((id) => {
+        const room = rooms.find((r) => r.attacker === id);
+        const mine = a.assignments.filter((x) => x.attacker === id);
+        return !room || (mine.length === 1 && legalAssignment(room, mine[0]));
+      });
+      if (!ok || a.assignments.some((x) => !attackers.includes(x.attacker))) return false;
+      for (const asg of a.assignments) {
+        const atk = permanent(g, asg.attacker)!;
+        const parts = [
+          ...Object.entries(asg.blockers).filter(([, n]) => n > 0).map(([id, n]) => `${n} to ${label(permanent(g, id)!)}`),
+          ...(asg.through > 0 ? [`${asg.through} to ${describeRef(g, attackedRef(g, asg.attacker))}`] : []),
+        ];
+        log(g, `${says(p, 'assigns')} ${label(atk)}'s damage: ${parts.join(', ')}.`, pid, [atk]);
+      }
+      g.decision = null;
+      g.priority = firstPriority(g);
+      finishDamage(g, firstStrike, a.assignments);
       return true;
     }
 
