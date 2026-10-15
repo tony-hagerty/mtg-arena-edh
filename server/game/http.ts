@@ -5,7 +5,8 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { PlayerId } from '../../src/engine';
 import { API } from '../../src/net/protocol';
 import type { ActRequest, PrefsRequest, SpeedRequest, StartRequest } from '../../src/net/protocol';
-import type { GameHost } from './host';
+import { Refused } from './service';
+import type { GameService } from './service';
 
 /** The most a request body may hold: a game start carries the decks and any fetched cards. */
 const MAX_BODY = 8 * 1024 * 1024;
@@ -14,7 +15,7 @@ const MAX_BODY = 8 * 1024 * 1024;
  * Answers a request if `path` (without its leading slash or query) is one of the game
  * server's. Returns false for any other path, for the caller to serve.
  */
-export function handleGameApi(host: GameHost, req: IncomingMessage, res: ServerResponse, path: string): boolean {
+export function handleGameApi(host: GameService, req: IncomingMessage, res: ServerResponse, path: string): boolean {
   if (path !== API && !path.startsWith(`${API}/`)) return false;
   const route = path.slice(API.length + 1);
   if (req.method === 'GET' && route === 'hello') return json(res, 200, { server: true }), true;
@@ -45,12 +46,12 @@ export function handleGameApi(host: GameHost, req: IncomingMessage, res: ServerR
           return json(res, 404, { error: 'Not found' });
       }
     })
-    .catch((err: Error) => json(res, 400, { error: err.message }));
+    .catch((err: Error) => json(res, err instanceof Refused ? 409 : 400, { error: err.message }));
   return true;
 }
 
 /** The seat's view now and after every change, as server-sent events, until the window goes. */
-function events(host: GameHost, req: IncomingMessage, res: ServerResponse) {
+function events(host: GameService, req: IncomingMessage, res: ServerResponse) {
   const asked = new URL(req.url ?? '/', 'http://x').searchParams.get('seat');
   const seat: PlayerId | null = asked === null || asked === 'watch' ? null : Number(asked);
   if (seat !== null && !Number.isInteger(seat)) return json(res, 400, { error: 'Bad seat' });
@@ -64,7 +65,7 @@ function events(host: GameHost, req: IncomingMessage, res: ServerResponse) {
   });
 }
 
-function readJson(req: IncomingMessage): Promise<unknown> {
+export function readJson(req: IncomingMessage): Promise<unknown> {
   return new Promise((resolve, reject) => {
     let size = 0;
     const chunks: Buffer[] = [];
@@ -86,7 +87,7 @@ function readJson(req: IncomingMessage): Promise<unknown> {
   });
 }
 
-function json(res: ServerResponse, status: number, body?: unknown) {
+export function json(res: ServerResponse, status: number, body?: unknown) {
   res.statusCode = status;
   res.setHeader('Content-Type', 'application/json; charset=utf-8');
   res.setHeader('Cache-Control', 'no-cache');

@@ -33,6 +33,10 @@ Node version from nodejs.org the first time, checks its published SHA-256, and k
   server"); the page streams its seat's view from `/api/game/`. Any request other than a
   GET must carry this server's own address as its `Origin`, so another web page open in
   the browser can't start games or send moves.
+- **Hosting a table** also listens for friends on TCP port 47190 (or the next free one) on
+  every network, so the first time, Windows Firewall asks whether to allow it. Friends
+  need it allowed; "Private networks" is enough for friends on the same Wi-Fi. Leaving
+  the table, or quitting, closes the router's forward.
 - **Double-clicking it again** while it runs opens another window on the running copy.
 - **Alt+Enter** toggles fullscreen (`src/ui/fullscreen.ts`). F11 works too.
 
