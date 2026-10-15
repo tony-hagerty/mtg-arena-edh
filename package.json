@@ -9,7 +9,8 @@
     "preview": "vite preview",
     "test": "vitest run",
     "fetch-cards": "node scripts/fetch-cards.mjs",
-    "fetch-rules": "node scripts/fetch-rules.mjs"
+    "fetch-rules": "node scripts/fetch-rules.mjs",
+    "build:single": "tsc --noEmit && vite build --mode single"
   },
   "dependencies": {
     "immer": "^11.1.21",
@@ -26,6 +27,7 @@
     "@vitejs/plugin-react": "^6.1.2",
     "typescript": "^7.0.2",
     "vite": "^8.3.4",
+    "vite-plugin-singlefile": "^2.3.3",
     "vitest": "^5.0.4"
   }
 }
