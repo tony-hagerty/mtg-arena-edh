@@ -138,6 +138,7 @@ function Avatar({ player }: { player: Player }) {
         v.targetPlayers.has(player.id) && 'targetable',
         v.attackTarget?.target === null && v.attackTarget.defender === player.id && 'attack-target',
         player.lost && 'lost',
+        player.commanders.length > 1 && 'pair',
       )}
       style={vars({ '--deck': deckColor(player.colors) })}
       data-avatar={player.id}
@@ -194,8 +195,8 @@ function Avatar({ player }: { player: Player }) {
 
 /**
  * The badges on the portrait's rim for one commander: the human's crown to cast it from
- * the command zone, and its commander tax (903.8). A second commander's badges sit just
- * below the first's.
+ * the command zone, and its commander tax (903.8). With partners, each commander's badges
+ * sit on its own half of the portrait.
  */
 function CommanderBadges({ player, name, index }: { player: Player; name: string; index: number }) {
   const v = useView();

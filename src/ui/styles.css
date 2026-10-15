@@ -528,10 +528,20 @@ button {
   background: rgba(14, 16, 22, 0.85);
 }
 
-/* Partners (702.124): the second commander's crown sits at 9 o'clock and its tax at 3. */
-.avatar-crown.second {
+/*
+  Partners (702.124): each commander's badges sit on its half of the portrait. The first
+  (left half) has its crown at 10 o'clock and its tax at 9; the second (right half) has
+  its crown at 2 and its tax at 3.
+*/
+.avatar.pair .avatar-tax:not(.second) {
+  right: auto;
   left: calc(var(--badge) / -2);
   top: calc(var(--av) * 0.5 - var(--badge) / 2);
+}
+
+.avatar-crown.second {
+  left: auto;
+  right: calc(var(--av) * 0.146 - var(--badge) / 2);
 }
 
 .avatar-tax.second {
