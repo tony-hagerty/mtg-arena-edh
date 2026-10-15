@@ -2,16 +2,11 @@ import { useRef, useState } from 'react';
 import type { CSSProperties, RefObject } from 'react';
 import { motion } from 'motion/react';
 import { activatedAbilities, attachmentsOf, data, defenseOf, isBattle, isCreature, isPlaneswalker, loyaltyOf, scriptFor, stats } from '../engine';
-import type { Card, CardData } from '../engine';
+import type { Card } from '../engine';
 import { useRem } from './rem';
+import { CardImage, frameOf, ManaCost, useArtLoads } from './TextCard';
 import { cx, hoverProps, seatOf } from './util';
 import { clickGroup, clickPermanent, loyaltyCost, playHandCard, useView } from './view';
-
-function frameOf(d: CardData): string {
-  if (d.typeLine.includes('Land')) return 'land';
-  if (d.colors.length > 1) return 'gold';
-  return d.colors[0] ?? 'artifact';
-}
 
 const KEYWORD_ICONS = [
   'flying',
@@ -28,18 +23,6 @@ const KEYWORD_ICONS = [
   'hexproof',
   'indestructible',
 ];
-
-export function ManaCost({ cost }: { cost: string }) {
-  // Hybrid and Phyrexian symbols drop the slash: {R/W} is ms-rw, {W/P} is ms-wp.
-  const symbols = [...cost.matchAll(/\{([^}]+)\}/g)].map((m) => m[1].toLowerCase().replaceAll('/', ''));
-  return (
-    <span className="mana-cost">
-      {symbols.map((s, i) => (
-        <i key={i} className={`ms ms-cost ms-shadow ms-${s}`} />
-      ))}
-    </span>
-  );
-}
 
 const SPRING = { type: 'spring', stiffness: 420, damping: 36 } as const;
 
@@ -146,12 +129,18 @@ function Attachments({ cards }: { cards: Card[] }) {
           }}
           {...hoverProps(data(c).name)}
         >
-          <div className="tile-attached-art" style={{ backgroundImage: `url(${data(c).art})` }} />
+          <AttachedArt url={data(c).art} />
           <span>{data(c).name}</span>
         </div>
       ))}
     </>
   );
+}
+
+/** An attachment's art, or just its frame colour if the art doesn't load: its name shows beside it either way. */
+function AttachedArt({ url }: { url: string }) {
+  const ok = useArtLoads(url);
+  return <div className="tile-attached-art" style={ok ? { backgroundImage: `url(${url})` } : undefined} />;
 }
 
 /** The hover text for a permanent's activated abilities: its `activated` one, and each loyalty ability (606). */
@@ -183,6 +172,7 @@ export function Permanent({ card, badge }: { card: Card; badge?: Card[] }) {
           : '';
   const sick = creature && card.sick && g.active === card.controller && !s!.keywords.has('haste');
   const attached = attachmentsOf(g, card);
+  const artOk = useArtLoads(d.art);
 
   return (
     <motion.div
@@ -207,7 +197,15 @@ export function Permanent({ card, badge }: { card: Card; badge?: Card[] }) {
     >
       {attached.length > 0 && <Attachments cards={attached} />}
       <div className="tile-face">
-        <div className="tile-art" style={{ backgroundImage: `url(${d.art})` }} />
+        {artOk ? (
+          <div className="tile-art" style={{ backgroundImage: `url(${d.art})` }} />
+        ) : (
+          // No art: the type line and rules text fill the space instead. Hovering shows the whole card.
+          <div className="tile-art tile-text">
+            <div>{d.typeLine}</div>
+            <p>{d.oracleText}</p>
+          </div>
+        )}
         <div className="tile-name" title={card.chosen ? `Chosen: ${card.chosen}` : undefined}>
           {card.isCommander && <span className="crown">♛</span>}
           {d.name}
@@ -347,7 +345,7 @@ export function HandCard({
         onAnimationComplete={fly.landed}
       >
         {fly.flying && <div className="card-back" />}
-        <img src={d.image} alt={d.name} draggable={false} />
+        <CardImage d={d} draggable={false} />
         {d.manaCost && (
           <div className="hand-cost" style={{ right: `${costRight}rem` }}>
             <ManaCost cost={d.manaCost} />
