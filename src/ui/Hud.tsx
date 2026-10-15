@@ -548,6 +548,8 @@ export function LogPanel() {
 /** Asks before leaving a game in progress. */
 export function ExitConfirm() {
   const open = useStore((s) => s.confirmExit);
+  const tableGame = useStore((s) => s.tableGame);
+  const hosting = useStore((s) => s.table?.role === 'hosting');
   const stay = () => useStore.setState({ confirmExit: false });
   return (
     <AnimatePresence>
@@ -564,7 +566,13 @@ export function ExitConfirm() {
             exit={{ scale: 0.96 }}
           >
             <h2 id="exit-title">Leave this game?</h2>
-            <p>The game ends here and you go back to the deck menu.</p>
+            <p>
+              {!tableGame
+                ? 'The game ends here and you go back to the deck menu.'
+                : hosting
+                  ? 'You host this table, so leaving ends the game for everyone.'
+                  : 'You leave the table and go back to the deck menu.'}
+            </p>
             <div className="confirm-buttons">
               <button className="btn btn-plain small" onClick={stay} autoFocus>
                 <span className="btn-label">Keep playing</span>
@@ -842,7 +850,7 @@ export function GameOver() {
 /** The end-of-game screen. It can be hidden to look over the final board. Mounted only once the game is over, so each game starts with it showing. */
 function Results() {
   const { g, me } = useView();
-  const { start, quit, deck } = useStore.getState();
+  const { start, quit, deck, tableGame } = useStore.getState();
   const [hidden, setHidden] = useState(false);
   if (hidden) {
     return (
@@ -863,9 +871,12 @@ function Results() {
           </p>
         )}
         <div className="game-over-buttons">
-          <button className="btn btn-go small" onClick={() => start(deck)}>
-            <span className="btn-label">Play Again</span>
-          </button>
+          {/* A table's next game is the host's to start, from the lobby. */}
+          {!tableGame && (
+            <button className="btn btn-go small" onClick={() => start(deck)}>
+              <span className="btn-label">Play Again</span>
+            </button>
+          )}
           <button className="btn btn-plain small" onClick={() => setHidden(true)}>
             <span className="btn-label">View Board</span>
           </button>
