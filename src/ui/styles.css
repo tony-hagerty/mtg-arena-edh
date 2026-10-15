@@ -2411,6 +2411,7 @@ button {
 .deck-list {
   display: flex;
   gap: 3rem;
+  flex: none;
   max-width: 186rem;
   padding: 1.6rem 1rem 1.2rem;
   overflow-x: auto;
@@ -2809,7 +2810,7 @@ button {
 
 .lobby-seat {
   display: grid;
-  grid-template-columns: 3rem 18rem 1fr 10rem;
+  grid-template-columns: 3rem 18rem 1fr auto;
   align-items: center;
   gap: 1.2rem;
   padding: 1rem 1.4rem;
@@ -2857,6 +2858,128 @@ button {
 
 .lobby-seat-ready.ok {
   color: #9fe0ad;
+}
+
+/* An away person's seat (phase 5): dimmed until they're back. */
+.lobby-seat.away .lobby-seat-who {
+  color: #9aa4b8;
+}
+
+.lobby-seat.away .lobby-seat-ready {
+  color: #ffd59a;
+}
+
+/* The table's votes on a bot for an away person's seat. */
+.seat-votes {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  width: 72rem;
+  margin-bottom: 2rem;
+  font-size: 1.8rem;
+  color: #eef1f7;
+}
+
+.seat-vote {
+  padding: 1.2rem 1.4rem;
+  background: rgba(12, 14, 20, 0.92);
+  border: 0.15rem solid #8a6a2c;
+  border-radius: 1rem;
+}
+
+.seat-vote p {
+  margin: 0 0 1rem;
+}
+
+.seat-vote-row {
+  display: flex;
+  align-items: center;
+  gap: 0.8rem;
+}
+
+.seat-vote .chip {
+  min-width: 7rem;
+  padding: 0.5rem 1.2rem;
+  font: inherit;
+  color: #cfd6e4;
+  background: #1a1e27;
+  border: 0.15rem solid #4a5366;
+  border-radius: 0.8rem;
+}
+
+.seat-vote .chip.on {
+  color: #1a1206;
+  background: var(--f-gold);
+  border-color: var(--f-gold);
+}
+
+.seat-vote-count {
+  margin-left: 0.8rem;
+  font-size: 1.6rem;
+  color: #9aa4b8;
+}
+
+/* During a table's game the votes float over the top of the board. */
+.game-votes {
+  position: absolute;
+  top: 11rem;
+  left: 50%;
+  /* Over pop-up windows too: a vote can open in the middle of any decision. */
+  z-index: 160;
+  transform: translateX(-50%);
+}
+
+.game-votes .seat-votes {
+  margin: 0;
+  box-shadow: 0 1rem 4rem rgba(0, 0, 0, 0.7);
+}
+
+/* Why the last table ended, on the deck menu. */
+.menu-error {
+  width: 100rem;
+  margin-top: 2rem;
+  font-size: 1.7rem;
+}
+
+/* Saved table games. */
+.saved-games {
+  display: flex;
+  flex-direction: column;
+  gap: 1.6rem;
+  width: 100rem;
+  font-size: 1.7rem;
+  color: #cfd6e4;
+}
+
+.saved-games ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  max-height: 60rem;
+  overflow-y: auto;
+}
+
+.saved-game {
+  display: flex;
+  align-items: center;
+  gap: 1.2rem;
+  padding: 0.8rem 1.2rem;
+  background: rgba(12, 14, 20, 0.8);
+  border: 0.15rem solid #2c3344;
+  border-radius: 1rem;
+}
+
+.saved-game + .saved-game {
+  margin-top: 0.6rem;
+}
+
+.saved-game-players {
+  flex: 1;
+  color: #eef1f7;
+}
+
+.saved-game-when {
+  color: #9aa4b8;
 }
 
 /* ---------- animation ---------- */

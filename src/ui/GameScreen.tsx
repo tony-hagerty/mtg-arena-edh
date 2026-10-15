@@ -2,6 +2,7 @@ import { useEffect, useMemo } from 'react';
 import { botAction, botPause } from '../engine';
 import { OpponentPanel, PlayerField } from './Board';
 import { ActionBar, ArrowLayer, CastOptions, ColorPicker, ExitConfirm, GameOver, LogPanel, Preview, Prompt, SpellFlash, StackPanel, ZoneViewer } from './Hud';
+import { GameVotes, PausedOverlay } from './LobbyScreen';
 import { Decisions, EscapePicker, GraveyardTargets } from './Picker';
 import { useStore } from './store';
 import { fromSeat } from './util';
@@ -72,8 +73,11 @@ export function GameScreen() {
         <EscapePicker />
         <GraveyardTargets />
         <GameOver />
+        {/* Before the exit dialog, so leaving a paused game still asks first. */}
+        <PausedOverlay />
         <ExitConfirm />
         <Handoff />
+        <GameVotes />
       </div>
       <Preview />
     </ViewContext.Provider>
