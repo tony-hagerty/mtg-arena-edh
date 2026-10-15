@@ -49,6 +49,7 @@ import {
   maxModes,
   triggerText,
   activatable,
+  maxAbilityX,
 } from '../src/engine';
 import type { Action, ActivatedAbility, ApplyOptions, Game, TurnStops } from '../src/engine';
 import { DECKS } from '../src/cards/db';
@@ -3832,5 +3833,110 @@ describe('several activated abilities on one card (602)', () => {
     });
     // Only the instant-or-sorcery ability has both a target and the mana: each opponent loses 2.
     expect(botAction(g, 0)).toMatchObject({ type: 'activate', activated: 1 });
+  });
+});
+
+describe('X in activated and loyalty ability costs (107.3a)', () => {
+  const byHand = { autoPass: false };
+  const card = (c: { id: string }) => ({ kind: 'card', id: c.id }) as const;
+  const rats = () =>
+    emptyGame((d) => {
+      d.players[0].isBot = false;
+      put(d, 0, 'Crypt Rats');
+      put(d, 0, 'Swamp', 'battlefield', 2);
+      put(d, 0, 'Mountain');
+      put(d, 1, 'Llanowar Elves');
+      put(d, 1, 'Shivan Dragon');
+    });
+
+  it('Crypt Rats: X is paid with black mana only, so the Mountain can\'t pay for it', () => {
+    const g = rats();
+    const ratsCard = byName(g, 0, 'Crypt Rats')!;
+    expect(costText(abilityCost(scriptOf('Crypt Rats').activated as ActivatedAbility, g, ratsCard, 3))).toBe('{B}{B}{B}');
+    expect(maxAbilityX(g, 0, ratsCard, { activated: 0 })).toBe(2);
+    expect(canActivate(g, 0, ratsCard, undefined, 0, 2)).toBe(true);
+    expect(applyAction(g, { type: 'activate', card: ratsCard.id, x: 3 })).toBe(g);
+    expect(applyAction(g, { type: 'activate', card: ratsCard.id, x: -1 })).toBe(g);
+  });
+
+  it('Crypt Rats: the X announced stays with the ability and deals that much to each creature and player', () => {
+    let g = rats();
+    g = runWith(byHand, g, { type: 'activate', card: byName(g, 0, 'Crypt Rats')!.id, x: 2 });
+    expect(g.stack.map((s) => s.x)).toEqual([2]);
+    expect(g.players[0].battlefield.filter((c) => c.name === 'Swamp' && c.tapped)).toHaveLength(2);
+    expect(g.log.some((l) => l.text.includes('activate Crypt Rats (X = 2)'))).toBe(true);
+    g = runWith(byHand, g, pass, pass, pass, pass);
+    expect(g.players.map((p) => p.life)).toEqual([38, 38, 38, 38]);
+    expect(byName(g, 0, 'Crypt Rats', 'graveyard')).toBeDefined();
+    expect(byName(g, 1, 'Llanowar Elves', 'graveyard')).toBeDefined();
+    expect(byName(g, 1, 'Shivan Dragon')!.damage).toBe(2);
+  });
+
+  it('X can be 0, and an ability without X in its cost takes no X', () => {
+    let g = rats();
+    g = runWith(byHand, g, { type: 'activate', card: byName(g, 0, 'Crypt Rats')!.id, x: 0 }, pass, pass, pass, pass);
+    expect(g.players.map((p) => p.life)).toEqual([40, 40, 40, 40]);
+    const shaman = emptyGame((d) => {
+      put(d, 0, 'Deathrite Shaman');
+      put(d, 0, 'Swamp');
+      put(d, 1, 'Lightning Bolt', 'graveyard');
+    });
+    const dr = byName(shaman, 0, 'Deathrite Shaman')!;
+    expect(maxAbilityX(shaman, 0, dr, { activated: 1 })).toBe(0);
+    expect(applyAction(shaman, { type: 'activate', card: dr.id, activated: 1, x: 1, targets: [card(byName(shaman, 1, 'Lightning Bolt', 'graveyard')!)] })).toBe(shaman);
+  });
+
+  const chandra = (loyalty = 6, setup: (d: Game) => void = () => {}) =>
+    emptyGame((d) => {
+      d.players[0].isBot = false;
+      put(d, 0, 'Chandra Nalaar').counters.loyalty = loyalty;
+      put(d, 1, 'Shivan Dragon');
+      setup(d);
+    });
+
+  it('Chandra Nalaar: −X removes X loyalty counters, and X can\'t be more than her loyalty (606.4, 606.6)', () => {
+    let g = chandra();
+    const c = byName(g, 0, 'Chandra Nalaar')!;
+    const dragon = byName(g, 1, 'Shivan Dragon')!;
+    expect(maxAbilityX(g, 0, c, { ability: 1 })).toBe(6);
+    expect(canActivate(g, 0, c, 1, 0, 7)).toBe(false);
+    expect(applyAction(g, { type: 'activate', card: c.id, ability: 1, x: 7, targets: [card(dragon)] })).toBe(g);
+    // Her +1 and −8 have no X.
+    expect(canActivate(g, 0, c, 0, 0, 1)).toBe(false);
+    g = runWith(byHand, g, { type: 'activate', card: c.id, ability: 1, x: 4, targets: [card(dragon)] });
+    expect(byName(g, 0, 'Chandra Nalaar')!.counters.loyalty).toBe(2);
+    expect(g.log.some((l) => l.text.includes("activate Chandra Nalaar's −X (X = 4) targeting Shivan Dragon"))).toBe(true);
+    g = runWith(byHand, g, pass, pass, pass, pass);
+    expect(byName(g, 1, 'Shivan Dragon')!.damage).toBe(4);
+  });
+
+  it('Chandra Nalaar: with X equal to her loyalty she dies, and the ability still deals X damage (704.5i, 113.7a)', () => {
+    let g = chandra(5);
+    g = runWith(byHand, g, { type: 'activate', card: byName(g, 0, 'Chandra Nalaar')!.id, ability: 1, x: 5, targets: [card(byName(g, 1, 'Shivan Dragon')!)] });
+    expect(byName(g, 0, 'Chandra Nalaar', 'graveyard')).toBeDefined();
+    g = runWith(byHand, g, pass, pass, pass, pass);
+    expect(byName(g, 1, 'Shivan Dragon', 'graveyard')).toBeDefined();
+  });
+
+  it('Chandra Nalaar: −8 deals 10 to the target player and each creature they control', () => {
+    let g = chandra(8, (d) => void put(d, 0, 'Llanowar Elves'));
+    g = runWith(byHand, g, { type: 'activate', card: byName(g, 0, 'Chandra Nalaar')!.id, ability: 2, targets: [{ kind: 'player', id: 1 }] }, pass, pass, pass, pass);
+    expect(g.players.map((p) => p.life)).toEqual([40, 30, 40, 40]);
+    expect(byName(g, 1, 'Shivan Dragon', 'graveyard')).toBeDefined();
+    expect(byName(g, 0, 'Llanowar Elves')).toBeDefined(); // not that player's
+  });
+
+  it('a bot announces an X it can pay for an X ability', () => {
+    const g = emptyGame((d) => {
+      put(d, 0, 'Crypt Rats');
+      put(d, 0, 'Swamp', 'battlefield', 3);
+      for (const pid of [1, 2, 3]) put(d, pid, 'Llanowar Elves', 'battlefield', 2);
+    });
+    const a = botAction(g, 0);
+    expect(a).toMatchObject({ type: 'activate', card: byName(g, 0, 'Crypt Rats')!.id });
+    const x = (a as { x: number }).x;
+    expect(x).toBeGreaterThan(0);
+    expect(x).toBeLessThanOrEqual(3);
+    expect(applyAction(g, a)).not.toBe(g);
   });
 });

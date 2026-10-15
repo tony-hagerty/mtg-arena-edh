@@ -3,6 +3,7 @@
 import { createContext, useContext } from 'react';
 import {
   activatable,
+  abilityHasX,
   activatedAbilities,
   activatedAt,
   attackCandidates,
@@ -16,6 +17,7 @@ import {
   canTapForMana,
   canUntapMana,
   altCostsOf,
+  canActivate,
   castCost,
   castTargets,
   costText,
@@ -33,6 +35,7 @@ import {
   label,
   legalTargets,
   loyaltyOf,
+  maxAbilityX,
   maxX,
   modeChoices,
   opponentsOf,
@@ -96,6 +99,8 @@ export interface View {
   paying: { card: Card; kind: 'spell' | 'ability' } | null;
   /** A spell whose X, kicker or alternative cost the human is announcing (601.2b), for the options panel. */
   announce: Announce | null;
+  /** An ability whose X the human is announcing (107.3a, 602.2b): the X so far and the highest it can be. */
+  abilityX: { card: Card; x: number; max: number } | null;
   /** Escape (702.138a): the other cards in the graveyard the human picks three of to exile. */
   escape: { card: Card; options: Card[] } | null;
   /** Cards in a graveyard the human can target now (Sevinne's Reclamation), for a picker. */
@@ -135,8 +140,8 @@ export interface Announce {
   handMana: boolean;
 }
 
-/** A loyalty cost written out: "+1", "0", "−3". */
-export const loyaltyCost = (n: number) => (n > 0 ? `+${n}` : n === 0 ? '0' : `−${-n}`);
+/** A loyalty cost written out: "+1", "0", "−3", "−X". */
+export const loyaltyCost = (n: number | '-X') => (n === '-X' ? '−X' : n > 0 ? `+${n}` : n === 0 ? '0' : `−${-n}`);
 
 const sameOption = (a: AttackOption | null | undefined, b: AttackOption) => !!a && a.defender === b.defender && a.target === b.target;
 
@@ -276,6 +281,7 @@ const isPaying = (t: Targeting) =>
   t.mode !== 'retarget' &&
   !t.announcing &&
   !t.pickingAbility &&
+  !t.choosingX &&
   t.chosen.length === t.specs.length &&
   !isSacrificing(t) &&
   !isExiling(t) &&
@@ -294,7 +300,7 @@ function costOf(g: Game, t: Targeting): { cost: Cost; text: string } {
     t.mode === 'cast'
       ? castCost(g, card, t.choices, me)
       : ab
-        ? abilityCost(ab, g, card)
+        ? abilityCost(ab, g, card, t.x ?? 0)
         : parseCost(t.ability === undefined ? '' : (script.levels?.[t.ability].cost ?? ''));
   return { cost, text: costText(cost) + (cost.life ? ` and ${cost.life} life` : '') };
 }
@@ -406,6 +412,7 @@ export function buildView(): View {
     loyalty: null,
     paying: null,
     announce: null,
+    abilityX: null,
     escape: null,
     graveTargets: null,
     prompt: null,
@@ -482,6 +489,25 @@ export function buildView(): View {
       : script.loyalty
         ? `${label(card)} (loyalty ${loyaltyOf(card)}): choose an ability. Only one loyalty ability a turn.`
         : `${label(card)}: choose an ability.`;
+    view.secondary = { label: 'Cancel', tone: 'cancel', onClick: cancel };
+    return view;
+  }
+
+  // --- announcing X for an ability, before its targets (107.3a, 601.2b via 602.2b) ---
+  if (t && t.choosingX) {
+    const card = findCard(g, t.cardId)!;
+    const ref = { ability: t.ability, activated: t.activated };
+    const x = t.x ?? 0;
+    const max = Math.max(0, maxAbilityX(g, me, card, ref));
+    const walker = t.ability !== undefined;
+    view.glow.set(card.id, 'picked');
+    view.abilityX = { card, x, max };
+    // A −X ability that removes every loyalty counter puts the planeswalker into its owner's graveyard (704.5i).
+    const dies = walker && x >= loyaltyOf(card) ? ` ${label(card)} will have no loyalty left.` : '';
+    view.prompt = walker
+      ? `${label(card)}: choose X. It removes X loyalty counters (${loyaltyOf(card)} now).${dies}`
+      : `${label(card)}: choose X. It costs ${costOf(g, t).text}.`;
+    view.primary = { label: 'Continue', sub: `X = ${x}`, tone: 'go', disabled: !canActivate(g, me, card, t.ability, t.activated, x), onClick: confirmAbilityX };
     view.secondary = { label: 'Cancel', tone: 'cancel', onClick: cancel };
     return view;
   }
@@ -762,7 +788,33 @@ function propose(mode: 'cast' | 'activate', card: Card) {
       fromHand ||
       (!!ways && ways.flashback && ways.escape) ||
       (siege && opponentsOf(g, me).length > 1));
-  advance({ mode, cardId: card.id, specs, chosen: [], tapped: [], choices, announcing, ...(only ? { activated: only } : {}) });
+  const start: Targeting = { mode, cardId: card.id, specs, chosen: [], tapped: [], choices, announcing, ...(only ? { activated: only } : {}) };
+  if (mode === 'activate' && refs[0] && abilityHasX(card, refs[0])) chooseX(start);
+  else advance(start);
+}
+
+/** An ability with X in its cost: X is announced first, starting as high as it can be (107.3a). */
+function chooseX(t: Targeting) {
+  const { game: g, human: me } = S();
+  const card = g && findCard(g, t.cardId);
+  if (!card || me === null) return;
+  const x = Math.max(0, maxAbilityX(g, me, card, { ability: t.ability, activated: t.activated }));
+  useStore.setState({ targeting: { ...t, x, choosingX: true }, hover: null });
+}
+
+/** Changes the X being announced for an ability, within what can be paid. */
+export function setAbilityX(x: number) {
+  const t = S().targeting;
+  const { game: g, human: me } = S();
+  if (!t || !t.choosingX || !g || me === null) return;
+  const max = Math.max(0, maxAbilityX(g, me, findCard(g, t.cardId)!, { ability: t.ability, activated: t.activated }));
+  useStore.setState({ targeting: { ...t, x: Math.max(0, Math.min(x, max)) } });
+}
+
+/** Done announcing X: on to the ability's targets (601.2c via 602.2b). */
+function confirmAbilityX() {
+  const t = S().targeting;
+  if (t?.choosingX) advance({ ...t, choosingX: false });
 }
 
 /**
@@ -833,7 +885,9 @@ export function pickAbility(ref: AbilityRef) {
   const card = findCard(g, t.cardId)!;
   if (!activatable(g, me, card).some((r) => r.ability === ref.ability && (r.activated ?? 0) === (ref.activated ?? 0))) return;
   const specs = ref.ability === undefined ? (activatedAt(card, ref.activated)?.targets ?? []) : (scriptFor(card).loyalty?.[ref.ability].targets ?? []);
-  advance({ ...t, pickingAbility: false, ability: ref.ability, activated: ref.activated, specs });
+  const next = { ...t, pickingAbility: false, ability: ref.ability, activated: ref.activated, specs };
+  if (abilityHasX(card, ref)) chooseX(next);
+  else advance(next);
 }
 
 /** Done announcing: on to targets, which depend on the modes chosen (601.2c, 700.2c). */
@@ -896,7 +950,7 @@ function pay() {
   const action: Action =
     t.mode === 'cast'
       ? { type: 'cast', card: t.cardId, targets: t.chosen, hold, ...t.choices }
-      : { type: 'activate', card: t.cardId, ability: t.ability, activated: t.activated, targets: t.chosen, hold, crew: t.crew, discard: t.discard, sacrifice: t.choices.sacrifice };
+      : { type: 'activate', card: t.cardId, ability: t.ability, activated: t.activated, x: t.x, targets: t.chosen, hold, crew: t.crew, discard: t.discard, sacrifice: t.choices.sacrifice };
   if (!S().act(action)) cancel();
 }
 

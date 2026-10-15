@@ -8,7 +8,7 @@ import { ManaCost } from './Card';
 import { useRem } from './rem';
 import { useStore } from './store';
 import { SEATS, cx, deckColor, faceUp, hoverProps } from './util';
-import { STEP_NAMES, activateFromHand, cancel, clickStackItem, pickAbility, pickColor, pickFace, pickMode, playHandCard, setChoices, exileForMana, useView } from './view';
+import { STEP_NAMES, activateFromHand, cancel, clickStackItem, pickAbility, pickColor, pickFace, pickMode, playHandCard, setAbilityX, setChoices, exileForMana, useView } from './view';
 import type { AbilityOption, Btn } from './view';
 
 // ---------- phase tracker + buttons (bottom right) ----------
@@ -238,8 +238,9 @@ export function ActionBar() {
  * times to pay kicker (702.33), and the mana cost or an alternative cost (118.9).
  */
 export function CastOptions() {
-  const { announce: a, loyalty } = useView();
+  const { announce: a, loyalty, abilityX } = useView();
   if (loyalty) return <LoyaltyOptions options={loyalty.options} />;
+  if (abilityX) return <AbilityX x={abilityX.x} max={abilityX.max} />;
   if (!a) return null;
   const { choices } = a;
   const x = choices.x ?? 0;
@@ -372,6 +373,27 @@ export function CastOptions() {
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+/** The value of X for an ability with {X} or −X in its cost (107.3a): the same picker a spell's X uses. */
+function AbilityX({ x, max }: { x: number; max: number }) {
+  return (
+    <div className="cast-options">
+      <div className="cast-row">
+        <span className="cast-label">X</span>
+        <button className="chip" disabled={x <= 0} onClick={() => setAbilityX(x - 1)} aria-label="Less">
+          −
+        </button>
+        <b className="cast-x">{x}</b>
+        <button className="chip" disabled={x >= max} onClick={() => setAbilityX(x + 1)} aria-label="More">
+          +
+        </button>
+        <button className="chip" disabled={x === max} onClick={() => setAbilityX(max)}>
+          Max
+        </button>
+      </div>
     </div>
   );
 }
@@ -631,6 +653,7 @@ export function StackPanel() {
             <img src={data(item.card).image} alt={label(item.card)} draggable={false} />
             <span className="stack-tag">
               {who} {item.copy ? 'copy' : item.kind === 'spell' ? 'spell' : 'ability'}
+              {item.x !== undefined && ` (X = ${item.x})`}
             </span>
           </div>
         );
