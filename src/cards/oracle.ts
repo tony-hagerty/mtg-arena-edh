@@ -514,6 +514,11 @@ function readCard(d: CardData): CardScript {
 /** Does this card need a script at all: does any line say more than keywords the engine knows? */
 export const needsScript = (d: CardData) => !d.faces && lines(d).some((l) => !isKeywordLine(l.text));
 
+const REFUSALS = new Map<string, { clause: string; reason: string }>();
+
+/** The clause `scriptCards` couldn't read on this card, and why, or undefined if it didn't refuse it. */
+export const refusalOf = (name: string) => REFUSALS.get(name);
+
 /**
  * Registers a parsed script for each of these cards that has rules text but no hand
  * script. Returns the ones it refused, with the clause. Hand scripts always win.
@@ -526,7 +531,10 @@ export function scriptCards(names: string[]): { name: string; clause: string; re
     if (hasScript(name) || !needsScript(d)) continue;
     const p = parseCard(d);
     if (p.ok) scripts[name] = p.script;
-    else refused.push({ name, clause: p.clause, reason: p.reason });
+    else {
+      refused.push({ name, clause: p.clause, reason: p.reason });
+      REFUSALS.set(name, { clause: p.clause, reason: p.reason });
+    }
   }
   registerScripts(scripts);
   return refused;
