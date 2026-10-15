@@ -5,6 +5,7 @@ import 'mana-font/css/mana.min.css';
 import './ui/styles.css';
 import './ui/fullscreen';
 import { App } from './ui/App';
+import { connectServer } from './ui/remote';
 import { useStore } from './ui/store';
 
 // Dev console helpers: `store` exposes the game state, and
@@ -20,6 +21,9 @@ for (const type of ['pointerdown', 'pointerup', 'pointermove', 'pointercancel'] 
 
 // Cards fetched from Scryfall for pasted decks, kept from earlier visits.
 void useStore.getState().loadCards();
+
+// The game server, when the page came from one (the Windows program, or `npm run dev`).
+void useStore.getState().connect(connectServer);
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

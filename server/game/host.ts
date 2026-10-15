@@ -1,0 +1,160 @@
+// The game server's referee: it alone holds the whole game, plays the bots' seats, takes
+// each person's moves, and gives every seat its own view of the game (`viewFor`).
+// Nothing here knows about HTTP; see http.ts.
+import { isCardName, registerCards } from '../../src/cards/db';
+import { scriptCards } from '../../src/cards/oracle';
+import { applyAction, applyBotAction, botAction, botPause, newGame, viewFor } from '../../src/engine';
+import type { Action, ApplyOptions, Game, PlayerId } from '../../src/engine';
+import type { SeatPrefs, StartRequest, ViewMessage } from '../../src/net/protocol';
+
+/** Runs `fn` after `ms`; returns a function that cancels it. Tests pass their own. */
+export type Schedule = (fn: () => void, ms: number) => () => void;
+
+const realSchedule: Schedule = (fn, ms) => {
+  const t = setTimeout(fn, ms);
+  return () => clearTimeout(t);
+};
+
+interface Watcher {
+  seat: PlayerId | null;
+  send: (m: ViewMessage) => void;
+}
+
+/**
+ * A new game's id: higher than the last, and than any from before the server restarted, so
+ * a window left open never mistakes a new game for the one it was playing.
+ */
+const nextGameId = (last: number) => Math.max(last + 1, Date.now());
+
+export class GameHost {
+  private game: Game | null = null;
+  private gameId = 0;
+  private version = 0;
+  private prefs: Partial<Record<PlayerId, SeatPrefs>> = {};
+  /** The last move number heard from each seat in this game. */
+  private acks = new Map<PlayerId, number>();
+  private watchers = new Set<Watcher>();
+  private cancelBot: (() => void) | null = null;
+  private speed = 1;
+
+  constructor(private schedule: Schedule = realSchedule) {}
+
+  /** The whole game, hidden cards and all. Only the server and tests see it. */
+  get full(): Game | null {
+    return this.game;
+  }
+
+  /** Starts a new game, ending any game in progress. */
+  start(req: StartRequest) {
+    // Cards from Scryfall that a pasted deck uses: the server needs their rules text too.
+    const fresh = req.cards.filter((c) => !isCardName(c.name));
+    if (fresh.length) {
+      registerCards(Object.fromEntries(fresh.map((c) => [c.name, c])));
+      scriptCards(fresh.map((c) => c.name));
+    }
+    this.prefs = { ...req.prefs };
+    this.acks.clear();
+    this.gameId = nextGameId(this.gameId);
+    this.game = newGame({
+      seed: req.seed ?? (Math.random() * 2 ** 31) | 0,
+      seats: req.seats.map((s, i) => ({ ...s, manualDamage: s.human ? !!req.prefs[i]?.manualDamage : undefined })),
+      stops: this.stops(),
+    });
+    this.changed();
+  }
+
+  /** Carries on with a game already under way, such as a saved one, as a new game for the windows. */
+  load(game: Game, prefs: Partial<Record<PlayerId, SeatPrefs>> = {}) {
+    this.prefs = { ...prefs };
+    this.acks.clear();
+    this.gameId = nextGameId(this.gameId);
+    this.game = game;
+    this.changed();
+  }
+
+  /** Ends the game in progress. Every window hears that there is no game. */
+  end() {
+    this.game = null;
+    this.acks.clear();
+    this.changed();
+  }
+
+  /**
+   * A move from the person in `seat`. It counts only if the game is waiting on them
+   * (117, `Game.priority`) and the engine accepts it; either way their view is sent again
+   * with `seq` acknowledged, so a window that guessed wrong learns what really happened.
+   */
+  act(seat: PlayerId, seq: number, action: Action): boolean {
+    const g = this.game;
+    this.acks.set(seat, Math.max(seq, this.acks.get(seat) ?? 0));
+    const ok = !!g && g.step !== 'gameOver' && g.priority === seat && !g.players[seat].isBot;
+    const next = ok ? applyAction(g, action, this.options()) : g;
+    if (next !== g) this.game = next;
+    this.changed();
+    return next !== g;
+  }
+
+  /** A player's stops or settings changed. The game keeps `manualDamage` on their player. */
+  setPrefs(seat: PlayerId, prefs: SeatPrefs) {
+    this.prefs[seat] = { ...this.prefs[seat], ...prefs };
+    const g = this.game;
+    if (g && prefs.manualDamage !== undefined && g.players[seat] && !g.players[seat].isBot) {
+      this.game = { ...g, players: g.players.map((p) => (p.id === seat ? { ...p, manualDamage: prefs.manualDamage } : p)) };
+      this.changed();
+    }
+  }
+
+  /** How fast the bots play: 1, 2 or 4 times normal. */
+  setSpeed(speed: number) {
+    this.speed = [1, 2, 4].includes(speed) ? speed : 1;
+    this.driveBots();
+  }
+
+  /** Sends `seat`'s view (null: an onlooker's) now and after every change, until the returned function is called. */
+  watch(seat: PlayerId | null, send: (m: ViewMessage) => void): () => void {
+    const w = { seat, send };
+    this.watchers.add(w);
+    send(this.message(seat));
+    return () => this.watchers.delete(w);
+  }
+
+  private stops(): ApplyOptions['stops'] {
+    return Object.fromEntries(Object.entries(this.prefs).flatMap(([seat, p]) => (p?.stops ? [[seat, p.stops]] : [])));
+  }
+
+  private options(): ApplyOptions {
+    return { stops: this.stops() };
+  }
+
+  private message(seat: PlayerId | null): ViewMessage {
+    const g = this.game;
+    return {
+      gameId: this.gameId,
+      version: this.version,
+      seat,
+      ack: seat === null ? 0 : (this.acks.get(seat) ?? 0),
+      game: g && (seat === null || g.players[seat]) ? viewFor(g, seat) : null,
+    };
+  }
+
+  private changed() {
+    this.version++;
+    for (const w of this.watchers) w.send(this.message(w.seat));
+    this.driveBots();
+  }
+
+  /** Whenever a bot has the decision, it acts after a short, readable pause. */
+  private driveBots() {
+    this.cancelBot?.();
+    this.cancelBot = null;
+    const g = this.game;
+    if (!g || g.step === 'gameOver' || !g.players[g.priority].isBot) return;
+    const action = botAction(g, g.priority);
+    this.cancelBot = this.schedule(() => {
+      this.cancelBot = null;
+      if (this.game !== g) return;
+      this.game = applyBotAction(g, action, this.options());
+      this.changed();
+    }, botPause(action) / this.speed);
+  }
+}
