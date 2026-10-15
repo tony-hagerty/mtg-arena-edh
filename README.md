@@ -732,7 +732,7 @@ screen shows. A page with no lobby (a build opened from disk) gets no Host or Jo
 buttons. The menu shows the waiting room while `LobbyState.role` isn't `none`. Once
 `started` is true, the store (`onLobby`) plays the game through the game server as
 `yourSeat` alone: it streams only that seat, never passes the screen, and never starts a
-game itself. Leaving that game leaves the table (for the host, that closes it), and the
+game itself (the host's Play Again asks the lobby to start the next one). Leaving that game leaves the table (for the host, that closes it), and the
 server's game goes on for the others.
 
 ### Sizing the UI
