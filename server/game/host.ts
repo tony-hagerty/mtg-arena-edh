@@ -4,8 +4,9 @@
 import { isCardName, registerCards } from '../../src/cards/db';
 import { scriptCards } from '../../src/cards/oracle';
 import { applyAction, applyBotAction, botAction, botPause, newGame, viewFor } from '../../src/engine';
-import type { Action, ApplyOptions, Game, PlayerId } from '../../src/engine';
+import type { Action, ApplyOptions, CardData, Game, PlayerId } from '../../src/engine';
 import type { SeatPrefs, StartRequest, ViewMessage } from '../../src/net/protocol';
+import type { GameService } from './service';
 
 /** Runs `fn` after `ms`; returns a function that cancels it. Tests pass their own. */
 export type Schedule = (fn: () => void, ms: number) => () => void;
@@ -18,6 +19,8 @@ const realSchedule: Schedule = (fn, ms) => {
 interface Watcher {
   seat: PlayerId | null;
   send: (m: ViewMessage) => void;
+  /** The fetched cards this watcher has been sent the data of. */
+  sent: Set<string>;
 }
 
 /**
@@ -26,8 +29,10 @@ interface Watcher {
  */
 const nextGameId = (last: number) => Math.max(last + 1, Date.now());
 
-export class GameHost {
+export class GameHost implements GameService {
   private game: Game | null = null;
+  /** The game's cards that aren't built in, by name (and each face's name), for the windows that see them. */
+  private fetched = new Map<string, CardData>();
   private gameId = 0;
   private version = 0;
   private prefs: Partial<Record<PlayerId, SeatPrefs>> = {};
@@ -52,6 +57,7 @@ export class GameHost {
       registerCards(Object.fromEntries(fresh.map((c) => [c.name, c])));
       scriptCards(fresh.map((c) => c.name));
     }
+    this.fetched = new Map(req.cards.flatMap((c) => [c, ...(c.faces ?? [])].map((f) => [f.name, c] as const)));
     this.prefs = { ...req.prefs };
     this.acks.clear();
     this.gameId = nextGameId(this.gameId);
@@ -112,9 +118,9 @@ export class GameHost {
 
   /** Sends `seat`'s view (null: an onlooker's) now and after every change, until the returned function is called. */
   watch(seat: PlayerId | null, send: (m: ViewMessage) => void): () => void {
-    const w = { seat, send };
+    const w: Watcher = { seat, send, sent: new Set() };
     this.watchers.add(w);
-    send(this.message(seat));
+    send(this.message(w));
     return () => this.watchers.delete(w);
   }
 
@@ -126,20 +132,23 @@ export class GameHost {
     return { stops: this.stops() };
   }
 
-  private message(seat: PlayerId | null): ViewMessage {
+  private message({ seat, sent }: Watcher): ViewMessage {
     const g = this.game;
+    const game = g && (seat === null || g.players[seat]) ? viewFor(g, seat) : null;
+    const cards = game ? fetchedIn(game, this.fetched, sent) : [];
     return {
       gameId: this.gameId,
       version: this.version,
       seat,
       ack: seat === null ? 0 : (this.acks.get(seat) ?? 0),
-      game: g && (seat === null || g.players[seat]) ? viewFor(g, seat) : null,
+      game,
+      ...(cards.length ? { cards } : {}),
     };
   }
 
   private changed() {
     this.version++;
-    for (const w of this.watchers) w.send(this.message(w.seat));
+    for (const w of this.watchers) w.send(this.message(w));
     this.driveBots();
   }
 
@@ -157,4 +166,23 @@ export class GameHost {
       this.changed();
     }, botPause(action) / this.speed);
   }
+}
+
+/**
+ * The data of the fetched cards `view` names that `sent` doesn't have yet, which it then
+ * does. Any string in the view that is a card's name counts: a card, a copy, a choice.
+ */
+function fetchedIn(view: Game, fetched: Map<string, CardData>, sent: Set<string>): CardData[] {
+  if (!fetched.size) return [];
+  const out = new Map<string, CardData>();
+  const walk = (v: unknown) => {
+    if (typeof v === 'string') {
+      const d = fetched.get(v);
+      if (d && !sent.has(d.name)) out.set(d.name, d);
+    } else if (Array.isArray(v)) v.forEach(walk);
+    else if (v && typeof v === 'object') for (const x of Object.values(v)) walk(x);
+  };
+  walk(view);
+  for (const name of out.keys()) sent.add(name);
+  return [...out.values()];
 }

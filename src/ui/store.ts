@@ -5,7 +5,7 @@ import type { Action, ApplyOptions, AttackOption, CastChoices, Game, ManaSym, Pl
 import { DECKS, cardData, isCardName } from '../cards/db';
 import type { DeckDef } from '../cards/db';
 import { savedDeckIssues } from '../cards/decklist';
-import { fetchCards, isFetched, loadFetchedCards } from '../cards/fetched';
+import { addCards, fetchCards, isFetched, loadFetchedCards } from '../cards/fetched';
 import type { StartRequest, ViewMessage } from '../net/protocol';
 import type { DeckChoice, LobbyConnection, LobbyState } from '../net/lobby';
 import type { Connection } from './remote';
@@ -447,6 +447,10 @@ function watchSeat(seat: PlayerId | null) {
  */
 export function onView(m: ViewMessage) {
   const s = useStore.getState();
+  // Another player's cards from Scryfall, which this window may not have. One it already
+  // has is left alone, so what this window knows of it (its legality) stays.
+  const fresh = m.cards?.filter((c) => !isCardName(c.name)) ?? [];
+  if (fresh.length) addCards(fresh);
   if (m.gameId !== remote.gameId) {
     // A new game: the screen starts afresh, and moves count from 1 again.
     remote.gameId = m.gameId;

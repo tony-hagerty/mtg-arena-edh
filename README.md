@@ -249,7 +249,24 @@ Rule numbers are from the Comprehensive Rules in `docs/rules/`.
   the screen to another person at the same computer switches which seat the window
   streams. A POST must come from the game's own page (its `Origin`), so another web page
   can't send moves. A plain `vite build` opened from disk, and the tests, have no server
-  and run the whole game in the page.
+  and run the whole game in the page. Each view also carries the data of any card from
+  Scryfall the seat can see for the first time (`ViewMessage.cards`), so a friend's
+  pasted deck shows up on everyone's screen.
+- **Tables of friends:** the window's lobby (`src/net/lobby.ts`, `/api/lobby/`) hosts a
+  table or joins one with a code (`server/lobby/`). Hosting listens for friends on TCP
+  port 47190 (or the next free one), asks the router to forward it (`server/net`), and
+  makes the code from the public address, or the home-network address when the router
+  won't say. A friend's program connects over TLS, checks the host's key against the
+  code, and sends the code's password; each side then sends one JSON message per line
+  (`server/lobby/wire.ts`). The host's `Table` seats people, checks their decks (cards
+  they fetched come with the deck; their program already checked Scryfall's legality),
+  and starts the game on the host's `GameHost`, with bots in free seats if the host ticked
+  the box, or a smaller table if not. A friend's program passes its window's moves to the
+  host and the host's views back, so the window plays exactly as on one computer. The
+  host's own window may play and watch only the host's seat. A friend who leaves or loses
+  the connection during a game keeps their seat, and the game waits for them; joining
+  again with the same code and name puts them back in it. Handing a dropped seat to a
+  bot when the table agrees is still to come (phase 5).
 - **Commander zone changes:** a commander that dies or is exiled really goes there (so
   "dies" abilities see it), then its owner may move it to the command zone (903.9a). One
   headed for a hand or library may go to the command zone instead (903.9b). You're asked;
@@ -663,6 +680,10 @@ src/net/        protocol.ts           what the game window and game server send 
                 lobby.ts              what the window and the lobby send each other
 server/game/    host.ts               the game server: the whole game, bots, each seat's view
                 http.ts               its web endpoints (/api/game/...)
+server/lobby/   table.ts              the host's table: seats, decks, ready, starting the game
+                hosting.ts            hosting: friends' TLS connections, the join code
+                guest.ts              a friend's side: joining, and relaying the host's game
+                lobby.ts, http.ts     this computer's lobby and its endpoints (/api/lobby/...)
 src/ui/         store.ts              Zustand store (game + what the player is selecting)
                 remote.ts             the window's connection to the game server
                 lobby.ts              the window's connection to the lobby; the name you play under

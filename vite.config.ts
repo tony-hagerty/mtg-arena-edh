@@ -47,13 +47,15 @@ function gameServer(): Plugin {
     configureServer(server) {
       let host: Promise<{ handle: (req: IncomingMessage, res: ServerResponse, path: string) => boolean }> | null = null;
       const load = async () => {
-        const mod = await server.ssrLoadModule('/server/game/index.ts');
-        const game = new mod.GameHost();
-        return { handle: (req: IncomingMessage, res: ServerResponse, path: string) => mod.handleGameApi(game, req, res, path) as boolean };
+        const game = await server.ssrLoadModule('/server/game/index.ts');
+        const lobby = await server.ssrLoadModule('/server/lobby/index.ts');
+        const net = await server.ssrLoadModule('/server/net/index.ts');
+        const it = new lobby.Lobby(new game.GameHost(), { checkHost: (port: number) => net.checkHost(port) });
+        return { handle: (req: IncomingMessage, res: ServerResponse, path: string) => lobby.handleApi(it, req, res, path) as boolean };
       };
       server.middlewares.use((req, res, next) => {
         const path = decodeURIComponent(new URL(req.url ?? '/', 'http://x').pathname).slice(1);
-        if (!path.startsWith('api/game')) return next();
+        if (!path.startsWith('api/game') && !path.startsWith('api/lobby')) return next();
         // Moves are taken only from this server's own pages (see launcher/serve.ts).
         if (req.method !== 'GET' && req.headers.origin !== `http://${req.headers.host}`) {
           res.statusCode = 403;
