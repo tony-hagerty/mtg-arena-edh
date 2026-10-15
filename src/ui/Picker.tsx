@@ -1,12 +1,29 @@
 // Windows for the decisions where the human picks or orders cards: searching their library,
 // keeping or mulliganing a hand, putting cards on the bottom, picking from a few cards,
-// ordering their triggers, and sending their commander to the command zone. Also the
+// ordering their triggers, sending their commander to the command zone, and dividing
+// combat damage. Also the
 // yes/no questions and naming a card that come up while a spell or ability resolves.
 // `CardPicker` is the reusable part; `Decisions` chooses which one the game is asking for.
 import { useState } from 'react';
 import { CREATURE_TYPES, cardNames, isCardName } from '../cards/db';
-import { canCast, canMulligan, canSayYes, choiceOptions, commanderTax, data, findCard, label, nextMulliganBottom, resolvingItem, triggerText } from '../engine';
-import type { Action, AskChoice, Card, CardChoice, CastChoice, Game, NameChoice, PlayerChoice, PlayerId } from '../engine';
+import {
+  autoAssignments,
+  canCast,
+  canMulligan,
+  canSayYes,
+  choiceOptions,
+  commanderTax,
+  damageRooms,
+  data,
+  findCard,
+  label,
+  legalAssignment,
+  nextMulliganBottom,
+  permanent,
+  resolvingItem,
+  triggerText,
+} from '../engine';
+import type { Action, AskChoice, Card, CardChoice, CastChoice, DamageAssignment, DamageRoom, Game, NameChoice, PlayerChoice, PlayerId } from '../engine';
 import { ManaCost } from './Card';
 import { useStore } from './store';
 import { cx, hoverProps } from './util';
@@ -470,6 +487,126 @@ function TriggerOrder({ g, me }: { g: Game; me: PlayerId }) {
   );
 }
 
+/** One line of the damage window: a recipient, the damage on it, and buttons to change it. */
+function DamageRow({ name, note, n, less, more, onChange }: { name: string; note?: string; n: number; less: boolean; more: boolean; onChange: (by: number) => void }) {
+  return (
+    <div className="cast-row damage-row">
+      <span className="damage-name">
+        {name}
+        {note && <small>{note}</small>}
+      </span>
+      <button className="chip" disabled={!less} onClick={() => onChange(-1)} aria-label={`Less to ${name}`}>
+        −
+      </button>
+      <b className="cast-x">{n}</b>
+      <button className="chip" disabled={!more} onClick={() => onChange(1)} aria-label={`More to ${name}`}>
+        +
+      </button>
+    </div>
+  );
+}
+
+/**
+ * The active player divides combat damage (510.1): for each attacker with a choice, so much
+ * to each creature blocking it (510.1c) and, with trample, to what it attacked once every
+ * blocker has lethal damage (702.19b). It starts on the automatic split, and the whole
+ * assignment is checked before it can be dealt (510.1e).
+ */
+function DamagePanel({ g, attackers }: { g: Game; attackers: string[] }) {
+  const rooms = damageRooms(g).filter((r) => attackers.includes(r.attacker));
+  const [split, setSplit] = useState<DamageAssignment[]>(() => autoAssignments(g));
+  const [folded, setFolded] = useState(false);
+  if (folded) {
+    return (
+      <button className="picker-pill" onClick={() => setFolded(false)}>
+        Back to: divide combat damage
+      </button>
+    );
+  }
+  const change = (attacker: string, to: string | null, by: number) =>
+    setSplit(
+      split.map((x) =>
+        x.attacker !== attacker ? x : to === null ? { ...x, through: x.through + by } : { ...x, blockers: { ...x.blockers, [to]: (x.blockers[to] ?? 0) + by } },
+      ),
+    );
+  const attackedName = (room: DamageRoom) => {
+    const a = g.combat?.attacks.find((x) => x.id === room.attacker);
+    const target = a?.target ? permanent(g, a.target) : undefined;
+    return target ? label(target) : a ? g.players[a.defender].name : '';
+  };
+  const ok = rooms.every((r) => {
+    const asg = split.find((x) => x.attacker === r.attacker);
+    return !!asg && legalAssignment(r, asg);
+  });
+  return (
+    <div className="modal">
+      <div className="viewer picker">
+        <div className="picker-head">
+          <h2>Divide combat damage</h2>
+          <button className="picker-fold" onClick={() => setFolded(true)}>
+            View table
+          </button>
+        </div>
+        <p className="picker-hint">Each attacker deals damage equal to its power. With trample, the rest can go past its blockers once each has lethal damage.</p>
+        <div className="damage-split">
+          {rooms.map((room) => {
+            const atk = permanent(g, room.attacker)!;
+            const asg = split.find((x) => x.attacker === room.attacker)!;
+            const used = Object.values(asg.blockers).reduce((a, b) => a + b, 0) + asg.through;
+            const spare = used < room.power;
+            const allLethal = room.blockers.every((b) => (asg.blockers[b.id] ?? 0) >= b.lethal);
+            return (
+              <div key={room.attacker} className="damage-attacker">
+                <div className="picker-card" {...hoverProps(atk.name)}>
+                  <img src={data(atk).image} alt={label(atk)} draggable={false} />
+                </div>
+                <div className="damage-rows">
+                  <div className="cast-label">
+                    {label(atk)}: {used} of {room.power} assigned
+                  </div>
+                  {room.blockers.map((b) => {
+                    const n = asg.blockers[b.id] ?? 0;
+                    const blocker = permanent(g, b.id)!;
+                    return (
+                      <DamageRow
+                        key={b.id}
+                        name={label(blocker)}
+                        note={n >= b.lethal ? 'lethal' : `${b.lethal} is lethal`}
+                        n={n}
+                        less={n > 0}
+                        more={spare}
+                        onChange={(by) => change(room.attacker, b.id, by)}
+                      />
+                    );
+                  })}
+                  {room.trample && room.canThrough && (
+                    <DamageRow
+                      name={attackedName(room)}
+                      note={allLethal ? 'trample' : 'trample: lethal to every blocker first'}
+                      n={asg.through}
+                      less={asg.through > 0}
+                      more={spare && allLethal}
+                      onChange={(by) => change(room.attacker, null, by)}
+                    />
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+        <div className="picker-buttons">
+          <button className="btn btn-plain small" onClick={() => setSplit(autoAssignments(g))}>
+            <span className="btn-label">Automatic</span>
+          </button>
+          <button className="btn btn-go small" disabled={!ok} onClick={() => act({ type: 'assignDamage', assignments: split })}>
+            <span className="btn-label">Deal Damage</span>
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /** Per zone: what happened to the commander, what leaving it there means, and the button to leave it. */
 const COMMANDER_ZONE: Record<string, { went: string; left: string; leave: string }> = {
   graveyard: { went: 'went to your graveyard', left: "Left in your graveyard, it can't be cast.", leave: 'Leave in Graveyard' },
@@ -523,6 +660,8 @@ export function Decisions() {
       return targeting ? null : <CastNowPanel key={g.log.length} g={g} choice={d.choice} />;
     case 'orderTriggers':
       return <TriggerOrder key={g.triggers.map((t) => t.id).join()} g={g} me={me} />;
+    case 'assignDamage':
+      return <DamagePanel key={`${g.turn}:${d.firstStrike}`} g={g} attackers={d.attackers} />;
     case 'commanderZone': {
       const p = g.players[me];
       const card = [...p.graveyard, ...p.exile, ...p.hand, ...p.library].find((c) => c.id === d.card);

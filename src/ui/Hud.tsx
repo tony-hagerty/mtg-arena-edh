@@ -487,6 +487,8 @@ export function LogPanel() {
   const g = useView().g;
   const show = useStore((s) => s.showLog);
   const speed = useStore((s) => s.speed);
+  const human = useStore((s) => s.human);
+  const manualDamage = useStore((s) => s.settings.manualDamage);
   const lines = useRef<HTMLDivElement>(null);
   useEffect(() => {
     lines.current?.scrollTo({ top: lines.current.scrollHeight });
@@ -502,6 +504,14 @@ export function LogPanel() {
         <button onClick={() => useStore.setState({ speed: SPEEDS[(SPEEDS.indexOf(speed) + 1) % SPEEDS.length] })} title="Bot speed">
           Speed {speed}×
         </button>
+        {human !== null && (
+          <button
+            onClick={() => useStore.getState().setSetting({ manualDamage: !manualDamage })}
+            title="When an attacker of yours is blocked by two or more creatures, or has trample, choose how its damage is divided"
+          >
+            Damage: {manualDamage ? 'By hand' : 'Auto'}
+          </button>
+        )}
         <button onClick={() => useStore.setState({ confirmExit: true })}>Exit</button>
       </div>
       <AnimatePresence initial={false}>

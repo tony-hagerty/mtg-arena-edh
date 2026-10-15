@@ -1167,7 +1167,7 @@ button {
   text-align: center;
 }
 
-.cast-options .chip {
+:is(.cast-options, .damage-split) .chip {
   min-width: 4rem;
   padding: 0.4rem 1.2rem;
   font: 600 1.6rem 'Segoe UI', sans-serif;
@@ -1188,13 +1188,55 @@ button {
   text-align: left;
 }
 
-.cast-options .chip.on {
+:is(.cast-options, .damage-split) .chip.on {
   border-color: var(--f-gold);
   background: #3a3324;
 }
 
-.cast-options .chip:disabled {
+:is(.cast-options, .damage-split) .chip:disabled {
   opacity: 0.4;
+}
+
+/* The damage window: each attacker's card beside a row per recipient (510.1c, 702.19b). */
+.damage-split {
+  display: flex;
+  flex-direction: column;
+  gap: 2rem;
+  margin-bottom: 2rem;
+  overflow-y: auto;
+}
+
+.damage-attacker {
+  display: flex;
+  align-items: flex-start;
+  gap: 2rem;
+}
+
+.damage-attacker .picker-card {
+  flex: none;
+}
+
+.damage-attacker .picker-card img {
+  width: 14rem;
+  border-radius: 0.9rem;
+}
+
+.damage-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 0.8rem;
+}
+
+.damage-name {
+  display: flex;
+  flex-direction: column;
+  min-width: 24rem;
+  font-size: 1.7rem;
+}
+
+.damage-name small {
+  font-size: 1.3rem;
+  color: #c3cad8;
 }
 
 .prompt {
