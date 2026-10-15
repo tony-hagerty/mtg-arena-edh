@@ -1,7 +1,7 @@
 // Reading a pasted deck list: plain names ("1 Sol Ring", "Sol Ring") and the exports of
 // MTG Arena and Moxfield ("1 Sol Ring (C21) 263", "Commander" and "Deck" sections,
 // "*CMDR*" marks). Plain TypeScript, so it runs in the browser and in tests alike.
-import { ALL_CARD_NAMES, canBeCommander, cardData, deckProblems } from './db';
+import { canBeCommander, cardData, cardsVersion, deckProblems, knownCardNames } from './db';
 import { unsupported } from './support';
 import type { DeckDef } from './db';
 
@@ -95,7 +95,7 @@ export function parseDeckList(text: string): ParsedList {
 }
 
 /** A name in a comparable form: lower case, one kind of apostrophe and spacing, "A // B" spaced one way. */
-const norm = (name: string) =>
+export const norm = (name: string) =>
   name
     .toLowerCase()
     .replace(/[’‘`]/g, "'")
@@ -104,17 +104,19 @@ const norm = (name: string) =>
     .trim();
 
 let index: Map<string, string> | null = null;
+let indexed = -1;
 
 /**
- * The card-pool name for a name as written, or null if the pool has no such card.
- * Case doesn't matter. A card with faces is found by its full name ("Fire // Ice") or its
- * first face's ("Delver of Secrets"), and is listed by its first face's name, as the
- * built-in decks list it.
+ * The card-pool name for a name as written, or null if the pool has no such card. Cards
+ * fetched from Scryfall count as in the pool once added. Case doesn't matter. A card with
+ * faces is found by its full name ("Fire // Ice") or its first face's ("Delver of
+ * Secrets"), and is listed by its first face's name, as the built-in decks list it.
  */
 export function poolName(name: string): string | null {
-  if (!index) {
+  if (!index || indexed !== cardsVersion()) {
     index = new Map();
-    for (const key of ALL_CARD_NAMES) {
+    indexed = cardsVersion();
+    for (const key of knownCardNames()) {
       const d = cardData(key);
       const listed = d.faces ? d.faces[0].name : key;
       index.set(norm(key), listed);
@@ -208,15 +210,17 @@ const sentence = (p: string) => `${p.startsWith('has ') ? `The deck ${p}` : p}.`
 /**
  * Checks pasted text for the paste screen. `picked` is the commanders the human chose on
  * the screen, or null to use the list's. `title` is the name typed on the screen, if any.
+ * `unknown` says why a name isn't in the pool, after the name ("isn't in the card pool"):
+ * the screen says whether it is being fetched, or why it couldn't be.
  */
-export function checkList(text: string, picked: string[] | null, title: string, id: string): ListCheck {
+export function checkList(text: string, picked: string[] | null, title: string, id: string, unknown = (_name: string) => "isn't in the card pool"): ListCheck {
   const list = parseDeckList(text);
   const parts = listDeck(list);
   const candidates = [...new Set([...parts.commanders, ...commanderCandidates(parts)])];
   const commanders = picked ?? (parts.commanders.length ? parts.commanders : candidates.length === 1 ? candidates : []);
   const problems: string[] = [];
   for (const u of list.unreadable) problems.push(`Line ${u.line} isn't a card: "${u.text}".`);
-  for (const name of parts.unknown) problems.push(`${name} isn't in the card pool.`);
+  for (const name of parts.unknown) problems.push(`${name} ${unknown(name)}.`);
   for (const name of new Set([...parts.commanders, ...parts.cards])) {
     for (const p of unsupported(name)) problems.push(`${name}: ${p}.`);
   }

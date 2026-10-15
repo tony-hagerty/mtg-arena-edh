@@ -2,9 +2,10 @@ import { produce } from 'immer';
 import { create } from 'zustand';
 import { applyAction, applyBotAction, defaultStops, newGame } from '../engine';
 import type { Action, ApplyOptions, AttackOption, CastChoices, Game, ManaSym, PlayerId, Step, StopKind, Stops, TargetRef, TargetSpec, Zone } from '../engine';
-import { DECKS } from '../cards/db';
+import { DECKS, isCardName } from '../cards/db';
 import type { DeckDef } from '../cards/db';
 import { savedDeckIssues } from '../cards/decklist';
+import { fetchCards, loadFetchedCards } from '../cards/fetched';
 
 /**
  * A spell or ability the human is part-way through. `cast` and `activate` are proposals
@@ -187,6 +188,14 @@ interface Store {
   savedDecks: DeckDef[];
   saveDeck: (deck: DeckDef) => void;
   deleteDeck: (id: string) => void;
+  /** Goes up when cards fetched from Scryfall are added, so screens that check card names look again. */
+  cardsVersion: number;
+  cardsChanged: () => void;
+  /**
+   * Adds the cards cached by earlier visits, then fetches any a saved deck still names that
+   * the game doesn't have (the cache was cleared). Offline, those decks just stay greyed out.
+   */
+  loadCards: () => Promise<void>;
   quit: () => void;
   act: (a: Action) => boolean;
   botAct: (a: Action) => void;
@@ -211,6 +220,7 @@ export const useStore = create<Store>()((set, get) => ({
   settings: loadSettings(),
   deck: null,
   savedDecks: loadDecks(),
+  cardsVersion: 0,
 
   setStop: (turn, step, kind) => {
     const stops = get().stops.map((t, i) => (i === turn ? { ...t, [step]: kind } : t));
@@ -238,6 +248,15 @@ export const useStore = create<Store>()((set, get) => ({
     const savedDecks = get().savedDecks.filter((d) => d.id !== id);
     saveDecks(savedDecks);
     set({ savedDecks });
+  },
+
+  cardsChanged: () => set({ cardsVersion: get().cardsVersion + 1 }),
+
+  loadCards: async () => {
+    if (await loadFetchedCards()) get().cardsChanged();
+    const names = get().savedDecks.flatMap((d) => [...d.commanders, ...Object.keys(d.basics), ...d.cards]);
+    const missing = [...new Set(names)].filter((n) => !isCardName(n));
+    if (missing.length && (await fetchCards(missing)).cards.length) get().cardsChanged();
   },
 
   start: (deck) =>

@@ -10,6 +10,7 @@ npm test         # rules tests + full bot-vs-bot games
 npm run build    # type-check and production build
 npm run build:single  # one self-contained dist-single/index.html to share
 npm run parse-report  # which pool cards the Oracle text parser can script, and why not the rest
+npm run card-requests -- <file>  # merge a downloaded card-requests.json into docs/
 ```
 
 `build:single` inlines the code, styles, fonts and cursor into one `index.html` that
@@ -35,9 +36,16 @@ internet connection.
   Ring") or an Arena, Moxfield or MTGO export; set codes, collector numbers and foil
   marks are ignored. The commander comes from a "Commander" section, a `*CMDR*` mark or
   a one- or two-card sideboard; otherwise click one (or two partners) among the list's
-  legendary creatures. Every problem is listed: cards the game doesn't have, and broken
+  legendary creatures. Every problem is listed: cards the game can't play, and broken
   deck rules (100 cards, one of each, colour identity, commander). **Save Deck** works
   once there are none. The deck joins the menu, saved in the browser; **×** deletes it.
+- **Any card:** a card the game doesn't have is fetched from Scryfall as you paste, and
+  scripted from its Oracle text. One the game can't read yet is listed with the words it
+  couldn't read; replace it to save the deck. Fetched cards are kept in the browser, so
+  the deck works offline afterwards (**Clear N fetched** forgets them). If Scryfall
+  can't be reached, the screen says why and offers **Retry**; every other card still
+  works. Refused cards are written down for Claude to script later (see
+  [Adding a card](#adding-a-card)).
 - **Mulligan:** before the first turn you see your seven cards. Press **Keep**, or
   **Mulligan** to shuffle them away and draw seven new ones. Your first mulligan is free;
   after that you pick one card per extra mulligan to put on the bottom of your library.
@@ -186,6 +194,21 @@ Rule numbers are from the Comprehensive Rules in `docs/rules/`.
   (`unsupported` in `src/cards/support.ts`, the same check as the card-pool test), stops
   the deck being saved. Saved decks live in `localStorage` (`arena-edh.decks`); one whose
   cards a newer pool lacks stays on the menu, greyed out with the reason.
+- **Cards from Scryfall:** a name the pool lacks is fetched by the browser from
+  Scryfall's `/cards/collection` (75 names a request, 100 ms apart), mapped by
+  `src/cards/scryfall.ts` (the same mapping `npm run fetch-cards` uses), added with
+  `registerCards` and scripted by the Oracle text parser (`src/cards/fetched.ts`). The
+  pool's cards and hand scripts always win over fetched ones. Fetched card data is cached
+  in IndexedDB (`src/cards/cache.ts`) and scripted again on each load, so a newer parser
+  reaches cached cards too. At start-up a saved deck's cards missing from the cache are
+  fetched again.
+- **Card requests:** each fetched card the game can't play goes into
+  `docs/card-requests.json` (name, Oracle text, the clause, how many times, when last),
+  merged by name (`src/cards/requests.ts`). Under `npm run dev` the app posts it to a dev
+  server endpoint (`vite.config.ts`) that writes the file; a built version keeps it in the
+  browser for the paste screen's **Download report** button, merged into the file with
+  `npm run card-requests -- <download>`. `npm run parse-report` adds any pool card that
+  can't be played. The `/script-requested-cards` skill (`.claude/skills/`) scripts them.
 - **Seats:** the store's `seatDecks` picks each seat's deck from the menu's choices and
   passes them to `newGame({ decks })`. Play Again replays the same deck and opponents.
 - **Commander zone changes:** a commander that dies or is exiled really goes there (so
@@ -531,7 +554,8 @@ refuses the whole card, naming the clause: it never guesses. Hand scripts always
 - **"You may" (608.2d)** asks the player each time; the rest of the ability waits for the
   answer.
 - **Refused:** anything else, including modal text, "instead", "for each", conditions,
-  X outside a cost, other triggers, and cards with faces.
+  X outside a cost, other triggers, and cards with faces. A fetched card it refuses can't
+  be played: it is never played as a stand-in.
 - `npm run parse-report` prints, for the pool, the cards it scripts on its own (60 of 263
   with rules text today) and every refusal grouped by reason. A test plays a sample of
   42 pool cards with the parsed script and with the hand script and checks the table
@@ -580,6 +604,10 @@ src/cards/      decklists.json        the decks and tokens
                 oracle.ts             scripts from Oracle text, for cards without a hand script
                 oracle-report.ts      the parse report (npm run parse-report)
                 support.ts            can the engine play a card (unsupported)
+                scryfall.ts           Scryfall's card data as CardData; fetching by name
+                fetched.ts            cards fetched for pasted decks: add, script, refuse
+                cache.ts              the browser's cache of fetched cards (IndexedDB)
+                requests.ts           docs/card-requests.json: entries and merging
                 creature-types.json   every creature type (205.3m; npm run fetch-rules)
                 cards.generated.json  card data from Scryfall (npm run fetch-cards)
                 scripts.ts            what each card does (starter decks)
@@ -593,6 +621,7 @@ src/ui/         store.ts              Zustand store (game + what the player is s
                 view.ts               highlights, prompt, buttons, click handlers
                 Card/Board/Hud.tsx    components
                 Menu.tsx              deck menu, opponent seats, the paste screen
+                card-requests.ts      sends refused cards to the dev server or a download
                 Picker.tsx            card picker: search, mulligan, bottom, trigger order,
                                       yes/no questions, naming, players, legend rule,
                                       escape, casting while a spell resolves
@@ -607,6 +636,7 @@ public/         cursor.png            the mouse cursor, and cursor-down.png whil
 docs/rules/     INDEX.md              official Comprehensive Rules, one file per rule
                                       (npm run fetch-rules)
 docs/           card-scripting.md     how to script a card from its exact wording
+                card-requests.json    cards the game refused, for /script-requested-cards
 ```
 
 ### Three core ideas
@@ -670,6 +700,12 @@ fixed spot on a 192 × 108 grid.
 
 Once a card is in the pool it can also be used in a pasted deck, by any name `poolName`
 matches.
+
+A card pasted in a deck doesn't need to be in the pool: the app fetches it (see
+[Commander and decks](#commander-and-decks)). The ones it can't play are listed in
+`docs/card-requests.json`; run `/script-requested-cards` in Claude Code to add parser
+templates or hand scripts for them. A hand script in `src/cards/scripts.ts` works for a
+fetched card too, since the card is matched to it by name.
 
 ### Script reference
 

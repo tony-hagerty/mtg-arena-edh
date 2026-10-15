@@ -87,13 +87,21 @@ export const CREATURE_TYPES: string[] = creatureTypes;
 /** Every card name the game knows, faces included, for naming a card (201.3). */
 export const cardNames = () => [...new Set([...Object.keys(cards), ...faceNames.keys()])].sort();
 
+/** Goes up each time cards are added, so whatever indexes card names knows to look again. */
+let version = 0;
+export const cardsVersion = () => version;
+
+/** Every card the game knows by its key: the pool's, plus any added with `registerCards`. */
+export const knownCardNames = () => Object.keys(cards);
+
 /**
- * Adds cards that aren't in cards.generated.json. Tests use it to try out rules on cards
- * the pool doesn't have yet. `ALL_CARD_NAMES` doesn't list them.
+ * Adds cards that aren't in cards.generated.json: cards fetched from Scryfall for a pasted
+ * deck (`fetched.ts`), and cards tests use to try out rules. `ALL_CARD_NAMES` doesn't list them.
  */
 export function registerCards(extra: Record<string, CardData>) {
   Object.assign(cards, extra);
   indexFaces(extra);
+  version++;
 }
 
 const WUBRG: Color[] = ['W', 'U', 'B', 'R', 'G'];
