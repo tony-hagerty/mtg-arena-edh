@@ -49,8 +49,9 @@ move to another folder or a USB stick together.
 | ---------------- | ------------------------------------------------------------------------- |
 | `edge/`          | Edge's profile. Saved decks, settings and fetched cards are in its storage |
 | `launcher.log`   | What the launcher did, and any error. Cleared once it passes 1 MB          |
+| `saves/`         | A copy of each table game this player is in, to carry on if the host goes |
 
-`launcher/paths.ts` also names `saves/` and `cards/` for the game server to come.
+`launcher/paths.ts` also names `cards/` for the game server to come.
 
 ## First run
 

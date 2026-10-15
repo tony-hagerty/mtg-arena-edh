@@ -16,7 +16,7 @@ export interface Paths {
   edge: string;
   /** This run's log. With no console window, it's the only place errors show up. */
   log: string;
-  /** Saved and paused games (phase 5). Not created yet. */
+  /** Every table's games as they're played, to resume (server/lobby/saves.ts). Created on the first save. */
   saves: string;
   /** Card data fetched from Scryfall, for the game server (phase 4). Not created yet. */
   cards: string;
