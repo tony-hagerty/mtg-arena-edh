@@ -235,7 +235,51 @@ registerScripts({
     ],
     then: { mana: (g, { self, you, name }) => addMana(g, you, [name as ManaSym], self) },
   },
-  'Loxodon Warhammer': { static: attachedBonus({ power: 3, keywords: ['trample', 'lifelink'] }), activated: equip('{3}') },
+  // {X} in an activated ability's cost (107.3a), paid with black mana only.
+  'Crypt Rats': {
+    activated: {
+      // "{X}: This creature deals X damage to each creature and each player. Spend only black mana on X."
+      cost: { mana: '{X}', xColor: 'B' },
+      text: '{X}: This creature deals X damage to each creature and each player. Spend only black mana on X.',
+      resolve: (g, { self, x }) => {
+        const n = x ?? 0;
+        if (n <= 0) return; // 0 damage isn't dealt (120.8)
+        log(g, `${label(self)} deals ${n} damage to each creature and each player.`, self.controller, [self]);
+        for (const c of allCreatures(g)) damageCard(g, self, c, n);
+        for (const p of g.players) if (!p.lost) damagePlayer(g, self, p.id, n);
+      },
+    },
+  },
+  // A −X loyalty ability (606.4): X is announced as it is activated (107.3a).
+  'Chandra Nalaar': {
+    loyalty: [
+      {
+        cost: 1,
+        text: 'Chandra Nalaar deals 1 damage to target player or planeswalker.',
+        targets: [{ type: 'player or planeswalker', label: 'target player or planeswalker' }],
+        resolve: (g, { self, targets }) => void dealDamage(g, self, targets[0], 1),
+      },
+      {
+        cost: '-X',
+        text: 'Chandra Nalaar deals X damage to target creature.',
+        targets: [{ type: 'creature', label: 'target creature' }],
+        resolve: (g, { self, targets, x }) => void dealDamage(g, self, targets[0], x ?? 0),
+      },
+      {
+        cost: -8,
+        text: "Chandra Nalaar deals 10 damage to target player or planeswalker and each creature that player or that planeswalker's controller controls.",
+        targets: [{ type: 'player or planeswalker', label: 'target player or planeswalker' }],
+        resolve: (g, { self, targets }) => {
+          // The player, or the planeswalker's controller as the ability resolves.
+          const walker = refCard(g, targets[0]);
+          const pid = walker ? walker.controller : refPlayer(g, targets[0])?.id;
+          dealDamage(g, self, targets[0], 10);
+          if (pid !== undefined) for (const c of creaturesOf(g, pid)) dealDamage(g, self, { kind: 'card', id: c.id }, 10);
+        },
+      },
+    ],
+  },
+  'Loxodon Warhammer': { static:attachedBonus({ power: 3, keywords: ['trample', 'lifelink'] }), activated: equip('{3}') },
   'Untethered Express': { onAttack: (g, { self }) => addCounters(g, permanent(g, self.id)), activated: crew(1) },
   "Black Sun's Zenith": {
     onResolve: (g, { self }) => {

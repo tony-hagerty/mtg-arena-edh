@@ -4,7 +4,7 @@ import { produce } from 'immer';
 import { describe, expect, it } from 'vitest';
 import './fixtures';
 import { useStore } from '../src/ui/store';
-import { activateFromHand, buildView, chooseEscape, chooseGraveyardTarget, clickPermanent, clickPlayer, clickStackItem, exileForMana, pickAbility, pickColor, pickFace, pickMode, playHandCard, setChoices } from '../src/ui/view';
+import { activateFromHand, buildView, chooseEscape, chooseGraveyardTarget, clickPermanent, clickPlayer, clickStackItem, exileForMana, pickAbility, pickColor, pickFace, pickMode, playHandCard, setAbilityX, setChoices } from '../src/ui/view';
 import { applyAction, canCast } from '../src/engine';
 import type { Game } from '../src/engine';
 import { byName, emptyGame, put } from './helpers';
@@ -542,5 +542,45 @@ describe('the two-colour decks in the UI (session 8a)', () => {
     expect(game().decision?.type).toBe('ask');
     useStore.getState().act({ type: 'answer', yes: false });
     expect(byName(game(), 0, 'Blood Crypt')!.tapped).toBe(true);
+  });
+});
+
+describe('X in ability costs in the UI (107.3a)', () => {
+  it('announces X before paying for an ability with {X}', () => {
+    play((d) => {
+      put(d, 0, 'Crypt Rats');
+      put(d, 0, 'Swamp', 'battlefield', 3);
+      put(d, 0, 'Mountain');
+    });
+    clickPermanent(byName(game(), 0, 'Crypt Rats')!);
+    let v = buildView();
+    expect(v.abilityX).toMatchObject({ x: 3, max: 3 }); // starts at the most it can pay; the Mountain can't help
+    setAbilityX(9);
+    expect(buildView().abilityX?.x).toBe(3);
+    setAbilityX(1);
+    v = buildView();
+    expect(v.prompt).toContain('{B}');
+    press(); // Continue
+    expect(buildView().prompt).toContain('Pay the cost');
+    press(); // Pay {B}; the bots pass and it resolves
+    expect(game().players.map((p) => p.life)).toEqual([39, 39, 39, 39]);
+  });
+
+  it('announces X for a −X loyalty ability, then its target', () => {
+    play((d) => {
+      put(d, 0, 'Chandra Nalaar').counters.loyalty = 6;
+      put(d, 1, 'Shivan Dragon');
+    });
+    clickPermanent(byName(game(), 0, 'Chandra Nalaar')!);
+    expect(buildView().loyalty?.options.map((o) => o.cost)).toEqual(['+1', '−X', '−8']);
+    pickAbility({ ability: 1 });
+    expect(buildView().abilityX).toMatchObject({ x: 6, max: 6 });
+    expect(buildView().prompt).toContain('no loyalty left');
+    setAbilityX(2);
+    press(); // Continue
+    clickPermanent(byName(game(), 1, 'Shivan Dragon')!);
+    expect(useStore.getState().targeting).toBe(null);
+    expect(byName(game(), 0, 'Chandra Nalaar')!.counters.loyalty).toBe(4);
+    expect(byName(game(), 1, 'Shivan Dragon')!.damage).toBe(2);
   });
 });

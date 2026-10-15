@@ -4,7 +4,7 @@ Goal: the features the user asked for after the Commander-decks plan
 (`docs/plans/commander-decks.md`) was finished. Each is its own session, started only when
 the user says so, one at a time.
 
-**Status: sessions 1 and 2 done. The user answered the first round of questions; the decisions
+**Status: sessions 1, 2 and 3 done. The user answered the first round of questions; the decisions
 are written into each session.**
 
 ## Rules every session follows
@@ -87,7 +87,7 @@ and Equipment with another ability besides equip.
   colour choice while resolving: `nameCard` with `of: 'color'`, shown as five buttons.
   Cranial Plating is the Equipment test card ({B}{B} attach at instant speed, equip {1}).
 
-### 3. {X} in activated ability costs, and −X loyalty abilities
+### 3. {X} in activated ability costs, and −X loyalty abilities (done)
 
 Spells already have X (`self.cast.x`). Activated abilities don't (README: "Not supported
 yet: X in activated abilities"), nor do loyalty abilities with −X.
@@ -105,6 +105,12 @@ yet: X in activated abilities"), nor do loyalty abilities with −X.
   X damage to each creature and each player") and a planeswalker with −X (chosen in the
   session, checked against Oracle text).
 - Update "Known simplifications" (X in activated abilities, −X loyalty).
+- Done. The `activate` action and the stack item carry `x`; scripts read `ctx.x`. A loyalty
+  cost can be `'-X'`. Crypt Rats's "Spend only black mana on X" is `cost.xColor`, paid as
+  that many coloured pips. The planeswalker is Chandra Nalaar (−X: X damage to target
+  creature). The UI asks for X before targets and starts at the most that can be paid; for
+  −X it warns when X would leave no loyalty. Bots try every X from 1 up to what they can
+  pay, or six values spread over that range when it is larger, to keep the look-ahead quick.
 
 ### 4. Manual combat damage assignment
 

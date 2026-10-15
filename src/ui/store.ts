@@ -30,6 +30,9 @@ export interface Targeting {
   activated?: number;
   /** Still choosing which ability: targets come next. */
   pickingAbility?: boolean;
+  /** The X announced for an ability with {X} or −X in its cost (107.3a), and whether the human is still choosing it: targets come next. */
+  x?: number;
+  choosingX?: boolean;
   /** Cards picked to discard for a "Discard a card" cost. */
   discard?: string[];
   /** The human chose not to pay an optional sacrifice, like bargain (702.166a). */

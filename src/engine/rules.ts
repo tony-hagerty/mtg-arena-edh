@@ -1456,12 +1456,16 @@ export function createToken(g: Game, pid: PlayerId, key: string, count = 1, opts
 }
 
 /**
- * The cost of an activated ability: its mana, plus any life (119.4). Tapping, sacrificing
+ * The cost of an activated ability: its mana with X filled in, plus any life (119.4). Tapping, sacrificing
  * and crewing are paid separately.
  */
-export function abilityCost(ab: { cost: { mana?: string; life?: number }; reduction?: (g: Game, self: Card) => number }, g?: Game, self?: Card): Cost {
+export function abilityCost(ab: { cost: { mana?: string; life?: number; xColor?: ManaSym }; reduction?: (g: Game, self: Card) => number }, g?: Game, self?: Card, x = 0): Cost {
   const cost = parseCost(ab.cost.mana ?? '');
   cost.life += ab.cost.life ?? 0;
+  // X is generic mana (107.4b), or mana of one colour if the ability says to spend only that on X.
+  if (ab.cost.xColor) cost.pips.push(...Array<ManaSym>(cost.x * x).fill(ab.cost.xColor));
+  else cost.generic += cost.x * x;
+  cost.x = 0;
   // A reduction takes off generic mana only, never below {0} (601.2f).
   if (ab.reduction && g && self) cost.generic = Math.max(0, cost.generic - ab.reduction(g, self));
   return cost;
