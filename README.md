@@ -82,6 +82,11 @@ npm run fetch-rules    # refresh docs/rules/ after a new set releases
 Behind an HTTPS proxy, run `fetch-cards` as `NODE_USE_ENV_PROXY=1 npm run fetch-cards`
 (Node's `fetch` ignores the proxy otherwise).
 
+**Releasing:** set `version` in `package.json`, merge to `main`, then push a matching tag
+(`git tag v0.1.0 && git push origin v0.1.0`). The
+[Release workflow](.github/workflows/release.yml) runs the tests, builds `ArenaEDH.exe` on
+Windows, checks that it starts, and publishes the release with the `.exe` attached.
+
 The stack is TypeScript, React, Zustand and Immer, built with Vite and tested with Vitest.
 The rules engine is a pure function, `applyAction(game, action)`, in `src/engine/`.
 
