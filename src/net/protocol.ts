@@ -57,4 +57,9 @@ export interface ViewMessage {
   ack: number;
   /** The seat's view, or null when there is no game. */
   game: Game | null;
+  /**
+   * The data of cards in this view that aren't built in (fetched from Scryfall for another
+   * player's deck), each sent once per stream, the first time the seat can see it.
+   */
+  cards?: CardData[];
 }
