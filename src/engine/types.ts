@@ -211,6 +211,12 @@ export interface Player {
   id: PlayerId;
   name: string;
   isBot: boolean;
+  /**
+   * The log and prompts speak to this player as "you" ("You cast", "your library"). Set
+   * for the only person in a game against bots; with several people at the table, every
+   * line names its player.
+   */
+  you?: boolean;
   deckId: string;
   /** Commander card names: one, or two partners (702.124). Indexes into `commanderCasts` and `commanderDamage`. */
   commanders: string[];
@@ -358,10 +364,16 @@ export type TargetRef = { kind: 'card'; id: string } | { kind: 'player'; id: Pla
 
 export interface LogEntry {
   turn: number;
+  /** The line as everyone sees it. */
   text: string;
   player?: PlayerId;
   /** Names of the cards the text mentions, exactly as written in it, so the UI can link them. */
   cards?: string[];
+  /**
+   * The line as `players` see it, when it shows them something hidden from the others,
+   * like the card they found searching their library (701.23e).
+   */
+  private?: { players: PlayerId[]; text: string; cards?: string[] };
 }
 
 /**

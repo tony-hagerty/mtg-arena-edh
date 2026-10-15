@@ -124,6 +124,7 @@ describe('parsed scripts in a game', () => {
     const enter = (yes: boolean) => {
       let g = emptyGame((d) => {
         d.players[0].isBot = false;
+        d.players[0].you = true;
         put(d, 0, 'Maybe Sage', 'hand');
         put(d, 0, 'Plains');
       });

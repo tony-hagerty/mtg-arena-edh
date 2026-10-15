@@ -4,7 +4,32 @@ import { OpponentPanel, PlayerField } from './Board';
 import { ActionBar, ArrowLayer, CastOptions, ColorPicker, ExitConfirm, GameOver, LogPanel, Preview, Prompt, SpellFlash, StackPanel, ZoneViewer } from './Hud';
 import { Decisions, EscapePicker, GraveyardTargets } from './Picker';
 import { useStore } from './store';
+import { fromSeat } from './util';
 import { ViewContext, buildView } from './view';
+
+/**
+ * Covers the table while the screen passes to the next person at it, so nobody sees
+ * another player's hand (402.3).
+ */
+function Handoff() {
+  const handoff = useStore((s) => s.handoff);
+  const game = useStore((s) => s.game);
+  const takeOver = useStore((s) => s.takeOver);
+  if (handoff === null || !game) return null;
+  return (
+    <div className="modal handoff">
+      <div className="game-over">
+        <h1>Pass to {game.players[handoff].name}</h1>
+        <p>{game.players[handoff].name} has a decision to make.</p>
+        <div className="game-over-buttons">
+          <button className="btn btn-go small" onClick={takeOver}>
+            <span className="btn-label">I'm {game.players[handoff].name}</span>
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 export function GameScreen() {
   const game = useStore((s) => s.game)!;
@@ -26,8 +51,8 @@ export function GameScreen() {
     return () => clearTimeout(t);
   }, [game, speed]);
 
-  // Seat 0 is always at the bottom; the others sit clockwise in turn order: left, top, right.
-  const [bottom, ...others] = game.players;
+  // You sit at the bottom; the others sit clockwise in turn order after you (see `seatOf`).
+  const [bottom, ...others] = fromSeat(game.players, human);
   return (
     <ViewContext.Provider value={view}>
       <div className="stage board">
@@ -49,6 +74,7 @@ export function GameScreen() {
         <GraveyardTargets />
         <GameOver />
         <ExitConfirm />
+        <Handoff />
       </div>
       <Preview />
     </ViewContext.Provider>

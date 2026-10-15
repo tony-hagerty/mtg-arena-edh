@@ -4,7 +4,7 @@ import type { DeckDef } from '../cards/db';
 import { checkList, norm, savedDeckIssues } from '../cards/decklist';
 import { clearFetchedCards, fetchCards, fetchedCount, requestFor } from '../cards/fetched';
 import { downloadRequests, keptRequests, reportRequests, writesFile } from './card-requests';
-import { useStore } from './store';
+import { type SeatPlayer, useStore } from './store';
 import { cx, deckColor } from './util';
 
 export function Menu() {
@@ -20,7 +20,7 @@ function DeckMenu({ paste }: { paste: () => void }) {
   return (
     <div className="stage menu">
       <h1>Commander Table</h1>
-      <p className="menu-sub">A four-player, Arena-style Commander prototype. Pick a deck — bots pilot the other three.</p>
+      <p className="menu-sub">An Arena-style Commander prototype for two to four players. Pick a deck; the seats below say who plays the others.</p>
       <div className="deck-list">
         {DECKS.map((deck) => (
           <DeckTile key={deck.id} deck={deck} issues={[]} play={() => start(deck)} />
@@ -35,7 +35,7 @@ function DeckMenu({ paste }: { paste: () => void }) {
           Paste a deck list
         </button>
         <button className="watch" onClick={() => start(null)}>
-          or watch four bots play
+          or watch the bots play
         </button>
       </div>
     </div>
@@ -75,36 +75,55 @@ function DeckTile({ deck, issues, play, pasted }: { deck: DeckDef; issues: strin
   );
 }
 
-/** One picker per bot seat: a deck, or Automatic (the next built-in deck no one else has). Saved with the settings. */
+const SEAT_LABELS: Record<SeatPlayer, string> = { bot: 'Bot', person: 'Person here', empty: 'Empty seat' };
+
+/**
+ * One pair of pickers per opponent seat, saved with the settings: who plays it (a bot,
+ * another person passing this screen, or nobody, for a smaller table) and its deck, or
+ * Automatic (the next built-in deck no one else has).
+ */
 function Opponents() {
   const opponents = useStore((s) => s.settings.opponents);
+  const players = useStore((s) => s.settings.players);
   const setSetting = useStore((s) => s.setSetting);
   useStore((s) => s.cardsVersion);
   const saved = useStore((s) => s.savedDecks).filter((d) => savedDeckIssues(d).length === 0);
   const pick = (seat: number, id: string) => setSetting({ opponents: opponents.map((o, i) => (i === seat ? id || null : o)) });
+  const who = (seat: number, p: SeatPlayer) => setSetting({ players: players.map((o, i) => (i === seat ? p : o)) });
+  // A game needs at least two players, so the last filled seat can't be emptied.
+  const lastFilled = players.filter((p) => p !== 'empty').length === 1;
   return (
     <div className="opponents">
       <span>Opponents</span>
       {opponents.map((id, seat) => (
-        <select key={seat} value={id ?? ''} onChange={(e) => pick(seat, e.target.value)} aria-label={`Opponent ${seat + 1}'s deck`}>
-          <option value="">Automatic</option>
-          <optgroup label="Built-in decks">
-            {DECKS.map((d) => (
-              <option key={d.id} value={d.id}>
-                {d.title}
+        <span key={seat} className="opponent-seat">
+          <select value={players[seat]} onChange={(e) => who(seat, e.target.value as SeatPlayer)} aria-label={`Who plays opponent ${seat + 1}`}>
+            {(Object.keys(SEAT_LABELS) as SeatPlayer[]).map((p) => (
+              <option key={p} value={p} disabled={p === 'empty' && lastFilled && players[seat] !== 'empty'}>
+                {SEAT_LABELS[p]}
               </option>
             ))}
-          </optgroup>
-          {saved.length > 0 && (
-            <optgroup label="Pasted decks">
-              {saved.map((d) => (
+          </select>
+          <select value={id ?? ''} disabled={players[seat] === 'empty'} onChange={(e) => pick(seat, e.target.value)} aria-label={`Opponent ${seat + 1}'s deck`}>
+            <option value="">Automatic</option>
+            <optgroup label="Built-in decks">
+              {DECKS.map((d) => (
                 <option key={d.id} value={d.id}>
                   {d.title}
                 </option>
               ))}
             </optgroup>
-          )}
-        </select>
+            {saved.length > 0 && (
+              <optgroup label="Pasted decks">
+                {saved.map((d) => (
+                  <option key={d.id} value={d.id}>
+                    {d.title}
+                  </option>
+                ))}
+              </optgroup>
+            )}
+          </select>
+        </span>
       ))}
     </div>
   );

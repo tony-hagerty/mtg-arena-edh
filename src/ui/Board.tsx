@@ -7,7 +7,7 @@ import type { Card, ManaSym, Player } from '../engine';
 import { HandBack, HandCard, Permanent } from './Card';
 import { useRem } from './rem';
 import { useStore } from './store';
-import { SEATS, cx, deckColor, faceUp, hoverProps } from './util';
+import { cx, deckColor, faceUp, hoverProps, seatOf } from './util';
 import { clickCrown, clickPlayer, useView } from './view';
 
 const vars = (v: Record<string, string | number>) => v as CSSProperties;
@@ -316,8 +316,8 @@ function OpponentHand({ player, span }: { player: Player; span: number }) {
 
 /** An opponent's side of the table, laid out from their own edge inward: hand, lands, creatures. */
 export function OpponentPanel({ player }: { player: Player }) {
-  const g = useView().g;
-  const seat = SEATS[player.id];
+  const { g, me } = useView();
+  const seat = seatOf(g, me, player.id);
   // The top seat has the long edge; the side seats are shorter, so they fan tighter and wrap.
   const side = seat !== 'top';
   return (
