@@ -2,14 +2,16 @@
 // fetch here, never the real API), scripting them from their Oracle text, refusing what
 // the parser can't read, and writing the refusals down for docs/card-requests.json.
 import { describe, expect, it } from 'vitest';
-import { cardData } from '../src/cards/db';
-import { checkList, poolName } from '../src/cards/decklist';
-import { addCards, fetchCards, isFetched, requestFor } from '../src/cards/fetched';
+import { DECKS, cardData } from '../src/cards/db';
+import type { DeckDef } from '../src/cards/db';
+import { checkList, poolName, savedDeckIssues } from '../src/cards/decklist';
+import { addCards, commanderLegality, fetchCards, isFetched, loadFetchedCards, requestFor } from '../src/cards/fetched';
 import { mergeRequests, readRequests, removeRequests } from '../src/cards/requests';
 import type { CardRequest } from '../src/cards/requests';
 import { BATCH, fetchCollection, toCard } from '../src/cards/scryfall';
 import type { ScryfallCard } from '../src/cards/scryfall';
 import { hasScript } from '../src/engine';
+import type { CardData } from '../src/engine/types';
 import { byName, emptyGame, put, run } from './helpers';
 
 /** A Scryfall card object, as /cards/collection sends it. */
@@ -28,6 +30,7 @@ function scry(name: string, type_line: string, oracle_text: string, extra: Parti
     toughness: '4',
     keywords: [],
     image_uris: { normal: `https://cards.scryfall.io/normal/${id}.jpg?123`, art_crop: `https://cards.scryfall.io/art_crop/${id}.jpg?123` },
+    legalities: { commander: 'legal', vintage: 'legal' },
     ...extra,
   };
 }
@@ -154,6 +157,71 @@ describe('a pasted deck with fetched cards', () => {
     addCards([toCard(scry('Lightning Bolt', 'Instant', 'Lightning Bolt deals 9 damage to any target.'))]);
     expect(cardData('Lightning Bolt')).toBe(bolt);
     expect(isFetched('Lightning Bolt')).toBe(false);
+  });
+});
+
+describe('Commander legality of fetched cards', () => {
+  // Real cards with their real Commander legality on Scryfall.
+  const CRYPT = scry('Mana Crypt', 'Artifact', '{T}: Add {C}{C}.', { mana_cost: '{0}', cmc: 0, colors: [], color_identity: [], legalities: { commander: 'banned', vintage: 'restricted' } });
+  const LOTUS = scry('Mox Lotus', 'Artifact', '{T}: Add {∞}.', { mana_cost: '{15}', cmc: 15, colors: [], color_identity: [], legalities: { commander: 'not_legal' } });
+  const PRIMEVAL = scry('Primeval Titan', 'Creature — Giant', 'Trample', { mana_cost: '{4}{G}{G}', cmc: 6, colors: ['G'], color_identity: ['G'], keywords: ['Trample'], legalities: { commander: 'banned' } });
+  const black = DECKS.find((d) => d.id === 'black')!;
+  /** The black deck with its first card swapped for `name`. */
+  const withCard = (name: string): DeckDef => ({ ...black, id: 'pasted-1', cards: [...black.cards.slice(1), name] });
+  const asList = (deck: DeckDef) => ['Commander', ...deck.commanders, 'Deck', ...Object.entries(deck.basics).map(([n, k]) => `${k} ${n}`), ...deck.cards].join('\n');
+
+  it("keeps each card's Commander legality from Scryfall's answer", async () => {
+    const res = await fetchCollection(['Mana Crypt', 'Wall of Omens', 'Mox Lotus'], { fetch: fakeScryfall([CRYPT, WALL, LOTUS]) });
+    expect(res.legality).toEqual({ 'Mana Crypt': 'banned', 'Wall of Omens': 'legal', 'Mox Lotus': 'not_legal' });
+    // Never let in unchecked: a card sent without legalities counts as not legal.
+    const bare = await fetchCollection(['Wall of Omens'], { fetch: fakeScryfall([{ ...WALL, legalities: undefined }]) });
+    expect(bare.legality).toEqual({ 'Wall of Omens': 'not_legal' });
+  });
+
+  it('refuses a banned card on the paste screen and in a saved deck, even one the engine could play', async () => {
+    await fetchCards(['Mana Crypt'], { fetch: fakeScryfall([CRYPT]) });
+    expect(commanderLegality('Mana Crypt')).toBe('banned');
+    expect(hasScript('Mana Crypt')).toBe(true);
+    const check = checkList(asList(withCard('Mana Crypt')), null, '', 'x');
+    expect(check.problems).toEqual(['Mana Crypt: banned in Commander.']);
+    expect(check.deck).toBeNull();
+    expect(savedDeckIssues(withCard('Mana Crypt'))).toEqual(['Mana Crypt: banned in Commander']);
+    // Not worth writing down for scripting.
+    expect(requestFor('Mana Crypt')).toBeNull();
+  });
+
+  it('refuses a banned commander', async () => {
+    await fetchCards(['Primeval Titan'], { fetch: fakeScryfall([PRIMEVAL]) });
+    expect(checkList('Commander\n1 Primeval Titan\nDeck\n99 Forest', null, '', 'x').problems).toContain('Primeval Titan: banned in Commander.');
+  });
+
+  it('refuses a card that is not legal in Commander at all, such as an Un-set card', async () => {
+    await fetchCards(['Mox Lotus'], { fetch: fakeScryfall([LOTUS]) });
+    expect(savedDeckIssues(withCard('Mox Lotus'))).toEqual(['Mox Lotus: not legal in Commander']);
+  });
+
+  it('takes pool cards as legal: npm run fetch-cards keeps banned cards out of the pool', () => {
+    expect(commanderLegality('Sol Ring')).toBe('legal');
+    expect(savedDeckIssues(black)).toEqual([]);
+  });
+
+  it('fetches again a cached card kept without its legality, and refuses it until then', async () => {
+    const cached = toCard(scry('Ornithopter', 'Artifact Creature — Thopter', 'Flying', { mana_cost: '{0}', cmc: 0, colors: [], color_identity: [], keywords: ['Flying'] }));
+    const offline = (async () => {
+      throw new TypeError('Failed to fetch');
+    }) as unknown as typeof fetch;
+    expect(await loadFetchedCards({ load: async () => [cached], fetch: offline })).toBe(1);
+    expect(commanderLegality('Ornithopter')).toBeNull();
+    expect(savedDeckIssues(withCard('Ornithopter'))).toEqual([`Ornithopter: its Commander legality isn't known yet; it is checked once Scryfall can be reached`]);
+    const calls: string[][] = [];
+    await loadFetchedCards({ load: async () => [cached], fetch: fakeScryfall([scry('Ornithopter', 'Artifact Creature — Thopter', 'Flying', { keywords: ['Flying'] })], calls) });
+    expect(calls).toEqual([['Ornithopter']]);
+    expect(commanderLegality('Ornithopter')).toBe('legal');
+    // A card cached with its legality isn't fetched again.
+    calls.length = 0;
+    await loadFetchedCards({ load: async () => [{ ...cached, legality: 'banned' } as CardData], fetch: fakeScryfall([], calls) });
+    expect(calls).toEqual([]);
+    expect(commanderLegality('Ornithopter')).toBe('banned');
   });
 });
 
