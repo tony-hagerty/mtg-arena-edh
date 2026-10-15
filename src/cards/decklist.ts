@@ -2,6 +2,7 @@
 // MTG Arena and Moxfield ("1 Sol Ring (C21) 263", "Commander" and "Deck" sections,
 // "*CMDR*" marks). Plain TypeScript, so it runs in the browser and in tests alike.
 import { canBeCommander, cardData, cardsVersion, deckProblems, knownCardNames } from './db';
+import { commanderLegality } from './fetched';
 import { unsupported } from './support';
 import type { DeckDef } from './db';
 
@@ -181,12 +182,31 @@ export function makeDeck(id: string, title: string, commanders: string[], parts:
 }
 
 /**
- * Why a saved deck can't be played: names a newer card pool doesn't have or can't play,
- * then the deck rules (`deckProblems`). Empty if it can be played.
+ * Why card `name` can't be in a deck, one reason per problem, or an empty list if it can:
+ * it isn't legal in Commander (banned, say), or the engine can't play it (`unsupported`).
+ * A card that isn't legal gets only that reason, since scripting it wouldn't help.
+ */
+export function cardProblems(name: string): string[] {
+  switch (commanderLegality(name)) {
+    case 'legal':
+      return unsupported(name);
+    case 'banned':
+      return ['banned in Commander'];
+    case null:
+      return ["its Commander legality isn't known yet; it is checked once Scryfall can be reached"];
+    default:
+      return ['not legal in Commander'];
+  }
+}
+
+/**
+ * Why a saved deck can't be played: cards a newer card pool doesn't have, can't play, or
+ * that aren't legal in Commander, then the deck rules (`deckProblems`). Empty if it can be
+ * played. It reads no browser storage, so the game server can check decks with it too.
  */
 export function savedDeckIssues(deck: DeckDef): string[] {
   const names = [...new Set([...deck.commanders, ...Object.keys(deck.basics), ...deck.cards])];
-  const missing = names.flatMap((n) => unsupported(n).map((p) => `${n}: ${p}`));
+  const missing = names.flatMap((n) => cardProblems(n).map((p) => `${n}: ${p}`));
   return missing.length ? missing : deckProblems(deck);
 }
 
@@ -222,7 +242,7 @@ export function checkList(text: string, picked: string[] | null, title: string, 
   for (const u of list.unreadable) problems.push(`Line ${u.line} isn't a card: "${u.text}".`);
   for (const name of parts.unknown) problems.push(`${name} ${unknown(name)}.`);
   for (const name of new Set([...parts.commanders, ...parts.cards])) {
-    for (const p of unsupported(name)) problems.push(`${name}: ${p}.`);
+    for (const p of cardProblems(name)) problems.push(`${name}: ${p}.`);
   }
   if (!list.commanders.length && !list.cards.length) problems.push('Paste a deck list to start.');
   else if (!commanders.length) problems.push('Pick the commander below.');
