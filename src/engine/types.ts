@@ -350,6 +350,8 @@ export interface StackItem {
   activated?: number;
   /** A loyalty ability: its index in the script's `loyalty` list (606). */
   ability?: number;
+  /** An activated ability with X in its cost: the X announced as it was activated (107.3a). */
+  x?: number;
   event?: object;
   targets: (TargetRef | null)[];
   /** A waiting triggered ability whose controller has already chosen its place in the order (603.3b). */
@@ -579,7 +581,8 @@ export type Action =
    * the `activated` abilities: `activated` is its index in the list (left out, the first).
    */
   /** `discard`: the cards discarded to pay a "Discard a card" cost. `sacrifice`: the permanent for a "Sacrifice a creature" cost. */
-  | { type: 'activate'; card: string; ability?: number; activated?: number; targets?: (TargetRef | null)[]; hold?: boolean; crew?: string[]; discard?: string[]; sacrifice?: string[] }
+  /** `x`: the value of X, for an ability with {X} or −X in its cost (107.3a). */
+  | { type: 'activate'; card: string; ability?: number; activated?: number; x?: number; targets?: (TargetRef | null)[]; hold?: boolean; crew?: string[]; discard?: string[]; sacrifice?: string[] }
   /**
    * `ability`: which of its mana abilities (`manaAbilities`). Left out, the one that suits
    * the player best. `color`: the colour to make, for an ability with a choice.
@@ -649,6 +652,11 @@ export interface Ctx {
   sacrificed?: Card[];
   /** Their power as they were sacrificed (608.2h: last known information). */
   sacrificedPower?: number[];
+  /**
+   * An activated ability's X, announced as it was activated (107.3a): its own, apart from
+   * any other X of its source (107.3k). 0 for one without X. A spell reads `self.cast.x`.
+   */
+  x?: number;
 }
 
 export interface StaticBonus {
@@ -789,9 +797,12 @@ export interface ThenCtx extends Ctx {
   data: Record<string, unknown>;
 }
 
-/** A planeswalker's loyalty ability (606): `cost` loyalty counters added (+) or removed (-). */
+/**
+ * A planeswalker's loyalty ability (606): `cost` loyalty counters added (+) or removed (-).
+ * `'-X'` removes X, chosen as it is activated (107.3a); the resolve reads `ctx.x`.
+ */
 export interface LoyaltyAbility {
-  cost: number;
+  cost: number | '-X';
   text: string;
   targets?: TargetSpec[];
   resolve: (g: Game, ctx: Ctx) => void;
@@ -801,6 +812,8 @@ export interface LoyaltyAbility {
  * An activated ability (602): "[cost]: [effect]". Build equip with `equip(cost)` and crew
  * with `crew(n)`. `crew` in the cost means tapping other untapped creatures with that much
  * total power (702.122a). `sorcery` limits it to sorcery timing, like equip (702.6a).
+ * {X} in `cost.mana` is announced as it is activated and paid as generic mana (107.3a,
+ * 107.4b); the resolve reads `ctx.x`.
  */
 export interface ActivatedAbility {
   /**
@@ -819,6 +832,8 @@ export interface ActivatedAbility {
     counters?: { kind: string; n: number };
     /** "Sacrifice a creature:": one permanent its controller controls that fits, chosen as it is activated. */
     sacrificeOne?: TargetSpec;
+    /** "Spend only black mana on X" (Crypt Rats): each X in `mana` is paid with mana of this colour. */
+    xColor?: ManaSym;
   };
   sorcery?: boolean;
   /** Activated from its owner's hand rather than the battlefield, like channel. */
