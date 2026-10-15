@@ -393,9 +393,9 @@ export const useStore = create<Store>()((set, get) => ({
   },
 
   act: (a) => {
-    const { game: g, server, human } = get();
-    // The server takes moves only from the player the game is waiting on.
-    if (!g || (server && g.priority !== human)) return false;
+    const { game: g, server, human, tableGame, table } = get();
+    // The server takes moves only from the player the game is waiting on, and none while a table's game is paused.
+    if (!g || (server && g.priority !== human) || (tableGame && table?.paused)) return false;
     // Declaring attackers/blockers and tapping for mana keep the current selection; anything else resets it.
     const mana = a.type === 'tapMana' || a.type === 'untapMana';
     const keep = mana || a.type.includes('declare');
