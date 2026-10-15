@@ -10,6 +10,7 @@ import type { SeatPrefs, ViewMessage } from '../../src/net/protocol';
 import { Refused } from '../game';
 import type { GameService } from '../game';
 import { connectToHost, decodeJoinCode, HostIdentityError, JoinCodeError } from '../net';
+import type { SaveCopy } from './saves';
 import { receive, send } from './wire';
 import type { GuestMessage, HostMessage } from './wire';
 
@@ -21,6 +22,10 @@ export interface GuestEvents {
   lobby(state: LobbyState): void;
   /** The connection is gone, with the reason in plain words. */
   closed(reason: string): void;
+  /** The game as it stands, for this computer to keep as `seat`'s (saves.ts). */
+  save(copy: SaveCopy, seat: number): void;
+  /** The game is over: its saved copy can go. */
+  forget(id: string): void;
 }
 
 export class GuestLink implements GameService {
@@ -150,6 +155,11 @@ export class GuestLink implements GameService {
       case 'refused':
         this.closing = m.error;
         return;
+      case 'save':
+        if (this.state.yourSeat !== null) this.events.save(m.copy, this.state.yourSeat);
+        return;
+      case 'forget':
+        return this.events.forget(m.id);
       case 'view':
         this.view = { ...m.view, cards: undefined };
         for (const c of m.view.cards ?? []) this.cards.set(c.name, c);

@@ -1,9 +1,10 @@
 // The game server's referee: it alone holds the whole game, plays the bots' seats, takes
 // each person's moves, and gives every seat its own view of the game (`viewFor`).
 // Nothing here knows about HTTP; see http.ts.
+import { produce } from 'immer';
 import { isCardName, registerCards } from '../../src/cards/db';
 import { scriptCards } from '../../src/cards/oracle';
-import { applyAction, applyBotAction, botAction, botPause, newGame, viewFor } from '../../src/engine';
+import { applyAction, applyBotAction, botAction, botPause, log, newGame, viewFor } from '../../src/engine';
 import type { Action, ApplyOptions, CardData, Game, PlayerId } from '../../src/engine';
 import type { SeatPrefs, StartRequest, ViewMessage } from '../../src/net/protocol';
 import type { GameService } from './service';
@@ -41,6 +42,8 @@ export class GameHost implements GameService {
   private watchers = new Set<Watcher>();
   private cancelBot: (() => void) | null = null;
   private speed = 1;
+  private paused = false;
+  private listeners = new Set<() => void>();
 
   constructor(private schedule: Schedule = realSchedule) {}
 
@@ -52,14 +55,10 @@ export class GameHost implements GameService {
   /** Starts a new game, ending any game in progress. */
   start(req: StartRequest) {
     // Cards from Scryfall that a pasted deck uses: the server needs their rules text too.
-    const fresh = req.cards.filter((c) => !isCardName(c.name));
-    if (fresh.length) {
-      registerCards(Object.fromEntries(fresh.map((c) => [c.name, c])));
-      scriptCards(fresh.map((c) => c.name));
-    }
-    this.fetched = new Map(req.cards.flatMap((c) => [c, ...(c.faces ?? [])].map((f) => [f.name, c] as const)));
+    this.addCards(req.cards);
     this.prefs = { ...req.prefs };
     this.acks.clear();
+    this.paused = false;
     this.gameId = nextGameId(this.gameId);
     this.game = newGame({
       seed: req.seed ?? (Math.random() * 2 ** 31) | 0,
@@ -69,10 +68,15 @@ export class GameHost implements GameService {
     this.changed();
   }
 
-  /** Carries on with a game already under way, such as a saved one, as a new game for the windows. */
-  load(game: Game, prefs: Partial<Record<PlayerId, SeatPrefs>> = {}) {
+  /**
+   * Carries on with a game already under way, such as a saved one, as a new game for the
+   * windows. `cards` are the fetched cards it uses (`snapshot`).
+   */
+  load(game: Game, prefs: Partial<Record<PlayerId, SeatPrefs>> = {}, cards: CardData[] = []) {
+    this.addCards(cards);
     this.prefs = { ...prefs };
     this.acks.clear();
+    this.paused = false;
     this.gameId = nextGameId(this.gameId);
     this.game = game;
     this.changed();
@@ -82,7 +86,45 @@ export class GameHost implements GameService {
   end() {
     this.game = null;
     this.acks.clear();
+    this.paused = false;
     this.changed();
+  }
+
+  /** What it takes to carry on with this game later (`load`): the game, everyone's settings, and its fetched cards. */
+  snapshot(): { game: Game; prefs: Partial<Record<PlayerId, SeatPrefs>>; cards: CardData[] } | null {
+    if (!this.game) return null;
+    return { game: this.game, prefs: this.prefs, cards: [...new Set(this.fetched.values())] };
+  }
+
+  get isPaused() {
+    return this.paused;
+  }
+
+  /** Pauses the game: no moves are taken and the bots wait, until it's unpaused. */
+  setPaused(paused: boolean) {
+    if (this.paused === paused) return;
+    this.paused = paused;
+    this.changed();
+  }
+
+  /**
+   * A bot plays `seat` (`bot`), standing in for a person who has gone, or the person is
+   * back. The game's log says so.
+   */
+  setBot(seat: PlayerId, bot: boolean) {
+    const g = this.game;
+    if (!g?.players[seat] || g.players[seat].isBot === bot) return;
+    this.game = produce(g, (d) => {
+      d.players[seat].isBot = bot;
+      log(d, bot ? `A bot plays for ${d.players[seat].name} until they're back.` : `${d.players[seat].name} is back.`, seat);
+    });
+    this.changed();
+  }
+
+  /** Calls `on` after every change to the game, until the returned function is called. */
+  listen(on: () => void): () => void {
+    this.listeners.add(on);
+    return () => this.listeners.delete(on);
   }
 
   /**
@@ -93,7 +135,7 @@ export class GameHost implements GameService {
   act(seat: PlayerId, seq: number, action: Action): boolean {
     const g = this.game;
     this.acks.set(seat, Math.max(seq, this.acks.get(seat) ?? 0));
-    const ok = !!g && g.step !== 'gameOver' && g.priority === seat && !g.players[seat].isBot;
+    const ok = !!g && !this.paused && g.step !== 'gameOver' && g.priority === seat && !g.players[seat].isBot;
     const next = ok ? applyAction(g, action, this.options()) : g;
     if (next !== g) this.game = next;
     this.changed();
@@ -150,6 +192,17 @@ export class GameHost implements GameService {
     this.version++;
     for (const w of this.watchers) w.send(this.message(w));
     this.driveBots();
+    for (const on of this.listeners) on();
+  }
+
+  private addCards(cards: CardData[]) {
+    // Cards from Scryfall that a pasted deck uses: the server needs their rules text too.
+    const fresh = cards.filter((c) => !isCardName(c.name));
+    if (fresh.length) {
+      registerCards(Object.fromEntries(fresh.map((c) => [c.name, c])));
+      scriptCards(fresh.map((c) => c.name));
+    }
+    this.fetched = new Map(cards.flatMap((c) => [c, ...(c.faces ?? [])].map((f) => [f.name, c] as const)));
   }
 
   /** Whenever a bot has the decision, it acts after a short, readable pause. */
@@ -157,7 +210,7 @@ export class GameHost implements GameService {
     this.cancelBot?.();
     this.cancelBot = null;
     const g = this.game;
-    if (!g || g.step === 'gameOver' || !g.players[g.priority].isBot) return;
+    if (!g || this.paused || g.step === 'gameOver' || !g.players[g.priority].isBot) return;
     const action = botAction(g, g.priority);
     this.cancelBot = this.schedule(() => {
       this.cancelBot = null;

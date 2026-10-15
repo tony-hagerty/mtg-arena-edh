@@ -2,7 +2,17 @@
 // game's (server/game/http.ts), they are served by the launcher and by the dev server.
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { LOBBY_API } from '../../src/net/lobby';
-import type { DeckRequest, HostRequest, JoinRequest, ReadyRequest, TableRequest } from '../../src/net/lobby';
+import type {
+  DeckRequest,
+  ForgetRequest,
+  HostRequest,
+  JoinRequest,
+  PauseRequest,
+  ReadyRequest,
+  ResumeRequest,
+  TableRequest,
+  VoteRequest,
+} from '../../src/net/lobby';
 import { handleGameApi, json, readJson, Refused } from '../game';
 import type { Lobby } from './lobby';
 
@@ -44,6 +54,18 @@ export function handleLobbyApi(lobby: Lobby, req: IncomingMessage, res: ServerRe
           break;
         case 'leave':
           lobby.leave();
+          break;
+        case 'vote':
+          lobby.vote(body as VoteRequest);
+          break;
+        case 'pause':
+          lobby.pause(body as PauseRequest);
+          break;
+        case 'resume':
+          await lobby.resume(body as ResumeRequest);
+          break;
+        case 'forget':
+          lobby.forget(body as ForgetRequest);
           break;
         default:
           return json(res, 404, { error: 'Not found' });
