@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
+  <!-- The program's icon: a gold commander card with a crown, fanned over a blue and a red
+       card. scripts/build-exe.mjs turns it into the .exe's icon; index.html uses it as the
+       window's. Keep it legible at 16 px. -->
+  <defs>
+    <linearGradient id="tile" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#2a3142"/>
+      <stop offset="1" stop-color="#10131b"/>
+    </linearGradient>
+  </defs>
+  <rect x="8" y="8" width="240" height="240" rx="52" fill="url(#tile)"/>
+  <g transform="translate(128 130) scale(0.84) translate(-128 -128)">
+    <rect x="70" y="45" width="116" height="162" rx="11.6" fill="#2f6aa6" stroke="#10131b" stroke-width="6" transform="rotate(-20 128 222)"/>
+    <rect x="70" y="45" width="116" height="162" rx="11.6" fill="#b23f2a" stroke="#10131b" stroke-width="6" transform="rotate(20 128 222)"/>
+    <rect x="66" y="40" width="124" height="172" rx="12.4" fill="#d2aa42" stroke="#10131b" stroke-width="6"/>
+    <rect x="84" y="60" width="88" height="132" rx="8" fill="#232a3b"/>
+    <g fill="#d2aa42">
+      <polygon points="98.56,144.4 93.04,109.44 113.28,126 128,100.24 142.72,126 162.96,109.44 157.44,144.4" stroke="#d2aa42" stroke-width="2.76" stroke-linejoin="round"/>
+      <circle cx="93.04" cy="109.44" r="5.06"/>
+      <circle cx="128" cy="100.24" r="5.06"/>
+      <circle cx="162.96" cy="109.44" r="5.06"/>
+      <rect x="97.64" y="146.24" width="60.72" height="11.04" rx="2.3"/>
+    </g>
+  </g>
+</svg>
