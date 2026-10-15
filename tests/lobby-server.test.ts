@@ -243,8 +243,9 @@ describe('a table of friends', () => {
     await new Promise((r) => setTimeout(r, 50));
     const other = program();
     await expect(other.lobby.join({ code: host.state().code!, name: 'Eve', deck: null })).rejects.toThrow(/already started/);
-    await other.lobby.join({ code: host.state().code!, name: 'ben', deck: null });
-    expect(other.state()).toMatchObject({ role: 'joined', yourSeat: 1, started: true });
+    await other.lobby.join({ code: host.state().code!, name: 'ben', deck: choice(DECKS[2]) });
+    await new Promise((r) => setTimeout(r, 50));
+    expect(other.state()).toMatchObject({ role: 'joined', yourSeat: 1, started: true, error: null });
     let view: ViewMessage | null = null;
     other.lobby.games().watch(1, (m) => (view = m));
     await until(() => !!view?.game);
@@ -344,8 +345,10 @@ describe('when someone goes, and saved games', () => {
 
     // The old host comes back as a friend, under the name they played as.
     await expect(host.lobby.join({ code: guest.state().code!, name: 'Eve', deck: null })).rejects.toThrow(/name you played as: Ana/);
-    await host.lobby.join({ code: guest.state().code!, name: 'Ana', deck: null });
-    expect(host.state()).toMatchObject({ role: 'joined', yourSeat: 0, resuming: true });
+    // Their window sends the deck they picked, not knowing the table carries on a saved game.
+    await host.lobby.join({ code: guest.state().code!, name: 'Ana', deck: choice(DECKS[2]) });
+    await new Promise((r) => setTimeout(r, 50));
+    expect(host.state()).toMatchObject({ role: 'joined', yourSeat: 0, resuming: true, error: null });
     guest.lobby.start();
     expect(guest.game.full).toEqual(game);
     await until(() => host.state().started);
