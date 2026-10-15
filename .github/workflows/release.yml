@@ -1,4 +1,6 @@
-# Builds ArenaEDH.exe on Windows and publishes it as a GitHub release.
+# Builds ArenaEDH.exe on Windows and publishes it as a GitHub release, with
+# .github/release-notes.md as its notes (one line per paragraph: GitHub keeps line breaks
+# in release notes).
 #
 # To release: set "version" in package.json, merge to main, then push a matching tag:
 #   git tag v0.1.0 && git push origin v0.1.0
