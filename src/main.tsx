@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { MotionGlobalConfig } from 'motion/react';
 import 'mana-font/css/mana.min.css';
 import './ui/styles.css';
+import './ui/fullscreen';
 import { App } from './ui/App';
 import { useStore } from './ui/store';
 
