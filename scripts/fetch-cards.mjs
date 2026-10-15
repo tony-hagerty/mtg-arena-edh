@@ -118,7 +118,7 @@ async function fetchCards(all) {
       console.error('NOT FOUND:', j.not_found.map((x) => x.name).join(', '));
       process.exitCode = 1;
     }
-    await sleep(150);
+    await sleep(500);
   }
   const found = (n) => cards[n] || Object.values(cards).some((c) => c.faces?.[0].name === n);
   const missing = all.filter((n) => !found(n));
@@ -136,7 +136,8 @@ for (const [key, t] of Object.entries(lists.tokens)) {
   const img = await fetchTokenArt(t.query);
   if (!img) console.warn(`no token art for ${key}`);
   tokens[key] = img ?? { art: '', image: '' };
-  await sleep(150);
+  // Scryfall rate-limits searches more tightly than card lookups; faster than this, they fail.
+  await sleep(500);
 }
 
 writeFileSync(outPath, JSON.stringify({ cards, tokens }, null, 1));

@@ -878,6 +878,42 @@
    ],
    "image": "https://cards.scryfall.io/normal/front/2/a/2ab0e660-86a3-4b92-82fa-77dcb5db947d.jpg",
    "art": "https://cards.scryfall.io/art_crop/front/2/a/2ab0e660-86a3-4b92-82fa-77dcb5db947d.jpg"
+  },
+  "Deathrite Shaman": {
+   "name": "Deathrite Shaman",
+   "manaCost": "{B/G}",
+   "cmc": 1,
+   "colors": [
+    "B",
+    "G"
+   ],
+   "colorIdentity": [
+    "B",
+    "G"
+   ],
+   "typeLine": "Creature — Elf Shaman",
+   "oracleText": "{T}: Exile target land card from a graveyard. Add one mana of any color. (Activate only as an instant.)\n{B}, {T}: Exile target instant or sorcery card from a graveyard. Each opponent loses 2 life.\n{G}, {T}: Exile target creature card from a graveyard. You gain 2 life.",
+   "power": "1",
+   "toughness": "2",
+   "keywords": [],
+   "image": "https://cards.scryfall.io/normal/front/c/f/cfdb1c47-14be-491f-88b3-bed03489dbc5.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/c/f/cfdb1c47-14be-491f-88b3-bed03489dbc5.jpg"
+  },
+  "Cranial Plating": {
+   "name": "Cranial Plating",
+   "manaCost": "{2}",
+   "cmc": 2,
+   "colors": [],
+   "colorIdentity": [
+    "B"
+   ],
+   "typeLine": "Artifact — Equipment",
+   "oracleText": "Equipped creature gets +1/+0 for each artifact you control.\n{B}{B}: Attach this Equipment to target creature you control.\nEquip {1}",
+   "keywords": [
+    "Equip"
+   ],
+   "image": "https://cards.scryfall.io/normal/front/e/1/e1375f17-bc25-4a65-98b7-4785bbdbe974.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/e/1/e1375f17-bc25-4a65-98b7-4785bbdbe974.jpg"
   }
  }
 }

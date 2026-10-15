@@ -2,14 +2,14 @@ import { useEffect, useRef, useState } from 'react';
 import type { CSSProperties, ReactNode } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import { DECKS, cardData } from '../cards/db';
-import { data, findCard, label } from '../engine';
+import { data, findCard, label, triggerText } from '../engine';
 import type { Game, LogEntry, PlayerId, Step, StopKind } from '../engine';
 import { ManaCost } from './Card';
 import { useRem } from './rem';
 import { useStore } from './store';
 import { SEATS, cx, deckColor, faceUp, hoverProps } from './util';
 import { STEP_NAMES, activateFromHand, cancel, clickStackItem, pickAbility, pickColor, pickFace, pickMode, playHandCard, setChoices, exileForMana, useView } from './view';
-import type { Btn } from './view';
+import type { AbilityOption, Btn } from './view';
 
 // ---------- phase tracker + buttons (bottom right) ----------
 
@@ -399,15 +399,18 @@ export function ColorPicker() {
   );
 }
 
-/** A planeswalker's loyalty abilities (606), or a Class's level bars (716.2): click one to activate it. */
-function LoyaltyOptions({ options }: { options: { ability: number; cost: string; text: string; ok: boolean }[] }) {
+/**
+ * A planeswalker's loyalty abilities (606), a Class's level bars (716.2), or a permanent's
+ * several activated abilities (602): click one to activate it.
+ */
+function LoyaltyOptions({ options }: { options: AbilityOption[] }) {
   return (
     <div className="cast-options">
       <div className="cast-modes">
         {options.map((o) => (
-          <div key={o.ability} className="cast-row">
-            <button className="chip mode" disabled={!o.ok} onClick={() => pickAbility(o.ability)}>
-              <b className="loyalty-cost">{o.cost.startsWith('{') ? <ManaCost cost={o.cost} /> : o.cost}</b> {o.text}
+          <div key={`${o.ref.ability ?? 'a'}-${o.ref.activated ?? 0}`} className="cast-row">
+            <button className="chip mode" disabled={!o.ok} onClick={() => pickAbility(o.ref)}>
+              {o.cost && <b className="loyalty-cost">{o.cost.startsWith('{') ? <ManaCost cost={o.cost} /> : o.cost}</b>} {o.text}
             </button>
           </div>
         ))}
@@ -622,6 +625,7 @@ export function StackPanel() {
             data-stack={item.id}
             className={cx('stack-item', i === g.stack.length - 1 && !paying && 'top', targetStack.has(item.id) && 'targetable')}
             onClick={() => clickStackItem(item.id)}
+            title={triggerText(item)}
             {...hoverProps(data(item.card).name)}
           >
             <img src={data(item.card).image} alt={label(item.card)} draggable={false} />

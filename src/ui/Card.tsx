@@ -1,7 +1,7 @@
 import { useRef, useState } from 'react';
 import type { CSSProperties, RefObject } from 'react';
 import { motion } from 'motion/react';
-import { attachmentsOf, data, defenseOf, isBattle, isCreature, isPlaneswalker, loyaltyOf, scriptFor, stats } from '../engine';
+import { activatedAbilities, attachmentsOf, data, defenseOf, isBattle, isCreature, isPlaneswalker, loyaltyOf, scriptFor, stats } from '../engine';
 import type { Card, CardData } from '../engine';
 import { useRem } from './rem';
 import { SEATS, cx, hoverProps } from './util';
@@ -157,7 +157,7 @@ function Attachments({ cards }: { cards: Card[] }) {
 /** The hover text for a permanent's activated abilities: its `activated` one, and each loyalty ability (606). */
 const abilityText = (card: Card) => {
   const script = scriptFor(card);
-  return [script.activated?.text, ...(script.loyalty ?? []).map((ab) => `${loyaltyCost(ab.cost)}: ${ab.text}`)].filter(Boolean).join('\n');
+  return [...activatedAbilities(card).map((ab) => ab.text), ...(script.loyalty ?? []).map((ab) => `${loyaltyCost(ab.cost)}: ${ab.text}`)].filter(Boolean).join('\n');
 };
 
 export function Permanent({ card, badge }: { card: Card; badge?: Card[] }) {
