@@ -4,7 +4,7 @@ Goal: the features the user asked for after the Commander-decks plan
 (`docs/plans/commander-decks.md`) was finished. Each is its own session, started only when
 the user says so, one at a time.
 
-**Status: session 1 done. The user answered the first round of questions; the decisions
+**Status: sessions 1 and 2 done. The user answered the first round of questions; the decisions
 are written into each session.**
 
 ## Rules every session follows
@@ -62,7 +62,7 @@ two "whenever ... enters" abilities can't be scripted.
   Scryfall requests: at 150 ms Scryfall answered 429 (too many requests) and token art
   came back empty.
 
-### 2. Several activated abilities on one card
+### 2. Several activated abilities on one card (done)
 
 Today `CardScript.activated` is a single ability (README: "A card can have only one
 activated ability"). Many common cards have more, for example **Deathrite Shaman** (three),
@@ -81,6 +81,11 @@ and Equipment with another ability besides equip.
 - Tests: Deathrite Shaman in `tests/fixtures.ts`, each ability on its own; an Equipment
   with a second ability.
 - Remove the one-activated-ability sentence from "Known simplifications".
+- Done. Actions and stack items name the ability by a new `activated` index; `ability`
+  still means a loyalty ability or Class level. The menu shows only when two or more
+  abilities could be used now. Deathrite Shaman's "add one mana of any color" needed a
+  colour choice while resolving: `nameCard` with `of: 'color'`, shown as five buttons.
+  Cranial Plating is the Equipment test card ({B}{B} attach at instant speed, equip {1}).
 
 ### 3. {X} in activated ability costs, and −X loyalty abilities
 

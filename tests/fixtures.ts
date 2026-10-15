@@ -9,6 +9,10 @@ import { registerCards } from '../src/cards/db';
 import generated from './fixtures.generated.json';
 import {
   CANT_ATTACK,
+  addMana,
+  attach,
+  nameCard,
+  refGraveyard,
   CANT_BLOCK,
   addCounters,
   allCreatures,
@@ -42,9 +46,16 @@ import {
   refPlayer,
 } from '../src/engine';
 import { registerScripts } from '../src/engine/registry';
-import type { CardData, TargetSpec } from '../src/engine';
+import type { Card, CardData, Game, ManaSym, TargetSpec } from '../src/engine';
 
 registerCards((generated as { cards: Record<string, CardData> }).cards);
+
+/** Exiles a card from its graveyard, if it is still there. */
+const exileFromGraveyard = (g: Game, c: Card | undefined) => {
+  if (!c || c.zone !== 'graveyard') return;
+  log(g, `${label(c)} is exiled from a graveyard.`, c.owner, [c]);
+  moveCard(g, c, 'exile');
+};
 
 const anyTarget: TargetSpec = { type: 'any', label: 'any target' };
 const land: TargetSpec = { type: 'permanent', label: 'target land', filter: (_g, c) => hasType(c, 'Land') };
@@ -172,6 +183,58 @@ registerScripts({
   },
   'Holy Strength': { enchant: { type: 'creature', label: 'target creature' }, static: attachedBonus({ power: 1, toughness: 2 }) },
   Bonesplitter: { static: attachedBonus({ power: 2 }), activated: equip('{1}') },
+  // Two activated abilities besides equip: one at any time, one as a sorcery (602, 702.6a).
+  'Cranial Plating': {
+    // "Equipped creature gets +1/+0 for each artifact you control."
+    static: (g, self, c) => (self.attachedTo === c.id ? { power: battlefield(g).filter((x) => x.controller === self.controller && hasType(x, 'Artifact')).length } : null),
+    activated: [
+      {
+        // "{B}{B}: Attach this Equipment to target creature you control." No timing limit, unlike equip.
+        cost: { mana: '{B}{B}' },
+        targets: [{ type: 'creature', who: 'you', label: 'target creature you control' }],
+        text: '{B}{B}: Attach this Equipment to target creature you control.',
+        resolve: (g, { self, targets }) => attach(g, permanent(g, self.id), refCard(g, targets[0])),
+      },
+      equip('{1}'),
+    ],
+  },
+  // Three activated abilities, each with a target in a graveyard. The first adds mana but
+  // targets, so it isn't a mana ability and uses the stack (605.1a).
+  'Deathrite Shaman': {
+    activated: [
+      {
+        // "{T}: Exile target land card from a graveyard. Add one mana of any color."
+        cost: { tap: true },
+        targets: [{ type: 'graveyard card', label: 'target land card from a graveyard', filter: (_g, c) => hasType(c, 'Land') }],
+        text: '{T}: Exile target land card from a graveyard. Add one mana of any color.',
+        resolve: (g, { you, targets }) => {
+          exileFromGraveyard(g, refGraveyard(g, targets[0]));
+          nameCard(g, you, { of: 'color', text: 'Add one mana of any color.', then: 'mana' });
+        },
+      },
+      {
+        // "{B}, {T}: Exile target instant or sorcery card from a graveyard. Each opponent loses 2 life."
+        cost: { mana: '{B}', tap: true },
+        targets: [{ type: 'graveyard card', label: 'target instant or sorcery card from a graveyard', filter: (_g, c) => hasType(c, 'Instant') || hasType(c, 'Sorcery') }],
+        text: '{B}, {T}: Exile target instant or sorcery card from a graveyard. Each opponent loses 2 life.',
+        resolve: (g, { you, targets }) => {
+          exileFromGraveyard(g, refGraveyard(g, targets[0]));
+          for (const o of opponentsOf(g, you)) loseLife(g, o.id, 2);
+        },
+      },
+      {
+        // "{G}, {T}: Exile target creature card from a graveyard. You gain 2 life."
+        cost: { mana: '{G}', tap: true },
+        targets: [{ type: 'graveyard card', label: 'target creature card from a graveyard', filter: (_g, c) => hasType(c, 'Creature') }],
+        text: '{G}, {T}: Exile target creature card from a graveyard. You gain 2 life.',
+        resolve: (g, { you, targets }) => {
+          exileFromGraveyard(g, refGraveyard(g, targets[0]));
+          gainLife(g, you, 2);
+        },
+      },
+    ],
+    then: { mana: (g, { self, you, name }) => addMana(g, you, [name as ManaSym], self) },
+  },
   'Loxodon Warhammer': { static: attachedBonus({ power: 3, keywords: ['trample', 'lifelink'] }), activated: equip('{3}') },
   'Untethered Express': { onAttack: (g, { self }) => addCounters(g, permanent(g, self.id)), activated: crew(1) },
   "Black Sun's Zenith": {

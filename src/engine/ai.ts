@@ -26,6 +26,8 @@ import {
   sacrificeOptions,
 } from './engine';
 import {
+  activatedAt,
+  preferredColor,
   CANT_ATTACK,
   CANT_BLOCK,
   COMMANDER_DAMAGE,
@@ -62,7 +64,7 @@ import {
 import type { ApplyOptions, AttackOption } from './engine';
 import { produce } from 'immer';
 import { cardData } from '../cards/db';
-import type { Action, Card, CastChoices, Choice, Game, ManaSym, Player, PlayerId, TargetRef, TargetSpec } from './types';
+import type { AbilityRef, Action, Card, CastChoices, Choice, Game, ManaSym, Player, PlayerId, TargetRef, TargetSpec } from './types';
 
 // ---------- position evaluation ----------
 
@@ -88,8 +90,8 @@ export function threat(g: Game, c: Card): number {
  * the bot's own turn, when the Vehicle can attack, using the summoning-sick and weakest
  * creatures first, and only if they have less power than the Vehicle brings.
  */
-function crewChoice(g: Game, pid: PlayerId, v: Card): string[] | null {
-  const need = scriptFor(v).activated?.cost.crew;
+function crewChoice(g: Game, pid: PlayerId, v: Card, activated = 0): string[] | null {
+  const need = activatedAt(v, activated)?.cost.crew;
   if (!need || g.active !== pid || g.step !== 'main1' || v.sick || isCreature(v)) return null;
   const pool = crewOptions(g, pid, v).sort((a, b) => Number(b.sick) - Number(a.sick) || threat(g, a) - threat(g, b));
   const picked: Card[] = [];
@@ -288,29 +290,39 @@ function candidateActions(g: Game, pid: PlayerId): { action: Action; spendsCard:
   }
   // Abilities of permanents, and of cards in the hand that work from there (channel).
   for (const c of [...p.battlefield, ...p.hand]) {
-    for (const ability of activatable(g, pid, c)) {
+    for (const ref of activatable(g, pid, c)) {
       const script = scriptFor(c);
       // An ability with its own rule for when to use it is left to that rule.
-      if (ability === undefined && script.botActivate) continue;
-      out.push(...activations(g, pid, c, ability).map((action) => ({ action, spendsCard: c.zone === 'hand' })));
+      if (ref.ability === undefined && script.botActivate) continue;
+      out.push(...activations(g, pid, c, ref).map((action) => ({ action, spendsCard: c.zone === 'hand' })));
     }
   }
   return out;
 }
 
-/** The ways the bot considers activating ability `ability` of `c`: each set of targets, discarding the card it wants least. */
-function activations(g: Game, pid: PlayerId, c: Card, ability: number | undefined): Action[] {
-  const script = scriptFor(c);
-  // The `activated` ability, a loyalty ability, or a Class level bar (which has no targets).
-  const specs = (ability === undefined ? script.activated!.targets : script.loyalty?.[ability].targets) ?? [];
-  const crew = ability === undefined && script.activated!.cost.crew ? crewChoice(g, pid, c) : undefined;
+/** The ways the bot considers activating ability `ref` of `c`: each set of targets, discarding the card it wants least. */
+function activations(g: Game, pid: PlayerId, c: Card, ref: AbilityRef): Action[] {
+  const { ability, activated } = ref;
+  // One of its activated abilities, a loyalty ability, or a Class level bar (which has no targets).
+  const ab = ability === undefined ? activatedAt(c, activated) : undefined;
+  const specs = (ab ? ab.targets : scriptFor(c).loyalty?.[ability!].targets) ?? [];
+  const crew = ab?.cost.crew ? crewChoice(g, pid, c, activated) : undefined;
   if (crew === null) return [];
-  const n = ability === undefined ? (script.activated!.cost.discard ?? 0) : 0;
+  const n = ab?.cost.discard ?? 0;
   const discard = n ? [...discardOptions(g, pid, c)].sort((a, b) => cardWant(g, pid, a) - cardWant(g, pid, b)).slice(0, n).map((x) => x.id) : undefined;
   // "Sacrifice a creature": the least valuable one, and not the source itself if there is another.
-  const fodder = ability === undefined && script.activated!.cost.sacrificeOne ? [...activationSacrificeOptions(g, pid, c)].sort((a, b) => sacrificeWorth(g, a) - sacrificeWorth(g, b)) : [];
+  const fodder = ab?.cost.sacrificeOne ? [...activationSacrificeOptions(g, pid, c, activated)].sort((a, b) => sacrificeWorth(g, a) - sacrificeWorth(g, b)) : [];
   const victim = fodder.find((x) => x.id !== c.id) ?? fodder[0];
-  return targetChoices(g, pid, specs, c).map((targets) => ({ type: 'activate', card: c.id, ability, targets, crew, ...(discard ? { discard } : {}), ...(victim ? { sacrifice: [victim.id] } : {}) }));
+  return targetChoices(g, pid, specs, c).map((targets) => ({
+    type: 'activate',
+    card: c.id,
+    ability,
+    ...(activated ? { activated } : {}),
+    targets,
+    crew,
+    ...(discard ? { discard } : {}),
+    ...(victim ? { sacrifice: [victim.id] } : {}),
+  }));
 }
 
 // Look-ahead turns auto-pass off, so that passing only ever resolves the stack or ends one
@@ -660,9 +672,12 @@ function comboAction(g: Game, pid: PlayerId): Action | null {
 function activateByRule(g: Game, pid: PlayerId): Action | null {
   for (const c of g.players[pid].battlefield) {
     const rule = scriptFor(c).botActivate;
-    if (!rule || !activatable(g, pid, c).includes(undefined) || !rule(g, pid, c)) continue;
-    const [action] = activations(g, pid, c, undefined);
-    if (action) return action;
+    if (!rule) continue;
+    for (const ref of activatable(g, pid, c)) {
+      if (ref.ability !== undefined || !rule(g, pid, c, ref.activated ?? 0)) continue;
+      const [action] = activations(g, pid, c, ref);
+      if (action) return action;
+    }
   }
   return null;
 }
@@ -800,6 +815,7 @@ function choiceAnswer(g: Game, pid: PlayerId): Action {
   // A player: the first one offered.
   if (d.type === 'player') return { type: 'choosePlayer', player: d.choice.options[0] };
   if (d.type === 'name' && d.choice.of === 'creature type') return { type: 'name', name: 'Human' };
+  if (d.type === 'name' && d.choice.of === 'color') return { type: 'name', name: preferredColor(g, pid) };
   if (d.type === 'name') {
     const lib = [...g.players[pid].library].sort((a, b) => cardWant(g, pid, b) - cardWant(g, pid, a));
     return { type: 'name', name: lib.length ? cardData(lib[0].name).name : 'Island' };
