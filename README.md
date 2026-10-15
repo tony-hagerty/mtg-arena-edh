@@ -1,7 +1,8 @@
-# Arena EDH — 4-player prototype
+# Arena EDH — Commander prototype for 2 to 4 players
 
-A browser prototype of what an MTG Arena game session could look like with four
-players (Commander / EDH). You play one deck; bots play the other three.
+A browser prototype of what an MTG Arena game session could look like for Commander /
+EDH, at a table of two to four. You play one deck; bots, or friends sharing your screen,
+play the others.
 
 ```bash
 npm install
@@ -28,10 +29,16 @@ internet connection.
 
 ### Starting a game
 
-- Pick a deck on the menu (or "watch four bots play").
-- **Opponents:** under the decks, pick the deck each bot plays, built-in or pasted.
-  **Automatic** (the default) takes the next built-in deck no one else has. Saved in the
-  browser.
+- Pick a deck on the menu (or "watch the bots play").
+- **Opponents:** under the decks, for each of the three other seats pick who plays it
+  and its deck, built-in or pasted. **Bot** (the default) is played by the computer;
+  **Person here** by a friend at the same screen; **Empty seat** leaves it out, for a
+  table of two or three (at least one seat stays filled). **Automatic** (the default deck)
+  takes the next built-in deck no one else has. Saved in the browser.
+- **Passing the screen:** with friends at the same screen, the table is covered whenever
+  another person must decide something, until they click **I'm Player N**. Then their
+  seat is at the bottom with their hand. People are called Player 1 to 4 by seat, and the
+  log is written in the third person; alone against bots, you're "You".
 - **Paste a deck list:** opens a text box. Paste a plain list ("1 Sol Ring" or "Sol
   Ring") or an Arena, Moxfield or MTGO export; set codes, collector numbers and foil
   marks are ignored. The commander comes from a "Commander" section, a `*CMDR*` mark or
@@ -93,7 +100,7 @@ internet connection.
   Click a step to cycle it: no stop, ring, dot, no stop. A pip that covers several steps
   (beginning, combat, end) opens one button per step. The untap and cleanup steps can't
   hold a stop: nobody gets priority there (502.4, 514.3).
-- The four arrows beside the tracker are the four seats (down is you). Click one to see
+- The arrows beside the tracker are the seats (down is you). Click one to see
   and edit the stops for that player's turns; the tracker takes their deck colour. Click
   it again to go back to the current turn. Your turns show orange, everyone else's blue.
 - Default stops (your stops are saved in the browser):
@@ -209,8 +216,17 @@ Rule numbers are from the Comprehensive Rules in `docs/rules/`.
   browser for the paste screen's **Download report** button, merged into the file with
   `npm run card-requests -- <download>`. `npm run parse-report` adds any pool card that
   can't be played. The `/script-requested-cards` skill (`.claude/skills/`) scripts them.
-- **Seats:** the store's `seatDecks` picks each seat's deck from the menu's choices and
-  passes them to `newGame({ decks })`. Play Again replays the same deck and opponents.
+- **Seats:** `newGame({ seats })` takes 2 to 4 seats in turn order, each a deck and
+  whether a person plays it. The store's `tableOf` builds them from the menu's choices
+  (`seatDecks` picks the decks). Play Again replays the same deck and opponents.
+- **Your view:** `human` in the store is the seat at the bottom of the screen; `humans` is
+  every seat people at this screen play. `seatOf` places the others clockwise in turn
+  order from the viewer (2 players: top; 3: left and right; 4: left, top, right). Your
+  stops are saved by seat counted from yours, so they hold in any seat.
+- **The log:** lines are in the third person ("Player 2 casts"), except for the one person
+  alone against bots (`Player.you`). A line that names a hidden card, like the one found
+  searching a library into a hand (701.23e), carries a `private` version that only the
+  searcher's log shows; everyone else reads "for a card".
 - **Commander zone changes:** a commander that dies or is exiled really goes there (so
   "dies" abilities see it), then its owner may move it to the command zone (903.9a). One
   headed for a hand or library may go to the command zone instead (903.9b). You're asked;
@@ -250,7 +266,10 @@ Rule numbers are from the Comprehensive Rules in `docs/rules/`.
 - **State-based actions (704)** are checked every time a player would get priority.
 - **Mulligans (103.5):** players declare in turn order from the starting player, then
   everyone who chose to mulligan does so at once and puts cards on the bottom. The first
-  mulligan is free in multiplayer (103.5c). Bots keep a hand with 2 to 5 lands.
+  mulligan is free in multiplayer (103.5c), but not in a two-player game (100.1a). Bots
+  keep a hand with 2 to 5 lands.
+- **The first turn:** in a two-player game the starting player skips their first draw
+  step (103.8a); with three or more nobody does (103.8c).
 - **Triggered abilities (603):** they trigger when the event happens, go on the stack the
   next time a player would get priority (active player's first), and choose targets then.
   You choose the order of your own that go on together (603.3b); bots keep the order they
