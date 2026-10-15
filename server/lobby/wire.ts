@@ -5,6 +5,7 @@ import type { Socket } from 'node:net';
 import type { Action } from '../../src/engine';
 import type { DeckChoice, LobbyState } from '../../src/net/lobby';
 import type { SeatPrefs, ViewMessage } from '../../src/net/protocol';
+import type { SaveCopy } from './saves';
 
 /** The most one message may hold: a deck with every card fetched, or a view of a big board. */
 export const MAX_LINE = 8 * 1024 * 1024;
@@ -17,6 +18,8 @@ export type GuestMessage =
   | { t: 'act'; seq: number; action: Action }
   | { t: 'prefs'; prefs: SeatPrefs }
   | { t: 'speed'; speed: number }
+  | { t: 'vote'; seat: number; yes: boolean }
+  | { t: 'pause'; paused: boolean }
   | { t: 'leave' };
 
 /** From the host to a friend's program. */
@@ -25,6 +28,10 @@ export type HostMessage =
   | { t: 'lobby'; state: LobbyState }
   /** Their seat's view of the game (protocol.ts), once it has started. */
   | { t: 'view'; view: ViewMessage }
+  /** The game as it stands, for this player's program to keep (saves.ts). */
+  | { t: 'save'; copy: SaveCopy }
+  /** The game is over: its saved copy can go. */
+  | { t: 'forget'; id: string }
   /** A request the host turned down, in plain words. */
   | { t: 'error'; error: string }
   /** The host won't have them (a wrong code, a full table); the connection closes next. */

@@ -128,7 +128,7 @@ async function main() {
 
   // The game server: it holds the whole game and gives each window its own player's view,
   // and the lobby, for tables of friends.
-  lobby = new Lobby(new GameHost(), { checkHost: (port) => checkHost(port) });
+  lobby = new Lobby(new GameHost(), { checkHost: (port) => checkHost(port), saves: paths.saves });
   const api = (req: IncomingMessage, res: ServerResponse, path: string) => handleApi(lobby!, req, res, path);
   for (let port = PORT; port < PORT + TRIES; port++) {
     const candidate = makeServer({ files, pages, hello: { app: 'arena-edh', data: paths.data }, api });

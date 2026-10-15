@@ -1,17 +1,18 @@
 /// <reference types="node" />
 // Hosting a table: the TLS server friends' programs connect to, the join code, and the
 // check of whether friends outside this home can reach it (server/net). Each friend's
-// connection is a person at the `Table`; once the game starts, it carries their seat's view.
+// connection is a person at the `Table`; once the game starts, it carries their seat's
+// view, and a copy of the game to keep (saves.ts) so any of them can carry it on later.
 import type { AddressInfo } from 'node:net';
 import { networkInterfaces } from 'node:os';
 import { createServer, type Server, type TLSSocket } from 'node:tls';
-import type { DeckChoice, HostRequest, LobbyState } from '../../src/net/lobby';
+import type { DeckChoice, LobbyState } from '../../src/net/lobby';
 import type { GameHost } from '../game';
 import { Refused } from '../game';
 import { createHostIdentity, encodeJoinCode, explainHostCheck, newJoinPassword, passwordsMatch, tlsServerOptions } from '../net';
 import type { HostCheck } from '../net';
-import { Table } from './table';
-import type { Person } from './table';
+import type { SaveCopy } from './saves';
+import type { Person, Table, TableState } from './table';
 import { receive, send } from './wire';
 import type { GuestMessage } from './wire';
 
@@ -28,7 +29,21 @@ export interface HostingOptions {
   port?: number;
   /** The address to listen on: every network ('0.0.0.0') unless a test says otherwise. */
   bind?: string;
+  /** The most often the game is saved while it's played, in ms. A pause saves it at once. */
+  saveEvery?: number;
 }
+
+/** What the host's own program hears from the table. */
+export interface HostingEvents {
+  /** The table changed, for the host's window. */
+  changed(): void;
+  /** The game as it stands, for this computer to keep as `seat`'s. */
+  save(copy: SaveCopy, seat: number): void;
+  /** The game is over: its saved copy can go. */
+  forget(id: string): void;
+}
+
+const SAVE_EVERY = 3000;
 
 interface Guest {
   socket: TLSSocket;
@@ -46,16 +61,18 @@ export class Hosting {
   private code: string | null = null;
   private reach: LobbyState['reach'] = { kind: 'checking', message: 'Checking whether friends can reach this computer…' };
   private closed = false;
+  private saveTimer: ReturnType<typeof setTimeout> | null = null;
+  private unlisten: () => void;
 
   constructor(
     private game: GameHost,
-    req: HostRequest,
+    /** Makes the table, given what to call when it changes. */
+    table: (changed: () => void) => Table,
     private opts: HostingOptions,
-    /** Called after every change, for the host's own window. */
-    private onChange: () => void,
+    private events: HostingEvents,
   ) {
-    const host: Person = { name: String(req.name ?? '').trim() || 'Host', deck: req.deck, ready: false };
-    this.table = new Table(game, host, req.seatCount, req.fillBots, () => this.changed());
+    this.table = table(() => this.changed());
+    this.unlisten = game.listen(() => this.gameChanged());
   }
 
   /** Starts listening for friends, then works out the code. Resolves once friends can connect. */
@@ -77,12 +94,17 @@ export class Hosting {
   }
 
   /** The table as the host's window sees it. */
-  state(): LobbyState {
+  state(): Omit<LobbyState, 'saves'> {
     return { role: 'hosting', code: this.code, reach: this.reach, error: null, ...this.table.stateFor(this.table.host) };
   }
 
-  /** Ends the table: friends are told, the router's port is closed. */
+  /**
+   * Ends the table: everyone gets the game as it stands to keep, then friends are told,
+   * and the router's port is closed.
+   */
   close() {
+    this.saveNow();
+    this.unlisten();
     this.closed = true;
     for (const g of this.guests) {
       send(g.socket, { t: 'refused', error: 'The host closed the table.' });
@@ -110,7 +132,33 @@ export class Hosting {
     let message = check ? explainHostCheck(check) : 'Couldn’t reach your router to open a port for friends outside your home.';
     if (!pub && check?.kind !== 'cgnat') message += ' For now, the code works for players on your own network.';
     this.reach = { kind: check?.kind ?? 'manual', message };
-    this.onChange();
+    this.events.changed();
+  }
+
+  /** Saves the game on every player's computer: at once when it's paused, else at most every few seconds. */
+  private gameChanged() {
+    if (this.closed) return;
+    const id = this.table.saveId;
+    if (this.game.full?.step === 'gameOver') {
+      // A finished game can't be carried on: every copy of it goes.
+      if (!id) return;
+      this.table.saveId = null;
+      for (const g of this.guests) send(g.socket, { t: 'forget', id });
+      this.events.forget(id);
+      return;
+    }
+    if (this.game.isPaused) return this.saveNow();
+    this.saveTimer ??= setTimeout(() => this.saveNow(), this.opts.saveEvery ?? SAVE_EVERY);
+  }
+
+  private saveNow() {
+    if (this.saveTimer) clearTimeout(this.saveTimer);
+    this.saveTimer = null;
+    if (this.closed) return;
+    const copy = this.table.saveCopy();
+    if (!copy) return;
+    for (const g of this.guests) send(g.socket, { t: 'save', copy });
+    this.events.save(copy, this.table.seatOf(this.table.host)!);
   }
 
   private changed() {
@@ -118,7 +166,7 @@ export class Hosting {
       send(g.socket, { t: 'lobby', state: this.guestState(g.person) });
       this.follow(g);
     }
-    this.onChange();
+    this.events.changed();
   }
 
   /** Once the game starts, each friend's connection carries their seat's view. */
@@ -129,8 +177,10 @@ export class Hosting {
     }
   }
 
+  /** The table as a friend sees it. Their own program adds the games saved on their computer. */
   private guestState(person: Person): LobbyState {
-    return { role: 'joined', code: null, reach: null, error: null, ...this.table.stateFor(person) };
+    const table: TableState = this.table.stateFor(person);
+    return { role: 'joined', code: null, reach: null, error: null, saves: [], ...table };
   }
 
   /** A friend's program connected: it must say hello with the code's password before anything else. */
@@ -159,6 +209,9 @@ export class Hosting {
           this.guests.add(guest);
           send(socket, { t: 'lobby', state: this.guestState(person) });
           this.follow(guest);
+          // Someone back at a game in progress gets its copy to keep at once.
+          const copy = this.table.saveCopy();
+          if (copy) send(socket, { t: 'save', copy });
           // A deck the table can't play leaves them seated, told why, to pick another.
           if (m.deck) this.guestDeck(guest, m.deck);
         } catch (err) {
@@ -186,6 +239,10 @@ export class Hosting {
           return;
         case 'speed':
           return this.game.setSpeed(m.speed);
+        case 'vote':
+          return this.table.vote(g.person, Number(m.seat), !!m.yes);
+        case 'pause':
+          return this.table.setPaused(g.person, !!m.paused);
         case 'leave':
           return void g.socket.end();
       }
