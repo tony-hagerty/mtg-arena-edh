@@ -1,0 +1,97 @@
+# Builds ArenaEDH.exe on Windows and publishes it as a GitHub release.
+#
+# To release: set "version" in package.json, merge to main, then push a matching tag:
+#   git tag v0.1.0 && git push origin v0.1.0
+# The release is created with the .exe attached. Making a release on GitHub's website with
+# a new v* tag works too: this attaches the .exe to it.
+#
+# "Run workflow" on the Actions tab builds the .exe without releasing it, as a download
+# on the run's page.
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm test
+
+  exe:
+    needs: test
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Check the tag matches package.json's version
+        if: github.ref_type == 'tag'
+        shell: bash
+        run: |
+          want="v$(node -p "require('./package.json').version")"
+          if [ "$GITHUB_REF_NAME" != "$want" ]; then
+            echo "::error::Tag $GITHUB_REF_NAME doesn't match package.json's version ($want)."
+            exit 1
+          fi
+
+      - run: npm run build:exe
+
+      # Start the real .exe without its window and check it serves the game.
+      - name: Smoke-test the .exe
+        shell: pwsh
+        run: |
+          $p = Start-Process -FilePath release\ArenaEDH.exe -ArgumentList '--no-window' -PassThru
+          $ok = $false
+          foreach ($i in 1..30) {
+            Start-Sleep -Seconds 1
+            try {
+              $r = Invoke-WebRequest -Uri http://127.0.0.1:47180/ -UseBasicParsing -TimeoutSec 2
+              if ($r.StatusCode -eq 200 -and $r.Content -match '<div id="root">') { $ok = $true; break }
+            } catch {}
+          }
+          Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue
+          if (-not $ok) {
+            if (Test-Path release\ArenaEDH-data\launcher.log) { Get-Content release\ArenaEDH-data\launcher.log }
+            throw 'ArenaEDH.exe did not serve the game within 30 seconds.'
+          }
+          Write-Host 'ArenaEDH.exe serves the game.'
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ArenaEDH
+          path: release/ArenaEDH.exe
+
+      - name: Publish the release
+        if: github.ref_type == 'tag'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view "$GITHUB_REF_NAME" > /dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" release/ArenaEDH.exe --clobber
+          else
+            gh release create "$GITHUB_REF_NAME" release/ArenaEDH.exe \
+              --title "Arena EDH $GITHUB_REF_NAME" \
+              --notes-file .github/release-notes.md \
+              --generate-notes
+          fi
