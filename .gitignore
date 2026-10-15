@@ -2,3 +2,5 @@ node_modules
 dist
 *.local
 dist-single
+dist-exe
+release
