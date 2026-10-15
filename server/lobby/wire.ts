@@ -12,7 +12,8 @@ export const MAX_LINE = 8 * 1024 * 1024;
 
 /** From a friend's program to the host. `hello` comes first; nothing else counts before the host answers it. */
 export type GuestMessage =
-  | { t: 'hello'; password: string; name: string; deck: DeckChoice | null }
+  /** `version` is the friend's program's `APP_VERSION`: the host turns away any other. */
+  | { t: 'hello'; password: string; name: string; deck: DeckChoice | null; version: string }
   | { t: 'deck'; deck: DeckChoice }
   | { t: 'ready'; ready: boolean }
   | { t: 'act'; seq: number; action: Action }

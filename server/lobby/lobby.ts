@@ -24,6 +24,7 @@ import { GuestLink } from './guest';
 import { Hosting } from './hosting';
 import type { HostingEvents, HostingOptions } from './hosting';
 import { SaveStore } from './saves';
+import { APP_VERSION } from './version';
 import { Table } from './table';
 import type { Person } from './table';
 
@@ -48,8 +49,12 @@ export class Lobby {
     private game: GameHost,
     private opts: LobbyOptions,
   ) {
-    this.store = new SaveStore(opts.saves);
+    this.store = new SaveStore(opts.saves, this.version);
     this.saves = this.store.list();
+  }
+
+  private get version() {
+    return this.opts.version ?? APP_VERSION;
   }
 
   state(): LobbyState {
@@ -117,7 +122,7 @@ export class Lobby {
     this.connecting = true;
     this.changed();
     try {
-      this.guest = await GuestLink.join(String(req.code ?? ''), String(req.name ?? ''), req.deck ?? null, {
+      this.guest = await GuestLink.join(String(req.code ?? ''), String(req.name ?? ''), req.deck ?? null, this.version, {
         lobby: (state) => {
           this.error = state.error;
           this.changed(false);
