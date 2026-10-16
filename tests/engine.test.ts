@@ -366,6 +366,46 @@ describe('auto-pay: which sources it taps', () => {
     expect(planPayment(g, 0, parseCost('{1}'))!.pool.map((m) => m.sym)).toEqual(['R']);
   });
 
+  // Red and white are both wanted, so the three lands tie and the first, the Mountain,
+  // would pay {1}. Looking ahead taps a Plains so the Bolt can still be cast.
+  const strands = () =>
+    game((d) => {
+      put(d, 0, 'Mountain');
+      put(d, 0, 'Plains', 'battlefield', 2);
+      put(d, 0, 'Lightning Bolt', 'hand');
+      put(d, 0, 'Thraben Inspector', 'hand'); // {W}
+      put(d, 0, 'Sol Ring', 'hand'); // {1}
+    });
+  const tappedBy = (g: Game) => g.players[0].battlefield.filter((c) => c.tapped).map((c) => c.name);
+  const solRing = (g: Game) => ({ type: 'cast', card: byName(g, 0, 'Sol Ring', 'hand')!.id }) as const;
+
+  it('looks ahead so the cards left in hand can still be cast', () => {
+    const g = strands();
+    expect(tapped(g, '{1}')).toEqual(['Mountain']); // the colour weighing alone
+    expect(tappedBy(applyAction(g, solRing(g)))).toEqual(['Plains']);
+  });
+
+  it('looks ahead with what cards cost now, after reductions (601.2f)', () => {
+    // Ruby Medallion makes Fiery Confluence {1}{R}{R}: three lands, not four, so it stays
+    // castable only if the {1} isn't paid with a Mountain.
+    const g = game((d) => {
+      put(d, 0, 'Ruby Medallion');
+      put(d, 0, 'Mountain', 'battlefield', 2);
+      put(d, 0, 'Plains', 'battlefield', 2);
+      put(d, 0, 'Fiery Confluence', 'hand'); // {2}{R}{R}
+      put(d, 0, 'Thraben Inspector', 'hand'); // {W}
+      put(d, 0, 'Sol Ring', 'hand');
+    });
+    expect(tapped(g, '{1}')).toEqual(['Mountain']); // the colour weighing alone
+    expect(tappedBy(applyAction(g, solRing(g)))).toEqual(['Plains']);
+  });
+
+  it("skips the lookahead while a bot only tries a move out, and uses it for the bot's real move", () => {
+    const g = strands();
+    expect(tappedBy(applyAction(g, solRing(g), { simulate: true }))).toEqual(['Mountain']);
+    expect(tappedBy(applyBotAction(g, solRing(g)))).toEqual(['Plains']);
+  });
+
   it("doesn't count the spell being paid for as wanting its own colours", () => {
     // Lyra ({3}{W}{W}) in the command zone wants white; the Bolt being cast wants nothing more.
     const g = emptyGame((d) => {

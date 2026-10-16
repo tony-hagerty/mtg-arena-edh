@@ -346,7 +346,8 @@ function activations(g: Game, pid: PlayerId, c: Card, ref: AbilityRef): Action[]
 
 // Look-ahead turns auto-pass off, so that passing only ever resolves the stack or ends one
 // step. Positions being compared then always stop at the same point in the turn.
-const STEP_BY_STEP = { autoPass: false } as const;
+// `simulate`: a move only tried out, so auto-pay skips its lookahead (see `pay`).
+const STEP_BY_STEP = { autoPass: false, simulate: true } as const;
 
 /**
  * A quick answer to a decision that comes up while the stack resolves: the first legal
