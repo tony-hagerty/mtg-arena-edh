@@ -535,3 +535,26 @@ describe('entering together (603.6a, 614.12a)', () => {
     expect(g.players[0].life).toBe(42);
   });
 });
+
+describe('Trouble in Pairs: extra turns', () => {
+  const fortune = (trouble: boolean) => {
+    let g = emptyGame((d) => {
+      if (trouble) put(d, 0, 'Trouble in Pairs');
+      put(d, 1, 'Final Fortune', 'hand');
+      put(d, 1, 'Mountain', 'battlefield', 2);
+      for (const p of d.players) top(d, p.id, plenty);
+      d.active = 1;
+      d.priority = 1;
+    });
+    g = settle(run(g, cast(g, 'Final Fortune', {}, 'hand', 1)));
+    return until(g, (x) => x.turn > 1);
+  };
+
+  it('an opponent who would begin an extra turn skips it instead (614.10)', () => {
+    expect(fortune(false).active).toBe(1);
+    const g = fortune(true);
+    expect(g.active).toBe(2);
+    // The skipped turn's "you lose the game" never comes.
+    expect(g.players[1].lost).toBeFalsy();
+  });
+});
