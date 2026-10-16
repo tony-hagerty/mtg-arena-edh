@@ -135,7 +135,7 @@ async function viaNatPmp(gateway: string | null, internalPort: number, opts: Por
 async function viaUpnp(gateway: string | null, internalPort: number, opts: PortMapOptions, shared: Shared): Promise<PortMapping> {
   const protocol = opts.protocol ?? 'tcp';
   const timeoutMs = opts.timeoutMs ?? 2500;
-  const found = await findUpnpGateway({ ...opts, gateway });
+  const found = await findUpnpGateway({ ...opts, gateway, localAddress: shared.localAddress });
   shared.routerAddress ??= found.publicAddress;
   if (shared.won) throw new Error('not needed');
   const gw = found.gateway;
