@@ -728,6 +728,9 @@ function priorityView(view: View, g: Game, me: PlayerId) {
     view.primary = attackCandidates(g, me).length
       ? { label: 'Next', sub: 'To Combat', tone: 'go', onClick: pass }
       : { label: 'End Turn', tone: 'go', onClick: endTurn };
+  } else if (myTurn && g.step === 'beginCombat') {
+    view.prompt = 'Beginning of combat. Cast instants, or go on to declare attackers.';
+    view.primary = { label: 'Next', sub: 'To Attackers', tone: 'attack', onClick: pass };
   } else if (myTurn && g.step === 'main2') {
     view.primary = { label: 'End Turn', tone: 'go', onClick: pass };
   } else if (myTurn && g.step === 'blockers') {
@@ -742,12 +745,15 @@ function priorityView(view: View, g: Game, me: PlayerId) {
   }
 }
 
-/** "End Turn" with nothing to attack with: also passes the second main phase if the game stops there. */
+/** "End Turn" with nothing to attack with: also passes beginning of combat and the second main phase if the game stops there. */
 function endTurn() {
   const turn = S().game?.turn;
   pass();
-  const { game: g, human: me } = S();
-  if (g && g.turn === turn && g.step === 'main2' && g.priority === me && !g.decision && !g.stack.length) pass();
+  for (let i = 0; i < 2; i++) {
+    const { game: g, human: me } = S();
+    if (!g || g.turn !== turn || !['beginCombat', 'main2'].includes(g.step) || g.priority !== me || g.decision || g.stack.length) return;
+    pass();
+  }
 }
 
 // ---------- click handlers ----------

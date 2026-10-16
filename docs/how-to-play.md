@@ -80,10 +80,10 @@ The full guide to the game's screens and controls. For a quick start, see the
   and edit the stops for that player's turns; the tracker takes their deck colour. Click
   it again to go back to the current turn. Your turns show orange, everyone else's blue.
 - Default stops (your stops are saved in the browser):
-  - **Your turn:** always in main 1; if you can act, in main 2 and after blockers are
-    declared.
-  - **Other turns:** if you can act, after attackers (only once something attacks) and
-    blockers are declared, and in the end step.
+  - **Your turn:** always in both main phases; if you can act, at beginning of combat
+    and after blockers are declared.
+  - **Other turns:** if you can act, in the upkeep, after attackers (only once something
+    attacks) and blockers are declared, and in the end step.
 
 ## Your commander
 
