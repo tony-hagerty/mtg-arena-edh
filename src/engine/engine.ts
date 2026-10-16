@@ -847,6 +847,7 @@ export function canActivate(g: Game, pid: PlayerId, c: Card, ability?: number, a
   if (ab.cost.discard && discardOptions(g, pid, c).length < ab.cost.discard) return false;
   if (ab.cost.sacrificeOne && !activationSacrificeOptions(g, pid, c, activated).length) return false;
   if (ab.cost.exileOne && !activationExileOptions(g, pid, c, activated).length) return false;
+  if (ab.cost.exileGraveyard && g.players[pid].graveyard.length < ab.cost.exileGraveyard) return false;
   // The source can't also make the mana if tapping, sacrificing or exiling it is part of the cost.
   if ((ab.cost.mana || ab.cost.life) && !planPayment(g, pid, activationCost(g, pid, c, ab, x), undefined, ab.cost.tap || ab.cost.sacrifice || ab.cost.exileSelf ? [c.id] : [])) return false;
   for (const spec of ab.targets ?? []) {
@@ -2167,6 +2168,9 @@ function act(g: Game, a: Action): boolean {
       // "Exile a creature you control": exactly one that fits (The Soul Stone).
       const exiling = (a.exile ?? []).map((id) => activationExileOptions(g, pid, c, a.activated).find((x) => x.id === id));
       if (exiling.length !== (ab.cost.exileOne ? 1 : 0) || exiling.some((x) => !x)) return false;
+      // "Exile two cards from your graveyard": exactly that many different ones (Matoc).
+      const fromGrave = (a.graveyard ?? []).map((id) => p.graveyard.find((x) => x.id === id));
+      if (fromGrave.length !== (ab.cost.exileGraveyard ?? 0) || fromGrave.some((x) => !x) || new Set(a.graveyard).size !== fromGrave.length) return false;
       // The ability goes on the stack as its own object, apart from its source (602.2a).
       // X is announced as it is activated (107.3a, 602.2b), and kept with the ability on the stack.
       const hasX = abilityHasX(c, { activated: a.activated });
@@ -2201,6 +2205,13 @@ function act(g: Game, a: Action): boolean {
             log(g, `${says(p, 'exiles')} ${label(x)} to pay for it.`, pid, [x]);
             moveCard(g, x, 'exile');
           }
+        });
+      }
+      if (fromGrave.length) {
+        const cards = fromGrave as Card[];
+        simultaneously(g, () => {
+          log(g, `${says(p, 'exiles')} ${cards.map(label).join(' and ')} from ${their(p)} graveyard to pay for it.`, pid, cards);
+          for (const x of cards) moveCard(g, x, 'exile');
         });
       }
       g.stack.push(item);
