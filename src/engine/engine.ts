@@ -885,10 +885,10 @@ export type TurnStops = Partial<Record<Step, StopKind>>;
 /** One player's stops, indexed by whose turn it is: `stops[g.active]`. */
 export type Stops = TurnStops[];
 
-/** Stops on your own turn: both main phases, and after blockers are declared. */
-export const OWN_TURN_STOPS: TurnStops = { main1: 'always', main2: 'ifAble', blockers: 'ifAble' };
-/** Stops on another player's turn: after attackers and blockers are declared, and the end step. */
-export const OTHER_TURN_STOPS: TurnStops = { attackers: 'ifAble', blockers: 'ifAble', end: 'ifAble' };
+/** Stops on your own turn, as on Arena: always in both main phases; beginning of combat and after blockers if you can act. */
+export const OWN_TURN_STOPS: TurnStops = { main1: 'always', beginCombat: 'ifAble', blockers: 'ifAble', main2: 'always' };
+/** Stops on another player's turn, if you can act: upkeep, after attackers and blockers are declared, and the end step. */
+export const OTHER_TURN_STOPS: TurnStops = { upkeep: 'ifAble', attackers: 'ifAble', blockers: 'ifAble', end: 'ifAble' };
 
 /** The stops every player has unless told otherwise. */
 export const defaultStops = (pid: PlayerId, players = 4): Stops =>
