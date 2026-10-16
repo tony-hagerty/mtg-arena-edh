@@ -295,10 +295,6 @@ export function HandCard({
   const fly = useFlight(drawn, () =>
     onLibrary(card.owner, document.querySelector('.hand'), 0, x * rem, HAND_W * rem, HAND_W * 1.4 * rem),
   );
-  // The next card covers this one's right side, so the cost sits at the right end of the part
-  // that still shows. A card that is on top of the others gets it on its real corner.
-  const onTop = hot || held !== null || index === total - 1;
-  const costRight = onTop ? 0.5 : HAND_W - gap + 0.3;
   // -8.6rem keeps the zoomed card's bottom edge just past the screen edge, so the
   // pointer never falls off the card and makes it flicker. Hovering waits until the card lands.
   const pose = held
@@ -354,7 +350,7 @@ export function HandCard({
         {fly.flying && <div className="card-back" />}
         <CardImage d={d} draggable={false} />
         {d.manaCost && (
-          <div className="hand-cost" style={{ right: `${costRight}rem` }}>
+          <div className="hand-cost">
             <ManaCost cost={d.manaCost} />
           </div>
         )}
