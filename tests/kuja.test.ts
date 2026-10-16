@@ -270,20 +270,20 @@ describe('Roles and Auras', () => {
       const a = put(d, 0, 'Wicked Role');
       a.isToken = true;
       a.attachedTo = angel.id;
-      a.attachedAt = 1;
+      a.ts = 1;
       const b = put(d, 0, 'Wicked Role');
       b.isToken = true;
       b.attachedTo = angel.id;
-      b.attachedAt = 2;
+      b.ts = 2;
       // Another player's Role on the same creature stays.
       const c = put(d, 1, 'Wicked Role');
       c.isToken = true;
       c.attachedTo = angel.id;
-      c.attachedAt = 0;
+      c.ts = 0;
     });
     const after = settle(applyAction(g, pass));
     const roles = after.players.flatMap((p) => p.battlefield).filter((c) => c.name === 'Wicked Role');
-    expect(roles.map((c) => c.attachedAt).sort()).toEqual([0, 2]);
+    expect(roles.map((c) => c.ts).sort()).toEqual([0, 2]);
     // The one that went to the graveyard made player 0's opponents lose 1 life.
     expect(after.players[1].life).toBe(39);
   });

@@ -57,6 +57,7 @@ import {
   tokenCopy,
   transform,
   turnOrder,
+  untilEndOfTurn,
 } from '../engine/rules';
 import { cardWant } from '../engine/ai';
 import type { Card, CardScript, Game, Mode, PlayerId, StackItem, TargetRef, TargetSpec, Zone } from '../engine/types';
@@ -72,7 +73,7 @@ const still = (g: Game, ref: { id: string; moves: number }) => {
 };
 
 /** Is `c` a Wizard (205.3m)? Changelings are every creature type (702.73a). */
-const isWizard = (c: Card) => subtypesOf(c).includes('Wizard');
+const isWizard = (g: Game, c: Card) => subtypesOf(g, c).includes('Wizard');
 
 /** The card a permanent became as it went to `zone` (400.7), if it is still there. Tokens cease to exist (111.7). */
 const wentTo = (g: Game, left: Card, zone: Zone) => g.players[left.owner][zone].find((x) => x.id === left.id && x.moves === left.moves + 1);
@@ -107,7 +108,7 @@ registerScripts({
       when: (_g, { self, player }) => player === self.controller,
       resolve: (g, { self, you }) => {
         createToken(g, you, 'Wizard 0/1 ping', 1, { tapped: true });
-        if (g.players[you].battlefield.filter(isWizard).length >= 4) transform(g, still(g, self), self);
+        if (g.players[you].battlefield.filter((c) => isWizard(g, c)).length >= 4) transform(g, still(g, self), self);
       },
       text: 'At the beginning of your end step, create a tapped 0/1 Wizard token. Then if you control four or more Wizards, transform Kuja.',
     },
@@ -115,7 +116,7 @@ registerScripts({
   'Trance Kuja, Fate Defied': {
     // "Flare Star — If a Wizard you control would deal damage to a permanent or player, it
     // deals double that damage instead." (614.1a) The damage is still dealt by the Wizard.
-    changesDamage: (_g, self, source) => (source.controller === self.controller && isWizard(source) ? { times: 2 } : null),
+    changesDamage: (g, self, source) => (source.controller === self.controller && isWizard(g, source) ? { times: 2 } : null),
   },
 
   // ===== Creatures =====
@@ -159,8 +160,8 @@ registerScripts({
     onCast: prowess,
     // "If a triggered ability of a Shaman or another Wizard you control triggers, that ability
     // triggers an additional time." (603.2d) Only permanents have a controller to count (108.4).
-    doublesTriggers: (_g, self, source) =>
-      source.zone === 'battlefield' && source.controller === self.controller && (subtypesOf(source).includes('Shaman') || (source.id !== self.id && isWizard(source))),
+    doublesTriggers: (g, self, source) =>
+      source.zone === 'battlefield' && source.controller === self.controller && (subtypesOf(g, source).includes('Shaman') || (source.id !== self.id && isWizard(g, source))),
   },
   'Slickshot Show-Off': {
     // "Whenever you cast a noncreature spell, this creature gets +2/+0 until end of turn." Plot {1}{R} (702.170a).
@@ -173,15 +174,15 @@ registerScripts({
   },
   'Storm-Kiln Artist': {
     // "This creature gets +1/+0 for each artifact you control."
-    static: (g, self, c) => (c.id === self.id ? { power: g.players[self.controller].battlefield.filter((x) => hasType(x, 'Artifact')).length } : null),
+    static: (g, self, c) => (c.id === self.id ? { power: g.players[self.controller].battlefield.filter((x) => hasType(g, x, 'Artifact')).length } : null),
     // "Magecraft — Whenever you cast or copy an instant or sorcery spell, create a Treasure token." (207.2c)
     onCast: {
-      when: (_g, { self, card, caster }) => caster === self.controller && (hasType(card, 'Instant') || hasType(card, 'Sorcery')),
+      when: (g, { self, card, caster }) => caster === self.controller && (hasType(g, card, 'Instant') || hasType(g, card, 'Sorcery')),
       resolve: (g, { you }) => createToken(g, you, 'Treasure'),
       text: 'Magecraft — Whenever you cast or copy an instant or sorcery spell, create a Treasure token.',
     },
     onCopy: {
-      when: (_g, { self, card, controller }) => controller === self.controller && (hasType(card, 'Instant') || hasType(card, 'Sorcery')),
+      when: (g, { self, card, controller }) => controller === self.controller && (hasType(g, card, 'Instant') || hasType(g, card, 'Sorcery')),
       resolve: (g, { you }) => createToken(g, you, 'Treasure'),
       text: 'Magecraft — Whenever you cast or copy an instant or sorcery spell, create a Treasure token.',
     },
@@ -198,7 +199,7 @@ registerScripts({
     keepsMana: (_g, self, pid, m) => pid === self.controller && m.sym === 'R',
     // "Whenever you cast an instant or sorcery spell, add {R}." A triggered ability, so it uses the stack (605.1b).
     onCast: {
-      when: (_g, { self, card, caster }) => caster === self.controller && (hasType(card, 'Instant') || hasType(card, 'Sorcery')),
+      when: (g, { self, card, caster }) => caster === self.controller && (hasType(g, card, 'Instant') || hasType(g, card, 'Sorcery')),
       resolve: (g, { self, you }) => addMana(g, you, ['R'], self),
       text: 'Whenever you cast an instant or sorcery spell, add {R}.',
     },
@@ -235,7 +236,7 @@ registerScripts({
   'Reactor Raid': {
     // "You may sacrifice an artifact or creature. If you do, draw two cards."
     onResolve: (g, { you }) => {
-      const options = g.players[you].battlefield.filter((c) => hasType(c, 'Artifact') || isCreature(c));
+      const options = g.players[you].battlefield.filter((c) => hasType(g, c, 'Artifact') || isCreature(g, c));
       if (options.length) pickCards(g, you, options, { min: 0, max: 1, text: 'You may sacrifice an artifact or creature. If you do, draw two cards.', button: 'Sacrifice', then: 'sac' });
     },
     then: {
@@ -250,7 +251,7 @@ registerScripts({
       sac: (g, _pid, choice) => {
         // A Treasure, Clue or Food, or else a token creature.
         const cards = ((choice as { cards: string[] }).cards ?? []).map((id) => permanent(g, id)!).filter(Boolean);
-        const spare = cards.find((c) => c.isToken && !isCreature(c)) ?? cards.find((c) => c.isToken);
+        const spare = cards.find((c) => c.isToken && !isCreature(g, c)) ?? cards.find((c) => c.isToken);
         return { type: 'chooseCards', cards: spare ? [spare.id] : [] };
       },
     },
@@ -295,7 +296,7 @@ registerScripts({
     },
     then: { type: (g, { self, name, data }) => finishEnter(g, self, data, { chosen: name }) },
     // "Double all damage that sources you control of the chosen type would deal." (614.1a)
-    changesDamage: (_g, self, source) => (self.chosen && source.controller === self.controller && subtypesOf(source).includes(self.chosen) ? { times: 2 } : null),
+    changesDamage: (g, self, source) => (self.chosen && source.controller === self.controller && subtypesOf(g, source).includes(self.chosen) ? { times: 2 } : null),
     botChoice: { type: (g, pid) => ({ type: 'name', name: favouriteType(g, pid) }) },
   },
   'Lightning Greaves': {
@@ -314,7 +315,7 @@ registerScripts({
   },
   "Kaya's Ghostform": {
     // "Enchant creature or planeswalker you control"
-    enchant: { type: 'creature or planeswalker', who: 'you', label: 'target creature or planeswalker you control', filter: (_g, c) => isCreature(c) || isPlaneswalker(c) },
+    enchant: { type: 'creature or planeswalker', who: 'you', label: 'target creature or planeswalker you control', filter: (g, c) => isCreature(g, c) || isPlaneswalker(g, c) },
     // "When enchanted permanent dies or is put into exile, return that card to the battlefield
     // under your control." A leaves-the-battlefield ability, so it looks back in time (603.10a):
     // it triggers even if Ghostform leaves at the same time. It returns only the card that went
@@ -348,8 +349,7 @@ registerScripts({
     // and only if the card came back as a creature (as its rulings say).
     targets: [{ type: 'creature', who: 'you', label: 'target creature you control' }],
     onResolve: (g, { targets }) => {
-      const c = refCard(g, targets[0]);
-      if (c) c.mods.push({ power: 0, toughness: 0, keywords: [], grant: { from: 'Not Dead After All', index: 0 } });
+      untilEndOfTurn(g, refCard(g, targets[0]), { grant: { from: 'Not Dead After All', index: 0 } });
     },
     grants: [
       granted('onDies', {
@@ -363,7 +363,7 @@ registerScripts({
     then: {
       role: (g, { you, picked }) => {
         const c = picked[0] && permanent(g, picked[0].id);
-        if (c && isCreature(c)) createToken(g, you, 'Wicked Role', 1, { attachTo: c.id });
+        if (c && isCreature(g, c)) createToken(g, you, 'Wicked Role', 1, { attachTo: c.id });
       },
     },
   },
@@ -373,7 +373,7 @@ registerScripts({
     // "{T}: Add {C}." "{T}: Add {B} or {R}. Activate only if this land entered this turn or if you control a basic land."
     mana: [
       { amount: 1, colors: ['C'] },
-      { amount: 1, colors: ['B', 'R'], when: (g, self) => self.entered === g.turn || g.players[self.controller].battlefield.some((c) => isLand(c) && hasType(c, 'Basic')) },
+      { amount: 1, colors: ['B', 'R'], when: (g, self) => self.entered === g.turn || g.players[self.controller].battlefield.some((c) => isLand(g, c) && hasType(g, c, 'Basic')) },
     ],
   },
   'Phyrexian Tower': {
@@ -391,10 +391,10 @@ registerScripts({
 
 // ---------- spells that choose as they resolve ----------
 
-const isInstantOrSorcery = (c: Card) => hasType(c, 'Instant') || hasType(c, 'Sorcery');
+const isInstantOrSorcery = (g: Game, c: Card) => hasType(g, c, 'Instant') || hasType(g, c, 'Sorcery');
 
 /** "Target instant or sorcery card in your graveyard" (Flashback, Stingcaster Mage). */
-const instantOrSorceryInGraveyard: TargetSpec = { type: 'graveyard card', who: 'you', label: 'target instant or sorcery card in your graveyard', filter: (_g, c) => isInstantOrSorcery(c) };
+const instantOrSorceryInGraveyard: TargetSpec = { type: 'graveyard card', who: 'you', label: 'target instant or sorcery card in your graveyard', filter: (g, c) => isInstantOrSorcery(g, c) };
 
 /** "[It] gains flashback until end of turn. The flashback cost is equal to its mana cost." (702.34a) */
 function giveFlashback(g: Game, card: Card | undefined) {
@@ -447,7 +447,7 @@ function danceAsk(g: Game, you: PlayerId, exiled: { id: string; moves: number }[
 function danceCast(g: Game, you: PlayerId, exiled: { id: string; moves: number }[]) {
   const cards = stillExiled(g, exiled);
   if (totalMv(cards) > 13) return log(g, `The total mana value is ${totalMv(cards)}, more than 13.`, you);
-  const spells = cards.filter((c) => !isLand(c));
+  const spells = cards.filter((c) => !isLand(g, c));
   if (spells.length) pickCards(g, you, spells, { min: 0, max: 1, text: 'You may cast a spell from among the exiled cards without paying its mana cost.', button: 'Cast', then: 'dancePick', data: { exiled } });
 }
 
@@ -606,7 +606,7 @@ registerScripts({
       },
       danceNext: (g, { you, data }) => {
         const done = (data.done as string[]) ?? [];
-        const spells = stillExiled(g, data.exiled as { id: string; moves: number }[]).filter((c) => !isLand(c) && !done.includes(c.id));
+        const spells = stillExiled(g, data.exiled as { id: string; moves: number }[]).filter((c) => !isLand(g, c) && !done.includes(c.id));
         if (spells.length) pickCards(g, you, spells, { min: 0, max: 1, text: 'You may cast another spell from among the exiled cards without paying its mana cost.', button: 'Cast', then: 'dancePick', data });
       },
     },
@@ -642,9 +642,9 @@ registerScripts({
       mara: (g, { self, you, chooser, yes, data }) => {
         const { order, i } = data as { order: PlayerId[]; i: number };
         if (yes) {
-          const exiled = exileUntil(g, chooser, (c) => !isLand(c));
+          const exiled = exileUntil(g, chooser, (c) => !isLand(g, c));
           const card = exiled[exiled.length - 1];
-          if (card && !isLand(card)) {
+          if (card && !isLand(g, card)) {
             offerCast(g, you, card, { free: true, text: `Cast ${label(card)} without paying its mana cost?`, then: 'maraNext', data: { order, i } });
             return;
           }
@@ -701,7 +701,7 @@ registerScripts({
     // "You may discard a card or sacrifice a land. If you do, draw two cards." Plot {1}{R}.
     onResolve: (g, { you }) => {
       const p = g.players[you];
-      const options = [...p.hand, ...p.battlefield.filter(isLand)];
+      const options = [...p.hand, ...p.battlefield.filter((x) => isLand(g, x))];
       if (options.length) pickCards(g, you, options, { min: 0, max: 1, text: 'You may discard a card or sacrifice a land. If you do, draw two cards.', button: 'Choose', then: 'rob' });
     },
     then: {
@@ -724,7 +724,7 @@ registerScripts({
         const p = g.players[pid];
         // The hand card it wants least, if it has one it doesn't want; else nothing.
         const worst = [...p.hand].sort((a, b) => cardWant(g, pid, a) - cardWant(g, pid, b))[0];
-        return { type: 'chooseCards', cards: worst && (isLand(worst) ? p.battlefield.filter(isLand).length >= 4 : cardWant(g, pid, worst) <= 0) ? [worst.id] : [] };
+        return { type: 'chooseCards', cards: worst && (isLand(g, worst) ? p.battlefield.filter((x) => isLand(g, x)).length >= 4 : cardWant(g, pid, worst) <= 0) ? [worst.id] : [] };
       },
     },
   },
@@ -783,12 +783,12 @@ registerScripts({
     // "Exile target card that's an instant or sorcery from your graveyard. For each card exiled
     // this way, copy it, and you may cast the copy without paying its mana cost. Exile Mizzix's
     // Mastery." Overload: "target" becomes "each" (702.96a-b).
-    targets: [{ type: 'graveyard card', who: 'you', label: "target card that's an instant or sorcery from your graveyard", filter: (_g, c) => isInstantOrSorcery(c) }],
+    targets: [{ type: 'graveyard card', who: 'you', label: "target card that's an instant or sorcery from your graveyard", filter: (g, c) => isInstantOrSorcery(g, c) }],
     alternativeCosts: [{ label: 'Overload {5}{R}{R}{R}', mana: '{5}{R}{R}{R}', overload: true }],
     exilesItself: true,
     onResolve: (g, { self, you, targets }) => {
       const p = g.players[you];
-      const cards = self.cast?.alt === 0 ? p.graveyard.filter(isInstantOrSorcery) : [refGraveyard(g, targets[0])].filter((c): c is Card => !!c);
+      const cards = self.cast?.alt === 0 ? p.graveyard.filter((c) => isInstantOrSorcery(g, c)) : [refGraveyard(g, targets[0])].filter((c): c is Card => !!c);
       const exiled: Card[] = [];
       for (const c of cards) {
         const owner = g.players[c.owner];
@@ -845,7 +845,7 @@ registerScripts({
         {
           text: 'Copy target instant spell, sorcery spell, activated ability, or triggered ability. You may choose new targets for the copy.',
           cost: '{1}',
-          targets: [{ type: 'spell or ability', label: 'target instant spell, sorcery spell, activated ability, or triggered ability', item: (_g, item) => item.kind !== 'spell' || isInstantOrSorcery(item.card) }],
+          targets: [{ type: 'spell or ability', label: 'target instant spell, sorcery spell, activated ability, or triggered ability', item: (g, item) => item.kind !== 'spell' || isInstantOrSorcery(g, item.card) }],
           resolve: (g, { you, targets }) => {
             const item = refStack(g, targets[0]);
             if (item) copyItem(g, item, you);
@@ -913,10 +913,10 @@ registerScripts({
       const n = 1 + Math.floor(rand(g) * 3);
       log(g, `${n} is chosen at random.`, pid);
       mill(g, pid, n);
-      const exiled = exileUntil(g, pid, (c) => !isLand(c) && label(c) !== name);
+      const exiled = exileUntil(g, pid, (c) => !isLand(g, c) && label(c) !== name);
       const last = exiled[exiled.length - 1];
       const data = { exiled: refsOf(exiled) };
-      if (last && !isLand(last) && label(last) !== name) offerCast(g, pid, last, { free: true, text: `Cast ${label(last)} without paying its mana cost?`, then: 'bottom', data });
+      if (last && !isLand(g, last) && label(last) !== name) offerCast(g, pid, last, { free: true, text: `Cast ${label(last)} without paying its mana cost?`, then: 'bottom', data });
       else putOnBottomRandomly(g, exiled);
     },
     then: { bottom: (g, { data }) => putOnBottomRandomly(g, stillExiled(g, data.exiled as { id: string; moves: number }[])) },
@@ -929,7 +929,7 @@ registerScripts({
       modes: [
         {
           text: 'Destroy target artifact.',
-          targets: [{ type: 'permanent', label: 'target artifact', filter: (_g, c) => hasType(c, 'Artifact') }],
+          targets: [{ type: 'permanent', label: 'target artifact', filter: (g, c) => hasType(g, c, 'Artifact') }],
           resolve: (g, { targets }) => destroy(g, refCard(g, targets[0])),
         },
         changeTarget,
@@ -966,8 +966,8 @@ registerScripts({
       which: (g, pid) => {
         // Lands beyond what it needs, and cards it can't use.
         const hand = g.players[pid].hand;
-        const lands = g.players[pid].battlefield.filter(isLand).length;
-        return { type: 'chooseCards', cards: hand.filter((c) => (isLand(c) && lands >= 5) || cardWant(g, pid, c) <= 0).map((c) => c.id) };
+        const lands = g.players[pid].battlefield.filter((x) => isLand(g, x)).length;
+        return { type: 'chooseCards', cards: hand.filter((c) => (isLand(g, c) && lands >= 5) || cardWant(g, pid, c) <= 0).map((c) => c.id) };
       },
     },
   },
