@@ -91,6 +91,12 @@ describe('UPnP', () => {
     await expect(upnpUnmap(gateway, 'tcp', 7420)).rejects.toMatchObject({ code: 714 });
   });
 
+  it('still searches when the address it was told to send from is not this computer’s', async () => {
+    const r = await start();
+    const { publicAddress } = await findUpnpGateway({ ...routerOptions(r), localAddress: '192.0.2.1' });
+    expect(publicAddress).toBe('203.0.113.7');
+  });
+
   it('says so when nothing answers the search', async () => {
     const r = await start({ upnp: 'off' });
     await expect(findUpnpGateway(routerOptions(r))).rejects.toThrow(/UPnP may be turned off/);
