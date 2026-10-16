@@ -19,6 +19,7 @@ import type {
   CastChoices,
   Color,
   Game,
+  GrantedTrigger,
   Mana,
   ManaSym,
   Player,
@@ -103,7 +104,39 @@ export function faceData(d: CardData, zone: Card['zone'], face: number): CardDat
   return d.faces[up] ?? d.faces[0];
 }
 
-export const data = (c: Card): CardData => (c.copy && c.zone === 'battlefield' ? copyData(c.copy) : faceData(cardData(c.name), c.zone, c.face));
+export const data = (c: Card): CardData => {
+  const d = c.copy && c.zone === 'battlefield' ? copyData(c.copy) : faceData(cardData(c.name), c.zone, c.face);
+  return c.addedSubtypes?.length && c.zone === 'battlefield' ? withSubtypes(d, c.addedSubtypes) : d;
+};
+
+const typed = new Map<string, CardData>();
+/** `d` with more subtypes, given by an effect like Urborg's "Each land is a Swamp in addition to its other land types" (205.1b). */
+function withSubtypes(d: CardData, added: string[]): CardData {
+  const key = `${d.name}|${d.typeLine}|${added.join(' ')}`;
+  let out = typed.get(key);
+  if (!out) {
+    const [types, subs] = d.typeLine.split(' — ');
+    const have = subs ? subs.split(' ') : [];
+    const all = [...have, ...added.filter((t) => !have.includes(t))];
+    out = { ...d, typeLine: `${types} — ${all.join(' ')}` };
+    typed.set(key, out);
+  }
+  return out;
+}
+
+/**
+ * Works out again the subtypes effects give permanents (`CardScript.grantsSubtypes`), after
+ * anything that could change them: a permanent entering or leaving, an attachment moving, a
+ * choice made as something entered. Kept on each permanent so every type check sees them.
+ */
+export function refreshSubtypes(g: Game) {
+  const sources = battlefield(g).filter((x) => scriptFor(x).grantsSubtypes);
+  for (const c of battlefield(g)) {
+    const added = [...new Set(sources.flatMap((src) => scriptFor(src).grantsSubtypes!(g, src, { ...c, addedSubtypes: undefined })))];
+    const now = c.addedSubtypes ?? [];
+    if (added.length !== now.length || added.some((t, i) => t !== now[i])) c.addedSubtypes = added.length ? added : undefined;
+  }
+}
 
 const copies = new Map<string, CardData>();
 /**
@@ -319,6 +352,8 @@ export function canAttack(g: Game, c: Card): boolean {
 export function canBlock(g: Game, blocker: Card, attacker: Card): boolean {
   if (blocker.zone !== 'battlefield' || !isCreature(blocker) || blocker.tapped) return false;
   if (has(g, blocker, CANT_BLOCK)) return false;
+  // An attacker with protection can't be blocked by creatures with the stated quality (702.16f).
+  if (protectedFrom(g, attacker, blocker)) return false;
   if (has(g, attacker, 'flying')) {
     const kw = stats(g, blocker).keywords;
     return kw.has('flying') || kw.has('reach');
@@ -434,6 +469,20 @@ export function fitsSpec(g: Game, c: Card, spec: TargetSpec, source: Card): bool
   return spec.filter?.(g, c, source) ?? true;
 }
 
+/** Is `c` the card a resolving spell or ability lets its player cast now (608.2g)? */
+export const castingNow = (g: Game, c: Card) => g.decision?.type === 'cast' && g.decision.choice.card === c.id;
+
+/** Is face `face` of `c` an aftermath half (702.127a)? It can be cast only from a graveyard. */
+export const isAftermath = (c: Card, face: number) => !!cardData(c.name).faces?.[face]?.keywords.includes('Aftermath');
+
+/**
+ * Is `c`, cast from its owner's graveyard with these choices, cast with flashback (702.34a)?
+ * Not with escape, not as an aftermath half, and not when an effect lets the player cast it
+ * (Emet-Selch), which pays its mana cost.
+ */
+export const paysFlashback = (g: Game, c: Card, choices: CastChoices) =>
+  c.zone === 'graveyard' && !choices.escape && !castingNow(g, c) && !isAftermath(c, choices.face ?? 0) && !!scriptFor(c).flashback;
+
 /** Is `c` being cast without paying its mana cost while a spell resolves (608.2g, Beseech the Mirror)? */
 export const freeCast = (g: Game, c: Card) => g.decision?.type === 'cast' && g.decision.choice.card === c.id && g.decision.choice.free;
 
@@ -470,7 +519,7 @@ export function castCost(g: Game, c: Card, choices: CastChoices = {}, pid = c.ow
   const alt = choices.alt === undefined ? undefined : script.alternativeCosts?.[choices.alt];
   // Cast from a graveyard, a card pays its flashback cost (702.34a) or, with escape, its
   // mana cost plus exiling three other cards from that graveyard (702.138a).
-  const flashback = c.zone === 'graveyard' && !choices.escape ? scriptFor(c).flashback : undefined;
+  const flashback = paysFlashback(g, c, choices) ? scriptFor(c).flashback : undefined;
   // "Without paying its mana cost" is an alternative cost of nothing (118.9, 601.2f).
   const free = freeCast(g, c);
   let cost = parseCost(free ? '' : (flashback ?? (alt ? alt.mana : data(spell).manaCost)));
@@ -490,8 +539,10 @@ export function castCost(g: Game, c: Card, choices: CastChoices = {}, pid = c.ow
   // 601.2f: all increases are added and all reductions taken off together, so the order
   // they apply in doesn't matter. Only generic mana is reduced.
   let change = -(script.costReduction?.(g, c) ?? 0);
-  for (const p of battlefield(g)) change += scriptFor(p).costModifier?.(g, p, spell, pid) ?? 0;
+  for (const p of battlefield(g)) change += scriptFor(p).costModifier?.(g, p, spell, pid, c.zone) ?? 0;
   cost.generic = Math.max(0, cost.generic + change);
+  // Delve applies after the total cost is worked out: each card exiled pays for {1} (702.66a-b).
+  cost.generic = Math.max(0, cost.generic - (choices.delve?.length ?? 0));
   return cost;
 }
 
@@ -572,7 +623,7 @@ export function manaOf(g: Game, c: Card): { amount: number; colors: ManaSym[]; s
 
 /** Does something stop `pid` casting `card`, or activating one of its abilities (101.2)? */
 export function forbidden(g: Game, pid: PlayerId, kind: 'cast' | 'activate', card: Card): boolean {
-  if (kind === 'cast' && g.effects.some((e) => e.kind === 'cantCast' && e.player === pid && (!e.noncreature || !isCreature(card)))) return true;
+  if (kind === 'cast' && g.effects.some((e) => e.kind === 'cantCast' && e.player === pid && (!e.noncreature || !isCreature(card)) && (!e.types || e.types.some((t) => hasType(card, t))))) return true;
   return battlefield(g).some((src) => scriptFor(src).forbids?.(g, src, pid, { kind, card }));
 }
 
@@ -1180,17 +1231,22 @@ export function legalTargets(g: Game, pid: PlayerId, spec: TargetSpec, source: C
     }
   };
   for (const p of living(g)) {
-    if (players && whoOk(p.id)) out.push({ kind: 'player', id: p.id });
+    if (players && whoOk(p.id) && !playerShroud(g, p.id)) out.push({ kind: 'player', id: p.id });
     if (spec.type === 'player' || !whoOk(p.id)) continue;
     for (const c of p.battlefield) {
       if (!fits(c)) continue;
       if (c.controller !== pid && has(g, c, 'hexproof')) continue;
+      // Shroud (702.18a), and protection from what the spell or the ability's source is (702.16b).
+      if (has(g, c, 'shroud') || protectedFrom(g, c, source)) continue;
       if (spec.filter && !spec.filter(g, c, source)) continue;
       out.push({ kind: 'card', id: c.id });
     }
   }
   return out;
 }
+
+/** Does player `pid` have shroud (702.18a), from an effect like Solitary Confinement's "You have shroud"? */
+export const playerShroud = (g: Game, pid: PlayerId) => battlefield(g).some((x) => scriptFor(x).givesShroud?.(g, x, pid));
 
 export const sameRef = (a: TargetRef, b: TargetRef) => a.kind === b.kind && a.id === b.id;
 
@@ -1216,7 +1272,7 @@ export function targetSpecs(item: StackItem): TargetSpec[] {
   if (item.kind === 'activated') return (item.ability === undefined ? activatedAt(item.card, item.activated) : script.loyalty?.[item.ability])?.targets ?? [];
   if (item.kind === 'triggered' && item.hook === 'onChapter') return script.chapters?.[(item.event as { chapter: number }).chapter - 1]?.targets ?? [];
   // A lone "enters" ability uses the card's `targets`; one in a list names its own.
-  if (item.kind === 'triggered' && item.hook === 'onEnter' && !Array.isArray(script.onEnter)) return script.targets ?? [];
+  if (item.kind === 'triggered' && item.hook === 'onEnter' && !item.granted && !Array.isArray(script.onEnter)) return script.targets ?? [];
   if (item.kind === 'triggered') {
     const t = triggerOf(item);
     return (t && typeof t !== 'function' && t.targets) || [];
@@ -1485,8 +1541,11 @@ export function moveCard(g: Game, c: Card, to: Zone) {
   c.once = {};
   c.adventure = false;
   c.mods = [];
-  // A spell cast with flashback is exiled instead of going anywhere else (702.34a).
-  if (c.zone === 'stack' && c.cast?.flashback && to !== 'exile') to = 'exile';
+  // A spell cast with flashback, or an aftermath half cast from a graveyard, is exiled
+  // instead of going anywhere else (702.34a, 702.127a).
+  if (c.zone === 'stack' && (c.cast?.flashback || c.cast?.exileOnLeave) && to !== 'exile') to = 'exile';
+  // "If that spell would be put into your graveyard, exile it instead" (Emet-Selch).
+  if (c.zone === 'stack' && c.cast?.graveyardToExile && to === 'graveyard') to = 'exile';
   // A permanent spell enters with the face it had on the stack up (712.13). Anywhere else,
   // a card has its front face up (712.8a, 712.14).
   if (c.zone !== 'stack' || to !== 'battlefield') c.face = 0;
@@ -1498,8 +1557,10 @@ export function moveCard(g: Game, c: Card, to: Zone) {
   }
   c.mayReturn = c.isCommander && to !== 'command' && to !== 'battlefield';
   c.zone = to;
-  if (c.isToken && to !== 'battlefield') return;
+  c.addedSubtypes = undefined;
+  if (c.isToken && to !== 'battlefield') return refreshSubtypes(g);
   g.players[to === 'battlefield' ? c.controller : c.owner][to].push(c);
+  refreshSubtypes(g);
   if (to === 'graveyard') {
     const stored = g.players[c.owner].graveyard[g.players[c.owner].graveyard.length - 1];
     announce(g, 'onCardToGraveyard', { card: stored, player: c.owner });
@@ -1552,6 +1613,7 @@ export function gainControl(g: Game, c: Card, pid: PlayerId) {
   c.controller = pid;
   c.sick = true;
   g.players[pid].battlefield.push(c);
+  refreshSubtypes(g);
   log(g, `${says(g.players[pid], 'gains')} control of ${label(c)}.`, pid, [c]);
 }
 
@@ -1576,25 +1638,56 @@ const isCard = (v: unknown): v is Card => typeof v === 'object' && v !== null &&
  */
 export function trigger<H extends TriggerHook>(g: Game, source: Card, hook: H, event: TriggerEvents[H]) {
   const raw = scriptFor(source)[hook] as Trigger<object> | Trigger<object>[] | undefined;
-  // Each of a card's abilities for this event triggers on its own (603.2), in printed order.
-  (Array.isArray(raw) ? raw : raw ? [raw] : []).forEach((t, i) => {
-    if (typeof t !== 'function' && t.when && !t.when(g, { self: source, ...event })) return;
+  const own = (Array.isArray(raw) ? raw : raw ? [raw] : []).map((t, i) => ({ t, extra: Array.isArray(raw) ? { trigger: i } : {} }));
+  // Abilities other cards give it (613.1f), until end of turn or while they apply.
+  const given = grantedTo(g, source)
+    .filter((x) => x.grant.hook === hook)
+    .map((x) => ({ t: x.grant.trigger as Trigger<object>, extra: { granted: { from: x.from, index: x.index } } }));
+  // Each of a card's abilities for this event triggers on its own (603.2), in printed order,
+  // and once more for each effect like Roaming Throne's (603.2d).
+  const times = 1 + (lookBack ?? battlefield(g)).filter((x) => scriptFor(x).doublesTriggers?.(g, x, source)).length;
+  for (const { t, extra } of [...own, ...given]) {
+    if (typeof t !== 'function' && t.when && !t.when(g, { self: source, ...event })) continue;
     const remembered = Object.fromEntries(Object.entries(event).map(([k, v]) => [k, isCard(v) ? snapshot(v) : v]));
-    g.triggers.push({
-      id: `s${g.nextId++}`,
-      kind: 'triggered',
-      controller: source.controller,
-      card: snapshot(source),
-      hook,
-      ...(Array.isArray(raw) && { trigger: i }),
-      event: remembered,
-      targets: [],
-    });
-  });
+    for (let k = 0; k < times; k++) {
+      g.triggers.push({ id: `s${g.nextId++}`, kind: 'triggered', controller: source.controller, card: { ...snapshot(source), triggeredBy: remembered }, hook, ...extra, event: remembered, targets: [] });
+    }
+  }
 }
 
-/** The triggered ability a stack item is: its hook's ability, or the one it names in the hook's list. */
+/**
+ * The permanents on the battlefield as they were just before an event that looks back in
+ * time (603.10a), while its abilities trigger, so an effect like Roaming Throne's that left
+ * in the same event still applies. Null otherwise.
+ */
+let lookBack: Card[] | null = null;
+
+/** The triggered abilities other cards give `c` now: until end of turn (`Mod.grant`), and from permanents on the battlefield. */
+function grantedTo(g: Game, c: Card): { grant: GrantedTrigger; from: string; index: number }[] {
+  const out: { grant: GrantedTrigger; from: string; index: number }[] = [];
+  for (const m of c.mods) {
+    const grant = m.grant && scriptOf(m.grant.from).grants?.[m.grant.index];
+    if (grant) out.push({ grant, from: m.grant!.from, index: m.grant!.index });
+  }
+  if (c.zone !== 'battlefield') return out;
+  for (const src of lookBack ?? battlefield(g)) {
+    (scriptFor(src).grants ?? []).forEach((grant, index) => {
+      if (grant.applies?.(g, src, c)) out.push({ grant, from: scriptName(src), index });
+    });
+  }
+  return out;
+}
+
+/** The name `scriptFor(c)` finds `c`'s script under: the face that's up, or what it copies. */
+export const scriptName = (c: Card): string =>
+  c.copy && c.zone === 'battlefield' ? faceData(cardData(c.copy.name), 'battlefield', c.copy.face).name : cardData(c.name).faces ? faceData(cardData(c.name), c.zone, c.face).name : c.name;
+
+/** The script a stack item's ability comes from: the card that gave it, or its source's own. */
+export const itemScript = (item: StackItem): CardScript => (item.granted ? scriptOf(item.granted.from) : scriptFor(item.card));
+
+/** The triggered ability a stack item is: its hook's ability, the one it names in the hook's list, or one another card gave its source. */
 export function triggerOf(item: StackItem): Trigger<object> | undefined {
+  if (item.granted) return scriptOf(item.granted.from).grants?.[item.granted.index]?.trigger as Trigger<object> | undefined;
   const raw = scriptFor(item.card)[item.hook!] as Trigger<object> | Trigger<object>[] | undefined;
   return Array.isArray(raw) ? raw[item.trigger ?? 0] : raw;
 }
@@ -1630,8 +1723,12 @@ export const canProtect = (g: Game, c: Card, pid: PlayerId) =>
 /** Sets up a permanent that was just put onto the battlefield, and triggers "enters" abilities (603.6a). */
 function arrive(g: Game, c: Card, opts: { tapped?: boolean; protector?: PlayerId }) {
   c.sick = true;
+  refreshSubtypes(g); // its choice or copy is set by now
   const tapped = scriptFor(c).entersTapped;
-  c.tapped = !!opts.tapped || (typeof tapped === 'function' ? tapped(g, c, c.controller) : !!tapped);
+  c.tapped =
+    !!opts.tapped ||
+    (typeof tapped === 'function' ? tapped(g, c, c.controller) : !!tapped) ||
+    battlefield(g).some((x) => x.id !== c.id && scriptFor(x).entersTappedFor?.(g, x, c));
   // "This enters with [counters]" (614.1c).
   for (const [kind, n] of Object.entries(scriptFor(c).entersWith ?? {})) c.counters[kind] = (c.counters[kind] ?? 0) + n;
   // Dash: "return the permanent this spell becomes to its owner's hand at the beginning of the next end step" (702.109a).
@@ -1769,19 +1866,26 @@ export function dieMany(g: Game, cards: Card[], verb = 'dies') {
   const gone = sacrificing ? dying.map(snapshot) : [];
   const dead = dying.filter(isCreature).map(snapshot);
   const walkers = dying.filter((c) => isPlaneswalker(c) && !isCreature(c)).map(snapshot);
+  const before = battlefield(g).map(snapshot);
   simultaneously(g, () => {
     for (const c of dying) {
       log(g, `${label(c)} ${verb}.`, c.controller, [c]);
       moveCard(g, c, 'graveyard');
     }
   });
-  for (const c of dead) {
-    trigger(g, c, 'onDies', {});
-    for (const l of listeners) trigger(g, l, 'onCreatureDies', { dead: c });
+  // Leaves-the-battlefield abilities look back in time (603.10a).
+  lookBack = before;
+  try {
+    for (const c of dead) {
+      trigger(g, c, 'onDies', {});
+      for (const l of listeners) trigger(g, l, 'onCreatureDies', { dead: c });
+    }
+    for (const c of walkers) for (const l of listeners) trigger(g, l, 'onPlaneswalkerDies', { dead: c });
+    // The player who sacrifices a permanent is its controller (701.21a).
+    for (const c of gone) for (const l of sacListeners) trigger(g, l, 'onSacrifice', { card: c, player: c.controller });
+  } finally {
+    lookBack = null;
   }
-  for (const c of walkers) for (const l of listeners) trigger(g, l, 'onPlaneswalkerDies', { dead: c });
-  // The player who sacrifices a permanent is its controller (701.21a).
-  for (const c of gone) for (const l of sacListeners) trigger(g, l, 'onSacrifice', { card: c, player: c.controller });
 }
 
 export function destroyMany(g: Game, cards: Card[]) {
@@ -1987,6 +2091,7 @@ export function transform(g: Game, c: Card | undefined) {
   if (!next || /Instant|Sorcery/.test(next.typeLine)) return;
   const before = label(c);
   c.face = 1 - c.face;
+  refreshSubtypes(g);
   log(g, `${before} transforms into ${label(c)}.`, c.owner, [c]);
 }
 
@@ -2008,19 +2113,21 @@ export function canEnchant(g: Game, aura: Card, host: Card | undefined): boolean
   if (spec.type === 'creature' && !isCreature(host)) return false;
   if (spec.who === 'you' && host.controller !== aura.controller) return false;
   if (spec.who === 'opponent' && host.controller === aura.controller) return false;
+  if (protectedFrom(g, host, aura)) return false; // 702.16c
   return spec.filter?.(g, host, aura) ?? true;
 }
 
 /** Can Equipment `eq` stay attached to `host`? Only to a creature on the battlefield, and not itself (301.5c). */
-export const canEquip = (eq: Card, host: Card | undefined) =>
-  !!host && host.zone === 'battlefield' && isCreature(host) && host.id !== eq.id && !isCreature(eq);
+export const canEquip = (g: Game, eq: Card, host: Card | undefined) =>
+  !!host && host.zone === 'battlefield' && isCreature(host) && host.id !== eq.id && !isCreature(eq) && !protectedFrom(g, host, eq); // 702.16d
 
 /** Attaches an Aura or Equipment to a permanent (701.3). Moving it from another permanent unattaches it from that one. */
 export function attach(g: Game, att: Card | undefined, host: Card | undefined) {
   if (!att || !host || att.zone !== 'battlefield') return;
-  if (isAura(att) ? !canEnchant(g, att, host) : !canEquip(att, host)) return; // an illegal attach does nothing (701.3b)
+  if (isAura(att) ? !canEnchant(g, att, host) : !canEquip(g, att, host)) return; // an illegal attach does nothing (701.3b)
   if (att.attachedTo === host.id) return; // nor does attaching it to what it is already on (701.3b)
   att.attachedTo = host.id;
+  refreshSubtypes(g);
   log(g, `${label(att)} is attached to ${label(host)}.`, att.controller, [att, host]);
 }
 
@@ -2398,6 +2505,7 @@ function eliminate(g: Game, p: Player, reason: string) {
  * until nothing changes (704.3).
  */
 export function checkState(g: Game) {
+  refreshSubtypes(g);
   for (let guard = 0; guard < 50; guard++) {
     let changed = false;
     for (const p of g.players) {
@@ -2455,7 +2563,7 @@ export function checkState(g: Game) {
     const loose: Card[] = [];
     for (const c of battlefield(g)) {
       if (isAura(c) && !canEnchant(g, c, c.attachedTo ? permanent(g, c.attachedTo) : undefined)) loose.push(c);
-      else if (c.attachedTo && !isAura(c) && !canEquip(c, permanent(g, c.attachedTo))) {
+      else if (c.attachedTo && !isAura(c) && !canEquip(g, c, permanent(g, c.attachedTo))) {
         c.attachedTo = null;
         changed = true;
       }
