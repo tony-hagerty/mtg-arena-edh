@@ -253,6 +253,8 @@ export interface Player {
   noncreatureSpellsCast: number;
   /** Cards this player has drawn this turn (121.1). */
   drawn: number;
+  /** Life this player has lost this turn, from damage (119.2), paying life (119.4) or an effect (119.3). */
+  lifeLost: number;
   /**
    * A setting: this (human) player divides their attackers' combat damage by hand when
    * there is a choice (510.1c, 702.19b). Off, it is split automatically.
@@ -742,6 +744,20 @@ export interface TriggerEvents {
   onCast: { card: Card; caster: PlayerId };
   onDraw: { player: PlayerId };
   onLifeGain: { player: PlayerId; amount: number };
+  /** A player loses life: from damage (119.2), paying it (119.4), or an effect (119.3). */
+  onLifeLoss: { player: PlayerId; amount: number };
+  /**
+   * A source deals damage (120): to a player, or to a permanent (`card`, as it was then).
+   * `source` is as it was as it dealt the damage. Prevented damage isn't dealt (615).
+   */
+  onDamage: { source: Card; player: PlayerId | null; card: Card | null; amount: number; combat: boolean };
+  /** "Whenever one or more players lose life": once for each event, with everyone who lost life in it. */
+  onLifeLossTogether: { losses: { player: PlayerId; amount: number }[] };
+  /**
+   * A card (not a token or a copy of a spell) is put into its owner's graveyard from
+   * anywhere. Not a leaves-the-battlefield ability, so it doesn't look back in time (603.6c).
+   */
+  onCardToGraveyard: { card: Card; player: PlayerId };
   onLandfall: { land: Card };
   onUpkeep: { player: PlayerId };
   onEndStep: { player: PlayerId };
@@ -840,6 +856,16 @@ export interface ManaAbility {
   chosenType?: boolean;
   /** "... and that spell can't be countered." */
   uncounterable?: boolean;
+  /**
+   * Mana paid as part of its cost, like a Signet's "{1}, {T}" or a filter land's "{W/B}, {T}"
+   * (605.1a: it is still a mana ability). That mana can't come from this ability itself.
+   */
+  cost?: string;
+  /**
+   * The exact mana it adds, when that isn't `amount` of one colour: one list, or a choice of
+   * lists ("Add {W}{W}, {W}{B}, or {B}{B}"). `amount` and `colors` then describe it for display.
+   */
+  produces?: ManaSym[][];
 }
 
 /** What a continuation (`CardScript.then`) is told: the answer to the choice it waited on. */
@@ -1031,6 +1057,11 @@ export interface CardScript extends Triggers {
    * that graveyard.
    */
   grantsEscape?: (g: Game, self: Card, c: Card) => boolean;
+  /**
+   * While this permanent is on the battlefield: is damage `source` would deal to this
+   * player or permanent prevented (615)? "Prevent all damage that would be dealt to you."
+   */
+  preventsDamage?: (g: Game, self: Card, source: Card, to: { player?: PlayerId; card?: Card }) => boolean;
   /** Ward (702.21). */
   ward?: WardCost;
   /** While this permanent is on the battlefield: the ward it gives permanent `c`, or null. */

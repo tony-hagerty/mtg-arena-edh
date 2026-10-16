@@ -46,6 +46,7 @@ import {
   stats,
   subtypesOf,
   turnOrder,
+  simultaneously,
 } from '../engine/rules';
 import type { Card, CardScript, Game, PlayerId, TargetSpec } from '../engine/types';
 
@@ -88,7 +89,11 @@ const indestructibleTeam = (g: Game, you: PlayerId) => {
 const youGainLife = (_g: Game, e: { self: Card; player: PlayerId }) => e.player === e.self.controller;
 
 /** "Each opponent loses N life": returns the total actually lost. */
-const eachOpponentLoses = (g: Game, you: PlayerId, n: number) => opponentsOf(g, you).reduce((total, o) => total + loseLife(g, o.id, n), 0);
+const eachOpponentLoses = (g: Game, you: PlayerId, n: number) => {
+  let total = 0;
+  simultaneously(g, () => opponentsOf(g, you).forEach((o) => (total += loseLife(g, o.id, n))));
+  return total;
+};
 
 /** The opponents of `you` in APNAP order (101.4), for "each opponent" choices. */
 const opponentsInOrder = (g: Game, you: PlayerId) => turnOrder(g, g.active).filter((pid) => pid !== you);
