@@ -1938,6 +1938,8 @@ export function moveCard(g: Game, c: Card, to: Zone) {
   c.deathtouched = false;
   c.counters = {};
   c.attachedTo = null; // leaving the battlefield also unattaches it
+  c.attachedAt = undefined;
+  c.transformed = undefined;
   c.loyaltyTurn = 0; // a new object with no memory of its last one (400.7)
   c.protector = null;
   c.level = 1;
@@ -2263,7 +2265,7 @@ function entered(g: Game, c: Card, opts: EnterOpts) {
   broadcast(g, 'onPermanentEnters', { entered: c });
   const after = opts.after;
   if (after) {
-    const then = scriptFor(after.source).then?.[after.key];
+    const then = (after.script ? scriptOf(after.script) : scriptFor(after.source)).then?.[after.key];
     then?.(g, { self: after.source, you: after.you, targets: [], chooser: after.you, picked: [c], yes: true, name: '', player: null, n: 0, data: after.data ?? {} });
   }
 }
@@ -2290,8 +2292,10 @@ export interface EnterOpts {
    * What the effect putting it there does once it is there ("It gains haste. Sacrifice it at
    * the beginning of the next end step."): `source`'s script `then[key]` runs with the card as
    * `picked[0]`. It waits with the card for its replacement effect's choice (614.12a).
+   * `script`: the card name whose `then` runs instead, for an ability one card gave another
+   * (Not Dead After All's).
    */
-  after?: { source: Card; key: string; you: PlayerId; data?: Record<string, unknown> };
+  after?: { source: Card; key: string; you: PlayerId; data?: Record<string, unknown>; script?: string };
   /** The cards entering together it waits with (`enterTogether`). */
   group?: string;
 }
@@ -2313,7 +2317,7 @@ export function enterBattlefield(g: Game, c: Card, opts: EnterOpts = {}) {
   c.controller = controller;
   moveCard(g, c, 'battlefield');
   if (opts.face !== undefined) c.face = opts.face;
-  if (opts.attachTo) c.attachedTo = opts.attachTo;
+  if (opts.attachTo) [c.attachedTo, c.attachedAt] = [opts.attachTo, g.nextId++];
   if (opts.copy) c.copy = opts.copy;
   if (opts.chosen) c.chosen = opts.chosen;
   arrive(g, c, opts);
@@ -2365,7 +2369,7 @@ function putTogether(g: Game, ready: { id: string; moves: number; opts: EnterOpt
     c.controller = opts.controller ?? c.owner;
     moveCard(g, c, 'battlefield');
     if (opts.face !== undefined) c.face = opts.face;
-    if (opts.attachTo) c.attachedTo = opts.attachTo;
+    if (opts.attachTo) [c.attachedTo, c.attachedAt] = [opts.attachTo, g.nextId++];
     if (opts.copy) c.copy = opts.copy;
     if (opts.chosen) c.chosen = opts.chosen;
     now.push({ c, opts });
@@ -2429,14 +2433,18 @@ export function tokenCopy(g: Game, pid: PlayerId, c: Card, extra: Parameters<typ
  * Creates tokens (111.2). Returns them as stored in the game, so callers can change them
  * further. `copy`: what the tokens are copies of (707.2), set before they enter.
  */
-export function createToken(g: Game, pid: PlayerId, key: string, count = 1, opts: { tapped?: boolean; copy?: CopyInfo | null } = {}): Card[] {
+export function createToken(g: Game, pid: PlayerId, key: string, count = 1, opts: { tapped?: boolean; copy?: CopyInfo | null; attachTo?: string } = {}): Card[] {
   if (g.players[pid].lost) return [];
   const out: Card[] = [];
   for (let i = 0; i < count; i++) {
     const c = makeCard(g, key, pid, 'battlefield', { isToken: true, copy: opts.copy ?? null });
+    // One to be created attached to a permanent it can't enchant isn't created (303.7, as Roles' rulings say).
+    if (opts.attachTo && !canEnchant(g, c, permanent(g, opts.attachTo))) continue;
     g.players[pid].battlefield.push(c);
     // Re-read through the draft so later mutations hit the stored object.
     const stored = g.players[pid].battlefield[g.players[pid].battlefield.length - 1];
+    // A token created attached to something (a Role, 303.7) enters attached to it.
+    if (opts.attachTo) [stored.attachedTo, stored.attachedAt] = [opts.attachTo, g.nextId++];
     arrive(g, stored, { tapped: opts.tapped });
     out.push(stored);
   }
@@ -2826,9 +2834,13 @@ const chapterPending = (g: Game, c: Card) => [...g.triggers, ...g.stack].some((x
  * object (712.18). Nothing happens to a card with one face, or if the other face is an
  * instant or sorcery (712.9, 712.10).
  */
-export function transform(g: Game, c: Card | undefined) {
+export function transform(g: Game, c: Card | undefined, since?: Card) {
   const d = c && cardData(c.name);
   if (!c || !d || c.zone !== 'battlefield' || (d.layout !== 'transform' && d.layout !== 'modal_dfc')) return;
+  // A permanent's own ability transforms it only if it hasn't transformed since the ability
+  // was put on the stack (701.27f): `since` is the permanent as it was then.
+  if (since && (c.transformed ?? 0) !== (since.transformed ?? 0)) return;
+  c.transformed = (c.transformed ?? 0) + 1;
   const next = d.faces![1 - c.face];
   if (!next || /Instant|Sorcery/.test(next.typeLine)) return;
   const before = label(c);
@@ -2870,6 +2882,7 @@ export function attach(g: Game, att: Card | undefined, host: Card | undefined) {
   if (isAura(att) ? !canEnchant(g, att, host) : !canEquip(g, att, host)) return; // an illegal attach does nothing (701.3b)
   if (att.attachedTo === host.id) return; // nor does attaching it to what it is already on (701.3b)
   att.attachedTo = host.id;
+  att.attachedAt = g.nextId++; // a new timestamp (613.7e)
   refreshSubtypes(g);
   log(g, `${label(att)} is attached to ${label(host)}.`, att.controller, [att, host]);
 }
@@ -3564,6 +3577,10 @@ export function checkState(g: Game) {
         changed = true;
       }
     }
+    // Of the Roles one player controls on the same permanent, all but the one attached most
+    // recently go to the graveyard (303.7a, 704.5z).
+    const roles = battlefield(g).filter((c) => c.attachedTo && !loose.includes(c) && subtypesOf(c).includes('Role'));
+    const stale = roles.filter((c) => roles.some((r) => r !== c && r.attachedTo === c.attachedTo && r.controller === c.controller && (r.attachedAt ?? 0) > (c.attachedAt ?? 0)));
     // The legend rule (704.5j): a player with two or more legendary permanents with the same
     // name keeps one of them. A bot keeps the one that is ready to use; a human chooses, unless
     // the game is already waiting on a decision, and then is asked at the next check.
@@ -3596,6 +3613,12 @@ export function checkState(g: Game) {
     }
     if (dying.length) {
       dieMany(g, dying);
+      changed = true;
+    }
+    for (const c of stale) {
+      if (c.zone !== 'battlefield') continue;
+      log(g, `${label(c)} is put into its owner's graveyard (a newer Role replaced it).`, c.controller, [c]);
+      moveCard(g, c, 'graveyard');
       changed = true;
     }
     for (const c of loose) {
