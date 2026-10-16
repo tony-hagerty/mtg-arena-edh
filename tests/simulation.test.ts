@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { applyBotAction, botAction, newGame } from '../src/engine';
 import type { Card, Game } from '../src/engine';
-import { DECKS } from '../src/cards/db';
+import { ALL_DECKS, DECKS } from '../src/cards/db';
 import type { DeckDef } from '../src/cards/db';
 import './fixtures';
 import { twoCommanderDeck } from './helpers';
@@ -25,9 +25,18 @@ function checkInvariants(g: Game, sizes: number[]) {
       }
     });
   }
+  // Phased-out permanents are still on the battlefield, treated as though they don't exist (702.26b).
+  for (const p of g.players) {
+    for (const c of p.phasedOut ?? []) {
+      if (seen.has(c.id)) throw new Error(`card ${c.name} (${c.id}) is phased out and somewhere else`);
+      seen.add(c.id);
+      if (!c.isToken) owned[c.owner].push(c);
+    }
+  }
   // A spell on the stack is a card too (601.2a). A copy of a spell isn't a card (707.10).
   for (const x of g.stack) {
-    if (x.kind !== 'spell' || x.copy) continue;
+    // Nor is a spell cast from a copy of a card (707.12, paradigm and Mizzix's Mastery).
+    if (x.kind !== 'spell' || x.copy || x.card.isToken) continue;
     const c = x.card;
     if (seen.has(c.id)) throw new Error(`card ${c.name} (${c.id}) is on the stack and somewhere else`);
     seen.add(c.id);
@@ -166,6 +175,24 @@ describe('the Kraum and Tymna deck', () => {
   for (const seed of [64, 65]) {
     it(`seed ${seed}: two copies of it play to a finish`, () => {
       const { g } = playOut(seed, [kraum, DECKS[3], { ...kraum, id: 'kraum2' }, DECKS[1]]);
+      expect(g.winner).not.toBe(null);
+    });
+  }
+});
+
+describe('the Kuja deck', () => {
+  const kuja = ALL_DECKS.find((d) => d.id === 'kuja')!;
+  const yshtola = DECKS.find((d) => d.id === 'yshtola')!;
+  const ketramose = DECKS.find((d) => d.id === 'ketramose')!;
+  for (const seed of [71, 72, 73]) {
+    it(`seed ${seed}: bots play it to a finish`, () => {
+      const { g } = playOut(seed, [kuja, yshtola, ketramose, DECKS[2]]);
+      expect(g.winner).not.toBe(null);
+    });
+  }
+  for (const seed of [74, 75]) {
+    it(`seed ${seed}: two copies of it play to a finish`, () => {
+      const { g } = playOut(seed, [kuja, DECKS[3], { ...kuja, id: 'kuja2' }, yshtola]);
       expect(g.winner).not.toBe(null);
     });
   }

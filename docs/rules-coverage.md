@@ -162,6 +162,25 @@ are from the Comprehensive Rules in `docs/rules/`.
   choose the same mode more than once" works (700.2d).
 - **Copying spells (707.10):** the copy keeps the original's modes, X and kicker, and its
   controller may choose new targets. A copy ceases to exist when it leaves the stack.
+- **Copying abilities (707.10)** works the same way (Return the Favor), and so does
+  copying a card in exile and casting the copy (707.12, Mizzix's Mastery; a copy you
+  don't cast ceases to exist). Copies trigger magecraft's "whenever you copy" (Storm-Kiln
+  Artist).
+- **Changing a target (115.7a):** "change the target of target spell or ability with a
+  single target" (Redirect Lightning, Return the Favor, Untimely Malfunction). Only a
+  spell or ability that targets exactly one thing once can be chosen. As it resolves, you
+  must pick another legal target if there is one; if there isn't, nothing changes.
+- **Modal triggered abilities (603.3c):** "choose one or more —" is chosen as the ability
+  goes on the stack, with the targets of the chosen modes (Black Market Connections). One
+  with too few modes that can be chosen is removed from the stack.
+- **Choosing a number** partway through resolving: Electro's "you may pay {X}" and Mages'
+  Contest's bidding, where you start at 1 and the two bidders top each other until the
+  high bid stands.
+- **Villainous choices (701.55):** each opponent in turn order chooses, and the chosen
+  option is carried out before the next one chooses (701.55d, Ensnared by the Mara).
+- **Abilities that trigger from a graveyard** (Vivi's Persistence's "whenever your
+  commander enters or attacks", Asgardian Inspiration's "whenever a source you control
+  deals noncombat damage to an opponent"), with "you" the card's owner.
 
 ### Costs (107.3, 107.4, 118, 601.2b, 601.2f)
 
@@ -213,6 +232,18 @@ are from the Comprehensive Rules in `docs/rules/`.
   untapped creature you control" (Springleaf Drum, which a creature that just arrived can
   pay, 302.6) and "discard a card: add {B}" (Skirge Familiar), and "you may sacrifice a
   nontoken white creature rather than pay this spell's mana cost" (Flare of Fortitude).
+- **Dividing damage as you cast (601.2d):** "X damage divided as you choose among any
+  number of target creatures" (Fire Covenant, whose X is the life you pay). After the
+  targets, a panel shares the damage out: at least 1 to each target, adding up to the
+  total. A single target gets all of it. Bots kill what they can, keeping X below their
+  life total.
+- **A choice of additional costs:** "pay 5 life or pay {2}" (Redirect Lightning): pick one
+  in the cast panel.
+- **"Exile two cards from your graveyard"** as an activation cost (Matoc): pick them after
+  the targets; bots exile the cards they want least.
+- **Offspring (702.175):** pay the extra cost and a 1/1 token copy enters with it
+  (Coruscation Mage). **Spectacle (702.137):** the cheaper cost only once an opponent has
+  lost life this turn (Light Up the Stage).
 
 ### Mana
 
@@ -247,6 +278,11 @@ are from the Comprehensive Rules in `docs/rules/`.
 - **Special mana:** restricted mana that makes a spell uncounterable (106.6, Cavern of
   Souls), mana kept until end of turn (Birgi), mana abilities a land gains until end of
   turn (Rain of Filth), and Lion's Eye Diamond (discard your hand, only with priority).
+- **More mana:** mana that can be spent only on instants and sorceries (106.6, Tablet of
+  Discovery), unspent red mana kept between steps and turns (500.5, Electro), "activate
+  only if this land entered this turn or if you control a basic land" (Dark Fortress),
+  and "{T}, Sacrifice a creature: Add {B}{B}" (Phyrexian Tower: click the Tower, then pick
+  the creature).
 
 ### Permanents
 
@@ -419,6 +455,22 @@ are from the Comprehensive Rules in `docs/rules/`.
   damage, extort.
 - **Trigger doubling (603.2d):** Roaming Throne's "triggers an additional time", even for
   a creature that died alongside it (603.10a).
+  Harmonic Prodigy does it for a Shaman's or another Wizard's triggered abilities.
+- **Damage that is doubled or increased (614.1a):** Furnace of Rath, Trance Kuja (a
+  Wizard you control), Collective Inferno (sources you control of the chosen type), and
+  Tomik's "plus 1" for noncombat damage to an opponent or their permanent. When several
+  apply, the player being dealt damage (or the permanent's controller) picks the order
+  (616.1).
+- **Roles (303.7):** a Role token enters attached to its creature (Not Dead After All's
+  Wicked Role). If a player has two or more Roles on the same permanent, all but the one
+  attached most recently go to the graveyard (704.5z); each attachment gets a new
+  timestamp (613.7e). A Role that can't be attached isn't created.
+- **Changeling (702.73):** every creature type, in every zone (Black Market Connections'
+  Shapeshifter is a Wizard for Kuja).
+- **Transforming (701.27f):** a permanent's own ability transforms it only if it hasn't
+  transformed since the ability went on the stack (Kuja).
+- **"When enchanted permanent dies or is put into exile, return that card"** (Kaya's
+  Ghostform): it looks back in time, so it works when the Aura goes at the same time.
 - **"Do this only once each turn" (603.2h):** the ability doesn't trigger again that turn
   once its controller has done it (G'raha Tia, Emet-Selch).
 - **Looking at the top of a library:** "the rest on the bottom in any order" lets you
@@ -427,6 +479,12 @@ are from the Comprehensive Rules in `docs/rules/`.
 - **"Until the end of your next turn"** (Single Combat), and choices each player makes in
   turn order before anything happens (101.4): Single Combat's and Papalymo Totolymo's
   sacrifices happen together.
+- **Playing exiled cards later:** "until the end of your next turn" (Light Up the Stage,
+  Hex Magic, Matoc, Bloodsoaked Insight, which also lets you spend mana of any type), and
+  "for as long as they remain exiled, you may play them if you control a Wizard"
+  (Flameshape, whose cards are exiled face down but you may look at them). "As many times
+  as you choose, exile the top card" (Dance with Calamity), and "exile cards until a
+  nonland card" (Tibalt's Trickery, Ensnared by the Mara).
 - **Populate (701.36):** you choose which creature token to copy, and a token that is
   itself a copy copies what it copies.
 - **Linked abilities** (607, Chrome Mox), cards exiled face down (406.3), and targets in
@@ -492,6 +550,10 @@ These are deliberate cuts for a prototype. The biggest ones come first.
   as it moves, but an effect can't stop partway through to ask. Bots get the real
   replacement. No card in the pool puts a permanent into a hand or library yet.
 
+- **Colour-changing effects** (layer 5, 613.1e) aren't supported yet, so Aphotic Wisps
+  ("target creature becomes black and gains fear") can't be played, and the Kuja deck
+  stays out of the deck list until it can.
+
 ### Rules
 
 - **Combat damage:** bots always split it automatically. A blocker blocking two or more
@@ -548,7 +610,8 @@ These are deliberate cuts for a prototype. The biggest ones come first.
   tax and cost increases and reductions (601.2f), but with no kicker, X as 0 and no
   alternative cost. It doesn't foresee cost changes the spell being paid for will bring.
 - **Auto-pay** never uses a mana ability that costs a card (Simian Spirit Guide, Skirge
-  Familiar) or your hand (Lion's Eye Diamond): use them by hand.
+  Familiar), a creature (Phyrexian Tower) or your hand (Lion's Eye Diamond): use them by
+  hand.
 - **Attack costs** (Propaganda) are paid with auto-pay once attackers are declared: you
   can't pick which lands pay them.
 - **Mana Vault** doesn't ask about paying {4} while it is untapped, and **Tymna** doesn't

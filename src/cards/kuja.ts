@@ -497,7 +497,8 @@ function bid(g: Game, item: Contest) {
   chooseNumber(g, next, {
     text: `Mages' Contest: the high bid is ${item.high} life (${g.players[item.leader].name}). You may top it.`,
     min: item.high + 1,
-    max: item.high + 1 + Math.max(0, g.players[next].life) + 100,
+    // A player may bid more life than they have.
+    max: Number.MAX_SAFE_INTEGER,
     decline: 'Pass',
     then: 'bid',
     data: { ...item },
@@ -600,10 +601,12 @@ registerScripts({
       // "You may cast any number of spells from among those cards": one at a time, in any order (608.2g).
       dancePick: (g, { you, picked, data }) => {
         const c = picked[0];
-        if (c) offerCast(g, you, c, { free: true, text: `Cast ${label(c)} without paying its mana cost?`, then: 'danceNext', data });
+        // Each card is offered once: cast or not, it isn't offered again.
+        if (c) offerCast(g, you, c, { free: true, text: `Cast ${label(c)} without paying its mana cost?`, then: 'danceNext', data: { ...data, done: [...((data.done as string[]) ?? []), c.id] } });
       },
       danceNext: (g, { you, data }) => {
-        const spells = stillExiled(g, data.exiled as { id: string; moves: number }[]).filter((c) => !isLand(c));
+        const done = (data.done as string[]) ?? [];
+        const spells = stillExiled(g, data.exiled as { id: string; moves: number }[]).filter((c) => !isLand(c) && !done.includes(c.id));
         if (spells.length) pickCards(g, you, spells, { min: 0, max: 1, text: 'You may cast another spell from among the exiled cards without paying its mana cost.', button: 'Cast', then: 'dancePick', data });
       },
     },
