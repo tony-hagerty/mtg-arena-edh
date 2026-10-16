@@ -46,6 +46,7 @@ import {
   scriptFor,
   targetSpecs,
   maxHandSize,
+  nextStop,
   MUST_ATTACK,
   abilityCost,
   castableCards,
@@ -58,8 +59,8 @@ import {
   maxModes,
   activationSacrificeOptions,
 } from '../engine';
-import type { AbilityRef, Action, AttackOption, Card, CastChoices, Cost, Game, ManaSym, PlayerId, StackItem, Step, TargetRef, TargetSpec } from '../engine';
-import { useStore } from './store';
+import type { AbilityRef, Action, AttackOption, Card, CastChoices, Cost, Game, ManaSym, PlayerId, StackItem, Step, Stops, TargetRef, TargetSpec } from '../engine';
+import { absoluteStops, useStore } from './store';
 import type { Targeting } from './store';
 
 export type Glow = 'play' | 'attack' | 'block' | 'target' | 'discard' | 'picked';
@@ -633,7 +634,7 @@ export function buildView(): View {
 
   switch (deciding) {
     case undefined:
-      priorityView(view, g, me);
+      priorityView(view, g, me, s.stops);
       break;
     case 'attackers': {
       const target = attackTargetOf(g, me);
@@ -716,44 +717,45 @@ export function buildView(): View {
   return view;
 }
 
-/** Prompt and button for when the human has priority. The button always passes it. */
-function priorityView(view: View, g: Game, me: PlayerId) {
+/** What the pass button says it goes to: a step's short name. */
+const STEP_SHORT: Partial<Record<Step, string>> = {
+  upkeep: 'Upkeep',
+  draw: 'Draw',
+  main1: 'Main 1',
+  beginCombat: 'Combat',
+  attackers: 'Attackers',
+  blockers: 'Blockers',
+  damage: 'Damage',
+  endCombat: 'End of Combat',
+  main2: 'Main 2',
+  end: 'End Step',
+};
+
+/** Prompt and button for when the human has priority. The button always passes it, and says where to. */
+function priorityView(view: View, g: Game, me: PlayerId, stops: Stops) {
   const top = g.stack[g.stack.length - 1];
   const myTurn = g.active === me;
   if (top) {
     const whose = top.controller === me ? 'your' : `${g.players[top.controller].name}'s`;
     view.prompt = `Respond to ${whose} ${label(top.card)}, or let it resolve.`;
     view.primary = { label: 'Resolve', sub: label(top.card), tone: 'go', onClick: pass };
-  } else if (myTurn && g.step === 'main1') {
-    view.primary = attackCandidates(g, me).length
-      ? { label: 'Next', sub: 'To Combat', tone: 'go', onClick: pass }
-      : { label: 'End Turn', tone: 'go', onClick: endTurn };
-  } else if (myTurn && g.step === 'beginCombat') {
-    view.prompt = 'Beginning of combat. Cast instants, or go on to declare attackers.';
-    view.primary = { label: 'Next', sub: 'To Attackers', tone: 'attack', onClick: pass };
-  } else if (myTurn && g.step === 'main2') {
-    view.primary = { label: 'End Turn', tone: 'go', onClick: pass };
-  } else if (myTurn && g.step === 'blockers') {
-    view.prompt = 'Blockers are declared. Cast instants, or continue to combat damage.';
-    view.primary = { label: 'Next', sub: 'To Damage', tone: 'attack', onClick: pass };
-  } else {
+    return;
+  }
+  if (myTurn && g.step === 'beginCombat') view.prompt = 'Beginning of combat. Cast instants, or go on to declare attackers.';
+  else if (myTurn && g.step === 'blockers') view.prompt = 'Blockers are declared. Cast instants, or continue to combat damage.';
+  else if (!(myTurn && (g.step === 'main1' || g.step === 'main2'))) {
     // Any other step is one the human set a stop in.
     const turn = myTurn ? 'Your turn' : `${g.players[g.active].name}'s turn`;
     const when = g.step === 'attackers' ? 'attackers are declared' : g.step === 'blockers' ? 'blockers are declared' : STEP_NAMES[g.step].toLowerCase();
     view.prompt = `${turn}, ${when}. Cast instants, or pass.`;
-    view.primary = { label: 'Pass', tone: 'go', onClick: pass };
   }
-}
-
-/** "End Turn" with nothing to attack with: also passes beginning of combat and the second main phase if the game stops there. */
-function endTurn() {
-  const turn = S().game?.turn;
-  pass();
-  for (let i = 0; i < 2; i++) {
-    const { game: g, human: me } = S();
-    if (!g || g.turn !== turn || !['beginCombat', 'main2'].includes(g.step) || g.priority !== me || g.decision || g.stack.length) return;
-    pass();
-  }
+  const to = nextStop(g, me, absoluteStops(stops, me, g.players.length));
+  const tone = to === 'attackers' || to === 'blockers' || to === 'damage' ? 'attack' : 'go';
+  view.primary = to
+    ? { label: 'Next', sub: `To ${STEP_SHORT[to]}`, tone, onClick: pass }
+    : myTurn
+      ? { label: 'End Turn', tone: 'go', onClick: pass }
+      : { label: 'Pass', sub: 'To Next Turn', tone: 'go', onClick: pass };
 }
 
 // ---------- click handlers ----------

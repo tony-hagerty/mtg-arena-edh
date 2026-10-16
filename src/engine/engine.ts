@@ -916,6 +916,35 @@ export function wantsPriority(g: Game, pid: PlayerId, stops?: Stops): boolean {
   return stop === 'always' || (stop === 'ifAble' && canAct(g, pid));
 }
 
+/**
+ * Where the game will next stop for `pid` this turn if they pass now with the stack empty:
+ * their next stop (as in `wantsPriority`), or declaring attackers on their own turn. Null:
+ * none left this turn.
+ * A forecast: what other players do before then can change it.
+ */
+export function nextStop(g: Game, pid: PlayerId, stops?: Stops): Step | null {
+  const turnStops = stops?.[g.active] ?? (g.active === pid ? OWN_TURN_STOPS : OTHER_TURN_STOPS);
+  const mine = g.active === pid;
+  // Before attackers are declared, whether anyone attacks is a guess: on your turn, if you can;
+  // on another's, if they have something to attack with.
+  let attacks = (g.combat?.attacks.length ?? 0) > 0;
+  for (const step of STEP_ORDER.slice(STEP_ORDER.indexOf(g.step) + 1)) {
+    if (step === 'cleanup') break;
+    if (step === 'attackers') {
+      attacks = attackCandidates(g, g.active).length > 0;
+      // Declaring attackers is a choice, not a stop (508.1).
+      if (mine && attacks) return step;
+      if (!attacks) continue;
+    }
+    // With no attackers, declare blockers and combat damage are skipped (508.8).
+    if ((step === 'blockers' || step === 'damage') && !attacks) continue;
+    const stop = turnStops[step];
+    if (stop === 'always') return step;
+    if (stop && canAct({ ...g, step, priority: pid }, pid)) return step;
+  }
+  return null;
+}
+
 // ---------- turn structure ----------
 
 const STEP_ORDER: Step[] = [
