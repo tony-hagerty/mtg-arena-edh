@@ -507,9 +507,7 @@ registerScripts({
   },
   'Raging Swordtooth': {
     // "When this creature enters, it deals 1 damage to each other creature."
-    onEnter: (g, { self }) => {
-      for (const c of allCreatures(g)) if (c.id !== self.id) damageCard(g, self, c, 1);
-    },
+    onEnter: (g, { self }) => simultaneously(g, () => allCreatures(g).forEach((c) => void (c.id !== self.id && damageCard(g, self, c, 1)))),
   },
   'Dragonmaster Outcast': {
     // "At the beginning of your upkeep, if you control six or more lands, create a 5/5 red

@@ -23,7 +23,7 @@ import {
   resolvingItem,
   triggerText,
 } from '../engine';
-import type { Action, AskChoice, Card, CardChoice, CastChoice, DamageAssignment, DamageRoom, Game, NameChoice, PlayerChoice, PlayerId } from '../engine';
+import type { Action, AskChoice, Card, CardChoice, CastChoice, DamageAssignment, DamageRoom, Game, NameChoice, OrderDamageChoice, PlayerChoice, PlayerId } from '../engine';
 import { CardImage, ManaCost } from './TextCard';
 import { useStore } from './store';
 import { cx, hoverProps } from './util';
@@ -380,6 +380,23 @@ function PlayerPanel({ g, choice }: { g: Game; choice: PlayerChoice }) {
 }
 
 /**
+ * Replacement effects that change damage you or your permanent would be dealt, in an order
+ * you choose (616.1): one button for each different amount of damage.
+ */
+function OrderDamagePanel({ choice }: { choice: OrderDamageChoice }) {
+  return (
+    <CardPicker
+      title="Order Replacement Effects"
+      hint={choice.text}
+      cards={[]}
+      buttons={() =>
+        choice.options.map((o, i) => ({ label: `${o.amount} damage`, sub: o.order.join(', then '), tone: 'go' as const, onClick: () => act({ type: 'orderDamage', option: i }) }))
+      }
+    />
+  );
+}
+
+/**
  * The human may cast a card while a spell resolves (608.2g), like the card Beseech the
  * Mirror found. Casting it goes through the usual steps: targets, costs, paying.
  */
@@ -687,6 +704,8 @@ export function Decisions() {
       return targeting ? null : <CastNowPanel key={g.log.length} g={g} choice={d.choice} />;
     case 'orderTriggers':
       return <TriggerOrder key={g.triggers.map((t) => t.id).join()} g={g} me={me} />;
+    case 'orderDamage':
+      return <OrderDamagePanel key={g.log.length} choice={d.order} />;
     case 'assignDamage':
       return <DamagePanel key={`${g.turn}:${d.firstStrike}`} g={g} attackers={d.attackers} />;
     case 'commanderZone': {

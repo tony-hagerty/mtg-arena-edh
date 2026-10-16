@@ -678,8 +678,27 @@ export interface Mulligans {
  *                  library, and they choose whether it goes to the command zone (903.9).
  *                  `resume` is the player who gets priority afterwards.
  */
+/** How a replacement effect changes an amount of damage (614.1a): doubled, or plus N. */
+export interface DamageChange {
+  times?: number;
+  plus?: number;
+}
+
+/**
+ * A person chooses the order of replacement effects that change damage they or their
+ * permanent would be dealt (616.1), when the order changes the amount. Each option is an
+ * order and the damage it leads to. The action that was being carried out is done again with
+ * the answer once it is given (`Game.replay`).
+ */
+export interface OrderDamageChoice {
+  player: PlayerId;
+  text: string;
+  options: { order: string[]; amount: number }[];
+}
+
 export type Decision =
   | { type: 'mulligan' | 'attackers' | 'blockers' | 'discard' }
+  | { type: 'orderDamage'; order: OrderDamageChoice }
   | { type: 'targets'; item: StackItem; resume: PlayerId }
   | { type: 'orderTriggers'; resume: PlayerId }
   | { type: 'chooseCards'; choice: CardChoice }
@@ -741,6 +760,12 @@ export interface Game {
    * own replacement effects ask for before any of them enters (614.12a, `enterTogether`).
    * `ready` are the cards whose way of entering is settled; `waiting` are the ids still asked.
    */
+  /**
+   * An action stopped partway to ask a person to order replacement effects (616.1): it is
+   * applied again from this state with `answers`, plus the new one, once they answer. The
+   * decision and priority it stopped from are restored first.
+   */
+  replay?: { action: Action; autoPass: boolean; stops?: unknown; answers: number[]; decision: Decision | null; priority: PlayerId };
   entering?: { id: string; ready: { id: string; moves: number; opts: object }[]; waiting: string[] }[];
   /** Extra turns to take after this one. The last is taken first (500.7). */
   extraTurns: ExtraTurn[];
@@ -794,6 +819,8 @@ export type Action =
   | { type: 'answer'; yes: boolean }
   /** Answers a `name` decision with a card name (or a creature type). */
   | { type: 'name'; name: string }
+  /** Answers an `orderDamage` decision: the index of the order chosen. */
+  | { type: 'orderDamage'; option: number }
   /** Answers a `player` decision. */
   | { type: 'choosePlayer'; player: PlayerId }
   /** Answers `commanderZone`: true moves the commander to the command zone, false leaves it where it is. */
@@ -885,6 +912,11 @@ export interface TriggerEvents {
    * `source` is as it was as it dealt the damage. Prevented damage isn't dealt (615).
    */
   onDamage: { source: Card; player: PlayerId | null; card: Card | null; amount: number; combat: boolean };
+  /**
+   * "Whenever a source deals damage": once for each source in each event (Matoc), with every
+   * player and permanent it dealt damage to then and how much. `source` is as it dealt it.
+   */
+  onSourceDamage: { source: Card; dealt: { player: PlayerId | null; card: Card | null; amount: number }[]; combat: boolean };
   /** "Whenever one or more players lose life": once for each event, with everyone who lost life in it. */
   onLifeLossTogether: { losses: { player: PlayerId; amount: number }[] };
   /**
@@ -1177,8 +1209,14 @@ export interface CardScript extends Triggers {
     /** Warp (702.185a): only from the hand; the permanent is exiled at the next end step. */
     warp?: boolean;
   }[];
-  /** Extra damage added when `source` (controlled by self's owner) damages `targetOwner` or their permanent. */
-  damageBonus?: (g: Game, self: Card, source: Card, targetOwner: PlayerId) => number;
+  /**
+   * While this permanent is on the battlefield: a replacement effect that changes how much
+   * damage `source` would deal to a player or permanent (614.1a): it deals double (`times: 2`,
+   * Furnace of Rath) or that much plus N (`plus`, Torbran). Null if it doesn't apply. When
+   * several apply, the player being dealt damage, or the permanent's controller, chooses the
+   * order (616.1).
+   */
+  changesDamage?: (g: Game, self: Card, source: Card, to: { player?: PlayerId; card?: Card }, combat: boolean) => DamageChange | null;
   /**
    * An Aura's enchant ability (702.5): what it can be attached to. It is also the Aura
    * spell's target (303.4a). Its `who` is from the Aura's controller's side.
@@ -1312,6 +1350,8 @@ export interface CardScript extends Triggers {
    * end: cast only when the bot could win in that turn.
    */
   ai?: 'alpha' | 'tutor' | 'ritual' | 'extraTurn';
+  /** Abilities that trigger while the card is in its owner's graveyard (Vivi's Persistence, Asgardian Inspiration), by hook. */
+  fromGraveyard?: BroadcastHook[];
   /** Bot hint: should a bot activate this permanent's `activated` ability now? The look-ahead can't see what it is worth. */
   botActivate?: (g: Game, pid: PlayerId, self: Card, activated: number) => boolean;
 }

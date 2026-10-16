@@ -30,6 +30,7 @@ import type {
   TargetSpec,
   Delayed,
   Lasting,
+  OrderDamageChoice,
   Trigger,
   TriggerEvents,
   TurnEffect,
@@ -1969,7 +1970,8 @@ function fireLeaves(g: Game, l: Leaving) {
  * graveyard in the same event doesn't see the others go. "Whenever one or more players
  * lose life" triggers once for the whole event.
  */
-let batch: ({ events: [BroadcastHook, object][]; losses: { player: PlayerId; amount: number }[] } & Leaving) | null = null;
+type Dealt = TriggerEvents['onSourceDamage'];
+let batch: ({ events: [BroadcastHook, object][]; losses: { player: PlayerId; amount: number }[]; damage: Dealt[] } & Leaving) | null = null;
 
 /** Broadcasts an event now, or once the event going on now is over (`simultaneously`). */
 function announce<H extends BroadcastHook>(g: Game, hook: H, event: TriggerEvents[H]) {
@@ -1983,7 +1985,7 @@ function announce<H extends BroadcastHook>(g: Game, hook: H, event: TriggerEvent
  */
 export function simultaneously(g: Game, fn: () => void) {
   if (batch) return fn();
-  batch = { events: [], losses: [], left: [], exiled: [], before: null };
+  batch = { events: [], losses: [], damage: [], left: [], exiled: [], before: null };
   try {
     fn();
   } finally {
@@ -1992,6 +1994,7 @@ export function simultaneously(g: Game, fn: () => void) {
     fireLeaves(g, done);
     for (const [hook, event] of done.events) broadcast(g, hook, event as never);
     if (done.losses.length) broadcast(g, 'onLifeLossTogether', { losses: done.losses });
+    for (const d of done.damage) broadcast(g, 'onSourceDamage', d);
   }
 }
 
@@ -2096,9 +2099,19 @@ export function triggerText(item: StackItem): string | undefined {
   return t && typeof t !== 'function' ? t.text : undefined;
 }
 
-/** Offers an event to every permanent on the battlefield. */
+/** Offers an event to every permanent on the battlefield, and to cards with abilities that work from a graveyard. */
 export function broadcast<H extends BroadcastHook>(g: Game, hook: H, event: TriggerEvents[H]) {
   for (const c of battlefield(g)) trigger(g, c, hook, event);
+  for (const p of g.players) for (const c of p.graveyard) if (scriptFor(c).fromGraveyard?.includes(hook)) trigger(g, c, hook, event);
+}
+
+/** Damage `source` dealt: grouped with the rest it deals in the same event (`onSourceDamage`). */
+function dealt(g: Game, source: Card, player: PlayerId | null, card: Card | null, amount: number, combat: boolean) {
+  const record = { player, card: card && snapshot(card), amount };
+  if (!batch) return broadcast(g, 'onSourceDamage', { source: snapshot(source), dealt: [record], combat });
+  const same = batch.damage.find((d) => d.source.id === source.id && d.combat === combat);
+  if (same) same.dealt.push(record);
+  else batch.damage.push({ source: snapshot(source), dealt: [record], combat });
 }
 
 /**
@@ -2469,12 +2482,61 @@ export function draw(g: Game, pid: PlayerId, n = 1) {
   }
 }
 
-function damageBonus(g: Game, source: Card, targetController: PlayerId): number {
-  let bonus = 0;
-  for (const c of g.players[source.controller].battlefield) {
-    bonus += scriptFor(c).damageBonus?.(g, c, source, targetController) ?? 0;
+/**
+ * Thrown out of `applyAction` when a person must order replacement effects (616.1) partway
+ * through an action. The action is applied again, from the start, once they answer: the game
+ * is deterministic, so it gets back to the same point and uses the answer there.
+ */
+export class NeedsOrder {
+  constructor(public choice: OrderDamageChoice) {}
+}
+
+/** The answers to `NeedsOrder` questions for the action being applied, in the order they come up. Null: nobody can be asked (a bot's look-ahead). */
+let orderAnswers: { answers: number[]; used: number } | null = null;
+
+/** Runs `fn` with these answers to order questions (`NeedsOrder`), or with nobody asked if null. */
+export function withOrderAnswers<T>(answers: number[] | null, fn: () => T): T {
+  const was = orderAnswers;
+  orderAnswers = answers ? { answers, used: 0 } : null;
+  try {
+    return fn();
+  } finally {
+    orderAnswers = was;
   }
-  return bonus;
+}
+
+const orders = <T>(xs: T[]): T[][] => (xs.length <= 1 ? [xs] : xs.flatMap((x, i) => orders([...xs.slice(0, i), ...xs.slice(i + 1)]).map((rest) => [x, ...rest])));
+
+/**
+ * The damage `source` deals after the replacement effects that change it (614.1a): each one
+ * that applies, in the order the player being dealt damage, or the permanent's controller,
+ * chooses (616.1). A bot takes the least damage; a person is asked when the order matters.
+ */
+function changedDamage(g: Game, source: Card, to: { player?: PlayerId; card?: Card }, n: number, combat: boolean): number {
+  const changes = battlefield(g).flatMap((x) => {
+    const c = scriptFor(x).changesDamage?.(g, x, source, to, combat);
+    return c ? [{ by: x, ...c }] : [];
+  });
+  if (!changes.length) return n;
+  const amounts = new Map<number, string[]>();
+  for (const order of orders(changes)) {
+    const amount = order.reduce((m, c) => (c.times !== undefined ? m * c.times : m + (c.plus ?? 0)), n);
+    if (!amounts.has(amount)) amounts.set(amount, order.map((c) => label(c.by)));
+  }
+  const options = [...amounts.entries()].sort((a, b) => a[0] - b[0]).map(([amount, order]) => ({ order, amount }));
+  if (options.length === 1) return options[0].amount;
+  const chooser = to.player ?? to.card!.controller;
+  const p = g.players[chooser];
+  if (p.isBot || !orderAnswers) return options[0].amount;
+  const answer = orderAnswers.answers[orderAnswers.used];
+  if (answer === undefined) {
+    const what = to.player !== undefined ? (p.you ? 'you' : p.name) : label(to.card!);
+    throw new NeedsOrder({ player: chooser, text: `${label(source)} would deal ${n} damage to ${what}. Choose the order its replacement effects apply in (616.1).`, options });
+  }
+  orderAnswers.used++;
+  const chosen = options[answer] ?? options[0];
+  log(g, `${says(p, 'applies')} ${chosen.order.join(', then ')}.`, chooser);
+  return chosen.amount;
 }
 
 /** The colours protection keywords name, like "protection from white" (702.16a). */
@@ -2506,7 +2568,7 @@ export function damagePlayer(g: Game, source: Card, pid: PlayerId, n: number, co
     log(g, `Damage ${label(source)} would deal to ${p.name} is prevented.`, source.controller, [source]);
     return 0;
   }
-  n += damageBonus(g, source, pid);
+  n = changedDamage(g, source, { player: pid }, n, combat);
   subtractLife(g, pid, n); // damage to a player makes them lose that much life (120.3a)
   log(g, `${label(source)} deals ${n} damage to ${p.name}.`, source.controller, [source]);
   // Combat damage from a commander counts toward 21, separately for each partner (903.10a, 702.124d).
@@ -2516,6 +2578,7 @@ export function damagePlayer(g: Game, source: Card, pid: PlayerId, n: number, co
   if (combat && !g.combatDamaged.includes(pid)) g.combatDamaged.push(pid);
   if (combat) trigger(g, source, 'onCombatDamageToPlayer', { player: pid, amount: n });
   announce(g, 'onDamage', { source: snapshot(source), player: pid, card: null, amount: n, combat });
+  dealt(g, source, pid, null, n, combat);
   return n;
 }
 
@@ -2540,28 +2603,28 @@ const defeatPending = (g: Game, c: Card) => [...g.triggers, ...g.stack].some((x)
  * Damage to a permanent: a planeswalker loses that many loyalty counters (120.3c), a
  * battle that many defense counters (120.3h), and a creature has it marked (120.3e).
  */
-export function damageCard(g: Game, source: Card, target: Card | undefined, n: number, combat = false): number {
+export function damageCard(g: Game, source: Card, target: Card | undefined, n: number, combat = false, logged = false): number {
   if (!target || n <= 0 || target.zone !== 'battlefield') return 0;
   if (prevented(g, source, { card: target })) {
     log(g, `Damage ${label(source)} would deal to ${label(target)} is prevented.`, source.controller, [source, target]);
     return 0;
   }
-  n += damageBonus(g, source, target.controller);
+  n = changedDamage(g, source, { card: target }, n, combat);
+  if (logged) log(g, `${label(source)} deals ${n} damage to ${label(target)}.`, source.controller, [source, target]);
   if (isPlaneswalker(target)) removeCounters(target, n, 'loyalty');
   if (isBattle(target)) removeDefense(g, target, n);
   if (isCreature(target)) target.damage += n;
   if (has(g, source, 'deathtouch') && isCreature(target)) target.deathtouched = true;
   if (has(g, source, 'lifelink')) gainLife(g, source.controller, n);
   announce(g, 'onDamage', { source: snapshot(source), player: null, card: snapshot(target), amount: n, combat });
+  dealt(g, source, null, target, n, combat);
   return n;
 }
 
 export function dealDamage(g: Game, source: Card, ref: TargetRef | null | undefined, n: number, combat = false): number {
   if (!ref) return 0;
   if (ref.kind === 'player') return damagePlayer(g, source, ref.id, n, combat);
-  const c = permanent(g, ref.id);
-  if (c && !prevented(g, source, { card: c })) log(g, `${label(source)} deals ${n + damageBonus(g, source, c.controller)} damage to ${label(c)}.`, source.controller, [source, c]);
-  return damageCard(g, source, c, n, combat);
+  return damageCard(g, source, permanent(g, ref.id), n, combat, true);
 }
 
 export function pump(_g: Game, c: Card | undefined, power: number, toughness: number, keywords: string[] = []) {
