@@ -477,6 +477,10 @@ export function castCost(g: Game, c: Card, choices: CastChoices = {}, pid = c.ow
   // "Mana of any type can be spent to cast them" (Mnemonic Betrayal).
   if (permission(g, pid, c)?.anyMana) cost = anyType(cost);
   cost.life += alt?.life ?? 0;
+  // "Pay N life" or "pay X life" as an additional cost (118.8, 119.4). It is paid whatever
+  // else is paid instead of the mana cost (118.9d).
+  const life = script.additionalCost?.life;
+  cost.life += life === 'x' ? (choices.x ?? 0) : (life ?? 0);
   // X counts as generic mana (107.4b). An alternative cost without {X} makes X 0 (107.3b).
   cost.generic += cost.x * (choices.x ?? 0);
   cost.x = 0;

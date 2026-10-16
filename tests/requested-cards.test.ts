@@ -1,8 +1,9 @@
 // Hand scripts for cards players asked for (docs/card-requests.json): the clauses that could
 // go wrong. Their data is in tests/fixtures.generated.json (tests/fixture-cards.json).
 import { describe, expect, it } from 'vitest';
-import { applyAction, applyBotAction, botAction, castCost, choiceOptions, flashGranted, maxHandSize, stats } from '../src/engine';
+import { applyAction, applyBotAction, botAction, canCast, castCost, choiceOptions, flashGranted, maxHandSize, maxX, stats } from '../src/engine';
 import type { Action, CardChoice, Game, PlayerId, TargetRef } from '../src/engine';
+import { scriptCards } from '../src/cards/oracle';
 import './fixtures';
 import { byName, emptyGame, put, run } from './helpers';
 
@@ -417,4 +418,88 @@ describe('requested creatures', () => {
     expect(byName(g, 0, 'Elite Vanguard')!.counters['+1/+1']).toBeUndefined();
     expect(byName(g, 0, 'Llanowar Elves')).toBeDefined();
   });
+});
+
+describe('additional costs: discard a card, pay X life (118.8)', () => {
+  // Read from their Oracle text, as a fetched card would be.
+  scriptCards(['Big Score', 'Unexpected Windfall']);
+
+  it('Grab the Prize: discards another card as it is cast, and burns only if that was not a land', () => {
+    const cast = (discarded: string) => {
+      let g = emptyGame((d) => {
+        put(d, 0, 'Grab the Prize', 'hand');
+        put(d, 0, discarded, 'hand');
+        put(d, 0, 'Mountain', 'battlefield', 2);
+      });
+      const grab = byName(g, 0, 'Grab the Prize', 'hand')!;
+      // The cost can't be skipped, and the spell can't discard itself.
+      expect(applyAction(g, { type: 'cast', card: grab.id })).toBe(g);
+      expect(applyAction(g, { type: 'cast', card: grab.id, discard: [grab.id] })).toBe(g);
+      g = run(g, { type: 'cast', card: grab.id, discard: [byName(g, 0, discarded, 'hand')!.id] });
+      // Discarded while it is cast, before it resolves (601.2h).
+      expect(byName(g, 0, discarded, 'graveyard')).toBeDefined();
+      return settle(g);
+    };
+    let g = cast('Lightning Bolt');
+    expect(g.players.map((p) => p.life)).toEqual([40, 38, 38, 38]);
+    expect(g.players[0].hand).toHaveLength(2);
+    g = cast('Plains');
+    expect(g.players.map((p) => p.life)).toEqual([40, 40, 40, 40]);
+  });
+
+  it("can't be cast with no other card to discard", () => {
+    const g = emptyGame((d) => {
+      put(d, 0, 'Big Score', 'hand');
+      put(d, 0, 'Mountain', 'battlefield', 4);
+    });
+    expect(canCast(g, 0, byName(g, 0, 'Big Score', 'hand')!)).toBe(false);
+  });
+
+  it('Big Score (read from its Oracle text): discard, draw two, two Treasures', () => {
+    let g = emptyGame((d) => {
+      put(d, 0, 'Big Score', 'hand');
+      put(d, 0, 'Plains', 'hand');
+      put(d, 0, 'Mountain', 'battlefield', 4);
+    });
+    g = settle(run(g, { type: 'cast', card: byName(g, 0, 'Big Score', 'hand')!.id, discard: [byName(g, 0, 'Plains', 'hand')!.id] }));
+    expect(g.players[0].hand).toHaveLength(2);
+    expect(g.players[0].battlefield.filter((c) => c.name === 'Treasure')).toHaveLength(2);
+  });
+
+  it('Toxic Deluge: X life is paid as it is cast, no more than you have (119.4), and creatures get -X/-X', () => {
+    let g = emptyGame((d) => {
+      put(d, 0, 'Toxic Deluge', 'hand');
+      put(d, 0, 'Swamp', 'battlefield', 3);
+      put(d, 0, 'Elite Vanguard');
+      put(d, 1, 'Typhoid Rats');
+      put(d, 1, 'Lyra Dawnbringer');
+      d.players[0].life = 10;
+    });
+    const deluge = byName(g, 0, 'Toxic Deluge', 'hand')!;
+    expect(maxX(g, 0, deluge)).toBe(10);
+    expect(canCast(g, 0, deluge, { x: 11 })).toBe(false);
+    g = run(g, { type: 'cast', card: deluge.id, x: 4 });
+    expect(g.players[0].life).toBe(6); // paid on casting
+    g = settle(g);
+    expect(byName(g, 0, 'Elite Vanguard')).toBeUndefined();
+    expect(byName(g, 1, 'Typhoid Rats')).toBeUndefined();
+    expect(stats(g, byName(g, 1, 'Lyra Dawnbringer')!).toughness).toBe(1);
+  });
+
+  it('a bot pays X life to clear the board, but never all its life', () => {
+    const deluge = (life: number) => {
+      const g = emptyGame((d) => {
+        put(d, 1, 'Toxic Deluge', 'hand');
+        put(d, 1, 'Swamp', 'battlefield', 3);
+        put(d, 0, 'Serra Angel', 'battlefield', 3);
+        d.players[1].life = life;
+        d.active = 1;
+        d.priority = 1;
+      });
+      return botAction(g, 1);
+    };
+    expect(deluge(10)).toMatchObject({ type: 'cast', x: 4 });
+    expect(deluge(4)).toMatchObject({ type: 'pass' });
+  });
+
 });

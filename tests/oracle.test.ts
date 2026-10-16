@@ -297,6 +297,16 @@ describe('more effects and static lines from Oracle text', () => {
     expect(cast('Llanowar Elves')).toEqual([40, 40, 40, 40]);
   });
 
+  it('reads additional costs: discard a card or pay N life (118.8), and a discard cost on an ability', () => {
+    const read = (text: string, typeLine = 'Sorcery') => parseCard(fake('Test Cost', typeLine, text));
+    expect(read('As an additional cost to cast this spell, discard a card.\nDraw two cards.')).toMatchObject({ ok: true, script: { additionalCost: { discard: 1 } } });
+    expect(read('As an additional cost to cast this spell, pay 3 life.\nDraw two cards.')).toMatchObject({ ok: true, script: { additionalCost: { life: 3 } } });
+    // X outside a cost the parser reads is refused.
+    expect(read('As an additional cost to cast this spell, pay X life.\nDraw a card.')).toMatchObject({ ok: false });
+    const ab = read('{T}, Discard a card: Draw a card.', 'Artifact');
+    expect(ab.ok && (ab.script.activated as ActivatedAbility).cost).toEqual({ tap: true, discard: 1 });
+  });
+
   it('reads Prowess, alone or with other keywords (702.108a)', () => {
     teach('Test Monk', 'Creature — Human Monk', 'Flying, prowess', { keywords: ['Flying', 'Prowess'], power: '1', toughness: '1' });
     let g = emptyGame((d) => {
@@ -469,7 +479,7 @@ describe('parsed scripts play like the hand scripts', () => {
 
 /** Cards players asked for (docs/card-requests.json) that the parser reads, with their real Oracle text from tests/fixtures.generated.json. */
 const REQUESTED = [
-  'Abandoned Air Temple', 'Arcane Sanctum', 'Black Waltz No. 3', 'Blazemire Verge', 'Bleachbone Verge', 'Bojuka Bog', 'Deadly Rollick',
+  'Abandoned Air Temple', 'Arcane Sanctum', 'Big Score', 'Unexpected Windfall', 'Black Waltz No. 3', 'Blazemire Verge', 'Bleachbone Verge', 'Bojuka Bog', 'Deadly Rollick',
   'Decanter of Endless Water', 'Drowned Catacomb', 'Dust Bowl', 'Eclipsed Steppe', 'Flawless Maneuver', 'Gilded Lotus', 'Glacial Fortress',
   'Hallowed Fountain', 'Hapless Researcher', 'Haunted Ridge', 'Luxury Suite', 'Meticulous Archive', 'Morphic Pool', 'Pearl Medallion',
   "Raffine's Tower", 'Raucous Theater', 'Razaketh, the Foulblooded', 'Ruby Medallion', 'Sea of Clouds', 'Shadowy Backstreet', 'Shattered Sanctum',

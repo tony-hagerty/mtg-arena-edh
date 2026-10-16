@@ -627,6 +627,14 @@ registerScripts({
       },
     },
   },
+  'Toxic Deluge': {
+    // "As an additional cost to cast this spell, pay X life. All creatures get -X/-X until end of turn."
+    additionalCost: { life: 'x' },
+    onResolve: (g, { self }) => {
+      const x = self.cast?.x ?? 0;
+      for (const c of allCreatures(g)) pump(g, c, -x, -x);
+    },
+  },
   'The Battle of Bywater': {
     onResolve: (g, { you }) => {
       destroyMany(g, allCreatures(g).filter((c) => stats(g, c).power >= 3));
@@ -752,6 +760,16 @@ registerScripts({
       untap: (_g, { picked }) => {
         for (const c of picked) c.tapped = false;
       },
+    },
+  },
+  'Grab the Prize': {
+    // "As an additional cost to cast this spell, discard a card. Draw two cards. If the
+    // discarded card wasn't a land card, Grab the Prize deals 2 damage to each opponent."
+    additionalCost: { discard: 1 },
+    onResolve: (g, { self, you }) => {
+      draw(g, you, 2);
+      const discarded = self.cast?.discarded?.[0];
+      if (discarded && !isLand(discarded)) for (const o of opponentsOf(g, you)) damagePlayer(g, self, o.id, 2);
     },
   },
   Windfall: {

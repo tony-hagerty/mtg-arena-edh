@@ -441,6 +441,7 @@ function cost(text: string, line: string): { cost: ActivatedAbility['cost']; x: 
       out.mana = part.toUpperCase();
       x = part.includes('{x}');
     } else if (part === 'sacrifice ~') out.sacrifice = true;
+    else if (/^discard (a|two|three) cards?$/.test(part) && !out.discard) out.discard = NUMBERS[part.split(' ')[1]];
     else if (/^sacrifice (a|an|another) (creature|artifact|land|permanent)$/.test(part)) {
       const [, article, noun] = /^sacrifice (a|an|another) (\w+)$/.exec(part)!;
       const tests: ((c: Card, self: Card) => boolean)[] = [];
@@ -573,6 +574,11 @@ const shockEnter: Pick<CardScript, 'replaceEnter' | 'then' | 'botChoice'> = {
  */
 function cardLine(text: string, original: string, script: CardScript, then: NonNullable<CardScript['then']>): boolean {
   let m: RegExpExecArray | null;
+  // "As an additional cost to cast this spell, discard a card / pay N life." (118.8, 119.4)
+  if ((m = /^as an additional cost to cast ~, (discard (a|two|three) cards?|pay (\d+) life)\.$/.exec(text))) {
+    script.additionalCost = m[2] ? { discard: NUMBERS[m[2]] } : { life: parseInt(m[3], 10) };
+    return true;
+  }
   // "This land enters tapped." (614.1c)
   if (text === '~ enters tapped.') {
     script.entersTapped = true;
