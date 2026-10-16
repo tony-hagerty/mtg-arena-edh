@@ -725,6 +725,9 @@ function choicesOk(g: Game, pid: PlayerId, c: Card, ch: CastChoices): boolean {
   if (!Number.isInteger(x) || x < 0 || !Number.isInteger(kicked) || kicked < 0) return false;
   if (kicked > (script.kicker ? (script.kicker.multi ? Infinity : 1) : 0)) return false;
   if (ch.offspring && !script.offspring) return false;
+  // One of the additional costs a spell offers, if it offers a choice (118.8).
+  const oneOf = script.additionalCost?.oneOf;
+  if (oneOf ? ch.extra === undefined || !Number.isInteger(ch.extra) || ch.extra < 0 || ch.extra >= oneOf.length : ch.extra !== undefined) return false;
   if (ch.alt !== undefined && !altCostsOf(g, c, face, pid).includes(ch.alt)) return false;
   if (ch.protector !== undefined && !(isBattle(spell) && canProtect(g, spell, ch.protector))) return false;
   // A gift is promised to an opponent (702.174a), and only by a spell with gift.
@@ -809,10 +812,12 @@ export function canCastAs(g: Game, pid: PlayerId, c: Card, face: number, choices
     const escaping = escapes(g, c).filter((e) => escapeOptions(g, c).length >= e.exile).map((e): CastChoices => ({ face, escape: Array.from({ length: e.exile }, () => '') }));
     routes = [...(ways.flashback || ways.aftermath || ways.permitted ? [{ face }] : []), ...escaping];
   } else routes = [undefined, ...altCostsOf(g, c, face, pid)].map((alt) => ({ alt, face }));
-  return routes.some((r) => modeSets.some((modes) => {
-    const ch = modes ? { ...r, modes } : r;
+  // Each of the additional costs it offers a choice of ("pay 5 life or pay {2}").
+  const extras: (number | undefined)[] = script.additionalCost?.oneOf ? script.additionalCost.oneOf.map((_, i) => i) : [undefined];
+  return routes.some((r) => modeSets.some((modes) => extras.some((extra) => {
+    const ch = { ...r, ...(modes ? { modes } : {}), ...(extra !== undefined ? { extra } : {}) };
     return targetsLegal(ch) && !!planPayment(g, pid, castCost(g, c, ch, pid), spell);
-  }));
+  })));
 }
 
 /** The highest X `pid` can pay for `c` with these other choices (107.3a), or -1 if it can't be cast at all. */
@@ -2103,6 +2108,7 @@ function act(g: Game, a: Action): boolean {
         info.kicked && (info.kicked > 1 ? `kicked ${info.kicked} times` : 'kicked'),
         info.bargained && 'bargained',
         info.offspring && 'paying offspring',
+        choices.extra !== undefined && script.additionalCost?.oneOf?.[choices.extra]?.label,
         choices.gift !== undefined && `gift promised to ${g.players[choices.gift].name}`,
         alt?.label,
         info.modes.length > 0 &&

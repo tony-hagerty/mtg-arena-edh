@@ -283,8 +283,11 @@ function castChoices(g: Game, pid: PlayerId, c: Card): CastChoices[] {
     const lifeX = script.additionalCost?.life === 'x';
     const gifts = script.gift ? [undefined, ...opponentsOf(g, pid).map((o) => o.id)] : [undefined];
     const modeSets = script.modal ? modeChoices(g, pid, c, face) : [undefined];
+    // "Pay 5 life or pay {2}": each of the additional costs it offers.
+    const extraCosts: (number | undefined)[] = script.additionalCost?.oneOf ? script.additionalCost.oneOf.map((_, i) => i) : [undefined];
+    const paths = ways.flatMap((w) => extraCosts.map((e): CastChoices => ({ ...w, ...(e !== undefined ? { extra: e } : {}) })));
     for (const modes of modeSets) {
-      for (const way of ways) {
+      for (const way of paths) {
         for (const add of extra) {
           if (add && way.sacrifice?.includes(add)) continue;
           const sacrifice = [...(way.sacrifice ?? []), ...(add ? [add] : [])];

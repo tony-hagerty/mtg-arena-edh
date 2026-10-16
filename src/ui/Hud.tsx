@@ -393,6 +393,16 @@ export function CastOptions() {
           )}
         </div>
       )}
+      {a.extraCosts && (
+        <div className="cast-row">
+          <span className="cast-label">Additional cost</span>
+          {a.extraCosts.map((o, i) => (
+            <button key={i} className={cx('chip', choices.extra === i && 'on')} disabled={!o.payable} onClick={() => setChoices({ extra: i })}>
+              {o.label.split(/((?:\{[^}]+\})+)/).map((part, k) => (part.startsWith('{') ? <ManaCost key={k} cost={part} /> : part))}
+            </button>
+          ))}
+        </div>
+      )}
       {a.offspring && (
         <div className="cast-row">
           <span className="cast-label">
