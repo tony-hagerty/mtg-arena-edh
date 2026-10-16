@@ -754,7 +754,7 @@ export function canCastAs(g: Game, pid: PlayerId, c: Card, face: number, choices
   const targetsLegal = (ch: CastChoices = {}) =>
     castTargets(c, ch.modes, face, ch.gift, ch.alt).every((spec) => spec.optional || spec.any || legalTargets(g, pid, spec, spell).length > 0);
   // A permanent being sacrificed for the cost can't also make mana for it.
-  if (choices) return targetsLegal(choices) && choicesOk(g, pid, c, choices) && !!planPayment(g, pid, castCost(g, c, choices, pid), spell, choices.sacrifice);
+  if (choices) return targetsLegal(choices) && choicesOk(g, pid, c, choices) && !!planPayment(g, pid, castCost(g, c, choices, pid), spell, choices.sacrifice, choices.convoke);
   const script = scriptFor(spell);
   if (script.additionalCost?.sacrifice && !script.additionalCost.optional && !sacrificeOptions(g, pid, c, face).length) return false;
   if (discardOptions(g, pid, c).length < (script.additionalCost?.discard ?? 0)) return false;
@@ -1936,7 +1936,7 @@ function act(g: Game, a: Action): boolean {
       const hasX = parseCost(paying).x > 0 || script.additionalCost?.life === 'x';
       const cost = castCost(g, c, choices, pid);
       // Costs are paid (601.2f-h): mana and life, then sacrifices and cards exiled.
-      const paid = pay(g, pid, cost, spell, choices.sacrifice)!;
+      const paid = pay(g, pid, cost, spell, choices.sacrifice, choices.convoke)!;
       const sacrificed = (choices.sacrifice ?? []).map((id) => permanent(g, id)!);
       const exiled = (choices.exile ?? []).map((id) => p.hand.find((x) => x.id === id)!);
       const discarded = (choices.discard ?? []).map((id) => p.hand.find((x) => x.id === id)!);

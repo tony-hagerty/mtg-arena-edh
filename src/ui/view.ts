@@ -51,8 +51,13 @@ import {
   maxHandSize,
   nextStop,
   MUST_ATTACK,
-  abilityCost,
+  activationCost,
   castableCards,
+  escapes,
+  hasConvoke,
+  isCreature,
+  specsFor,
+  activationExileOptions,
   describeRef,
   discardOptions,
   escapeOptions,
@@ -64,7 +69,7 @@ import {
   maxModes,
   activationSacrificeOptions,
 } from '../engine';
-import type { AbilityRef, Action, AttackOption, Card, CastChoices, Cost, Game, ManaSym, PlayerId, StackItem, Step, Stops, TargetRef, TargetSpec } from '../engine';
+import type { AbilityRef, Action, AttackOption, Card, CastChoices, Cost, Game, ManaSym, Payment, PlayerId, StackItem, Step, Stops, TargetRef, TargetSpec } from '../engine';
 import { absoluteStops, useStore } from './store';
 import type { Targeting } from './store';
 
@@ -107,8 +112,8 @@ export interface View {
   announce: Announce | null;
   /** An ability whose X the human is announcing (107.3a, 602.2b): the X so far and the highest it can be. */
   abilityX: { card: Card; x: number; max: number } | null;
-  /** Escape (702.138a): the other cards in the graveyard the human picks three of to exile. */
-  escape: { card: Card; options: Card[] } | null;
+  /** Escape (702.138a): the other cards in the graveyard the human picks `count` of to exile. */
+  escape: { card: Card; options: Card[]; count: number } | null;
   /** Delve (702.66a): cards in the graveyard the human may exile, up to `max`, each paying for {1}. */
   delve: { card: Card; options: Card[]; max: number } | null;
   /** Cards in a graveyard the human can target now (Sevinne's Reclamation), for a picker. */
@@ -130,9 +135,10 @@ export interface Announce {
   kicker: { text: string; most: number } | null;
   /**
    * The mana cost (alt undefined) and each available alternative cost, and whether each can
-   * be paid now. From a graveyard: flashback, and escape (`escape`).
+   * be paid now. From a graveyard: flashback, and each escape ability (`escape`: how many
+   * other cards it exiles).
    */
-  costs: { alt: number | undefined; escape?: boolean; label: string; payable: boolean }[];
+  costs: { alt: number | undefined; escape?: number; label: string; payable: boolean }[];
   /** A spell with gift (702.174): the opponents a gift can be promised to. */
   gifts: { id: PlayerId; name: string }[] | null;
   /** An ability of the card that works from the hand, like channel: offered instead of playing it. */
@@ -201,15 +207,27 @@ function targetingOf(s: StoreState): Targeting | null {
   if (g?.decision?.type === 'targets' && g.priority === s.human) {
     const { item } = g.decision;
     const chosen = s.targeting?.mode === 'trigger' ? s.targeting.chosen : [];
-    return { mode: 'trigger', cardId: item.card.id, specs: targetSpecs(item), chosen, tapped: [], choices: {}, announcing: false };
+    const anyDone = s.targeting?.mode === 'trigger' && !!s.targeting.anyDone;
+    return { mode: 'trigger', cardId: item.card.id, specs: expandSpecs(targetSpecs(item), chosen.length, anyDone), chosen, tapped: [], choices: {}, announcing: false, anyDone };
   }
   // New targets for a spell or ability (115.7d), like Deflecting Swat's.
   const item = g && g.priority === s.human ? retargetItem(g) : undefined;
   if (item) {
     const chosen = s.targeting?.mode === 'retarget' ? s.targeting.chosen : [];
-    return { mode: 'retarget', cardId: item.card.id, specs: targetSpecs(item), chosen, tapped: [], choices: {}, announcing: false };
+    // As many targets as it has: new targets don't change how many (115.7d).
+    return { mode: 'retarget', cardId: item.card.id, specs: specsFor(targetSpecs(item), item.targets.length), chosen, tapped: [], choices: {}, announcing: false };
   }
   return s.targeting?.mode === 'trigger' || s.targeting?.mode === 'retarget' ? null : s.targeting;
+}
+
+/**
+ * The target slots so far for "any number of" targets (115.1d): the last spec once for each
+ * target picked, and once more for the next one until the human is done. Other lists are as they are.
+ */
+function expandSpecs(base: TargetSpec[], chosen: number, done: boolean): TargetSpec[] {
+  const last = base[base.length - 1];
+  if (!last?.any) return base;
+  return [...specsFor(base, chosen), ...(done ? [] : [last])];
 }
 
 /** The spell or ability the game is waiting on new targets for, if any. */
@@ -254,10 +272,24 @@ function isSacrificing(t: Targeting): boolean {
   return (t.choices.sacrifice?.length ?? 0) < sacrificeNeeds(t).length;
 }
 
-/** The spell is cast with escape, and the three cards to exile from the graveyard are still to be picked (702.138a). */
+/**
+ * The spell is cast with escape, and the other cards to exile from the graveyard are still
+ * to be picked (702.138a). Until then `escape` holds an empty id for each card its escape
+ * ability exiles, which tells the cost which escape ability it is.
+ */
 function isEscaping(t: Targeting): boolean {
   if (t.mode !== 'cast' || t.announcing || t.chosen.length < t.specs.length || isSacrificing(t)) return false;
-  return !!t.choices.escape && t.choices.escape.length < 3;
+  return !!t.choices.escape && t.choices.escape.some((id) => !id);
+}
+
+/** An escape choice that exiles `n` other cards, before they are picked. */
+const escapeSlots = (n: number) => Array.from({ length: n }, () => '');
+
+/** Targets are chosen and an ability's "Exile a creature you control" cost still needs its creature. */
+function isExilingForAbility(t: Targeting): boolean {
+  if (t.mode !== 'activate' || t.announcing || t.pickingAbility || t.chosen.length < t.specs.length || t.exile?.length) return false;
+  const card = findCard(S().game!, t.cardId);
+  return !!card && !!activatedOf(t, card)?.cost.exileOne;
 }
 
 /** A spell with delve whose cards to exile from the graveyard are still to be picked (702.66a). */
@@ -306,6 +338,7 @@ const isPaying = (t: Targeting) =>
   t.chosen.length === t.specs.length &&
   !isSacrificing(t) &&
   !isExiling(t) &&
+  !isExilingForAbility(t) &&
   !isEscaping(t) &&
   !isDelving(t) &&
   !isDiscarding(t) &&
@@ -322,10 +355,27 @@ function costOf(g: Game, t: Targeting): { cost: Cost; text: string } {
     t.mode === 'cast'
       ? castCost(g, card, t.choices, me)
       : ab
-        ? abilityCost(ab, g, card, t.x ?? 0)
+        ? activationCost(g, me, card, ab, t.x ?? 0)
         : parseCost(t.ability === undefined ? '' : (script.levels?.[t.ability].cost ?? ''));
   return { cost, text: costText(cost) + (cost.life ? ` and ${cost.life} life` : '') };
 }
+
+/**
+ * How auto-pay would pay for what the human is paying for: a spell with what it sacrifices
+ * and the creatures picked to convoke it (702.51a), or an ability with what its cost uses up.
+ */
+function planFor(g: Game, me: PlayerId, t: Targeting): Payment | null {
+  const card = findCard(g, t.cardId);
+  if (!card) return null;
+  const { cost } = costOf(g, t);
+  if (t.mode === 'cast') return planPayment(g, me, cost, asSpell(card, t.choices.face ?? 0, me), t.choices.sacrifice, t.choices.convoke);
+  const ab = activatedOf(t, card);
+  const busy = ab && (ab.cost.tap || ab.cost.sacrifice || ab.cost.exileSelf) ? [card.id] : [];
+  return planPayment(g, me, cost, undefined, [...busy, ...(t.choices.sacrifice ?? []), ...(t.exile ?? [])]);
+}
+
+/** Nothing is left to tap but the creatures picked to convoke: the cost can be paid as it stands. */
+const paidUp = (g: Game, me: PlayerId, t: Targeting) => !!planFor(g, me, t)?.tap.every((id) => t.choices.convoke?.includes(id));
 
 /** The options panel for a spell being announced. */
 function announceOf(g: Game, me: PlayerId, card: Card, choices: CastChoices): Announce {
@@ -373,8 +423,16 @@ function announceOf(g: Game, me: PlayerId, card: Card, choices: CastChoices): An
           ...(ways.aftermath || ways.permitted
             ? [{ alt: undefined, label: costText(castCost(g, card, { ...choices, escape: undefined, x: 0 }, me)), payable: payable({ ...choices, escape: undefined, x: 0 }) }]
             : []),
+          // Each escape ability with enough other cards to exile (702.138a).
           ...(ways.escape
-            ? [{ alt: undefined, escape: true, label: `Escape: ${costText(parseCost(data(spell).manaCost))} + exile 3`, payable: payable({ ...choices, escape: [], x: 0 }) }]
+            ? escapes(g, card)
+                .filter((e) => escapeOptions(g, card).length >= e.exile)
+                .map((e) => ({
+                  alt: undefined,
+                  escape: e.exile,
+                  label: `Escape: ${costText(parseCost(e.mana))} + exile ${e.exile}`,
+                  payable: payable({ ...choices, escape: escapeSlots(e.exile), x: 0 }),
+                }))
             : []),
         ]
       : (land ? [] : [undefined, ...altCostsOf(g, card, face, me)]).map((alt) => ({
@@ -419,7 +477,11 @@ function currentTargets(g: Game, me: PlayerId, t: Targeting): TargetRef[] {
   const other = spec.distinctFrom === undefined ? null : t.chosen[spec.distinctFrom];
   // New targets are legal for the spell or ability's controller (115.7d).
   const who = t.mode === 'retarget' ? (retargetItem(g)?.controller ?? me) : me;
-  return legalTargets(g, who, spec, source).filter((x) => !other || x.kind !== other.kind || x.id !== other.id);
+  // "Any number of" targets are each a different one (115.3).
+  const taken = spec.any ? t.chosen.filter((x, i): x is TargetRef => !!x && !!t.specs[i]?.any) : [];
+  return legalTargets(g, who, spec, source).filter(
+    (x) => (!other || x.kind !== other.kind || x.id !== other.id) && !taken.some((y) => y.kind === x.kind && y.id === x.id),
+  );
 }
 
 export function buildView(): View {
@@ -491,7 +553,7 @@ export function buildView(): View {
     view.prompt = playing ? `Play ${name} as a land.` : `Choose how to cast ${name}: ${text}.`;
     const ready = playing
       ? canPlayLand(g, me, card, face)
-      : !!planPayment(g, me, castCost(g, card, t.choices)) && (!view.announce.modal || view.announce.modal.valid);
+      : !!planPayment(g, me, castCost(g, card, t.choices, me), asSpell(card, face, me)) && (!view.announce.modal || view.announce.modal.valid);
     view.primary = { label: 'Continue', sub: playing ? `Play ${name}` : `Cast ${name}`, tone: 'go', disabled: !ready, onClick: confirmAnnounce };
     view.secondary = { label: 'Cancel', tone: 'cancel', onClick: cancel };
     return view;
@@ -552,12 +614,13 @@ export function buildView(): View {
     return view;
   }
 
-  // --- choosing the three cards to exile for escape (702.138a) ---
+  // --- choosing the other cards to exile for escape (702.138a) ---
   if (t && isEscaping(t)) {
     const card = findCard(g, t.cardId)!;
+    const count = t.choices.escape!.length;
     view.glow.set(card.id, 'picked');
-    view.escape = { card, options: escapeOptions(g, card) };
-    view.prompt = `${label(card)}: choose three other cards in your graveyard to exile.`;
+    view.escape = { card, options: escapeOptions(g, card), count };
+    view.prompt = `${label(card)}: choose ${count} other cards in your graveyard to exile.`;
     view.secondary = { label: 'Cancel', tone: 'cancel', onClick: cancel };
     return view;
   }
@@ -593,6 +656,16 @@ export function buildView(): View {
     return view;
   }
 
+  // --- choosing the permanent to exile for an ability's cost ---
+  if (t && isExilingForAbility(t)) {
+    const card = findCard(g, t.cardId)!;
+    for (const c of activationExileOptions(g, me, card, t.activated)) view.glow.set(c.id, 'target');
+    view.glow.set(card.id, 'picked');
+    view.prompt = `${label(card)}: choose ${activatedOf(t, card)!.cost.exileOne!.label} to exile.`;
+    view.secondary = { label: 'Cancel', tone: 'cancel', onClick: cancel };
+    return view;
+  }
+
   // --- picking the creatures that crew a Vehicle (702.122a) ---
   const need = t ? crewNeeded(t) : 0;
   if (t && need) {
@@ -611,8 +684,8 @@ export function buildView(): View {
   // --- paying for a spell or ability ---
   if (t && isPaying(t)) {
     const card = findCard(g, t.cardId)!;
-    const { cost, text } = costOf(g, t);
-    const plan = planPayment(g, me, cost);
+    const { text } = costOf(g, t);
+    const plan = planFor(g, me, t);
     const script = scriptFor(card);
     const ability = t.mode !== 'activate' ? undefined : t.ability === undefined ? activatedAt(card, t.activated) : (script.loyalty ?? script.levels)?.[t.ability];
     view.glow.set(card.id, 'picked');
@@ -622,11 +695,18 @@ export function buildView(): View {
     markMana(view, g, me);
     // A card in hand that makes mana from there can be used too, by hand only.
     for (const c of p.hand) if (view.mana.has(c.id)) view.glow.set(c.id, 'play');
+    // Convoke (702.51a): the human can pick the creatures to tap; auto-pay picks any others.
+    const convoking = !ability && hasConvoke(g, me, asSpell(card, t.choices.face ?? 0, me));
+    if (convoking) {
+      for (const c of convokeOptions(g, me, t)) if (!view.glow.has(c.id)) view.glow.set(c.id, 'target');
+      for (const id of t.choices.convoke ?? []) view.glow.set(id, 'picked');
+    }
     // Phyrexian mana is paid with life only when the mana isn't there (107.4f).
     const life = plan?.life ? ` (auto-pay uses ${plan.life} life)` : '';
+    const convoke = convoking ? ` Click creatures to tap them for convoke${t.choices.convoke?.length ? ` (${t.choices.convoke.length} picked)` : ''}.` : '';
     view.prompt = ability
       ? `${label(card)} — ${ability.text}. Pay the cost${life}, or cancel.`
-      : `Pay ${text}${life} to cast ${label(card)}, or cancel.`;
+      : `Pay ${text}${life} to cast ${label(card)}, or cancel.${convoke}`;
     view.primary = { label: 'Pay', sub: ability ? 'Activate' : `Cast ${label(card)}`, tone: 'go', disabled: !plan, onClick: pay };
     view.secondary = { label: 'Cancel', tone: 'cancel', onClick: cancel };
     return view;
@@ -649,6 +729,12 @@ export function buildView(): View {
     view.prompt = `${source ? label(source) : ''}: choose ${spec?.label ?? 'a target'}.`;
     if (t.mode !== 'trigger' && t.mode !== 'retarget') view.secondary = { label: 'Cancel', tone: 'cancel', onClick: cancel };
     if (spec?.optional) view.primary = { label: 'No Target', tone: 'plain', onClick: () => chooseTarget(null) };
+    // "Any number of" targets (115.1d): as many as the human picks, none included.
+    if (spec?.any && t.mode !== 'retarget') {
+      const n = t.chosen.filter((_, i) => t.specs[i]?.any).length;
+      view.prompt = `${source ? label(source) : ''}: choose any number of ${spec.label} (${n} so far).`;
+      view.primary = { label: 'Done', sub: plural(n, 'target'), tone: 'go', onClick: finishAny };
+    }
     if (t.mode === 'retarget') {
       // Any target may be left as it is (115.7d).
       const now = retargetItem(g)?.targets[t.chosen.length];
@@ -820,7 +906,7 @@ function propose(mode: 'cast' | 'activate', card: Card) {
   const face = options.find((o) => o.ok)?.face ?? 0;
   const choices = mode === 'cast' ? defaultChoices(g, me, card, face) : {};
   const only = refs[0]?.activated;
-  const specs = mode === 'cast' ? castTargets(card, undefined, face) : (activatedAt(card, only)?.targets ?? []);
+  const specs = mode === 'cast' ? castTargets(card, undefined, face, undefined, choices.alt) : (activatedAt(card, only)?.targets ?? []);
   const script = scriptFor(asSpell(card, face));
   const hasX = mode === 'cast' && (script.additionalCost?.life === 'x' || (!paysFlashback(g, card, choices) && parseCost(data(asSpell(card, face)).manaCost).x > 0));
   const siege = mode === 'cast' && isSiege(asSpell(card, face));
@@ -838,6 +924,7 @@ function propose(mode: 'cast' | 'activate', card: Card) {
       handMana ||
       fromHand ||
       (!!ways && (ways.flashback || ways.aftermath || ways.permitted) && ways.escape) ||
+      escapes(g, card).filter((e) => escapeOptions(g, card).length >= e.exile).length > 1 ||
       (siege && opponentsOf(g, me).length > 1));
   const start: Targeting = { mode, cardId: card.id, specs, chosen: [], tapped: [], choices, announcing, ...(only ? { activated: only } : {}) };
   if (mode === 'activate' && refs[0] && abilityHasX(card, refs[0])) chooseX(start);
@@ -876,7 +963,8 @@ function confirmAbilityX() {
 function defaultChoices(g: Game, me: PlayerId, card: Card, face: number): CastChoices {
   // From a graveyard: flashback if it can, else escape (702.34a, 702.138a).
   const ways = card.zone === 'graveyard' ? graveyardWays(g, card, face) : null;
-  const escape = ways && ways.escape && !ways.flashback && !ways.aftermath && !ways.permitted ? [] : undefined;
+  const ability = escapes(g, card).find((e) => escapeOptions(g, card).length >= e.exile);
+  const escape = ways && ways.escape && ability && !ways.flashback && !ways.aftermath && !ways.permitted ? escapeSlots(ability.exile) : undefined;
   const spell = asSpell(card, face, me);
   const alts = ways ? [] : altCostsOf(g, card, face, me);
   const alt = planPayment(g, me, castCost(g, card, { face, escape }, me), spell) ? undefined : alts.find((i) => planPayment(g, me, castCost(g, card, { alt: i, face }, me), spell));
@@ -955,7 +1043,7 @@ function confirmAnnounce() {
     S().act({ type: 'playLand', card: card.id, face });
     return;
   }
-  advance({ ...t, announcing: false, specs: castTargets(card, t.choices.modes, face, t.choices.gift) });
+  advance({ ...t, announcing: false, specs: castTargets(card, t.choices.modes, face, t.choices.gift, t.choices.alt) });
 }
 
 /** From the cast panel: use the card's ability that works from the hand (channel) instead of playing it. */
@@ -980,13 +1068,22 @@ function advance(t: Targeting) {
     return;
   }
   let chosen = t.chosen;
+  let specs = t.specs;
+  let anyDone = t.anyDone;
   // A slot with nothing legal is left empty, or for new targets, left as it was (115.7d).
+  // "Any number of" targets with nothing more to pick are done (115.1d).
   const keep = (i: number) => (t.mode === 'retarget' ? (retargetItem(g)?.targets[i] ?? null) : null);
-  while (chosen.length < t.specs.length && currentTargets(g, me, { ...t, chosen }).length === 0) chosen = [...chosen, keep(chosen.length)];
-  if ((t.mode !== 'trigger' && t.mode !== 'retarget') || chosen.length < t.specs.length) {
-    useStore.setState({ targeting: { ...t, chosen }, hover: null });
+  while (chosen.length < specs.length && currentTargets(g, me, { ...t, chosen, specs }).length === 0) {
+    if (specs[chosen.length].any && t.mode !== 'retarget') {
+      specs = specs.slice(0, chosen.length);
+      anyDone = true;
+    } else chosen = [...chosen, keep(chosen.length)];
+  }
+  const next = { ...t, chosen, specs, ...(anyDone ? { anyDone } : {}) };
+  if ((t.mode !== 'trigger' && t.mode !== 'retarget') || chosen.length < specs.length) {
+    useStore.setState({ targeting: next, hover: null });
     // A loyalty ability has nothing to pay in mana: it is activated as soon as its targets are chosen.
-    if (t.ability !== undefined && chosen.length === t.specs.length && costOf(g, t).text === '{0}') pay();
+    if (t.ability !== undefined && chosen.length === specs.length && costOf(g, next).text === '{0}') pay();
     return;
   }
   useStore.setState({ targeting: null });
@@ -1002,7 +1099,7 @@ function pay() {
   const action: Action =
     t.mode === 'cast'
       ? { type: 'cast', card: t.cardId, targets: t.chosen, hold, ...t.choices, ...(t.discard ? { discard: t.discard } : {}) }
-      : { type: 'activate', card: t.cardId, ability: t.ability, activated: t.activated, x: t.x, targets: t.chosen, hold, crew: t.crew, discard: t.discard, sacrifice: t.choices.sacrifice };
+      : { type: 'activate', card: t.cardId, ability: t.ability, activated: t.activated, x: t.x, targets: t.chosen, hold, crew: t.crew, discard: t.discard, sacrifice: t.choices.sacrifice, exile: t.exile };
   if (!S().act(action)) cancel();
 }
 
@@ -1012,8 +1109,9 @@ function payByHand(g: Game, me: PlayerId, t: Targeting, card: Card) {
   if (canTapForMana(g, me, card)) {
     if (pickColorFirst(g, me, card)) return;
     if (!S().act({ type: 'tapMana', card: card.id })) return;
-    useStore.setState({ targeting: { ...t, tapped: [...t.tapped, card.id] } });
-    if (planPayment(S().game!, me, costOf(S().game!, t).cost)?.tap.length === 0) pay();
+    const next = { ...t, tapped: [...t.tapped, card.id] };
+    useStore.setState({ targeting: next });
+    if (paidUp(S().game!, me, next)) pay();
   } else if (canUntapMana(g, me, card) && S().act({ type: 'untapMana', card: card.id })) {
     useStore.setState({ targeting: { ...t, tapped: t.tapped.filter((id) => id !== card.id) } });
   }
@@ -1035,7 +1133,7 @@ function confirmCrew() {
   if (!t || !g || me === null) return;
   const next = { ...t, crewDone: true };
   useStore.setState({ targeting: next });
-  if (planPayment(g, me, costOf(g, next).cost)?.tap.length === 0) pay();
+  if (paidUp(g, me, next)) pay();
 }
 
 /** Picks the card in hand to exile for the spell's alternative cost (118.9). Paying comes next. */
@@ -1045,7 +1143,7 @@ function chooseExile(g: Game, me: PlayerId, t: Targeting, card: Card) {
   const next = { ...t, choices: { ...t.choices, exile: [card.id] } };
   useStore.setState({ targeting: next });
   // An alternative cost with no mana, like Force of Will's, is paid as soon as the card is picked.
-  if (planPayment(g, me, costOf(g, next).cost)?.tap.length === 0) pay();
+  if (paidUp(g, me, next)) pay();
 }
 
 /** Picks the permanent to sacrifice for the spell's next sacrifice cost (118.8, 118.9). Paying comes next. */
@@ -1057,12 +1155,50 @@ function chooseSacrifice(g: Game, me: PlayerId, t: Targeting, card: Card) {
   const next = { ...t, choices: { ...t.choices, sacrifice: [...picked, card.id] } };
   useStore.setState({ targeting: next });
   // A cost that is only a sacrifice, like Flare of Duplication's, is paid as soon as it is picked.
-  if (isPaying(next) && planPayment(g, me, costOf(g, next).cost)?.tap.length === 0) pay();
+  if (isPaying(next) && paidUp(g, me, next)) pay();
 }
 
 /** What the next sacrifice cost can take: a spell's (118.8, 118.9) or an ability's. */
 const sacrificeOptionsFor = (g: Game, me: PlayerId, t: Targeting, card: Card, alt: number | undefined) =>
   t.mode === 'activate' ? activationSacrificeOptions(g, me, card, t.activated) : sacrificeOptions(g, me, card, t.choices.face ?? 0, alt);
+
+/** Picks the permanent to exile for an ability's "Exile a creature you control" cost. Paying comes next. */
+function chooseAbilityExile(g: Game, me: PlayerId, t: Targeting, card: Card) {
+  const source = findCard(g, t.cardId)!;
+  if (!activationExileOptions(g, me, source, t.activated).some((c) => c.id === card.id)) return;
+  const next = { ...t, exile: [card.id] };
+  useStore.setState({ targeting: next });
+  if (isPaying(next) && paidUp(g, me, next)) pay();
+}
+
+/** Untapped creatures the human could tap for convoke (702.51a) while paying for a spell: not ones it sacrifices. */
+function convokeOptions(g: Game, me: PlayerId, t: Targeting): Card[] {
+  const card = findCard(g, t.cardId);
+  if (!card || t.mode !== 'cast' || !hasConvoke(g, me, asSpell(card, t.choices.face ?? 0, me))) return [];
+  return g.players[me].battlefield.filter((c) => !c.tapped && isCreature(c) && !t.choices.sacrifice?.includes(c.id));
+}
+
+/**
+ * Picks a creature to tap for convoke, or takes it back (702.51a). A creature that would
+ * pay for nothing more isn't added. Once the creatures and the pool cover the cost, it is paid.
+ */
+function pickConvoke(g: Game, me: PlayerId, t: Targeting, card: Card): boolean {
+  if (!convokeOptions(g, me, t).some((c) => c.id === card.id)) return false;
+  const picked = t.choices.convoke ?? [];
+  const convoke = picked.includes(card.id) ? picked.filter((id) => id !== card.id) : [...picked, card.id];
+  const next = { ...t, choices: { ...t.choices, convoke } };
+  if (!planFor(g, me, next)) return true;
+  useStore.setState({ targeting: next });
+  if (!picked.includes(card.id) && paidUp(g, me, next)) pay();
+  return true;
+}
+
+/** Done picking "any number of" targets (115.1d): the empty slot goes, and the spell or ability moves on. */
+function finishAny() {
+  const t = targetingOf(S());
+  if (!t) return;
+  advance({ ...t, specs: t.specs.slice(0, t.chosen.length), anyDone: true });
+}
 
 /** Doesn't pay an optional sacrifice, like bargain (702.166a). */
 function skipSacrifice() {
@@ -1070,14 +1206,14 @@ function skipSacrifice() {
   if (t) useStore.setState({ targeting: { ...t, sacrificeDone: true } });
 }
 
-/** Picks the three cards to exile for escape (702.138a). Paying comes next. */
+/** Picks the other cards to exile for escape, as many as its escape ability says (702.138a). Paying comes next. */
 export function chooseEscape(ids: string[]) {
   const t = S().targeting;
   const { game: g, human: me } = S();
-  if (!t || !g || me === null || !isEscaping(t) || ids.length !== 3) return;
+  if (!t || !g || me === null || !isEscaping(t) || ids.length !== t.choices.escape!.length) return;
   const next = { ...t, choices: { ...t.choices, escape: ids } };
   useStore.setState({ targeting: next });
-  if (planPayment(g, me, costOf(g, next).cost)?.tap.length === 0) pay();
+  if (paidUp(g, me, next)) pay();
 }
 
 /** Picks the cards to exile for delve, maybe none (702.66a). Paying comes next. */
@@ -1087,7 +1223,7 @@ export function chooseDelve(ids: string[]) {
   if (!t || !g || me === null || !isDelving(t)) return;
   const next = { ...t, choices: { ...t.choices, delve: ids } };
   useStore.setState({ targeting: next });
-  if (planPayment(g, me, costOf(g, next).cost)?.tap.length === 0) pay();
+  if (paidUp(g, me, next)) pay();
 }
 
 /** Picks a card in the hand to discard for an ability's cost. Paying comes next. */
@@ -1096,7 +1232,7 @@ function chooseDiscard(g: Game, me: PlayerId, t: Targeting, card: Card) {
   if (!discardOptions(g, me, source).some((c) => c.id === card.id) || t.discard?.includes(card.id)) return;
   const next = { ...t, discard: [...(t.discard ?? []), card.id] };
   useStore.setState({ targeting: next });
-  if (isPaying(next) && planPayment(g, me, costOf(g, next).cost)?.tap.length === 0) pay();
+  if (isPaying(next) && paidUp(g, me, next)) pay();
 }
 
 /** For new targets (115.7d): leaves the current one as it is. */
@@ -1121,8 +1257,18 @@ function pickColorFirst(g: Game, me: PlayerId, card: Card): boolean {
   const usable = manaAbilities(g, card).filter((ab) => canTapForMana(g, me, card, ab.index));
   const ab = usable.length === 1 ? usable[0] : undefined;
   const creatures = ab ? tapCandidates(g, me, ab).map((c) => c.id) : [];
-  if (!ab || !ab.manual || (ab.colors.length < 2 && creatures.length < 2)) return false;
-  useStore.setState({ colorPick: { cardId: card.id, ability: ab.index, colors: ab.colors, ...(creatures.length ? { creatures, creature: creatures[0] } : {}) } });
+  // "Discard a card" (Skirge Familiar): the card to discard is picked with the colour.
+  const discards = ab?.discard ? g.players[me].hand.filter((c) => c.id !== card.id).map((c) => c.id) : [];
+  if (!ab || (!discards.length && (!ab.manual || (ab.colors.length < 2 && creatures.length < 2)))) return false;
+  useStore.setState({
+    colorPick: {
+      cardId: card.id,
+      ability: ab.index,
+      colors: ab.colors,
+      ...(creatures.length ? { creatures, creature: creatures[0] } : {}),
+      ...(discards.length ? { discards, discard: discards[0] } : {}),
+    },
+  });
   return true;
 }
 
@@ -1132,23 +1278,33 @@ export function pickTapCreature(id: string) {
   if (colorPick?.creatures?.includes(id)) useStore.setState({ colorPick: { ...colorPick, creature: id } });
 }
 
+/** Picks the card to discard for the mana ability the colour picker is open for (Skirge Familiar). */
+export function pickManaDiscard(id: string) {
+  const { colorPick } = S();
+  if (colorPick?.discards?.includes(id)) useStore.setState({ colorPick: { ...colorPick, discard: id } });
+}
+
 /** Uses the mana ability the colour picker is open for, making `color`. While paying, the spell is paid for once the pool covers it. */
 export function pickColor(color: ManaSym | null) {
   const { colorPick, game: g, human: me } = S();
   useStore.setState({ colorPick: null });
   if (!colorPick || !color || !g || me === null) return;
-  if (!S().act({ type: 'tapMana', card: colorPick.cardId, ability: colorPick.ability, color, ...(colorPick.creature ? { tap: colorPick.creature } : {}) })) return;
+  const extra = { ...(colorPick.creature ? { tap: colorPick.creature } : {}), ...(colorPick.discard ? { discard: colorPick.discard } : {}) };
+  if (!S().act({ type: 'tapMana', card: colorPick.cardId, ability: colorPick.ability, color, ...extra })) return;
   const t = targetingOf(S());
-  if (t && isPaying(t) && planPayment(S().game!, me, costOf(S().game!, t).cost)?.tap.length === 0) pay();
+  if (t && isPaying(t) && paidUp(S().game!, me, t)) pay();
 }
 
 function chooseTarget(ref: TargetRef | null) {
   const s = S();
   const { game: g, human: me } = s;
   const t = targetingOf(s);
-  if (!g || me === null || !t || t.announcing || isSacrificing(t) || isExiling(t) || isEscaping(t) || isDelving(t) || isDiscarding(t) || crewNeeded(t)) return;
+  if (!g || me === null || !t || t.announcing || isSacrificing(t) || isExiling(t) || isExilingForAbility(t) || isEscaping(t) || isDelving(t) || isDiscarding(t) || crewNeeded(t)) return;
   if (ref && !currentTargets(g, me, t).some((x) => x.kind === ref.kind && x.id === ref.id)) return;
-  advance({ ...t, chosen: [...t.chosen, ref] });
+  // "Any number of" targets (115.1d): another slot for the next one.
+  const spec = t.specs[t.chosen.length];
+  const specs = spec?.any && ref && t.mode !== 'retarget' ? [...t.specs, spec] : t.specs;
+  advance({ ...t, chosen: [...t.chosen, ref], specs });
 }
 
 /**
@@ -1203,9 +1359,15 @@ export function clickPermanent(card: Card) {
   const t = targetingOf(S());
   const ctx = myTurnToAct();
   if (t && t.announcing) return;
-  if (t && isPaying(t)) return ctx && payByHand(ctx.g, ctx.me, t, card);
+  if (t && isPaying(t)) {
+    if (!ctx) return;
+    // A creature that can't make mana now taps for convoke instead (702.51a).
+    if (!canTapForMana(ctx.g, ctx.me, card) && !canUntapMana(ctx.g, ctx.me, card) && pickConvoke(ctx.g, ctx.me, t, card)) return;
+    return payByHand(ctx.g, ctx.me, t, card);
+  }
   if (t && isSacrificing(t)) return ctx && chooseSacrifice(ctx.g, ctx.me, t, card);
   if (t && isExiling(t)) return;
+  if (t && isExilingForAbility(t)) return ctx && chooseAbilityExile(ctx.g, ctx.me, t, card);
   if (t && crewNeeded(t)) return ctx && pickCrew(ctx.g, ctx.me, t, card);
   if (t) return chooseTarget({ kind: 'card', id: card.id });
   if (!ctx) return;
