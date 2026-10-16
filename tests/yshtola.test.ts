@@ -11,7 +11,6 @@ import {
   has,
   makeCard,
   damagePlayer,
-  refreshSubtypes,
   stats,
   subtypesOf,
 } from '../src/engine';
@@ -176,7 +175,7 @@ describe("job select (702.182a) and Black Mage's Rod", () => {
     const hero = byName(g, 0, 'Hero')!;
     expect(byName(g, 0, "Black Mage's Rod")!.attachedTo).toBe(hero.id);
     expect(stats(g, hero)).toMatchObject({ power: 2, toughness: 1 });
-    expect(subtypesOf(hero)).toContain('Wizard');
+    expect(subtypesOf(g, hero)).toContain('Wizard');
     g = settle(run(g, cast(g, 'Lightning Bolt', { targets: [player(1)] })));
     expect(lifeOf(g)).toEqual([40, 36, 39, 39]);
   });
@@ -455,7 +454,7 @@ describe('protection and returning from death', () => {
     g = settle(run(g, cast(g, 'Lightning Bolt', { targets: [card(corpse)] })));
     const back = byName(g, 1, 'Walking Corpse')!;
     expect(back.tapped).toBe(true);
-    expect(back.mods).toEqual([]);
+    expect(back.continuous).toEqual([]);
   });
 
   it('Mother of Runes: protection from the chosen colour stops damage and targeting (702.16)', () => {
@@ -488,7 +487,7 @@ describe('Roaming Throne', () => {
     g = untilAsked(run(g, cast(g, 'Roaming Throne')));
     expect(g.decision?.type).toBe('name');
     g = settle(run(g, { type: 'name', name: 'Dwarf' }));
-    expect(subtypesOf(byName(g, 0, 'Roaming Throne')!)).toContain('Dwarf');
+    expect(subtypesOf(g, byName(g, 0, 'Roaming Throne')!)).toContain('Dwarf');
     g = settle(run(g, cast(g, 'Lightning Bolt', { targets: [player(1)] })));
     // Papalymo's ping twice: 2 to each opponent, 2 life, plus the Bolt.
     expect(lifeOf(g)).toEqual([42, 35, 38, 38]);
@@ -515,11 +514,10 @@ describe('untapping and land types', () => {
     let g = emptyGame((d) => {
       put(d, 0, 'Urborg, Tomb of Yawgmoth');
       put(d, 1, 'Plains');
-      refreshSubtypes(d);
     });
     g = run(g, { type: 'tapMana', card: byName(g, 0, 'Urborg, Tomb of Yawgmoth')!.id });
     expect(g.players[0].pool.map((m) => m.sym)).toEqual(['B']);
-    expect(subtypesOf(byName(g, 1, 'Plains')!)).toEqual(['Plains', 'Swamp']);
+    expect(subtypesOf(g, byName(g, 1, 'Plains')!)).toEqual(['Plains', 'Swamp']);
   });
 });
 

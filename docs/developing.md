@@ -25,6 +25,7 @@ src/cards/      decklists.json        the decks and tokens
                 pairs.ts              what the two-colour starter decks' new cards do
 src/engine/     types.ts              game state, actions, card-script types
                 rules.ts              queries (stats, mana, targets) + effect primitives
+                layers.ts             continuous effects in layers and timestamp order (613)
                 engine.ts             setup, turn structure, priority, the stack, applyAction()
                 ai.ts                 the bots
 src/net/        protocol.ts           what the game window and game server send each other
@@ -219,7 +220,26 @@ answered as W, U, B, R or G) queue a question. The answer runs the script's `the
 with `picked`, `yes` or `name`. Also `chooseToSacrifice`, `chooseToDiscard`,
 `choosePlayer`, `offerCast` and `offerRetarget`.
 
-**Static and other hooks**
+**Static abilities and continuous effects**
+
+A static ability (`static: (g, self, c) => ...`) says what it does to each permanent `c`:
+`null` for nothing, or a `LayerParts` object (`types`, `subtypes`, `keywords`, `mana`,
+`grant`, `setPower`/`setToughness` for "base power and toughness", `power`/`toughness` for
+"+N/+N", `switchPT`, …), or a list of them for a card with several abilities.
+`characteristics` in `layers.ts` applies every effect layer by layer (613.1), each layer
+in timestamp order (613.7), so a script doesn't think about order. Ask about a permanent
+through `g`, because another effect may have changed it: `isCreature(g, c)`,
+`hasType(g, c, 'Artifact')`, `subtypesOf(g, c)`, `colorsOf(g, c)`, `stats(g, c)`. Inside a
+`static`, "creatures you control" needs `isCreature(g, c)`, while "permanents you control"
+needs no type check.
+
+An effect from a resolving spell or ability is locked in as it starts (611.2c), with its
+own timestamp (613.7b): `untilEndOfTurn(g, c, parts)` ("gets +2/+2 until end of turn",
+`pump` for just P/T), `addLasting(g, c, parts)` (for as long as it stays), or
+`addContinuous(g, c, parts, until, { while })` for other durations ("until your next turn",
+"for as long as you control ...").
+
+**Other static hooks**
 
 `forbids` ("can't cast"/"can't activate"), `grantsFlash`, `uncounterable`,
 `protectsSpell`, `ward`, `grantsWard`, `grantsEscape`, `skipDrawStep`, `delayedIf`.

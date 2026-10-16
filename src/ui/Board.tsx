@@ -37,7 +37,7 @@ function CreatureRow({ player, width, max, className, wrap }: { player: Player; 
     const attack = g.combat?.attacks.find((a) => a.id === c.id || a.blockers.includes(c.id));
     const choice = choosing ? [attack && (attack.id === c.id ? `attacks ${attack.defender} ${attack.target}` : `blocks ${attack.id}`), v.glow.get(c.id)] : [];
     const attached = attachmentsOf(g, c).length > 0;
-    const key = stackable && !attached ? [c.name, c.tapped, floating(player, c), c.sick, JSON.stringify(c.counters), c.damage, c.mods.length, ...choice].join('|') : c.id;
+    const key = stackable && !attached ? [c.name, c.tapped, floating(player, c), c.sick, JSON.stringify(c.counters), c.damage, c.continuous.length, ...choice].join('|') : c.id;
     groups.set(key, [...(groups.get(key) ?? []), c]);
   }
   const units = [...groups.values()].reduce((n, s) => n + 1 + 0.14 * (s.length - 1), 0);
@@ -72,9 +72,9 @@ function CreatureRow({ player, width, max, className, wrap }: { player: Player; 
  */
 function BackRow({ player, width, max, className, split }: { player: Player; width: number; max: number; className: string; split?: boolean }) {
   const g = useView().g;
-  const lands = player.battlefield.filter(isLand);
+  const lands = player.battlefield.filter((x) => isLand(g, x));
   // Auras and Equipment attached to something are drawn under it instead (see `Permanent`).
-  const others = player.battlefield.filter((c) => !isLand(c) && !isCreature(c) && !(c.attachedTo && permanent(g, c.attachedTo)));
+  const others = player.battlefield.filter((c) => !isLand(g, c) && !isCreature(g, c) && !(c.attachedTo && permanent(g, c.attachedTo)));
   // Phased-out permanents are treated as though they don't exist (702.26b), but stay in view, faded.
   const phased = player.phasedOut ?? [];
   const stacks = new Map<string, Card[]>();

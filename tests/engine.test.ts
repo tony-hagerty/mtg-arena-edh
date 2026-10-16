@@ -52,6 +52,7 @@ import {
   activatable,
   maxAbilityX,
   damageRooms,
+  untilEndOfTurn,
 } from '../src/engine';
 import type { Action, ActivatedAbility, ApplyOptions, Game, TurnStops } from '../src/engine';
 import { DECKS } from '../src/cards/db';
@@ -841,11 +842,11 @@ describe('counters and attachments (122, 301.5, 303.4, 702.122)', () => {
       put(d, 0, 'Elite Vanguard').sick = true; // summoning sickness doesn't stop crewing
     });
     const express = byName(g, 0, 'Untethered Express')!;
-    expect(isCreature(express)).toBe(false);
+    expect(isCreature(g, express)).toBe(false);
     const crewIt: Action = { type: 'activate', card: express.id, crew: [byName(g, 0, 'Elite Vanguard')!.id] };
     expect(applyAction(g, { type: 'activate', card: express.id })).toBe(g); // no crew picked
     g = run(g, crewIt);
-    expect(isCreature(byName(g, 0, 'Untethered Express')!)).toBe(true);
+    expect(isCreature(g, byName(g, 0, 'Untethered Express')!)).toBe(true);
     expect(byName(g, 0, 'Elite Vanguard')!.tapped).toBe(true);
     // It attacks, and its attack trigger puts a +1/+1 counter on it.
     g = run(g, pass, { type: 'declareAttack', card: express.id, defender: 1 }, pass);
@@ -856,12 +857,12 @@ describe('counters and attachments (122, 301.5, 303.4, 702.122)', () => {
   it('Equipment falls off a Vehicle when it stops being a creature at end of turn (704.5n)', () => {
     let g = emptyGame((d) => {
       const v = put(d, 0, 'Untethered Express');
-      v.mods.push({ power: 0, toughness: 0, keywords: [], creature: true });
+      untilEndOfTurn(d, v, { types: ['Artifact', 'Creature'] }); // crewed (702.122a)
       put(d, 0, 'Bonesplitter').attachedTo = v.id;
     });
     expect(stats(g, byName(g, 0, 'Untethered Express')!).power).toBe(6);
     g = produce(g, (d) => {
-      byName(d, 0, 'Untethered Express')!.mods = []; // what the cleanup step does (514.2)
+      byName(d, 0, 'Untethered Express')!.continuous = []; // what the cleanup step does (514.2)
       checkState(d);
     });
     expect(byName(g, 0, 'Bonesplitter')!.attachedTo).toBe(null);
@@ -1162,7 +1163,7 @@ describe('card faces, Sagas, Classes, flashback and tokens (709, 712, 714, 715, 
     });
     const mammoth = byName(g, 0, 'Kazandu Mammoth', 'hand')!;
     expect(castFaces(mammoth)).toEqual([0]);
-    expect(landFaces(mammoth)).toEqual([1]);
+    expect(landFaces(g, mammoth)).toEqual([1]);
     expect(canPlayLand(g, 0, mammoth, 0)).toBe(false);
     g = run(g, { type: 'playLand', card: mammoth.id, face: 1 });
     const valley = byName(g, 0, 'Kazandu Mammoth')!;
@@ -4240,7 +4241,7 @@ describe('dividing combat damage by hand (510.1c, 702.19b)', () => {
     // Lethal to the Corpse, then 4 tramples over.
     g = run(g, { type: 'assignDamage', assignments: [asg(g, 'Colossal Dreadmaw', [['Walking Corpse', 2]], 4), tusker] });
     expect(g.players[1].life).toBe(36);
-    expect(g.players[1].battlefield.filter((c) => isCreature(c))).toEqual([]);
+    expect(g.players[1].battlefield.filter((c) => isCreature(g, c))).toEqual([]);
   });
 
   it('lets a trampler put more than lethal damage on its blocker', () => {
