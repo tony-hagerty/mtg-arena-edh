@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { applyBotAction, botAction, newGame } from '../src/engine';
 import type { Card, Game } from '../src/engine';
-import { ALL_DECKS, DECKS } from '../src/cards/db';
+import { DECKS } from '../src/cards/db';
 import type { DeckDef } from '../src/cards/db';
 import './fixtures';
 import { twoCommanderDeck } from './helpers';
@@ -181,7 +181,7 @@ describe('the Kraum and Tymna deck', () => {
 });
 
 describe('the Kuja deck', () => {
-  const kuja = ALL_DECKS.find((d) => d.id === 'kuja')!;
+  const kuja = DECKS.find((d) => d.id === 'kuja')!;
   const yshtola = DECKS.find((d) => d.id === 'yshtola')!;
   const ketramose = DECKS.find((d) => d.id === 'ketramose')!;
   for (const seed of [71, 72, 73]) {
