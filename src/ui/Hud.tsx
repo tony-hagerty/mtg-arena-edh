@@ -392,6 +392,16 @@ export function CastOptions() {
           )}
         </div>
       )}
+      {a.offspring && (
+        <div className="cast-row">
+          <span className="cast-label">
+            Offspring <ManaCost cost={a.offspring.text} />
+          </span>
+          <button className={cx('chip', choices.offspring && 'on')} disabled={!choices.offspring && !a.offspring.payable} onClick={() => setChoices({ offspring: !choices.offspring })}>
+            {choices.offspring ? 'Paying' : 'Pay'}
+          </button>
+        </div>
+      )}
     </div>
   );
 }

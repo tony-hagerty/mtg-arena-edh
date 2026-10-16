@@ -112,6 +112,8 @@ export interface CastInfo {
   airbent?: boolean;
   /** Cast from exile as a plotted card, without paying its mana cost (702.170d). */
   plotted?: boolean;
+  /** Its offspring cost was paid (702.175a). */
+  offspring?: boolean;
 }
 
 /**
@@ -133,6 +135,8 @@ export interface CastChoices {
   exile?: string[];
   /** A modal spell's modes, as indexes into its script's `modal.modes` (700.2a). */
   modes?: number[];
+  /** Pay the offspring cost (702.175a). */
+  offspring?: boolean;
   /**
    * A battle's protector (310.9a): an opponent for a Siege (310.12a). The rules choose it
    * as the battle enters; here it is announced with the spell. Left out, the engine picks.
@@ -277,6 +281,9 @@ export interface CopyInfo {
   face: number;
   subtypes: string[];
   keywords: string[];
+  /** A base power and toughness the copy effect sets (707.9b): offspring's 1/1, Saw in Half's halves. */
+  power?: number;
+  toughness?: number;
 }
 
 export interface Player {
@@ -999,6 +1006,8 @@ export interface TriggerEvents {
   onReflexive: { key: string; data: Record<string, unknown> };
   /** Evoke's "When this permanent enters, if its evoke cost was paid, its controller sacrifices it" (702.74a). */
   onEvoked: object;
+  /** Offspring's "When this permanent enters, if its offspring cost was paid, create a 1/1 token copy of it" (702.175a). */
+  onOffspring: object;
 }
 
 /** What ward costs (702.21a): mana, life, or both. */
@@ -1192,6 +1201,11 @@ export interface CardScript extends Triggers {
   /** Kicker (702.33): an optional additional cost. `multi` is multikicker, paid any number of times (702.33c). */
   kicker?: { mana: string; multi?: boolean };
   /**
+   * Offspring (702.175a): the optional additional cost. If it was paid, when the permanent
+   * enters, its controller creates a 1/1 token copy of it.
+   */
+  offspring?: string;
+  /**
    * "As an additional cost to cast this spell, ..." (118.8), paid with the mana cost.
    * `sacrifice`: a permanent that fits the spec; `optional`, the caster may sacrifice one,
    * as bargain says (702.166a). `discard`: that many other cards from the caster's hand.
@@ -1379,5 +1393,5 @@ export interface CardScript extends Triggers {
 /** Hooks that every permanent on the battlefield hears, not only the card the event is about. */
 export type BroadcastHook = Exclude<
   TriggerHook,
-  'onEnter' | 'onDies' | 'onAttack' | 'onCombatDamageToPlayer' | 'onDefeat' | 'onChapter' | 'onLevel' | 'onStorm' | 'onDelayed' | 'onTapped' | 'onWard' | 'onLeave' | 'onCounters' | 'onReflexive' | 'onEvoked'
+  'onEnter' | 'onDies' | 'onAttack' | 'onCombatDamageToPlayer' | 'onDefeat' | 'onChapter' | 'onLevel' | 'onStorm' | 'onDelayed' | 'onTapped' | 'onWard' | 'onLeave' | 'onCounters' | 'onReflexive' | 'onEvoked' | 'onOffspring'
 >;

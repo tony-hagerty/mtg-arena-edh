@@ -123,6 +123,7 @@ import {
   flashbackCost,
   NeedsOrder,
   withOrderAnswers,
+  tokenCopy,
 } from './rules';
 import type { EnterOpts } from './rules';
 import type {
@@ -707,6 +708,7 @@ function choicesOk(g: Game, pid: PlayerId, c: Card, ch: CastChoices): boolean {
   const kicked = ch.kicked ?? 0;
   if (!Number.isInteger(x) || x < 0 || !Number.isInteger(kicked) || kicked < 0) return false;
   if (kicked > (script.kicker ? (script.kicker.multi ? Infinity : 1) : 0)) return false;
+  if (ch.offspring && !script.offspring) return false;
   if (ch.alt !== undefined && !altCostsOf(g, c, face, pid).includes(ch.alt)) return false;
   if (ch.protector !== undefined && !(isBattle(spell) && canProtect(g, spell, ch.protector))) return false;
   // A gift is promised to an opponent (702.174a), and only by a spell with gift.
@@ -1661,6 +1663,11 @@ function resolveTop(g: Game) {
       // Evoke (702.74a): its controller sacrifices it, if it is still the same object.
       const c = permanent(g, card.id);
       if (c && c.moves === card.moves) dieMany(g, [c], 'is sacrificed');
+    } else if (item.hook === 'onOffspring') {
+      // Offspring (702.175a): a token copy of it, except it's 1/1. If it has left the
+      // battlefield, its last known copiable values are used (707.4, 608.2h).
+      const c = permanent(g, card.id);
+      tokenCopy(g, controller, c && c.moves === card.moves ? c : card, { power: 1, toughness: 1 });
     } else if (item.hook === 'onDefeat') {
       // A defeated Siege is exiled, then cast transformed without paying its mana cost
       // (310.12b). Casting it is optional, but always worth it, so it always happens.
@@ -2013,6 +2020,7 @@ function act(g: Game, a: Action): boolean {
         free,
         ...(fromExile === 'airbent' ? { airbent: true } : {}),
         ...(fromExile === 'plotted' ? { plotted: true } : {}),
+        ...(choices.offspring ? { offspring: true } : {}),
         bargained: !!script.additionalCost?.optional && sacrificed.length > (alt?.sacrifice ? 1 : 0),
         ...(discarded.length ? { discarded: discarded.map(snapshot) } : {}),
         gift: choices.gift,
@@ -2040,6 +2048,7 @@ function act(g: Game, a: Action): boolean {
         layoutOf(c) === 'adventure' && face === 1 && 'an Adventure',
         info.kicked && (info.kicked > 1 ? `kicked ${info.kicked} times` : 'kicked'),
         info.bargained && 'bargained',
+        info.offspring && 'paying offspring',
         choices.gift !== undefined && `gift promised to ${g.players[choices.gift].name}`,
         alt?.label,
         info.modes.length > 0 &&
