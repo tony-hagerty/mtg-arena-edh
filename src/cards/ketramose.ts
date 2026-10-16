@@ -139,8 +139,8 @@ const payThreeLand = (color: Color): CardScript => ({
 /** "Harness [this permanent]" (701.64a): it becomes harnessed, which lasts until it leaves the battlefield (701.64b). */
 function harness(g: Game, self: Card) {
   const me = still(g, self);
-  if (!me || hasFlag(me, 'harnessed')) return;
-  addLasting(me, { flags: ['harnessed'] });
+  if (!me || hasFlag(g, me, 'harnessed')) return;
+  addLasting(g, me, { flags: ['harnessed'] });
   log(g, `${label(me)} is harnessed.`, me.controller, [me]);
 }
 
@@ -193,7 +193,7 @@ function windsSearch(g: Game, order: { pid: PlayerId; n: number }[], i: number, 
 /** "For each player, choose a creature that player controls": the Wanderer's controller chooses, one player at a time. */
 function wandererChoose(g: Game, you: PlayerId, order: PlayerId[], i: number, kept: string[]) {
   for (; i < order.length; i++) {
-    const mine = g.players[order[i]].battlefield.filter(isCreature);
+    const mine = g.players[order[i]].battlefield.filter((x) => isCreature(g, x));
     if (mine.length > 1) {
       pickCards(g, you, mine, { min: 1, max: 1, text: `choose a creature ${g.players[order[i]].name} controls; they sacrifice the rest`, button: 'Choose', then: 'wanderer', data: { order, i, kept } });
       return;
@@ -228,7 +228,7 @@ function yangchenChoose(g: Game, you: PlayerId, order: PlayerId[], i: number, ch
 // ---------- Lively Dirge ----------
 
 const dirgeCreatures = (g: Game, you: PlayerId, room: number, not: string[] = []) =>
-  g.players[you].graveyard.filter((c) => hasType(c, 'Creature') && manaValue(c) <= room && !not.includes(c.id));
+  g.players[you].graveyard.filter((c) => hasType(g, c, 'Creature') && manaValue(c) <= room && !not.includes(c.id));
 
 /** "Return up to two creature cards with total mana value 4 or less from your graveyard to the battlefield." Chosen one at a time, as it resolves. */
 function dirgeReturn(g: Game, you: PlayerId) {
@@ -259,7 +259,7 @@ registerScripts({
   // ===== Creatures =====
   'Appa, Steadfast Guardian': {
     // "When Appa enters, airbend any number of other target nonland permanents you control." (701.65a)
-    targets: [{ type: 'permanent', who: 'you', any: true, label: 'other target nonland permanents you control', filter: (_g, c, self) => c.id !== self.id && !isLand(c) }],
+    targets: [{ type: 'permanent', who: 'you', any: true, label: 'other target nonland permanents you control', filter: (g, c, self) => c.id !== self.id && !isLand(g, c) }],
     onEnter: (g, { targets }) => {
       airbend(g, targets.map((t) => refCard(g, t)).filter((c): c is Card => !!c));
     },
@@ -302,7 +302,7 @@ registerScripts({
     then: {
       where: (g, { you, yes }) => {
         const p = g.players[you];
-        const fits = (c: Card) => hasType(c, 'Artifact') && manaValue(c) <= 2;
+        const fits = (c: Card) => hasType(g, c, 'Artifact') && manaValue(c) <= 2;
         const pool = yes ? [...p.library, ...p.graveyard] : p.graveyard;
         // A search for a card with a stated quality may find nothing (701.23b).
         pickCards(g, you, pool, { min: 0, max: 1, pickable: pool.filter(fits), text: 'find an artifact card with mana value 2 or less to reveal and put into your hand', button: 'Put in Hand', then: 'found', data: { library: yes } });
@@ -321,7 +321,7 @@ registerScripts({
   },
   'Eirdu, Carrier of Dawn': {
     // "Creature spells you cast have convoke." (702.51a)
-    grantsConvoke: (_g, self, spell, caster) => caster === self.controller && isCreature(spell),
+    grantsConvoke: (g, self, spell, caster) => caster === self.controller && isCreature(g, spell),
     // "At the beginning of your first main phase, you may pay {B}. If you do, transform Eirdu."
     onPrecombatMain: {
       when: (_g, { self, player }) => player === self.controller,
@@ -329,11 +329,11 @@ registerScripts({
       text: 'At the beginning of your first main phase, you may pay {B}. If you do, transform Eirdu.',
     },
     then: { turn: (g, { self, yes }) => yes && transform(g, still(g, self)) },
-    botChoice: { turn: (g, pid) => ({ type: 'answer', yes: g.players[pid].battlefield.filter((c) => isCreature(c) && !c.isToken).length >= 3 }) },
+    botChoice: { turn: (g, pid) => ({ type: 'answer', yes: g.players[pid].battlefield.filter((c) => isCreature(g, c) && !c.isToken).length >= 3 }) },
   },
   'Isilu, Carrier of Twilight': {
     // "Each other nontoken creature you control has persist." (702.79a)
-    grants: [granted('onDies', persist, (_g, self, c) => c.id !== self.id && c.controller === self.controller && isCreature(c) && !c.isToken)],
+    grants: [granted('onDies', persist, (g, self, c) => c.id !== self.id && c.controller === self.controller && isCreature(g, c) && !c.isToken)],
     // "At the beginning of your first main phase, you may pay {W}. If you do, transform Isilu."
     onPrecombatMain: {
       when: (_g, { self, player }) => player === self.controller,
@@ -362,7 +362,7 @@ registerScripts({
     onCounters: {
       when: (_g, { kind }) => kind === '+1/+1',
       resolve: (g, { self, you }) => {
-        const cards = linkedCards(g, self).filter((c) => hasType(c, 'Creature'));
+        const cards = linkedCards(g, self).filter((c) => hasType(g, c, 'Creature'));
         if (cards.length > 1) pickCards(g, you, cards, { min: 1, max: 1, text: 'put a creature card exiled with Emperor of Bones onto the battlefield', button: 'Put Onto Battlefield', then: 'reanimate' });
         else if (cards.length) emperorReturn(g, self, you, cards[0]);
       },
@@ -379,7 +379,7 @@ registerScripts({
   'Haliya, Guided by Light': {
     // "Whenever Haliya or another creature or artifact you control enters, you gain 1 life."
     onPermanentEnters: {
-      when: (_g, { self, entered }) => entered.controller === self.controller && (entered.id === self.id || isCreature(entered) || hasType(entered, 'Artifact')),
+      when: (g, { self, entered }) => entered.controller === self.controller && (entered.id === self.id || isCreature(g, entered) || hasType(g, entered, 'Artifact')),
       resolve: (g, { you }) => gainLife(g, you, 1),
       text: 'Whenever Haliya or another creature or artifact you control enters, you gain 1 life.',
     },
@@ -398,7 +398,7 @@ registerScripts({
   'Monk Gyatso': {
     // "Whenever another creature you control becomes the target of a spell or ability, you may airbend that creature."
     onBecomesTarget: {
-      when: (_g, { self, target }) => target.id !== self.id && target.controller === self.controller && isCreature(target),
+      when: (g, { self, target }) => target.id !== self.id && target.controller === self.controller && isCreature(g, target),
       resolve: (g, { you, target }) => {
         const c = still(g, target);
         if (c) ask(g, you, { text: `You may airbend ${label(c)}.`, yes: 'Airbend', no: "Don't", then: 'airbend', data: { id: c.id, moves: c.moves } });
@@ -419,7 +419,7 @@ registerScripts({
     // of the next end step, return that card to the battlefield under its owner's control. If it
     // entered under your control, put a +1/+1 counter on Phelia."
     onAttack: {
-      targets: [{ type: 'permanent', optional: true, label: 'up to one other target nonland permanent', filter: (_g, c, self) => c.id !== self.id && !isLand(c) }],
+      targets: [{ type: 'permanent', optional: true, label: 'up to one other target nonland permanent', filter: (g, c, self) => c.id !== self.id && !isLand(g, c) }],
       resolve: (g, { self, you, targets }) => {
         const [gone] = exileForNow(g, [refCard(g, targets[0])].filter((c): c is Card => !!c));
         if (gone) delay(g, self, you, { key: 'phelia', step: 'end', data: { card: gone, phelia: { id: self.id, moves: self.moves } } });
@@ -452,7 +452,7 @@ registerScripts({
         who: 'opponent',
         optional: true,
         label: "up to one target nonland, nontoken permanent you don't control with mana value 4 or less",
-        filter: (_g, c) => !isLand(c) && !c.isToken && manaValue(c) <= 4,
+        filter: (g, c) => !isLand(g, c) && !c.isToken && manaValue(c) <= 4,
       },
     ],
     onEnter: (g, { self, targets }) => void exileLinked(g, self, refCard(g, targets[0])),
@@ -481,14 +481,14 @@ registerScripts({
       gainLife(g, controller, power);
     },
     // "Evoke—Exile a white card from your hand." (702.74a, 118.9)
-    alternativeCosts: [{ label: 'Evoke: exile a white card', mana: '', evoke: true, exile: { label: 'a white card', filter: (_g, c, self) => c.id !== self.id && isColor(c, 'W') } }],
+    alternativeCosts: [{ label: 'Evoke: exile a white card', mana: '', evoke: true, exile: { label: 'a white card', filter: (g, c, self) => c.id !== self.id && isColor(g, c, 'W') } }],
   },
   'Summon: Yojimbo': {
     chapters: [
       {
         // "I — Exile target artifact, enchantment, or tapped creature an opponent controls."
         text: 'Exile target artifact, enchantment, or tapped creature an opponent controls.',
-        targets: [{ type: 'permanent', who: 'opponent', label: 'target artifact, enchantment, or tapped creature an opponent controls', filter: (_g, c) => hasType(c, 'Artifact') || hasType(c, 'Enchantment') || (isCreature(c) && c.tapped) }],
+        targets: [{ type: 'permanent', who: 'opponent', label: 'target artifact, enchantment, or tapped creature an opponent controls', filter: (g, c) => hasType(g, c, 'Artifact') || hasType(g, c, 'Enchantment') || (isCreature(g, c) && c.tapped) }],
         resolve: (g, { targets }) => exile(g, refCard(g, targets[0])),
       },
       // "II, III — Until your next turn, creatures can't attack you unless their controller pays {2} for each of those creatures." (508.1g)
@@ -503,7 +503,7 @@ registerScripts({
         // "IV — Create X Treasure tokens, where X is the number of opponents who control a creature with power 4 or greater."
         text: 'Create X Treasure tokens, where X is the number of opponents who control a creature with power 4 or greater.',
         resolve: (g, { you }) => {
-          const x = opponentsOf(g, you).filter((o) => o.battlefield.some((c) => isCreature(c) && stats(g, c).power >= 4)).length;
+          const x = opponentsOf(g, you).filter((o) => o.battlefield.some((c) => isCreature(g, c) && stats(g, c).power >= 4)).length;
           if (x) createToken(g, you, 'Treasure', x);
         },
       },
@@ -511,7 +511,7 @@ registerScripts({
   },
   'Witch Enchanter': {
     // "When this creature enters, destroy target artifact or enchantment an opponent controls."
-    targets: [{ type: 'permanent', who: 'opponent', label: 'target artifact or enchantment an opponent controls', filter: (_g, c) => hasType(c, 'Artifact') || hasType(c, 'Enchantment') }],
+    targets: [{ type: 'permanent', who: 'opponent', label: 'target artifact or enchantment an opponent controls', filter: (g, c) => hasType(g, c, 'Artifact') || hasType(g, c, 'Enchantment') }],
     onEnter: (g, { targets }) => destroy(g, refCard(g, targets[0])),
   },
   'Witch-Blessed Meadow': payThreeLand('W'),
@@ -527,11 +527,14 @@ registerScripts({
   // ===== Artifacts =====
   "Agatha's Soul Cauldron": {
     // "You may spend mana as though it were mana of any color to activate abilities of creatures you control."
-    anyColorFor: (_g, self, pid, source) => pid === self.controller && source.controller === pid && isCreature(source),
+    anyColorFor: (g, self, pid, source) => pid === self.controller && source.controller === pid && isCreature(g, source),
     // "Creatures you control with +1/+1 counters on them have all activated abilities of all
     // creature cards exiled with Agatha's Soul Cauldron." (607.2a)
-    grantsAbilities: (g, self, c) =>
-      c.controller === self.controller && isCreature(c) && counterCount(c) > 0 ? linkedCards(g, self).filter((x) => hasType(x, 'Creature')).map((x) => x.name) : [],
+    static: (g, self, c) => {
+      if (c.controller !== self.controller || !isCreature(g, c) || counterCount(c) === 0) return null;
+      const lent = linkedCards(g, self).filter((x) => hasType(g, x, 'Creature')).map((x) => x.name);
+      return lent.length ? { activatedOf: lent } : null;
+    },
     // "{T}: Exile target card from a graveyard. When a creature card is exiled this way, put a
     // +1/+1 counter on target creature you control." A reflexive trigger (603.12).
     activated: {
@@ -541,7 +544,7 @@ registerScripts({
       resolve: (g, { self, you, targets }) => {
         const c = exileLinked(g, self, refGraveyard(g, targets[0]));
         // A reflexive trigger (603.12).
-        if (c && hasType(c, 'Creature')) reflexive(g, self, you, 'counter');
+        if (c && hasType(g, c, 'Creature')) reflexive(g, self, you, 'counter');
       },
     },
     reflexive: {
@@ -551,7 +554,7 @@ registerScripts({
         resolve: (g, { targets }) => addCounters(g, refCard(g, targets[0]), 1),
       },
     },
-    botActivate: (g, pid) => g.players.some((p) => p.graveyard.some((c) => hasType(c, 'Creature'))) && g.active !== pid,
+    botActivate: (g, pid) => g.players.some((p) => p.graveyard.some((c) => hasType(g, c, 'Creature'))) && g.active !== pid,
   },
   'Argent Dais': {
     // "This artifact enters with two oil counters on it." (614.1c)
@@ -566,7 +569,7 @@ registerScripts({
     // permanent. Its controller draws two cards."
     activated: {
       cost: { mana: '{2}', tap: true, counters: { kind: 'oil', n: 2 } },
-      targets: [{ type: 'permanent', label: 'another target nonland permanent', filter: (_g, c, self) => c.id !== self.id && !isLand(c) }],
+      targets: [{ type: 'permanent', label: 'another target nonland permanent', filter: (g, c, self) => c.id !== self.id && !isLand(g, c) }],
       text: 'Exile another target nonland permanent; its controller draws two cards',
       resolve: (g, { targets }) => {
         const c = refCard(g, targets[0]);
@@ -576,7 +579,7 @@ registerScripts({
         draw(g, controller, 2);
       },
     },
-    botActivate: (g, pid) => opponentsOf(g, pid).some((o) => o.battlefield.some((c) => !isLand(c) && threat(g, c) >= 5)),
+    botActivate: (g, pid) => opponentsOf(g, pid).some((o) => o.battlefield.some((c) => !isLand(g, c) && threat(g, c) >= 5)),
   },
   'Currency Converter': {
     // "Whenever you discard a card, you may exile that card from your graveyard."
@@ -621,7 +624,7 @@ registerScripts({
     },
     botChoice: {
       store: () => ({ type: 'answer', yes: true }),
-      convert: (g, _pid, choice) => ({ type: 'chooseCards', cards: [bestBy(g, choice, (c) => (isLand(c) ? 0 : 1))] }),
+      convert: (g, _pid, choice) => ({ type: 'chooseCards', cards: [bestBy(g, choice, (c) => (isLand(g, c) ? 0 : 1))] }),
     },
     botActivate: (g, pid, self, activated) => (activated === 1 ? linkedCards(g, self).length > 0 : g.active !== pid && g.step === 'end'),
   },
@@ -642,15 +645,15 @@ registerScripts({
         sorcery: true,
         text: 'Put each creature card exiled with it onto the battlefield as 1/1 Spirits with flying counters',
         resolve: (g, { self, you }) => {
-          const cards = linkedCards(g, self).filter((c) => hasType(c, 'Creature'));
+          const cards = linkedCards(g, self).filter((c) => hasType(g, c, 'Creature'));
           // A new base power and toughness (613.4b) and an extra subtype, for as long as each stays (611.2a).
-          const lasting = { power: 1, toughness: 1, subtypes: ['Spirit'] };
+          const lasting = { setPower: 1, setToughness: 1, subtypes: ['Spirit'] };
           enterTogether(g, cards.map((card) => ({ card, opts: { controller: you, counters: { flying: 1 }, lasting } })));
         },
       },
     ],
     botActivate: (g, _pid, self, activated) =>
-      activated === 0 ? g.players.some((p) => p.graveyard.some((c) => hasType(c, 'Creature'))) : linkedCards(g, self).filter((c) => hasType(c, 'Creature')).length >= 3,
+      activated === 0 ? g.players.some((p) => p.graveyard.some((c) => hasType(g, c, 'Creature'))) : linkedCards(g, self).filter((c) => hasType(g, c, 'Creature')).length >= 3,
   },
   'Lion Sash': {
     activated: [
@@ -661,7 +664,7 @@ registerScripts({
         text: 'Exile target card from a graveyard',
         resolve: (g, { targets }) => {
           const c = exileFromGraveyard(g, refGraveyard(g, targets[0]));
-          if (c && ['Artifact', 'Creature', 'Enchantment', 'Land', 'Planeswalker', 'Battle'].some((t) => hasType(c, t))) addCounters(g, abilityPermanent(g), 1);
+          if (c && ['Artifact', 'Creature', 'Enchantment', 'Land', 'Planeswalker', 'Battle'].some((t) => hasType(g, c, t))) addCounters(g, abilityPermanent(g), 1);
         },
       },
       // "Reconfigure {2}" (702.151a).
@@ -741,8 +744,8 @@ registerScripts({
     // you control, then return that card to the battlefield under its owner's control." Only
     // while harnessed.
     onEndStep: {
-      when: (_g, { self, player }) => player === self.controller && hasFlag(self, 'harnessed'),
-      targets: [{ type: 'permanent', who: 'you', optional: true, label: 'up to one other target nonland permanent you control', filter: (_g, c, self) => c.id !== self.id && !isLand(c) }],
+      when: (g, { self, player }) => player === self.controller && hasFlag(g, self, 'harnessed'),
+      targets: [{ type: 'permanent', who: 'you', optional: true, label: 'up to one other target nonland permanent you control', filter: (g, c, self) => c.id !== self.id && !isLand(g, c) }],
       resolve: (g, { targets }) => blink(g, refCard(g, targets[0])),
       text: 'At the beginning of your end step, exile up to one other target nonland permanent you control, then return it.',
     },
@@ -752,7 +755,7 @@ registerScripts({
     // "Whenever a creature you control with a +1/+1 counter on it leaves the battlefield, create
     // a Mutagen token for each +1/+1 counter on it." It looks back in time (603.10a).
     onPermanentLeaves: {
-      when: (_g, { self, left }) => left.controller === self.controller && isCreature(left) && counterCount(left) > 0,
+      when: (g, { self, left }) => left.controller === self.controller && isCreature(g, left) && counterCount(left) > 0,
       resolve: (g, { you, left }) => createToken(g, you, 'Mutagen', counterCount(left)),
       text: 'Whenever a creature you control with a +1/+1 counter on it leaves the battlefield, create a Mutagen token for each +1/+1 counter on it.',
     },
@@ -778,15 +781,15 @@ registerScripts({
     },
     // "∞ — At the beginning of your upkeep, return target creature card from your graveyard to the battlefield." Only while harnessed.
     onUpkeep: {
-      when: (_g, { self, player }) => player === self.controller && hasFlag(self, 'harnessed'),
-      targets: [{ type: 'graveyard card', who: 'you', label: 'target creature card in your graveyard', filter: (_g, c) => hasType(c, 'Creature') }],
+      when: (g, { self, player }) => player === self.controller && hasFlag(g, self, 'harnessed'),
+      targets: [{ type: 'graveyard card', who: 'you', label: 'target creature card in your graveyard', filter: (g, c) => hasType(g, c, 'Creature') }],
       resolve: (g, { you, targets }) => {
         const c = refGraveyard(g, targets[0]);
         if (c) enterBattlefield(g, c, { controller: you });
       },
       text: 'At the beginning of your upkeep, return target creature card from your graveyard to the battlefield.',
     },
-    botActivate: (g, pid) => g.players[pid].graveyard.some((c) => hasType(c, 'Creature')),
+    botActivate: (g, pid) => g.players[pid].graveyard.some((c) => hasType(g, c, 'Creature')),
   },
   'Plaza of Heroes': {
     mana: [
@@ -796,13 +799,13 @@ registerScripts({
       // "{T}: Add one mana of any color among legendary permanents you control."
       {
         amount: 1,
-        colors: (g, self) => [...new Set(g.players[self.controller].battlefield.filter((c) => hasType(c, 'Legendary')).flatMap((c) => data(c).colors))],
+        colors: (g, self) => [...new Set(g.players[self.controller].battlefield.filter((c) => hasType(g, c, 'Legendary')).flatMap((c) => data(c).colors))],
       },
     ],
     // "{3}, {T}, Exile this land: Target legendary creature gains hexproof and indestructible until end of turn."
     activated: {
       cost: { mana: '{3}', tap: true, exileSelf: true },
-      targets: [{ type: 'creature', label: 'target legendary creature', filter: (_g, c) => hasType(c, 'Legendary') }],
+      targets: [{ type: 'creature', label: 'target legendary creature', filter: (g, c) => hasType(g, c, 'Legendary') }],
       text: 'Target legendary creature gains hexproof and indestructible until end of turn',
       resolve: (g, { targets }) => pump(g, refCard(g, targets[0]), 0, 0, ['hexproof', 'indestructible']),
     },
@@ -844,7 +847,7 @@ registerScripts({
         // under its owner's control at the beginning of that player's next end step."
         cost: 1,
         text: 'Exile up to one target artifact or creature until its owner’s next end step',
-        targets: [{ type: 'permanent', optional: true, label: 'up to one target artifact or creature', filter: (_g, c) => hasType(c, 'Artifact') || isCreature(c) }],
+        targets: [{ type: 'permanent', optional: true, label: 'up to one target artifact or creature', filter: (g, c) => hasType(g, c, 'Artifact') || isCreature(g, c) }],
         resolve: (g, { self, you, targets }) => {
           const c = refCard(g, targets[0]);
           if (!c) return;
@@ -926,7 +929,7 @@ registerScripts({
     // "Whenever you cast your second spell each turn, airbend up to one other target nonland permanent."
     onCast: {
       when: (g, { self, caster }) => caster === self.controller && g.players[caster].spellsCast === 2,
-      targets: [{ type: 'permanent', optional: true, label: 'up to one other target nonland permanent', filter: (_g, c, self) => c.id !== self.id && !isLand(c) }],
+      targets: [{ type: 'permanent', optional: true, label: 'up to one other target nonland permanent', filter: (g, c, self) => c.id !== self.id && !isLand(g, c) }],
       resolve: (g, { targets }) => {
         const c = refCard(g, targets[0]);
         if (c) airbend(g, [c]);
@@ -977,7 +980,7 @@ registerScripts({
     onResolve: (g, { you, targets }) => {
       const c = exileFromGraveyard(g, refGraveyard(g, targets[0]));
       if (!c) return;
-      if (hasType(c, 'Creature')) gainLife(g, you, 3);
+      if (hasType(g, c, 'Creature')) gainLife(g, you, 3);
       else draw(g, you);
     },
     // "Escape—{3}{B}, Exile five other cards from your graveyard." (702.138a)
@@ -1010,7 +1013,7 @@ registerScripts({
       {
         label: 'Sacrifice a nontoken white creature',
         mana: '',
-        sacrifice: { type: 'creature', who: 'you', label: 'a nontoken white creature', filter: (_g, c) => !c.isToken && isColor(c, 'W') },
+        sacrifice: { type: 'creature', who: 'you', label: 'a nontoken white creature', filter: (g, c) => !c.isToken && isColor(g, c, 'W') },
       },
     ],
     // "Until end of turn, your life total can't change, and permanents you control gain hexproof
@@ -1095,7 +1098,7 @@ registerScripts({
   },
   'Ondu Inversion': {
     // "Destroy all nonland permanents."
-    onResolve: (g) => destroyMany(g, battlefield(g).filter((c) => !isLand(c))),
+    onResolve: (g) => destroyMany(g, battlefield(g).filter((c) => !isLand(g, c))),
   },
   'Ondu Skyruins': { entersTapped: true, mana: { amount: 1, colors: ['W'] } },
   "Teferi's Protection": {
@@ -1142,7 +1145,7 @@ registerScripts({
     // "This token gets +1/+1 for each artifact you control."
     static: (g, self, c) => {
       if (c.id !== self.id) return null;
-      const n = g.players[self.controller].battlefield.filter((x) => hasType(x, 'Artifact')).length;
+      const n = g.players[self.controller].battlefield.filter((x) => hasType(g, x, 'Artifact')).length;
       return { power: n, toughness: n };
     },
   },
@@ -1184,7 +1187,7 @@ function convert(g: Game, you: PlayerId, card: Card) {
   if (card.zone !== 'exile') return;
   log(g, `${says(g.players[you], 'puts')} ${label(card)} into ${their(g.players[card.owner])} graveyard.`, you, [card]);
   moveCard(g, card, 'graveyard');
-  createToken(g, you, isLand(card) ? 'Treasure' : 'Rogue 2/2');
+  createToken(g, you, isLand(g, card) ? 'Treasure' : 'Rogue 2/2');
 }
 
 /** Lively Dirge: the creature cards chosen return together (603.6a). */
@@ -1207,13 +1210,13 @@ function urzasSaga(): CardScript {
       {
         // "I — This Saga gains '{T}: Add {C}.'"
         text: 'This Saga gains "{T}: Add {C}."',
-        resolve: (g, { self }) => void addLasting(still(g, self), { flags: ['urza mana'] }),
+        resolve: (g, { self }) => void addLasting(g, still(g, self), { flags: ['urza mana'] }),
       },
       {
         // "II — This Saga gains '{2}, {T}: Create a 0/0 colorless Construct artifact creature token
         // with "This token gets +1/+1 for each artifact you control."'"
         text: 'This Saga gains "{2}, {T}: Create a 0/0 colorless Construct artifact creature token."',
-        resolve: (g, { self }) => void addLasting(still(g, self), { flags: ['urza construct'] }),
+        resolve: (g, { self }) => void addLasting(g, still(g, self), { flags: ['urza construct'] }),
       },
       {
         // "III — Search your library for an artifact card with mana cost {0} or {1}, put it onto
@@ -1222,10 +1225,10 @@ function urzasSaga(): CardScript {
         resolve: (g, { you }) => search(g, you, 'battlefield', { types: ['Artifact'], costs: ['{0}', '{1}'], label: 'an artifact card with mana cost {0} or {1}' }),
       },
     ],
-    mana: { amount: 1, colors: ['C'], when: (_g, self) => hasFlag(self, 'urza mana') },
+    mana: { amount: 1, colors: ['C'], when: (g, self) => hasFlag(g, self, 'urza mana') },
     activated: {
       cost: { mana: '{2}', tap: true },
-      when: (_g, self) => hasFlag(self, 'urza construct'),
+      when: (g, self) => hasFlag(g, self, 'urza construct'),
       text: 'Create a 0/0 Construct artifact creature token',
       resolve: (g, { you }) => createToken(g, you, 'Construct 0/0 artifacts'),
     },

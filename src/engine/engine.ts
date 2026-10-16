@@ -39,7 +39,6 @@ import {
   maxHandSize,
   facesOf,
   asSpell,
-  isLand,
   isPermanentCard,
   label,
   legalTargets,
@@ -73,6 +72,7 @@ import {
   searchable,
   shuffle,
   snapshot,
+  lastKnown,
   copyItem,
   findCard,
   flashGranted,
@@ -120,6 +120,7 @@ import {
   activationCost,
   enterTogether,
   settleEntering,
+  orderEntering,
   flashbackCost,
   NeedsOrder,
   withOrderAnswers,
@@ -385,7 +386,11 @@ export function choiceOptions(g: Game, choice: CardChoice): { cards: Card[]; val
 function nextChoice(g: Game): boolean {
   while (g.choices.length) {
     const choice = g.choices.shift()!;
-    if (g.players[choice.player].lost) continue;
+    if (g.players[choice.player].lost) {
+      // The others entering with a player who left needn't wait for their order (613.7m).
+      if (choice.kind === 'pick' && choice.then === '@timestamps') orderEntering(g, choice.data!.group as string, choice.player, []);
+      continue;
+    }
     // A spell or ability with no targets left to change has nothing to ask (115.7d).
     if (choice.kind === 'retarget' && !g.stack.some((x) => x.id === choice.item && x.targets.some(Boolean))) continue;
     // Targets that can't all change to other legal targets stay as they are (115.7a).
@@ -493,6 +498,8 @@ const ENGINE_THEN: Record<string, (g: Game, ctx: ThenCtx) => void> = {
     }
     log(g, `${says(g.players[chooser], 'puts')} ${picked.length} cards on the bottom of ${their(g.players[chooser])} library.`, chooser);
   },
+  // The order a player's permanents entering together get their timestamps in (613.7m).
+  '@timestamps': (g, { chooser, picked, data }) => orderEntering(g, data.group as string, chooser, picked),
   // Populate (701.36a): copy the creature token the player chose.
   '@populate': (g, { chooser, picked }) => copyToken(g, chooser, picked[0]),
   // "Discards a card" (701.9a): the player chose which.
@@ -577,7 +584,7 @@ export function canPlot(g: Game, pid: PlayerId, c: Card): boolean {
 }
 
 export function canPlayLand(g: Game, pid: PlayerId, c: Card, face?: number): boolean {
-  const faces = landFaces(c);
+  const faces = landFaces(g, c);
   if (face !== undefined ? !faces.includes(face) : !faces.length) return false;
   // From a hand, or from exile with an effect that lets them play it (Jeska's Will). Either
   // way it counts as their land for the turn (305.2a).
@@ -633,7 +640,8 @@ export function castFaces(c: Card): number[] {
   if (layout === 'adventure' && c.zone === 'exile') faces = [0];
   // An aftermath half can be cast only from a graveyard (702.127a).
   if (c.zone !== 'graveyard') faces = faces.filter((f) => !isAftermath(c, f));
-  return faces.filter((f) => !isLand(asSpell(c, f)));
+  // Off the battlefield a card's types are its own: no effect changes them there.
+  return faces.filter((f) => !data(asSpell(c, f)).typeLine.includes('Land'));
 }
 
 /**
@@ -643,7 +651,7 @@ export function castFaces(c: Card): number[] {
  */
 export function graveyardWays(g: Game, c: Card, face: number): { flashback: boolean; escape: boolean; aftermath: boolean; permitted: boolean } {
   return {
-    flashback: !!flashbackCost(g, c) && !isPermanentCard(asSpell(c, face)) && !isAftermath(c, face),
+    flashback: !!flashbackCost(g, c) && !isPermanentCard(g, asSpell(c, face)) && !isAftermath(c, face),
     escape: escapes(g, c).some((e) => escapeOptions(g, c).length >= e.exile),
     // An aftermath half, from a graveyard (702.127a).
     aftermath: isAftermath(c, face),
@@ -729,7 +737,7 @@ function choicesOk(g: Game, pid: PlayerId, c: Card, ch: CastChoices): boolean {
   const oneOf = script.additionalCost?.oneOf;
   if (oneOf ? ch.extra === undefined || !Number.isInteger(ch.extra) || ch.extra < 0 || ch.extra >= oneOf.length : ch.extra !== undefined) return false;
   if (ch.alt !== undefined && !altCostsOf(g, c, face, pid).includes(ch.alt)) return false;
-  if (ch.protector !== undefined && !(isBattle(spell) && canProtect(g, spell, ch.protector))) return false;
+  if (ch.protector !== undefined && !(isBattle(g, spell) && canProtect(g, spell, ch.protector))) return false;
   // A gift is promised to an opponent (702.174a), and only by a spell with gift.
   if (ch.gift !== undefined && (!script.gift || ch.gift === pid || g.players[ch.gift]?.lost !== false)) return false;
   // From a graveyard: with escape, three other cards from it are exiled (702.138a); otherwise it needs flashback.
@@ -791,7 +799,7 @@ export function canCastAs(g: Game, pid: PlayerId, c: Card, face: number, choices
   // "If that spell's mana value is N or less" counts X as 0 (107.3b).
   const now = castingNow(g, pid, c);
   // A plotted card is cast as a sorcery, whatever it is (702.170d).
-  const instant = exileCast(c) !== 'plotted' && (isInstantSpeed(spell) || flashGranted(g, pid, spell));
+  const instant = exileCast(c) !== 'plotted' && (isInstantSpeed(g, spell) || flashGranted(g, pid, spell));
   if (now ? manaValue(spell) > ((g.decision as { choice: { maxMv?: number } }).choice.maxMv ?? Infinity) : !timingOk(g, pid, instant)) return false;
   if (forbidden(g, pid, 'cast', spell, c.zone)) return false;
   // Every target it needs has a legal choice (601.2c). "Any number of" needs none.
@@ -838,15 +846,15 @@ export function maxX(g: Game, pid: PlayerId, c: Card, choices: CastChoices = {})
  * `x` is the X announced for an ability with X in its cost (107.3a); any other must have 0.
  */
 export function canActivate(g: Game, pid: PlayerId, c: Card, ability?: number, activated = 0, x = 0): boolean {
-  if (!Number.isInteger(x) || x < 0 || (x > 0 && !abilityHasX(c, { ability, activated }))) return false;
+  if (!Number.isInteger(x) || x < 0 || (x > 0 && !abilityHasX(g, c, { ability, activated }))) return false;
   if (ability !== undefined) return scriptFor(c).levels ? canLevelUp(g, pid, c, ability) : canActivateLoyalty(g, pid, c, ability, x);
-  const ab = activatedAt(c, activated);
+  const ab = activatedAt(g, c, activated);
   if (!ab) return false;
   // Its controller activates it from the battlefield; its owner from their hand, like channel.
   if (ab.fromHand ? c.zone !== 'hand' || c.owner !== pid : c.zone !== 'battlefield' || c.controller !== pid) return false;
   if (!timingOk(g, pid, !ab.sorcery) || forbidden(g, pid, 'activate', c) || (ab.when && !ab.when(g, c))) return false;
   // A summoning-sick creature can't pay a tap cost (302.6).
-  if (ab.cost.tap && (c.tapped || (isCreature(c) && c.sick && !has(g, c, 'haste')))) return false;
+  if (ab.cost.tap && (c.tapped || (isCreature(g, c) && c.sick && !has(g, c, 'haste')))) return false;
   if (ab.cost.crew && crewPower(g, pid, c, crewOptions(g, pid, c)) < ab.cost.crew) return false;
   if (ab.cost.counters && counterCount(c, ab.cost.counters.kind) < ab.cost.counters.n) return false;
   if (ab.cost.discard && discardOptions(g, pid, c).length < ab.cost.discard) return false;
@@ -863,13 +871,13 @@ export function canActivate(g: Game, pid: PlayerId, c: Card, ability?: number, a
 
 /** Permanents `pid` could exile to pay an "Exile a creature you control" cost of `c`'s activated ability `activated` (The Soul Stone). */
 export function activationExileOptions(g: Game, pid: PlayerId, c: Card, activated = 0): Card[] {
-  const spec = activatedAt(c, activated)?.cost.exileOne;
+  const spec = activatedAt(g, c, activated)?.cost.exileOne;
   return spec ? g.players[pid].battlefield.filter((p) => fitsSpec(g, p, spec, c)) : [];
 }
 
 /** Permanents `pid` could sacrifice to pay a "Sacrifice a creature" cost of `c`'s activated ability `activated`, itself included. */
 export function activationSacrificeOptions(g: Game, pid: PlayerId, c: Card, activated = 0): Card[] {
-  const spec = activatedAt(c, activated)?.cost.sacrificeOne;
+  const spec = activatedAt(g, c, activated)?.cost.sacrificeOne;
   return spec ? g.players[pid].battlefield.filter((p) => fitsSpec(g, p, spec, c)) : [];
 }
 
@@ -877,10 +885,10 @@ export function activationSacrificeOptions(g: Game, pid: PlayerId, c: Card, acti
 export const discardOptions = (g: Game, pid: PlayerId, c: Card): Card[] => g.players[pid].hand.filter((x) => x.id !== c.id);
 
 /** Does ability `ref` of `c` have X in its cost: {X} in an activated ability's mana, or a −X loyalty ability (107.3a)? */
-export function abilityHasX(c: Card, ref: AbilityRef): boolean {
+export function abilityHasX(g: Game, c: Card, ref: AbilityRef): boolean {
   const script = scriptFor(c);
   if (ref.ability !== undefined) return !script.levels && script.loyalty?.[ref.ability]?.cost === '-X';
-  return parseCost(activatedAt(c, ref.activated)?.cost.mana ?? '').x > 0;
+  return parseCost(activatedAt(g, c, ref.activated)?.cost.mana ?? '').x > 0;
 }
 
 /**
@@ -889,7 +897,7 @@ export function abilityHasX(c: Card, ref: AbilityRef): boolean {
  */
 export function maxAbilityX(g: Game, pid: PlayerId, c: Card, ref: AbilityRef): number {
   if (!canActivate(g, pid, c, ref.ability, ref.activated)) return -1;
-  if (!abilityHasX(c, ref)) return 0;
+  if (!abilityHasX(g, c, ref)) return 0;
   // −X removes X loyalty counters, so X can't be more than its loyalty (606.4, 606.6).
   if (ref.ability !== undefined) return loyaltyOf(c);
   let x = 0;
@@ -929,7 +937,7 @@ function canLevelUp(g: Game, pid: PlayerId, c: Card, i: number): boolean {
 export function activatable(g: Game, pid: PlayerId, c: Card): AbilityRef[] {
   const script = scriptFor(c);
   const refs: AbilityRef[] = [
-    ...activatedAbilities(c).map((_, i) => ({ activated: i })),
+    ...activatedAbilities(g, c).map((_, i) => ({ activated: i })),
     ...(script.loyalty ?? script.levels ?? []).map((_, i) => ({ ability: i })),
   ];
   return refs.filter((r) => canActivate(g, pid, c, r.ability, r.activated));
@@ -992,8 +1000,8 @@ export function attackOptions(g: Game, pid: PlayerId): AttackOption[] {
   for (const o of living(g)) {
     if (o.id !== pid) out.push({ defender: o.id, target: null });
     for (const c of o.battlefield) {
-      if (isPlaneswalker(c) && o.id !== pid) out.push({ defender: o.id, target: c.id });
-      else if (isBattle(c) && c.protector !== null && c.protector !== pid && !g.players[c.protector].lost) {
+      if (isPlaneswalker(g, c) && o.id !== pid) out.push({ defender: o.id, target: c.id });
+      else if (isBattle(g, c) && c.protector !== null && c.protector !== pid && !g.players[c.protector].lost) {
         out.push({ defender: c.protector, target: c.id });
       }
     }
@@ -1124,6 +1132,7 @@ const firstPriority = (g: Game) => (g.players[g.active].lost ? nextLiving(g, g.a
 
 /** Starts a turn. `extra`: an extra turn (500.7), which may end with its player losing the game. */
 function beginTurn(g: Game, pid: PlayerId, extra?: ExtraTurn) {
+  const before = g.active;
   g.active = pid;
   g.turn++;
   g.combat = null;
@@ -1138,14 +1147,34 @@ function beginTurn(g: Game, pid: PlayerId, extra?: ExtraTurn) {
     p.lifeLost = 0;
     p.lifeGained = 0;
   }
-  // Effects that last "until your next turn" end as that turn begins (611.2a).
-  g.effects = g.effects.filter((e) => !('ends' in e && e.ends && e.ends.nextTurnOf === pid));
+  // Effects that last "until your next turn" end as that turn begins (611.2a), and those of a
+  // player who has left the game as their turn would have begun (800.4m).
+  const ending = turnsBeginning(g, before, pid, !extra);
+  g.effects = g.effects.filter((e) => !('ends' in e && e.ends && ending.includes(e.ends.nextTurnOf)));
+  for (const p of g.players) {
+    for (const c of [...p.battlefield, ...(p.phasedOut ?? [])]) {
+      c.continuous = c.continuous.filter((e) => typeof e.until !== 'object' || !ending.includes(e.until.nextTurnOf));
+    }
+  }
   // Delayed abilities waiting for a turn that has passed never trigger.
   g.delayed = g.delayed.filter((d) => d.turn === undefined || d.turn >= g.turn);
   log(g, `Turn ${g.turn} — ${g.players[pid].name}${extra ? ' (extra turn)' : ''}`, pid);
   // "At the beginning of that turn's end step, you lose the game" (Final Fortune).
   if (extra?.loseAtEnd) g.delayed.push({ id: `d${g.nextId++}`, controller: pid, card: extra.loseAtEnd, key: LOSE_GAME, step: 'end', turn: g.turn });
   beginStep(g, 'untap');
+}
+
+/**
+ * Whose turns begin, or would have begun, as `pid`'s turn begins after `before`'s: `pid`, and
+ * on a turn in the normal order, each player who has left the game seated between them
+ * (800.4m). An extra turn passes no one's seat.
+ */
+function turnsBeginning(g: Game, before: PlayerId, pid: PlayerId, inOrder: boolean): PlayerId[] {
+  const out = [pid];
+  if (!inOrder) return out;
+  const n = g.players.length;
+  for (let q = (before + 1) % n; q !== pid && q !== before; q = (q + 1) % n) if (g.players[q].lost) out.push(q);
+  return out;
 }
 
 /** The `Delayed.key` the engine itself resolves: its controller loses the game (104.3e). */
@@ -1228,7 +1257,7 @@ function beginStep(g: Game, step: Step) {
       break;
     case 'main1':
       // The active player puts a lore counter on each of their Sagas (714.3c).
-      for (const c of p.battlefield) if (isSaga(c) && scriptFor(c).chapters?.length) addCounters(g, c, 1, 'lore');
+      for (const c of p.battlefield) if (isSaga(g, c) && scriptFor(c).chapters?.length) addCounters(g, c, 1, 'lore');
       broadcast(g, 'onPrecombatMain', { player: pid }); // 505.1a
       fireDelayed(g, 'main1');
       break;
@@ -1316,7 +1345,7 @@ function cleanup(g: Game) {
     for (const c of [...p.battlefield, ...(p.phasedOut ?? [])]) {
       c.damage = 0;
       c.deathtouched = false;
-      c.mods = [];
+      c.continuous = c.continuous.filter((e) => e.until !== 'turn');
     }
   }
   // "Until end of turn" effects end; one that lasts until the end of a later turn, or until
@@ -1473,7 +1502,7 @@ export function damageRooms(g: Game, firstStrike?: boolean): DamageRoom[] {
       .map((b) => ({ id: b.id, lethal: deathtouch ? 1 : Math.max(1, stats(g, b).toughness - b.damage) }));
     // What it attacked must still be there: a planeswalker or battle may have gone (506.4c, 510.1b).
     const attacked = a.target ? permanent(g, a.target) : undefined;
-    const there = !a.target || (!!attacked && (isPlaneswalker(attacked) || isBattle(attacked)));
+    const there = !a.target || (!!attacked && (isPlaneswalker(g, attacked) || isBattle(g, attacked)));
     const canThrough = there && (!a.blocked || trample);
     // Two or more blockers to divide among (510.1c), or a trampler's excess to place (702.19b).
     const choice = a.blocked && (blockers.length >= 2 || (trample && canThrough && blockers.length === 1));
@@ -1563,7 +1592,7 @@ function dealCombatDamage(g: Game, firstStrike: boolean, struckFirst: Set<string
   // Combat damage is dealt all at once, as one event (510.2).
   simultaneously(g, () => {
     for (const h of hits) {
-      if (h.card && !isCreature(h.card)) dealDamage(g, h.src, { kind: 'card', id: h.card.id }, h.n, true); // logged: a planeswalker or battle
+      if (h.card && !isCreature(g, h.card)) dealDamage(g, h.src, { kind: 'card', id: h.card.id }, h.n, true); // logged: a planeswalker or battle
       else if (h.card) damageCard(g, h.src, h.card, h.n, true);
       else damagePlayer(g, h.src, h.player!, h.n, true);
     }
@@ -1599,7 +1628,7 @@ function resolveTop(g: Game) {
   const script = scriptFor(card);
   // Targets are checked again. Illegal ones are left alone, and if every target has
   // become illegal the spell or ability does nothing at all (608.2b).
-  const specs = specsFor(targetSpecs(item), item.targets.length);
+  const specs = specsFor(targetSpecs(g, item), item.targets.length);
   const targets = item.targets.map((t, i) =>
     t && specs[i] && legalTargets(g, controller, specs[i], card).some((x) => sameRef(x, t)) ? t : null,
   );
@@ -1608,13 +1637,13 @@ function resolveTop(g: Game) {
 
   if (item.kind === 'spell') {
     // A gift happens before the spell's other effects, and only if it resolves (702.174j).
-    if (!fizzled && !isPermanentCard(card) && card.cast?.gift !== undefined && script.gift) giveGift(g, card, controller);
+    if (!fizzled && !isPermanentCard(g, card) && card.cast?.gift !== undefined && script.gift) giveGift(g, card, controller);
     if (script.enchant) {
       // An Aura whose target has gone is put into its owner's graveyard (608.3b, 303.4g).
       const host = refCard(g, targets[0]);
       if (host) enterBattlefield(g, card, { attachTo: host.id });
       else moveCard(g, card, 'graveyard');
-    } else if (isPermanentCard(card)) {
+    } else if (isPermanentCard(g, card)) {
       // It enters under the control of the spell's controller (608.3a, 110.2a).
       enterBattlefield(g, card, { protector: card.cast?.protector, controller }); // 608.3
     } else if (!fizzled && script.modal) {
@@ -1641,7 +1670,7 @@ function resolveTop(g: Game) {
         trigger(g, cls, 'onLevel', { level: cls.level });
       }
     } else if (item.kind === 'activated') {
-      (item.ability === undefined ? activatedAt(card, item.activated)! : script.loyalty![item.ability]).resolve(g, ctx);
+      (item.ability === undefined ? activatedAt(g, card, item.activated)! : script.loyalty![item.ability]).resolve(g, ctx);
     } else if (item.hook === 'onStorm') {
       // A copy for each other spell cast before it this turn (702.40a).
       const { count, item: spell } = item.event as TriggerEvents['onStorm'];
@@ -1772,7 +1801,7 @@ function castDone(g: Game, pid: PlayerId, item: StackItem) {
   const p = g.players[pid];
   g.spellsCast++;
   p.spellsCast++;
-  if (!isCreature(c)) p.noncreatureSpellsCast++;
+  if (!isCreature(g, c)) p.noncreatureSpellsCast++;
   broadcast(g, 'onCast', { card: c, caster: pid });
   if (data(c).keywords.includes('Storm') && g.spellsCast > 1) {
     const remembered: StackItem = { ...item, card: snapshot(c), targets: [...item.targets] };
@@ -1848,7 +1877,7 @@ function putTriggerOnStack(g: Game): boolean {
       return true;
     }
   }
-  const specs = targetSpecs(item);
+  const specs = targetSpecs(g, item);
   const options = specs.map((spec) => legalTargets(g, item.controller, spec, item.card));
   if (specs.some((spec, i) => !spec.optional && !spec.any && options[i].length === 0)) {
     // A copy keeps the original's targets if there are no new ones (707.10c). An ability
@@ -1912,7 +1941,7 @@ function activateLevel(g: Game, pid: PlayerId, c: Card, i: number, a: Extract<Ac
 function retarget(g: Game, pid: PlayerId, choice: RetargetChoice, chosen: (TargetRef | null)[]): boolean {
   const item = g.stack.find((x) => x.id === choice.item);
   if (item) {
-    const specs = specsFor(targetSpecs(item), item.targets.length);
+    const specs = specsFor(targetSpecs(g, item), item.targets.length);
     const targets = specs.map((_, i) => chosen[i] ?? null);
     const same = (a: TargetRef | null, b: TargetRef | null) => (!a && !b) || (!!a && !!b && sameRef(a, b));
     const ok = specs.every((spec, i) => {
@@ -1995,7 +2024,7 @@ function act(g: Game, a: Action): boolean {
       if (!c || !canPlayLand(g, pid, c, a.face)) return false;
       p.landsPlayed++;
       // A modal double-faced card is played as one of its land faces (712.12).
-      const face = a.face ?? landFaces(c)[0];
+      const face = a.face ?? landFaces(g, c)[0];
       log(g, `${says(p, 'plays')} ${label(c)}.`, pid, [c]);
       enterBattlefield(g, c, { face, controller: pid });
       g.passes = 0; // the player keeps priority after a special action (117.3c)
@@ -2082,14 +2111,14 @@ function act(g: Game, a: Action): boolean {
       };
       // "The next instant or sorcery spell you cast this turn can't be countered" (Overmaster).
       const next = g.effects.findIndex((e) => e.kind === 'uncounterableNext' && e.player === pid);
-      if (next >= 0 && (hasType(spell, 'Instant') || hasType(spell, 'Sorcery'))) {
+      if (next >= 0 && (hasType(g, spell, 'Instant') || hasType(g, spell, 'Sorcery'))) {
         info.uncounterable = true;
         g.effects.splice(next, 1);
       }
       c.cast = info;
       const item: StackItem = { id: `s${g.nextId++}`, kind: 'spell', controller: pid, card: c, targets };
       if (sacrificed.length) {
-        item.sacrificed = sacrificed.map(snapshot);
+        item.sacrificed = sacrificed.map((x) => lastKnown(g, x));
         item.sacrificedPower = sacrificed.map((x) => stats(g, x).power);
       }
       g.stack.push(item);
@@ -2154,8 +2183,8 @@ function act(g: Game, a: Action): boolean {
       if (!c || !canActivate(g, pid, c, a.ability, a.activated, x)) return false;
       if (a.ability !== undefined && scriptFor(c).levels) return activateLevel(g, pid, c, a.ability, a);
       if (a.ability !== undefined) return activateLoyalty(g, pid, c, a.ability, a);
-      const ab = activatedAt(c, a.activated)!;
-      const several = activatedAbilities(c).length > 1;
+      const ab = activatedAt(g, c, a.activated)!;
+      const several = activatedAbilities(g, c).length > 1;
       const specs = specsFor(ab.targets ?? [], a.targets?.length ?? 0);
       const targets = specs.map((_, i) => a.targets?.[i] ?? null);
       if (!targetsOk(g, pid, c, specs, targets)) return false;
@@ -2179,12 +2208,12 @@ function act(g: Game, a: Action): boolean {
       if (fromGrave.length !== (ab.cost.exileGraveyard ?? 0) || fromGrave.some((x) => !x) || new Set(a.graveyard).size !== fromGrave.length) return false;
       // The ability goes on the stack as its own object, apart from its source (602.2a).
       // X is announced as it is activated (107.3a, 602.2b), and kept with the ability on the stack.
-      const hasX = abilityHasX(c, { activated: a.activated });
+      const hasX = abilityHasX(g, c, { activated: a.activated });
       // An ability its source has from another card runs that card's script (Agatha's Soul Cauldron).
-      const lender = borrowedFrom(c, a.activated ?? 0);
+      const lender = borrowedFrom(g, c, a.activated ?? 0);
       const item: StackItem = { id: `s${g.nextId++}`, kind: 'activated', controller: pid, card: snapshot(c), targets, ...(a.activated && { activated: a.activated }), ...(hasX && { x }), ...(lender && { borrowed: lender }) };
       if (sacrificing.length) {
-        item.sacrificed = sacrificing.map((x) => snapshot(x!));
+        item.sacrificed = sacrificing.map((x) => lastKnown(g, x!));
         item.sacrificedPower = sacrificing.map((x) => stats(g, x!).power);
       }
       // Nothing tapped or sacrificed for the rest of the cost makes mana for it.
@@ -2205,7 +2234,7 @@ function act(g: Game, a: Action): boolean {
       // "Exile this artifact" and "Exile a creature you control" (Relic of Progenitus, The Soul Stone).
       const exiles = [...(ab.cost.exileSelf ? [c] : []), ...exiling.map((x) => permanent(g, x!.id)).filter((x): x is Card => !!x)];
       if (exiles.length) {
-        item.exiled = exiles.map(snapshot);
+        item.exiled = exiles.map((x) => lastKnown(g, x));
         simultaneously(g, () => {
           for (const x of exiles) {
             log(g, `${says(p, 'exiles')} ${label(x)} to pay for it.`, pid, [x]);
@@ -2241,7 +2270,7 @@ function act(g: Game, a: Action): boolean {
       if (a.discard !== undefined && !p.hand.some((x) => x.id === a.discard && x.id !== c.id)) return false;
       // "Sacrifice a creature: Add {B}{B}" (Phyrexian Tower): a creature they control, named.
       const used = manaAbilities(g, c).find((m) => m.index === (a.ability ?? -1));
-      if (used?.sacrificeCreature ? !p.battlefield.some((x) => x.id === a.sacrifice && isCreature(x)) : a.sacrifice !== undefined) return false;
+      if (used?.sacrificeCreature ? !p.battlefield.some((x) => x.id === a.sacrifice && isCreature(g, x)) : a.sacrifice !== undefined) return false;
       tapForMana(g, pid, c, a.ability, a.color, a.tap, a.discard, a.sacrifice);
       return true;
     }
@@ -2326,7 +2355,7 @@ function act(g: Game, a: Action): boolean {
       if (g.decision?.type === 'retarget') return retarget(g, pid, g.decision.choice, a.targets);
       if (g.decision?.type !== 'targets') return false;
       const { item, resume } = g.decision;
-      const specs = specsFor(targetSpecs(item), a.targets?.length ?? 0);
+      const specs = specsFor(targetSpecs(g, item), a.targets?.length ?? 0);
       const targets = specs.map((_, i) => a.targets?.[i] ?? null);
       if (!targetsOk(g, pid, item.card, specs, targets)) return false;
       const chosen = targets.filter((t): t is TargetRef => !!t).map((t) => describeRef(g, t));

@@ -16,6 +16,7 @@ import {
   finishEnter,
   gainControl,
   isLand,
+  untilEndOfTurn,
   isPermanentCard,
   offerCast,
   offerRetarget,
@@ -77,8 +78,8 @@ import { CREATURE_TYPES } from './db';
 
 const spell = (label: string, filter?: TargetSpec['filter']): TargetSpec => ({ type: 'spell', label, filter });
 const anySpell = spell('target spell');
-const noncreatureSpell = spell('target noncreature spell', (_g, c) => !isCreature(c));
-const blueCard = { label: 'a blue card', filter: (_g: Game, c: Card) => isColor(c, 'U') };
+const noncreatureSpell = spell('target noncreature spell', (g, c) => !isCreature(g, c));
+const blueCard = { label: 'a blue card', filter: (g: Game, c: Card) => isColor(g, c, 'U') };
 const isOpponent = (g: Game, a: PlayerId, b: PlayerId) => a !== b && !g.players[b].lost;
 const controlsCommander = (g: Game, self: Card) => g.players[self.controller].battlefield.some((c) => c.isCommander);
 const WUBRG: ManaSym[] = ['W', 'U', 'B', 'R', 'G'];
@@ -125,7 +126,7 @@ const counterspell = (target: TargetSpec, after?: (g: Game, ctx: Ctx, controller
 
 /** The colours of mana the lands an opponent controls could produce (Fellwar Stone, Exotic Orchard). */
 const opponentLandColors = (g: Game, self: Card): ManaSym[] => {
-  const all = new Set(opponentsOf(g, self.controller).flatMap((o) => o.battlefield.filter((c) => hasType(c, 'Land')).flatMap((c) => landColors(g, c))));
+  const all = new Set(opponentsOf(g, self.controller).flatMap((o) => o.battlefield.filter((c) => hasType(g, c, 'Land')).flatMap((c) => landColors(g, c))));
   return WUBRG.filter((x) => all.has(x));
 };
 
@@ -168,7 +169,7 @@ function drawsUnlessPays(g: Game, you: PlayerId, payer: PlayerId, cost: string, 
 const opponentCasts =
   (noncreature = false) =>
   (g: Game, e: { self: Card; card: Card; caster: PlayerId }) =>
-    isOpponent(g, e.self.controller, e.caster) && (!noncreature || !isCreature(e.card));
+    isOpponent(g, e.self.controller, e.caster) && (!noncreature || !isCreature(g, e.card));
 
 /** Recruit (701.70a): draw a card, then discard a card. If it was a nonland card, create a 1/1 white Human Soldier. */
 function recruit(g: Game, pid: PlayerId) {
@@ -206,7 +207,7 @@ registerScripts({
   'Spire of Industry': {
     mana: [
       { amount: 1, colors: ['C'] },
-      { amount: 1, colors: 'any', life: 1, when: (g, self) => g.players[self.controller].battlefield.some((c) => hasType(c, 'Artifact')) },
+      { amount: 1, colors: 'any', life: 1, when: (g, self) => g.players[self.controller].battlefield.some((c) => hasType(g, c, 'Artifact')) },
     ],
   },
   'Command Tower': { mana: { amount: 1, colors: 'identity' } },
@@ -217,14 +218,14 @@ registerScripts({
   'Lotus Petal': { mana: { amount: 1, colors: 'any', sacrifice: true } },
   'Mox Opal': {
     // Metalcraft: only while you control three or more artifacts.
-    mana: { amount: 1, colors: 'any', when: (g, self) => g.players[self.controller].battlefield.filter((c) => hasType(c, 'Artifact')).length >= 3 },
+    mana: { amount: 1, colors: 'any', when: (g, self) => g.players[self.controller].battlefield.filter((c) => hasType(g, c, 'Artifact')).length >= 3 },
   },
   'Mox Amber': {
     mana: {
       amount: 1,
       colors: (g, self) => {
-        const legends = g.players[self.controller].battlefield.filter((c) => hasType(c, 'Legendary') && (isCreature(c) || hasType(c, 'Planeswalker')));
-        return WUBRG.filter((x) => legends.some((c) => isColor(c, x as never)));
+        const legends = g.players[self.controller].battlefield.filter((c) => hasType(g, c, 'Legendary') && (isCreature(g, c) || hasType(g, c, 'Planeswalker')));
+        return WUBRG.filter((x) => legends.some((c) => isColor(g, c, x as never)));
       },
     },
   },
@@ -322,7 +323,7 @@ registerScripts({
     alternativeCosts: [{ label: 'Free (you control a commander)', mana: '', when: controlsCommander }],
   }),
   'Swan Song': counterspell(
-    spell('target enchantment, instant, or sorcery spell', (_g, c) => ['Enchantment', 'Instant', 'Sorcery'].some((x) => hasType(c, x))),
+    spell('target enchantment, instant, or sorcery spell', (g, c) => ['Enchantment', 'Instant', 'Sorcery'].some((x) => hasType(g, c, x))),
     // "Its controller creates a 2/2 blue Bird creature token with flying."
     (g, _ctx, controller) => void createToken(g, controller, 'Bird 2/2 flying'),
   ),
@@ -331,7 +332,7 @@ registerScripts({
   // "Its controller creates two Treasure tokens."
   "An Offer You Can't Refuse": counterspell(noncreatureSpell, (g, _ctx, controller) => void createToken(g, controller, 'Treasure', 2)),
   Flusterstorm: {
-    targets: [spell('target instant or sorcery spell', (_g, c) => hasType(c, 'Instant') || hasType(c, 'Sorcery'))],
+    targets: [spell('target instant or sorcery spell', (g, c) => hasType(g, c, 'Instant') || hasType(g, c, 'Sorcery'))],
     onResolve: (g, { self, targets }) => {
       const item = refStack(g, targets[0]);
       if (item) payOr(g, item.controller, '{1}', `Pay {1}, or ${label(item.card)} is countered (${label(self)}).`);
@@ -343,10 +344,10 @@ registerScripts({
       min: 1,
       max: 1,
       modes: [
-        { text: 'Counter target blue spell', targets: [spell('target blue spell', (_g, c) => isColor(c, 'U'))], resolve: (g, { targets }) => void counter(g, targets[0]) },
+        { text: 'Counter target blue spell', targets: [spell('target blue spell', (g, c) => isColor(g, c, 'U'))], resolve: (g, { targets }) => void counter(g, targets[0]) },
         {
           text: 'Destroy target blue permanent',
-          targets: [{ type: 'permanent', label: 'target blue permanent', filter: (_g, c) => isColor(c, 'U') }],
+          targets: [{ type: 'permanent', label: 'target blue permanent', filter: (g, c) => isColor(g, c, 'U') }],
           resolve: (g, { targets }) => void destroy(g, refCard(g, targets[0])),
         },
       ],
@@ -369,7 +370,7 @@ registerScripts({
   'Grand Abolisher': {
     // During your turn, opponents can't cast spells or activate abilities of artifacts, creatures, or enchantments.
     forbids: (g, self, pid, act) =>
-      g.active === self.controller && pid !== self.controller && (act.kind === 'cast' || ['Artifact', 'Creature', 'Enchantment'].some((x) => hasType(act.card, x))),
+      g.active === self.controller && pid !== self.controller && (act.kind === 'cast' || ['Artifact', 'Creature', 'Enchantment'].some((x) => hasType(g, act.card, x))),
   },
   'Voice of Victory': {
     forbids: (g, self, pid, act) => g.active === self.controller && pid !== self.controller && act.kind === 'cast',
@@ -389,12 +390,12 @@ registerScripts({
     },
   },
   'Valley Floodcaller': {
-    grantsFlash: (_g, self, pid, spell) => pid === self.controller && !isCreature(spell),
+    grantsFlash: (g, self, pid, spell) => pid === self.controller && !isCreature(g, spell),
     onCast: {
-      when: (_g, { self, card, caster }) => caster === self.controller && !isCreature(card),
+      when: (g, { self, card, caster }) => caster === self.controller && !isCreature(g, card),
       resolve: (g, { you }) => {
         for (const c of creaturesOf(g, you)) {
-          if (!['Bird', 'Frog', 'Otter', 'Rat'].some((x) => hasType(c, x))) continue;
+          if (!['Bird', 'Frog', 'Otter', 'Rat'].some((x) => hasType(g, c, x))) continue;
           pump(g, c, 1, 1);
           c.tapped = false;
         }
@@ -535,7 +536,7 @@ registerScripts({
         const [c] = picked;
         if (!c) return;
         discard(g, c);
-        if (!hasType(c, 'Land')) createToken(g, you, 'Human Soldier');
+        if (!hasType(g, c, 'Land')) createToken(g, you, 'Human Soldier');
       },
     },
     // A bot discards the card it wants least.
@@ -635,7 +636,7 @@ registerScripts({
 
 /** The card types among cards in a player's graveyard (205.2a), for delirium. */
 const CARD_TYPES = ['Artifact', 'Battle', 'Creature', 'Enchantment', 'Instant', 'Kindred', 'Land', 'Planeswalker', 'Sorcery'];
-const delirium = (g: Game, pid: PlayerId) => CARD_TYPES.filter((t) => g.players[pid].graveyard.some((c) => hasType(c, t))).length >= 4;
+const delirium = (g: Game, pid: PlayerId) => CARD_TYPES.filter((t) => g.players[pid].graveyard.some((c) => hasType(g, c, t))).length >= 4;
 
 /** "You may play / cast [cards] this turn": a permission for each card, while it stays the same object. */
 export function mayCast(g: Game, pid: PlayerId, cards: Card[], opts: { play?: boolean; anyMana?: boolean } = {}) {
@@ -669,7 +670,7 @@ export function favouriteType(g: Game, pid: PlayerId): string {
   const p = g.players[pid];
   const counts = new Map<string, number>();
   for (const c of [...p.library, ...p.hand, ...p.command]) {
-    if (!isCreature(c)) continue;
+    if (!isCreature(g, c)) continue;
     for (const t of data(c).typeLine.split(' — ')[1]?.split(' ') ?? []) if (CREATURE_TYPES.includes(t)) counts.set(t, (counts.get(t) ?? 0) + 1);
   }
   return [...counts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? 'Human';
@@ -805,7 +806,7 @@ registerScripts({
     // the choice is made before it enters (614.12a). Not cast, no mana was spent.
     replaceEnter: (g, c, controller) => {
       const spent = c.zone === 'stack' ? (c.cast?.spent ?? 0) : 0;
-      const options = g.players.flatMap((p) => (p.lost ? [] : p.battlefield)).filter((x) => isCreature(x) && manaValue(x) <= spent);
+      const options = g.players.flatMap((p) => (p.lost ? [] : p.battlefield)).filter((x) => isCreature(g, x) && manaValue(x) <= spent);
       if (!options.length) return false;
       pickCards(g, controller, options, { min: 0, max: 1, text: `you may have it enter as a copy of a creature with mana value ${spent} or less`, button: 'Copy', then: 'copy', script: c.id });
       return true;
@@ -834,14 +835,14 @@ registerScripts({
   },
   'Chain of Vapor': {
     // "Return target nonland permanent to its owner's hand."
-    targets: [{ type: 'permanent', label: 'target nonland permanent', filter: (_g, c) => !isLand(c) }],
+    targets: [{ type: 'permanent', label: 'target nonland permanent', filter: (g, c) => !isLand(g, c) }],
     onResolve: (g, { targets }) => {
       const c = refCard(g, targets[0]);
       if (!c) return;
       const controller = c.controller;
       bounce(g, c);
       // "Then that permanent's controller may sacrifice a land of their choice."
-      const lands = g.players[controller].battlefield.filter(isLand);
+      const lands = g.players[controller].battlefield.filter((x) => isLand(g, x));
       if (lands.length) pickCards(g, controller, lands, { min: 0, max: 1, text: 'you may sacrifice a land to copy Chain of Vapor', button: 'Sacrifice', then: 'sacrificed' });
     },
     then: {
@@ -951,7 +952,7 @@ registerScripts({
   'Chrome Mox': {
     // "Imprint — When this artifact enters, you may exile a nonartifact, nonland card from your hand."
     onEnter: (g, { you }) => {
-      const options = g.players[you].hand.filter((c) => !hasType(c, 'Artifact') && !isLand(c));
+      const options = g.players[you].hand.filter((c) => !hasType(g, c, 'Artifact') && !isLand(g, c));
       if (options.length) pickCards(g, you, options, { min: 0, max: 1, text: 'you may exile a nonartifact, nonland card from your hand', button: 'Exile', then: 'imprint' });
     },
     then: {
@@ -970,7 +971,7 @@ registerScripts({
       amount: 1,
       colors: (g, self) => {
         const exiled = self.linked.map((l) => g.players.flatMap((p) => p.exile).find((x) => sameCard(x, l))).filter((x): x is Card => !!x);
-        return WUBRG.filter((x) => exiled.some((c) => isColor(c, x as never)));
+        return WUBRG.filter((x) => exiled.some((c) => isColor(g, c, x as never)));
       },
     },
     // Bots exile the coloured card they want least, in one of their colours.
@@ -986,7 +987,7 @@ registerScripts({
     // "If this artifact would enter, you may discard a land card instead. If you do, put this
     // artifact onto the battlefield. If you don't, put it into its owner's graveyard."
     replaceEnter: (g, c, controller) => {
-      const lands = g.players[controller].hand.filter(isLand);
+      const lands = g.players[controller].hand.filter((x) => isLand(g, x));
       if (!lands.length) {
         diamondToGraveyard(g, c);
         return true;
@@ -1028,14 +1029,14 @@ registerScripts({
     // instead return target nonland permanent an opponent controls to its owner's hand."
     targets: [{ type: 'creature', who: 'opponent', label: 'target creature an opponent controls' }],
     // "Gift a tapped Fish" (702.174f): the promised player creates a tapped 1/1 blue Fish first (702.174j).
-    gift: { token: 'Fish', tapped: true, targets: [{ type: 'permanent', who: 'opponent', label: 'target nonland permanent an opponent controls', filter: (_g, c) => !isLand(c) }] },
+    gift: { token: 'Fish', tapped: true, targets: [{ type: 'permanent', who: 'opponent', label: 'target nonland permanent an opponent controls', filter: (g, c) => !isLand(g, c) }] },
     onResolve: (g, { targets }) => bounce(g, refCard(g, targets[0])),
   },
   'Beseech the Mirror': {
     // "Bargain" (702.166a): as an additional cost, you may sacrifice an artifact, enchantment, or token.
     additionalCost: {
       optional: true,
-      sacrifice: { type: 'permanent', who: 'you', label: 'an artifact, enchantment, or token to sacrifice (bargain)', filter: (_g, c) => c.isToken || hasType(c, 'Artifact') || hasType(c, 'Enchantment') },
+      sacrifice: { type: 'permanent', who: 'you', label: 'an artifact, enchantment, or token to sacrifice (bargain)', filter: (g, c) => c.isToken || hasType(g, c, 'Artifact') || hasType(g, c, 'Enchantment') },
     },
     ai: 'tutor',
     // "Search your library for a card, exile it face down, then shuffle."
@@ -1061,7 +1062,7 @@ registerScripts({
   "Dragon's Rage Channeler": {
     // "Whenever you cast a noncreature spell, surveil 1." (701.25a)
     onCast: {
-      when: (_g, { self, card, caster }) => caster === self.controller && !isCreature(card),
+      when: (g, { self, card, caster }) => caster === self.controller && !isCreature(g, card),
       resolve: (g, { you }) => surveil(g, you, 1),
     },
     // "Delirium — As long as there are four or more card types among cards in your graveyard,
@@ -1120,12 +1121,12 @@ registerScripts({
     activated: {
       fromHand: true,
       cost: { mana: '{3}{U}', discardSelf: true },
-      reduction: (g, self) => g.players[self.owner].battlefield.filter((c) => hasType(c, 'Legendary') && isCreature(c)).length,
+      reduction: (g, self) => g.players[self.owner].battlefield.filter((c) => hasType(g, c, 'Legendary') && isCreature(g, c)).length,
       targets: [
         {
           type: 'permanent',
           label: 'target artifact, creature, enchantment, or planeswalker',
-          filter: (_g, c) => ['Artifact', 'Creature', 'Enchantment', 'Planeswalker'].some((t) => hasType(c, t)),
+          filter: (g, c) => ['Artifact', 'Creature', 'Enchantment', 'Planeswalker'].some((t) => hasType(g, c, t)),
         },
       ],
       text: 'Channel: return target artifact, creature, enchantment, or planeswalker to its owner’s hand',
@@ -1139,7 +1140,7 @@ registerScripts({
         type: 'graveyard card',
         who: 'you',
         label: 'target permanent card with mana value 3 or less in your graveyard',
-        filter: (_g, c) => isPermanentCard(c) && manaValue(c) <= 3,
+        filter: (g, c) => isPermanentCard(g, c) && manaValue(c) <= 3,
       },
     ],
     onResolve: (g, { self, you, targets }) => {
@@ -1167,11 +1168,11 @@ registerScripts({
       {
         label: 'Sacrifice a nontoken red creature',
         mana: '',
-        sacrifice: { type: 'creature', who: 'you', label: 'a nontoken red creature to sacrifice', filter: (_g, c) => !c.isToken && isColor(c, 'R') },
+        sacrifice: { type: 'creature', who: 'you', label: 'a nontoken red creature to sacrifice', filter: (g, c) => !c.isToken && isColor(g, c, 'R') },
       },
     ],
     // "Copy target instant or sorcery spell. You may choose new targets for the copy." (707.10c)
-    targets: [spell('target instant or sorcery spell', (_g, c) => hasType(c, 'Instant') || hasType(c, 'Sorcery'))],
+    targets: [spell('target instant or sorcery spell', (g, c) => hasType(g, c, 'Instant') || hasType(g, c, 'Sorcery'))],
     onResolve: (g, { you, targets }) => copySpell(g, targets[0], you),
   },
   'Hexing Squelcher': {
@@ -1182,14 +1183,14 @@ registerScripts({
     // "Spells you control can't be countered."
     protectsSpell: (_g, self, _spell, caster) => caster === self.controller,
     // "Other creatures you control have 'Ward—Pay 2 life.'"
-    grantsWard: (_g, self, c) => (c.id !== self.id && c.controller === self.controller && isCreature(c) ? { life: 2 } : null),
+    grantsWard: (g, self, c) => (c.id !== self.id && c.controller === self.controller && isCreature(g, c) ? { life: 2 } : null),
   },
   'Rain of Filth': {
     // "Until end of turn, lands you control gain 'Sacrifice this land: Add {B}.'" Only the lands
     // you control as it resolves (611.2c).
     onResolve: (g, { you }) => {
-      for (const c of g.players[you].battlefield.filter(isLand)) {
-        c.mods.push({ power: 0, toughness: 0, keywords: [], mana: { amount: 1, colors: ['B'], noTap: true, sacrifice: true } });
+      for (const c of g.players[you].battlefield.filter((x) => isLand(g, x))) {
+        untilEndOfTurn(g, c, { mana: { amount: 1, colors: ['B'], noTap: true, sacrifice: true } });
       }
       log(g, `${whose(g.players[you])} lands gain "Sacrifice this land: Add {B}" until end of turn.`, you);
     },
