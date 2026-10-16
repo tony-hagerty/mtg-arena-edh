@@ -484,7 +484,8 @@ are from the Comprehensive Rules in `docs/rules/`.
   attached most recently go to the graveyard (704.5z); each attachment gets a new
   timestamp (613.7e). A Role that can't be attached isn't created.
 - **Changeling (702.73):** every creature type, in every zone (Black Market Connections'
-  Shapeshifter is a Wizard for Kuja).
+  Shapeshifter is a Wizard for Kuja). It is a characteristic-defining ability, so it
+  applies first in layer 4 (604.3, 613.3).
 - **Transforming (701.27f):** a permanent's own ability transforms it only if it hasn't
   transformed since the ability went on the stack (Kuja).
 - **"When enchanted permanent dies or is put into exile, return that card"** (Kaya's
