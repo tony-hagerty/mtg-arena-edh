@@ -608,8 +608,11 @@ export interface Game {
   log: LogEntry[];
   rng: number;
   nextId: number;
-  /** Last spell cast, so the UI can flash it on screen. */
-  lastSpell: { seq: number; name: string; caster: PlayerId } | null;
+  /**
+   * The last spell cast, or ability activated or triggered (not a mana ability, which
+   * doesn't use the stack, 605.3a), so the UI can flash its source on screen.
+   */
+  lastSpell: { seq: number; name: string; caster: PlayerId; ability?: 'triggered' | 'activated' } | null;
   /** Spells cast this turn by every player, for storm (702.40a). */
   spellsCast: number;
   /** Players dealt combat damage this turn. */

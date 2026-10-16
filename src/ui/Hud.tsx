@@ -740,6 +740,13 @@ export function StackPanel() {
 }
 
 /** Briefly shows each spell as it is cast. While something is waiting on the stack, the stack panel shows it instead. */
+/** The line above a flashed card: who cast it, or whose ability it is. `name` is null for you. */
+function flashCaption(f: NonNullable<Game['lastSpell']>, name: string | null) {
+  if (f.ability === 'triggered') return name ? `${name}'s` : 'Your';
+  if (f.ability === 'activated') return name ? `${name} activates` : 'You activate';
+  return name ? `${name} casts` : 'You cast';
+}
+
 export function SpellFlash() {
   const { g, me } = useView();
   const speed = useStore((s) => s.speed);
@@ -763,8 +770,9 @@ export function SpellFlash() {
           animate={{ opacity: 1, x: 0, scale: 1 }}
           exit={{ opacity: 0, scale: 0.9 }}
         >
-          <div className="spell-caster">{shown.caster === me ? 'You cast' : `${g.players[shown.caster].name} casts`}</div>
+          <div className="spell-caster">{flashCaption(shown, shown.caster === me ? null : g.players[shown.caster].name)}</div>
           <CardImage d={cardData(shown.name)} alt={cardData(shown.name).name} draggable={false} />
+          {shown.ability && <div className="spell-ability">{shown.ability === 'triggered' ? 'Trigger' : 'Ability'}</div>}
         </motion.div>
       )}
     </AnimatePresence>

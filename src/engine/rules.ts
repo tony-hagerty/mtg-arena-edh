@@ -593,6 +593,13 @@ interface Source {
   only?: string;
   /** A spell its mana is spent on can't be countered (106.6). */
   uncounterable?: boolean;
+  /**
+   * Tapping it costs more than mana: it is a creature (it could attack, block or crew), or
+   * it has another ability with {T} in its cost. Auto-pay uses lands and plain rocks first.
+   */
+  busy: boolean;
+  /** How much auto-pay wants to leave it untapped (see `keepValue`); set by `planPayment`. */
+  keep?: number;
 }
 
 /** Can `pid` use this mana ability of `c` now? A creature's {T} ability needs it to be free of summoning sickness (302.6). */
@@ -629,6 +636,7 @@ export function manaSources(g: Game, pid: PlayerId, manual = false): Source[] {
         sacrifice: ab.sacrifice,
         pain: (ab.life ?? 0) + (ab.damage ?? 0),
         life: ab.life ?? 0,
+        busy: !ab.noTap && !ab.fromHand && (isCreature(c) || activatedAbilities(c).some((a) => a.cost.tap)),
         ...(ab.chosenType ? { only: c.chosen ?? undefined, uncounterable: ab.uncounterable } : {}),
       });
     }
@@ -747,6 +755,32 @@ export function availableMana(g: Game, pid: PlayerId): number {
   return [...most.values()].reduce((n, x) => n + x, 0) + g.players[pid].pool.length;
 }
 
+/**
+ * Coloured mana symbols the player's other cards in hand and command zone ask for, by
+ * colour. A hybrid or Phyrexian symbol counts toward each of its colours. `except`: the
+ * card being paid for, which won't need its mana again.
+ */
+function colorWants(g: Game, pid: PlayerId, except?: string): Map<ManaSym, number> {
+  const p = g.players[pid];
+  const wants = new Map<ManaSym, number>();
+  for (const c of [...p.hand, ...p.command]) {
+    if (c.id === except) continue;
+    const cost = parseCost(data(c).manaCost);
+    for (const x of [...cost.pips, ...cost.hybrid.flat()]) if (WUBRG.includes(x as ManaSym)) wants.set(x as ManaSym, (wants.get(x as ManaSym) ?? 0) + 1);
+  }
+  return wants;
+}
+
+/**
+ * How much auto-pay wants to leave source `s` untapped; lower is tapped first. Each colour
+ * it makes adds 1 (a dual is more flexible than a basic), and 3 more if a card in hand or
+ * the command zone wants that colour. Being a creature or having another {T} ability adds
+ * 25, more than any land's colours, so lands and plain rocks are tapped first. Pain and
+ * sacrifice are weighed separately by `payMana` and `payGeneric`.
+ */
+const keepValue = (s: Source, wants: Map<ManaSym, number>) =>
+  s.colors.reduce((n, x) => n + (x === 'C' ? 0 : 1 + ((wants.get(x) ?? 0) > 0 ? 3 : 0)), 0) + (s.busy ? 25 : 0);
+
 interface Plan {
   pool: Mana[];
   sources: Source[];
@@ -761,6 +795,8 @@ interface Plan {
   spent: number;
   /** Mana that says "that spell can't be countered" was spent (106.6). */
   uncounterable: boolean;
+  /** Colours other cards want (`colorWants`): generic mana is paid from the pool with the others first. */
+  wants: Map<ManaSym, number>;
 }
 
 /** Mana a source makes beyond the one it is tapped to pay for. It goes to the pool. */
@@ -793,17 +829,20 @@ const fromPool = (plan: Plan, i: number): Plan => ({
 
 /**
  * The ways to pay one mana of `sym`: from the pool if it has one (always the best way),
- * otherwise from each kind of source that makes it, least flexible first.
+ * otherwise from each kind of source that makes it, the one to keep least first (`keepValue`):
+ * one mana before two, a basic before a dual, a land before a creature, free before painful
+ * before sacrificed.
  */
 function payMana(sym: ManaSym, plan: Plan): Plan[] {
   const inPool = plan.pool.findIndex((m) => m.sym === sym);
   if (inPool >= 0) return [fromPool(plan, inPool)];
-  const rank = (s: Source) => s.amount * 10 + s.colors.length + s.pain * 300 + (s.sacrifice ? 1000 : 0);
+  const rank = (s: Source) => s.amount * 10 + (s.keep ?? 0) + s.pain * 300 + (s.sacrifice ? 1000 : 0);
+  // A stable sort keeps the battlefield order between equals, so the choice is always the same.
   const options = plan.sources.filter((s) => s.colors.includes(sym)).sort((a, b) => rank(a) - rank(b));
   const tried = new Set<string>(); // sources that make the same mana the same way are interchangeable
   const out: Plan[] = [];
   for (const s of options) {
-    const kind = `${s.amount}:${s.colors.join('')}:${s.pain}:${!!s.sacrifice}`;
+    const kind = `${s.amount}:${s.colors.join('')}:${s.pain}:${!!s.sacrifice}:${s.keep ?? 0}`;
     if (tried.has(kind)) continue;
     tried.add(kind);
     out.push(useSource(plan, s, sym));
@@ -816,17 +855,19 @@ function payGeneric(plan: Plan): Plan | null {
   let remaining = plan.generic;
   while (remaining > 0) {
     if (plan.pool.length) {
-      // Restricted mana first (it can't pay for anything else), then colourless.
-      const restricted = plan.pool.findIndex((m) => m.only);
-      const c = plan.pool.findIndex((m) => m.sym === 'C');
-      plan = fromPool(plan, restricted >= 0 ? restricted : c >= 0 ? c : 0);
+      // Restricted mana first (it can't pay for anything else), then colourless, then the colour other cards want least.
+      const rank = (m: Mana) => (m.only ? -2 : m.sym === 'C' ? -1 : (plan.wants.get(m.sym) ?? 0));
+      const i = plan.pool.reduce((best, m, k) => (rank(m) < rank(plan.pool[best]) ? k : best), 0);
+      plan = fromPool(plan, i);
       remaining--;
       continue;
     }
     if (!plan.sources.length) return null;
-    // Prefer the biggest source that doesn't overpay, colourless before coloured, free before painful.
+    // Prefer the biggest source that doesn't overpay, then the one to keep least (`keepValue`:
+    // colourless before a colour nothing wants, a basic before a dual, a land before a
+    // creature), free before painful.
     const score = (s: Source) =>
-      (s.amount <= remaining ? 100 + s.amount * 10 : 50 - s.amount * 10) + (s.colors[0] === 'C' ? 5 : 0) - s.colors.length - s.pain * 30 - (s.sacrifice ? 500 : 0);
+      (s.amount <= remaining ? 100 + s.amount * 10 : 50 - s.amount * 10) - (s.keep ?? 0) - s.pain * 30 - (s.sacrifice ? 500 : 0);
     const best = plan.sources.reduce((a, b) => (score(b) > score(a) ? b : a));
     // Its first mana pays for this; the rest goes to the pool and is spent next.
     plan = useSource(plan, best, null);
@@ -885,30 +926,89 @@ export interface Payment {
  * `keep`: permanents already being used to pay another part of the cost, like the one
  * sacrificed for an additional cost: they can't make mana too.
  */
-export function planPayment(g: Game, pid: PlayerId, cost: Cost, spell?: Card, keep: string[] = []): Payment | null {
+export const planPayment = (g: Game, pid: PlayerId, cost: Cost, spell?: Card, keep: string[] = []): Payment | null =>
+  planFrom(g, pid, cost, spell, keep, g.players[pid].pool);
+
+/** `planPayment` with `inPool` as the mana in the player's pool, for trying a payment out. */
+function planFrom(g: Game, pid: PlayerId, cost: Cost, spell: Card | undefined, keep: string[], inPool: Mana[]): Payment | null {
   const p = g.players[pid];
   // A player can pay life only if their life total is at least that much (119.4).
   if (cost.life > p.life) return null;
   // Mana with a restriction can be spent only on what it allows (106.6).
-  const all = manaSources(g, pid).filter((s) => spendable(s.only, spell) && !keep.includes(s.id));
-  const pool = p.pool.filter((m) => spendable(m.only, spell));
-  const kept = p.pool.filter((m) => !spendable(m.only, spell));
+  const wants = colorWants(g, pid, spell?.id);
+  const all = manaSources(g, pid)
+    .filter((s) => spendable(s.only, spell) && !keep.includes(s.id))
+    .map((s) => ({ ...s, keep: keepValue(s, wants) }));
+  const pool = inPool.filter((m) => spendable(m.only, spell));
+  const kept = inPool.filter((m) => !spendable(m.only, spell));
   // Not enough mana in total, however it's spent: skip the search.
   const most = pool.length + all.reduce((n, s) => n + s.amount, 0);
   if (most < cost.generic + cost.pips.length + cost.hybrid.filter((h) => !h.includes('life')).length) return null;
   const makers = (sym: HybridOption) => all.filter((s) => s.colors.includes(sym as ManaSym)).length;
   const pips = [...cost.pips].sort((a, b) => makers(a) - makers(b)).map((pip): HybridOption[] => [pip]);
+  // A hybrid symbol tries first a colour already in the pool, then the colour other cards
+  // want least, then the one more sources make. {2} and life stay after the colours.
+  const order = (x: HybridOption, i: number) =>
+    !WUBRG.includes(x as ManaSym) ? 1e6 + i : pool.some((m) => m.sym === x) ? -1e6 : (wants.get(x as ManaSym) ?? 0) * 1000 - makers(x);
+  const hybrid = cost.hybrid.map((h) => h.map((x, i) => ({ x, k: order(x, i) })).sort((a, b) => a.k - b.k).map((o) => o.x));
   // Restricted mana goes first: it can pay for nothing else.
   const ordered = [...pool.filter((m) => m.only), ...pool.filter((m) => !m.only)];
-  const start: Plan = { pool: ordered, sources: all, uses: [], abilityLife: 0, generic: cost.generic, life: cost.life, spent: 0, uncounterable: false };
-  const paid = payShards([...pips, ...cost.hybrid], start, p.life);
+  const start: Plan = { pool: ordered, sources: all, uses: [], abilityLife: 0, generic: cost.generic, life: cost.life, spent: 0, uncounterable: false, wants };
+  const paid = payShards([...pips, ...hybrid], start, p.life);
   if (!paid || paid.life + paid.abilityLife > p.life) return null;
   return { tap: paid.uses.map((u) => u.id), uses: paid.uses, pool: [...paid.pool, ...kept], life: paid.life, spent: paid.spent, uncounterable: paid.uncounterable };
 }
 
-/** Pays a cost, tapping and sacrificing what it has to. Returns how it was paid, or null if it can't be. */
+/** Whether `pay` looks ahead (`bestPayment`). Off while a bot tries moves out on copies of the game. */
+let lookahead = true;
+
+/** Runs `fn` with auto-pay's lookahead off, so a bot trying out moves stays fast. */
+export function withoutLookahead<T>(fn: () => T): T {
+  const was = lookahead;
+  lookahead = false;
+  try {
+    return fn();
+  } finally {
+    lookahead = was;
+  }
+}
+
+/**
+ * The way to pay `cost` that leaves the most of the player's other cards in hand and
+ * command zone castable afterwards, this turn. Instants and cards with flash count double.
+ * Each card is checked against what it costs now (`castCost`: commander tax, cost
+ * increases and reductions), with no kicker and X as 0. The candidates are the usual plan
+ * and, for each card castable now, a plan that leaves alone the sources that card would
+ * use. Ties go to the usual plan.
+ */
+function bestPayment(g: Game, pid: PlayerId, cost: Cost, spell?: Card, keep: string[] = []): Payment | null {
+  const usual = planPayment(g, pid, cost, spell, keep);
+  if (!usual) return null;
+  const p = g.players[pid];
+  const others = [...p.hand, ...p.command]
+    .filter((c) => c.id !== spell?.id && !isLand(c) && data(c).manaCost)
+    .map((c) => ({ c, cost: castCost(g, c, {}, pid), weight: isInstantSpeed(c) ? 2 : 1 }))
+    .map((o) => ({ ...o, plan: planPayment(g, pid, o.cost, o.c) }))
+    .filter((o) => o.plan);
+  const most = others.reduce((n, o) => n + o.weight, 0);
+  const score = (paid: Payment) => others.reduce((n, o) => n + (planFrom(g, pid, o.cost, o.c, [...keep, ...paid.tap], paid.pool) ? o.weight : 0), 0);
+  let best = usual;
+  let bestScore = score(usual);
+  for (const o of others) {
+    if (bestScore === most) break;
+    const alt = planPayment(g, pid, cost, spell, [...keep, ...o.plan!.tap]);
+    const s = alt ? score(alt) : -1;
+    if (alt && s > bestScore) [best, bestScore] = [alt, s];
+  }
+  return best;
+}
+
+/**
+ * Pays a cost, tapping and sacrificing what it has to. Returns how it was paid, or null if
+ * it can't be. It looks ahead (`bestPayment`) unless a bot is only trying the move out.
+ */
 export function pay(g: Game, pid: PlayerId, cost: Cost, spell?: Card, keep: string[] = []): Payment | null {
-  const plan = planPayment(g, pid, cost, spell, keep);
+  const plan = lookahead ? bestPayment(g, pid, cost, spell, keep) : planPayment(g, pid, cost, spell, keep);
   if (!plan) return null;
   g.players[pid].pool = plan.pool;
   // Every ability is activated before any of them is sacrificed or deals its damage.

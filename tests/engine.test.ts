@@ -296,6 +296,128 @@ describe('two commanders (702.124) and multicolour decks', () => {
   });
 });
 
+describe('auto-pay: which sources it taps', () => {
+  // No commander in the command zone, so only the hand says which colours are wanted.
+  const game = (setup: (g: Game) => void) =>
+    emptyGame((d) => {
+      d.players[0].command = [];
+      setup(d);
+    });
+  const tapped = (g: Game, cost: string) => planPayment(g, 0, parseCost(cost))!.tap.map((id) => findCard(g, id)!.name);
+
+  it('pays generic with a colour nothing in hand wants', () => {
+    const g = game((d) => {
+      put(d, 0, 'Mountain');
+      put(d, 0, 'Plains');
+      put(d, 0, 'Lightning Bolt', 'hand');
+    });
+    expect(tapped(g, '{1}')).toEqual(['Plains']);
+  });
+
+  it('pays generic with a basic before a dual', () => {
+    const g = game((d) => {
+      put(d, 0, 'Plateau');
+      put(d, 0, 'Plains');
+    });
+    expect(tapped(g, '{1}')).toEqual(['Plains']);
+  });
+
+  it('taps a land before a mana creature, for coloured and generic mana', () => {
+    const g = game((d) => {
+      put(d, 0, 'Llanowar Elves');
+      put(d, 0, 'Forest');
+    });
+    expect(tapped(g, '{G}')).toEqual(['Forest']);
+    expect(tapped(g, '{1}')).toEqual(['Forest']);
+    expect(tapped(g, '{1}{G}').sort()).toEqual(['Forest', 'Llanowar Elves']);
+  });
+
+  it('taps a land before a mana rock with another {T} ability', () => {
+    const g = game((d) => {
+      put(d, 0, 'Mind Stone');
+      put(d, 0, 'Plains');
+    });
+    expect(tapped(g, '{1}')).toEqual(['Plains']);
+  });
+
+  it('pays a hybrid symbol with the colour the hand needs less (107.4e)', () => {
+    const g = game((d) => {
+      put(d, 0, 'Mountain');
+      put(d, 0, 'Plains');
+      put(d, 0, 'Lightning Bolt', 'hand');
+    });
+    expect(tapped(g, '{R/W}')).toEqual(['Plains']);
+    // With only a Mountain it still pays.
+    const one = game((d) => {
+      put(d, 0, 'Mountain');
+      put(d, 0, 'Lightning Bolt', 'hand');
+    });
+    expect(tapped(one, '{R/W}')).toEqual(['Mountain']);
+  });
+
+  it('pays generic from the pool with the colour the hand needs less', () => {
+    const g = game((d) => {
+      const bolt = put(d, 0, 'Lightning Bolt', 'hand');
+      d.players[0].pool = [
+        { sym: 'R', source: bolt.id },
+        { sym: 'W', source: bolt.id },
+      ];
+    });
+    expect(planPayment(g, 0, parseCost('{1}'))!.pool.map((m) => m.sym)).toEqual(['R']);
+  });
+
+  // Red and white are both wanted, so the three lands tie and the first, the Mountain,
+  // would pay {1}. Looking ahead taps a Plains so the Bolt can still be cast.
+  const strands = () =>
+    game((d) => {
+      put(d, 0, 'Mountain');
+      put(d, 0, 'Plains', 'battlefield', 2);
+      put(d, 0, 'Lightning Bolt', 'hand');
+      put(d, 0, 'Thraben Inspector', 'hand'); // {W}
+      put(d, 0, 'Sol Ring', 'hand'); // {1}
+    });
+  const tappedBy = (g: Game) => g.players[0].battlefield.filter((c) => c.tapped).map((c) => c.name);
+  const solRing = (g: Game) => ({ type: 'cast', card: byName(g, 0, 'Sol Ring', 'hand')!.id }) as const;
+
+  it('looks ahead so the cards left in hand can still be cast', () => {
+    const g = strands();
+    expect(tapped(g, '{1}')).toEqual(['Mountain']); // the colour weighing alone
+    expect(tappedBy(applyAction(g, solRing(g)))).toEqual(['Plains']);
+  });
+
+  it('looks ahead with what cards cost now, after reductions (601.2f)', () => {
+    // Ruby Medallion makes Fiery Confluence {1}{R}{R}: three lands, not four, so it stays
+    // castable only if the {1} isn't paid with a Mountain.
+    const g = game((d) => {
+      put(d, 0, 'Ruby Medallion');
+      put(d, 0, 'Mountain', 'battlefield', 2);
+      put(d, 0, 'Plains', 'battlefield', 2);
+      put(d, 0, 'Fiery Confluence', 'hand'); // {2}{R}{R}
+      put(d, 0, 'Thraben Inspector', 'hand'); // {W}
+      put(d, 0, 'Sol Ring', 'hand');
+    });
+    expect(tapped(g, '{1}')).toEqual(['Mountain']); // the colour weighing alone
+    expect(tappedBy(applyAction(g, solRing(g)))).toEqual(['Plains']);
+  });
+
+  it("skips the lookahead while a bot only tries a move out, and uses it for the bot's real move", () => {
+    const g = strands();
+    expect(tappedBy(applyAction(g, solRing(g), { simulate: true }))).toEqual(['Mountain']);
+    expect(tappedBy(applyBotAction(g, solRing(g)))).toEqual(['Plains']);
+  });
+
+  it("doesn't count the spell being paid for as wanting its own colours", () => {
+    // Lyra ({3}{W}{W}) in the command zone wants white; the Bolt being cast wants nothing more.
+    const g = emptyGame((d) => {
+      put(d, 0, 'Plains');
+      put(d, 0, 'Mountain');
+      put(d, 0, 'Lightning Bolt', 'hand');
+    });
+    const bolt = byName(g, 0, 'Lightning Bolt', 'hand')!;
+    expect(planPayment(g, 0, parseCost('{1}'), bolt)!.tap.map((id) => findCard(g, id)!.name)).toEqual(['Mountain']);
+  });
+});
+
 describe('costs (107.3, 107.4, 118, 601.2f)', () => {
   const opp = { kind: 'player', id: 1 } as const;
   const cast = (g: Game, name: string, extra: object = {}) => ({ type: 'cast', card: byName(g, 0, name, 'hand')!.id, ...extra }) as const;
@@ -1630,6 +1752,37 @@ describe('log', () => {
     while (g.stack.length) g = run(g, pass);
     expect(g.log.find((l) => l.text === 'Mogg Fanatic is destroyed.')?.cards).toEqual(['Mogg Fanatic']);
     expect(g.log.find((l) => l.text.startsWith('Turn '))?.cards).toBeUndefined();
+    // A cast flashes the spell with no ability label; paying with lands doesn't flash them (605.3a).
+    expect(g.lastSpell).toMatchObject({ name: 'Murder', caster: 0 });
+    expect(g.lastSpell?.ability).toBeUndefined();
+  });
+
+  it('logs a triggered ability as it goes on the stack, and flashes its source (603.3)', () => {
+    let g = emptyGame((d) => {
+      put(d, 1, 'Soul Warden');
+      put(d, 0, 'Forest', 'battlefield', 2);
+      put(d, 0, 'Kalonian Tusker', 'hand');
+    });
+    g = runWith({ autoPass: false }, g, { type: 'cast', card: byName(g, 0, 'Kalonian Tusker', 'hand')!.id }, pass, pass, pass, pass);
+    expect(g.stack.map((x) => x.kind)).toEqual(['triggered']);
+    const line = g.log.find((l) => l.text.endsWith('Soul Warden triggers.'))!;
+    expect(line.text).toBe(`${g.players[1].name}'s Soul Warden triggers.`);
+    expect([line.player, line.cards]).toEqual([1, ['Soul Warden']]);
+    expect(g.lastSpell).toMatchObject({ name: 'Soul Warden', caster: 1, ability: 'triggered' });
+  });
+
+  it('logs an activated ability with its targets, and flashes its source as an ability (602.2)', () => {
+    let g = emptyGame((d) => {
+      put(d, 0, 'Mountain', 'battlefield', 1);
+      put(d, 0, 'Bonesplitter');
+      put(d, 0, 'Elite Vanguard');
+    });
+    const vanguard = byName(g, 0, 'Elite Vanguard')!;
+    g = runWith({ autoPass: false }, g, { type: 'activate', card: byName(g, 0, 'Bonesplitter')!.id, targets: [{ kind: 'card', id: vanguard.id }] });
+    const line = g.log[g.log.length - 1];
+    expect(line.text).toBe(`${g.players[0].name} activates Bonesplitter targeting Elite Vanguard.`);
+    expect(line.cards).toEqual(['Bonesplitter', 'Elite Vanguard']);
+    expect(g.lastSpell).toMatchObject({ name: 'Bonesplitter', caster: 0, ability: 'activated' });
   });
 });
 
@@ -2309,7 +2462,8 @@ describe('combo turns: searches, choices, mana, storm, taxes and extra turns (se
       let g = emptyGame((d) => put(d, 0, 'Tymna the Weaver'));
       g = runWith({ autoPass: false }, g, pass, pass, pass, pass); // main1 -> beginning of combat
       g = passUntil(g, (x) => x.step === 'main2');
-      expect(g.log.some((l) => l.text.includes('Tymna'))).toBe(false);
+      // The trigger is logged as it goes on the stack, and nothing else happens.
+      expect(g.log.filter((l) => l.text.includes('Tymna')).map((l) => l.text)).toEqual([`${g.players[0].name}'s Tymna the Weaver triggers.`]);
       expect(g.decision).toBeNull();
     });
 
@@ -3748,6 +3902,12 @@ describe('several triggered abilities for one event (603.2)', () => {
     expect(g.decision?.type).toBe('targets');
     g = runWith(byHand, g, { type: 'chooseTargets', targets: [{ kind: 'player', id: 1 }] });
     expect(g.stack.map((x) => x.trigger)).toEqual([0, 1]);
+    // Each is logged as it goes on the stack, with its text and target (603.3).
+    const lines = g.log.filter((l) => l.text.includes('Dragon Tempest')).map((l) => l.text);
+    expect(lines).toEqual([
+      'Your Dragon Tempest triggers (A creature with flying gains haste).',
+      `Your Dragon Tempest triggers (The Dragon deals damage equal to your Dragons) targeting ${g.players[1].name}.`,
+    ]);
     expect(g.stack[0].targets).toEqual([]);
     g = runWith(byHand, g, pass, pass, pass, pass);
     // X is the number of Dragons you control: Shivan Dragon and Furnace Whelp.

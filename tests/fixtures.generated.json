@@ -2225,6 +2225,18 @@
    "keywords": [],
    "image": "https://cards.scryfall.io/normal/front/4/4/44108e96-1fb5-41e0-a391-0c111e0f4f11.jpg",
    "art": "https://cards.scryfall.io/art_crop/front/4/4/44108e96-1fb5-41e0-a391-0c111e0f4f11.jpg"
+  },
+  "Mind Stone": {
+   "name": "Mind Stone",
+   "manaCost": "{2}",
+   "cmc": 2,
+   "colors": [],
+   "colorIdentity": [],
+   "typeLine": "Artifact",
+   "oracleText": "{T}: Add {C}.\n{1}, {T}, Sacrifice this artifact: Draw a card.",
+   "keywords": [],
+   "image": "https://cards.scryfall.io/normal/front/b/3/b30a8f92-ce42-4b27-a893-bcf97fde228d.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/b/3/b30a8f92-ce42-4b27-a893-bcf97fde228d.jpg"
   }
  }
 }
