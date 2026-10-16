@@ -168,7 +168,7 @@ describe('stops kept from your own seat', () => {
 });
 
 describe('seats from the menu settings', () => {
-  const settings = (players: ('bot' | 'person' | 'empty')[]) => ({ manualDamage: true, opponents: [null, null, null], players });
+  const settings = (players: ('bot' | 'person' | 'empty')[]) => ({ manualDamage: true, opponents: [null, null, null], players, volume: 0.5, muted: false });
 
   it('skips empty seats and seats other people at this screen', () => {
     const seats = tableOf(DECKS[0], settings(['person', 'empty', 'bot']), []);

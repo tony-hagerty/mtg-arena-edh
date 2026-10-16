@@ -6,6 +6,8 @@ import { data, findCard, label, triggerText } from '../engine';
 import type { CardData, Game, LogEntry, PlayerId, Step, StopKind } from '../engine';
 import { CardImage, ManaCost } from './TextCard';
 import { useRem } from './rem';
+import { play } from './sound';
+import { SoundButton } from './SoundControl';
 import { useStore } from './store';
 import type { Hover } from './store';
 import { type Seat, cx, deckColor, faceUp, hoverProps, seatOf } from './util';
@@ -218,10 +220,14 @@ export function ActionBar() {
         // Drop focus first, or a button that was just clicked would also fire natively.
         e.preventDefault();
         (document.activeElement as HTMLElement | null)?.blur();
+        play(primary.tone === 'go' || primary.tone === 'attack' ? 'confirm' : 'click');
         primary.onClick();
       } else if (e.code === 'Escape') {
         if (useStore.getState().viewer) useStore.setState({ viewer: null });
-        else if (secondary) secondary.onClick();
+        else if (secondary) {
+          play('cancel');
+          secondary.onClick();
+        }
         else cancel();
       }
     };
@@ -510,6 +516,7 @@ export function LogPanel() {
         <button onClick={() => useStore.getState().setSpeed(SPEEDS[(SPEEDS.indexOf(speed) + 1) % SPEEDS.length])} title="Bot speed">
           Speed {speed}×
         </button>
+        <SoundButton />
         {human !== null && (
           <button
             onClick={() => useStore.getState().setSetting({ manualDamage: !manualDamage })}

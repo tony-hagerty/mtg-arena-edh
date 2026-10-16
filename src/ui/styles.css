@@ -1829,6 +1829,42 @@ button {
   border-color: #cfd6e4;
 }
 
+/* ---------- sound ---------- */
+
+/* The menu's mute button and volume slider, in the top-right corner. In a game it's a log-bar button. */
+.menu-sound {
+  position: fixed;
+  top: 2rem;
+  right: 2.4rem;
+  display: flex;
+  gap: 0.8rem;
+  align-items: center;
+  width: 24rem;
+}
+
+.menu-sound input {
+  flex: 1;
+  min-width: 0;
+  accent-color: #ffdf9a;
+}
+
+.menu-sound input:disabled {
+  opacity: 0.4;
+}
+
+.menu-sound button {
+  padding: 0.5rem 1rem;
+  font-size: 1.15rem;
+  color: #dfe6f3;
+  background: rgba(10, 12, 18, 0.75);
+  border: 0.1rem solid #5d6472;
+  border-radius: 0.5rem;
+}
+
+.menu-sound button:hover {
+  border-color: #cfd6e4;
+}
+
 .log-lines {
   height: 32.6rem;
   padding: 0.6rem 0.9rem;

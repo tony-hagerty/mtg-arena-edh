@@ -87,12 +87,16 @@ export interface Settings {
   opponents: (string | null)[];
   /** Who plays each opponent seat: a bot, another person at this screen, or nobody (a smaller table). */
   players: SeatPlayer[];
+  /** Loudness of the interface sounds, 0 to 1. */
+  volume: number;
+  /** All sounds off, keeping `volume` for when they come back. */
+  muted: boolean;
 }
 
 export type SeatPlayer = 'bot' | 'person' | 'empty';
 const SEAT_PLAYERS: SeatPlayer[] = ['bot', 'person', 'empty'];
 
-const DEFAULT_SETTINGS: Settings = { manualDamage: false, opponents: [null, null, null], players: ['bot', 'bot', 'bot'] };
+const DEFAULT_SETTINGS: Settings = { manualDamage: false, opponents: [null, null, null], players: ['bot', 'bot', 'bot'], volume: 0.5, muted: false };
 
 /** The human's settings from the last session, or the defaults. Storage can be missing or blocked. */
 function loadSettings(): Settings {
@@ -101,7 +105,8 @@ function loadSettings(): Settings {
     if (saved && typeof saved === 'object') {
       const opponents = DEFAULT_SETTINGS.opponents.map((_, i) => (typeof saved.opponents?.[i] === 'string' ? (saved.opponents[i] as string) : null));
       const players = DEFAULT_SETTINGS.players.map((d, i) => (SEAT_PLAYERS.includes(saved.players?.[i]) ? (saved.players[i] as SeatPlayer) : d));
-      return { ...DEFAULT_SETTINGS, manualDamage: saved.manualDamage === true, opponents, players };
+      const volume = typeof saved.volume === 'number' ? Math.max(0, Math.min(1, saved.volume)) : DEFAULT_SETTINGS.volume;
+      return { ...DEFAULT_SETTINGS, manualDamage: saved.manualDamage === true, opponents, players, volume, muted: saved.muted === true };
     }
   } catch {
     // fall through to the defaults

@@ -6,6 +6,7 @@ import { clearFetchedCards, fetchCards, fetchedCount, requestFor } from '../card
 import { downloadRequests, keptRequests, reportRequests, writesFile } from './card-requests';
 import { type SeatPlayer, useStore } from './store';
 import { HostTable, JoinTable, SavedGames, TableEnded, WaitingRoom } from './LobbyScreen';
+import { SoundControl } from './SoundControl';
 import { CardImage } from './TextCard';
 import { cx, deckColor } from './util';
 
@@ -39,6 +40,7 @@ function DeckMenu({ go }: { go: (screen: MenuScreen) => void }) {
   useStore((s) => s.cardsVersion);
   return (
     <div className="stage menu">
+      <SoundControl />
       <h1>Commander Table</h1>
       <p className="menu-sub">An Arena-style Commander prototype for two to four players. Pick a deck; the seats below say who plays the others.</p>
       <div className="deck-list">
