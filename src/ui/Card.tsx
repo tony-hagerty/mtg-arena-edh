@@ -2,7 +2,7 @@ import { useRef, useState } from 'react';
 import type { CSSProperties, RefObject } from 'react';
 import { motion } from 'motion/react';
 import { activatedAbilities, attachmentsOf, data, defenseOf, isBattle, isCreature, isPlaneswalker, loyaltyOf, scriptFor, stats } from '../engine';
-import type { Card } from '../engine';
+import type { Card, Game } from '../engine';
 import { useRem } from './rem';
 import { play } from './sound';
 import { useStore } from './store';
@@ -146,9 +146,9 @@ function AttachedArt({ url }: { url: string }) {
 }
 
 /** The hover text for a permanent's activated abilities: its `activated` one, and each loyalty ability (606). */
-const abilityText = (card: Card) => {
+const abilityText = (g: Game, card: Card) => {
   const script = scriptFor(card);
-  return [...activatedAbilities(card).map((ab) => ab.text), ...(script.loyalty ?? []).map((ab) => `${loyaltyCost(ab.cost)}: ${ab.text}`)].filter(Boolean).join('\n');
+  return [...activatedAbilities(g, card).map((ab) => ab.text), ...(script.loyalty ?? []).map((ab) => `${loyaltyCost(ab.cost)}: ${ab.text}`)].filter(Boolean).join('\n');
 };
 
 /** `phased`: the permanent is phased out (702.26b): drawn faded, and treated as though it doesn't exist, so clicks do nothing. */
@@ -156,7 +156,7 @@ export function Permanent({ card, badge, phased }: { card: Card; badge?: Card[];
   const v = useView();
   const g = v.g;
   const d = data(card);
-  const creature = isCreature(card);
+  const creature = isCreature(g, card);
   const s = creature ? stats(g, card) : null;
   const attacking = g.combat?.attacks.some((a) => a.id === card.id) ?? false;
   const blocking = g.combat?.attacks.some((a) => a.blockers.includes(card.id)) ?? false;
@@ -228,19 +228,19 @@ export function Permanent({ card, badge, phased }: { card: Card; badge?: Card[];
             {s.power}/{s.toughness - card.damage}
           </div>
         )}
-        {isPlaneswalker(card) && !s && (
+        {isPlaneswalker(g, card) && !s && (
           <div className="tile-pt tile-loyalty" title="Loyalty">
             {loyaltyOf(card)}
           </div>
         )}
-        {isBattle(card) && (
+        {isBattle(g, card) && (
           <div className="tile-pt tile-defense" title={`Defense${card.protector !== null ? ` — protected by ${g.players[card.protector].name}` : ''}`}>
             {defenseOf(card)}
           </div>
         )}
         <Counters card={card} />
         {sick && <i className="tile-sick ms ms-ability-summoning-sickness" title="Summoning sick" />}
-        {(scriptFor(card).activated || scriptFor(card).loyalty) && <div className="tile-ability" title={abilityText(card)} />}
+        {(scriptFor(card).activated || scriptFor(card).loyalty) && <div className="tile-ability" title={abilityText(g, card)} />}
         {card.tapped && <div className="tile-tapmark" />}
         {badge && (
           <div

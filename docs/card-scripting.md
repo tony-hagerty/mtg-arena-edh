@@ -78,6 +78,23 @@ a small rules question, and check each clause before writing code for it.
   stated quality may find nothing (701.23b).
 - "Countered this way" and "if you do" only follow if that part actually happened.
 
+**Continuous effects.**
+
+- "Creatures you control get +1/+1" changes only creatures, and "permanents you control
+  have ..." changes artifacts, enchantments and lands too. Check the type through `g`
+  (`isCreature(g, c)`), because another effect may have made it a creature (613.1d).
+- "Gets" or "has" on a permanent is a static ability: it changes as the game changes
+  (611.3a), so it goes in `static`. "Gets +2/+2 until end of turn" from a spell or
+  ability is locked in when it resolves (611.2c): `untilEndOfTurn`.
+- "Base power and toughness 1/1" sets them (layer 7b: `setPower`/`setToughness`), and
+  "+1/+1" adds to them (7c: `power`/`toughness`). "Switch its power and toughness" is
+  layer 7d (`switchPT`).
+- "Is a [type] in addition to its other types" adds; "becomes a [type]" without "in
+  addition" can replace (205.1). "Is a [creature type]" only applies to something that
+  is a creature or Kindred card (205.3d).
+- "For as long as ..." and "until your next turn" are durations (611.2b): give them
+  to `addContinuous`, don't end the effect by hand.
+
 **Numbers.**
 
 - Mana value counts X while a spell is on the stack (202.3e), and uses the larger part
