@@ -4,6 +4,7 @@ import { motion } from 'motion/react';
 import { activatedAbilities, attachmentsOf, data, defenseOf, isBattle, isCreature, isPlaneswalker, loyaltyOf, scriptFor, stats } from '../engine';
 import type { Card } from '../engine';
 import { useRem } from './rem';
+import { useStore } from './store';
 import { CardImage, frameOf, ManaCost, useArtLoads } from './TextCard';
 import { cx, hoverProps, seatOf } from './util';
 import { clickGroup, clickPermanent, loyaltyCost, playHandCard, useView } from './view';
@@ -332,8 +333,14 @@ export function HandCard({
         setHeld(null);
         setHot(false);
       }}
-      onMouseEnter={() => setHot(true)}
-      onMouseLeave={() => setHot(false)}
+      onMouseEnter={(e) => {
+        setHot(true);
+        useStore.setState({ hover: { name: d.name, el: e.currentTarget, hand: true } });
+      }}
+      onMouseLeave={() => {
+        setHot(false);
+        useStore.setState({ hover: null });
+      }}
       onClick={() => (glow === 'target' || (v.paying && v.mana.has(card.id))) && playHandCard(card)}
     >
       <motion.div
