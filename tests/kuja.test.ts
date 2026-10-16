@@ -1,9 +1,10 @@
 // The Kuja deck's hand scripts and the rules they needed: the clauses that could go wrong.
 import { describe, expect, it } from 'vitest';
 import { applyAction, applyBotAction, botAction, has, makeCard, stats } from '../src/engine';
-import type { Action, Card, Game, PlayerId, TargetRef } from '../src/engine';
+import type { Action, Game, PlayerId, TargetRef } from '../src/engine';
 import { produce } from 'immer';
 import { byName, emptyGame, put, run } from './helpers';
+import './fixtures';
 
 const pass = { type: 'pass' } as const;
 const player = (id: PlayerId): TargetRef => ({ kind: 'player', id });
@@ -329,4 +330,492 @@ describe('Roles and Auras', () => {
   });
 });
 
-export type { Card };
+/** Player 0 decides for themself: the rest of their decisions this game are theirs. */
+const human = (d: Game) => {
+  d.players[0].isBot = false;
+};
+const inExile = (g: Game, pid: PlayerId, name: string) => g.players[pid].exile.find((c) => c.name === name);
+
+describe('changing and copying spells', () => {
+  it('Redirect Lightning: pay 5 life, then the Bolt must go to another target', () => {
+    let g = emptyGame((d) => {
+      human(d);
+      put(d, 0, 'Lightning Bolt', 'hand');
+      put(d, 0, 'Redirect Lightning', 'hand');
+      put(d, 0, 'Mountain', 'battlefield', 2);
+    });
+    g = run(g, cast(g, 'Lightning Bolt', { targets: [player(1)], hold: true }));
+    const bolt = g.stack[0];
+    g = run(g, cast(g, 'Redirect Lightning', { targets: [{ kind: 'stack', id: bolt.id }], extra: 0 }));
+    expect(g.players[0].life).toBe(35);
+    g = settle(g, (x) => (x.decision?.type === 'retarget' ? { type: 'chooseTargets', targets: [player(2)] } : null));
+    expect(g.players[1].life).toBe(40);
+    expect(g.players[2].life).toBe(37);
+  });
+
+  it("Redirect Lightning can't target a spell with two targets", () => {
+    let g = emptyGame((d) => {
+      human(d);
+      put(d, 0, 'Fire Covenant', 'hand');
+      put(d, 0, 'Redirect Lightning', 'hand');
+      put(d, 0, 'Swamp');
+      put(d, 0, 'Mountain', 'battlefield', 4);
+      put(d, 1, 'Serra Angel', 'battlefield', 2);
+    });
+    const [a, b] = g.players[1].battlefield;
+    g = run(g, cast(g, 'Fire Covenant', { x: 2, targets: [card(a), card(b)], divide: [1, 1], hold: true }));
+    expect(applyAction(g, cast(g, 'Redirect Lightning', { targets: [{ kind: 'stack', id: g.stack[0].id }], extra: 1 }))).toBe(g);
+  });
+
+  it('Return the Favor copies a Bolt with new targets', () => {
+    let g = emptyGame((d) => {
+      human(d);
+      put(d, 0, 'Lightning Bolt', 'hand');
+      put(d, 0, 'Return the Favor', 'hand');
+      put(d, 0, 'Mountain', 'battlefield', 4);
+    });
+    g = run(g, cast(g, 'Lightning Bolt', { targets: [player(1)], hold: true }));
+    g = run(g, cast(g, 'Return the Favor', { modes: [0], targets: [{ kind: 'stack', id: g.stack[0].id }] }));
+    g = settle(g, (x) => (x.decision?.type === 'targets' || x.decision?.type === 'retarget' ? { type: 'chooseTargets', targets: [player(2)] } : null));
+    expect(g.players[1].life).toBe(37);
+    expect(g.players[2].life).toBe(37);
+  });
+
+  it("Mages' Contest: the bidders top each other; the winner loses that much life, and the spell is countered if you win", () => {
+    let g = emptyGame((d) => {
+      human(d);
+      put(d, 0, "Mages' Contest", 'hand');
+      put(d, 0, 'Mountain', 'battlefield', 3);
+      put(d, 1, 'Lightning Bolt', 'hand');
+      put(d, 1, 'Mountain');
+      d.priority = 1;
+    });
+    g = run(g, cast(g, 'Lightning Bolt', { targets: [player(0)] }, 'hand', 1));
+    for (let i = 0; i < 10 && g.priority !== 0; i++) g = applyAction(g, pass);
+    g = run(g, cast(g, "Mages' Contest", { targets: [{ kind: 'stack', id: g.stack[0].id }] }));
+    // The bot tops 1 with 2 (up to 2 + the Bolt's mana value); you top it with 4; it passes.
+    g = settle(g, (x) => (x.decision?.type === 'number' ? { type: 'chooseNumber', n: 4 } : null));
+    expect(g.players[0].life).toBe(36);
+    expect(g.players[1].life).toBe(40);
+    expect(byName(g, 1, 'Lightning Bolt', 'graveyard')).toBeTruthy();
+  });
+
+  it("Tibalt's Trickery counters, mills 1-3, exiles until a different nonland card, which may be cast free; the rest go to the bottom", () => {
+    let g = emptyGame((d) => {
+      human(d);
+      put(d, 0, 'Shock', 'hand');
+      put(d, 0, "Tibalt's Trickery", 'hand');
+      put(d, 0, 'Mountain', 'battlefield', 3);
+      top(d, 0, ['Mountain', 'Mountain', 'Mountain', 'Shock', 'Lightning Bolt', 'Plains', 'Plains']);
+    });
+    g = run(g, cast(g, 'Shock', { targets: [player(1)], hold: true }));
+    g = run(g, cast(g, "Tibalt's Trickery", { targets: [{ kind: 'stack', id: g.stack[0].id }] }));
+    g = settle(g, (x) =>
+      x.decision?.type === 'cast' ? { type: 'cast', card: x.decision.choice.card, targets: [player(2)] } : x.decision?.type === 'targets' ? { type: 'chooseTargets', targets: [player(2)] } : null,
+    );
+    expect(g.players[1].life).toBe(40);
+    expect(g.players[2].life).toBe(37);
+    const milled = g.players[0].graveyard.filter((c) => c.name === 'Mountain').length;
+    expect(milled).toBeGreaterThanOrEqual(1);
+    expect(milled).toBeLessThanOrEqual(3);
+    // The Shock with the same name was passed over and went to the bottom with the other exiled cards.
+    expect(g.players[0].exile).toHaveLength(0);
+    expect(g.players[0].library.slice(0, 2).map((c) => c.name)).toEqual(['Plains', 'Plains']);
+    expect(names(g.players[0].library.slice(2))).toEqual(names([...Array(3 - milled).fill({ name: 'Mountain' }), { name: 'Shock' }]));
+  });
+
+  it("Mizzix's Mastery exiles the card and casts a copy free; the copy doesn't stay in exile", () => {
+    let g = emptyGame((d) => {
+      human(d);
+      put(d, 0, "Mizzix's Mastery", 'hand');
+      put(d, 0, 'Lightning Bolt', 'graveyard');
+      put(d, 0, 'Mountain', 'battlefield', 4);
+    });
+    g = run(g, cast(g, "Mizzix's Mastery", { targets: [card(g.players[0].graveyard[0])] }));
+    g = settle(g, (x) =>
+      x.decision?.type === 'chooseCards'
+        ? { type: 'chooseCards', cards: (x.decision.choice as { cards: string[] }).cards.slice(0, 1) }
+        : x.decision?.type === 'cast'
+          ? { type: 'cast', card: x.decision.choice.card, targets: [player(1)] }
+          : null,
+    );
+    expect(g.players[1].life).toBe(37);
+    expect(names(g.players[0].exile)).toEqual(['Lightning Bolt', "Mizzix's Mastery"]);
+  });
+
+  it("Mizzix's Mastery overloaded copies each instant and sorcery card in your graveyard", () => {
+    let g = emptyGame((d) => {
+      human(d);
+      put(d, 0, "Mizzix's Mastery", 'hand');
+      put(d, 0, 'Lightning Bolt', 'graveyard');
+      put(d, 0, 'Shock', 'graveyard');
+      put(d, 0, 'Serra Angel', 'graveyard');
+      put(d, 0, 'Mountain', 'battlefield', 8);
+    });
+    g = run(g, cast(g, "Mizzix's Mastery", { alt: 0 }));
+    g = settle(g, (x) =>
+      x.decision?.type === 'chooseCards'
+        ? { type: 'chooseCards', cards: (x.decision.choice as { cards: string[] }).cards.slice(0, 1) }
+        : x.decision?.type === 'cast'
+          ? { type: 'cast', card: x.decision.choice.card, targets: [player(1)] }
+          : null,
+    );
+    expect(g.players[1].life).toBe(35);
+    expect(names(g.players[0].graveyard)).toEqual(['Serra Angel']);
+  });
+
+  it('Overmaster: the next instant or sorcery you cast this turn can’t be countered', () => {
+    let g = emptyGame((d) => {
+      put(d, 0, 'Overmaster', 'hand');
+      put(d, 0, 'Shock', 'hand');
+      put(d, 0, 'Counterspell', 'hand');
+      put(d, 0, 'Mountain', 'battlefield', 2);
+      put(d, 0, 'Island', 'battlefield', 2);
+      top(d, 0, plenty);
+    });
+    g = settle(run(g, cast(g, 'Overmaster')));
+    g = run(g, cast(g, 'Shock', { targets: [player(1)], hold: true }));
+    g = settle(run(g, cast(g, 'Counterspell', { targets: [{ kind: 'stack', id: g.stack[0].id }] })));
+    expect(g.players[1].life).toBe(38);
+  });
+});
+
+describe('damage spells', () => {
+  it('Fire Covenant: pay X life, X damage divided among the targets', () => {
+    let g = emptyGame((d) => {
+      put(d, 0, 'Fire Covenant', 'hand');
+      put(d, 0, 'Swamp');
+      put(d, 0, 'Mountain', 'battlefield', 2);
+      put(d, 1, 'Serra Angel');
+      put(d, 1, 'Walking Corpse');
+    });
+    const [a, b] = g.players[1].battlefield;
+    g = settle(run(g, cast(g, 'Fire Covenant', { x: 6, targets: [card(a), card(b)], divide: [4, 2] })));
+    expect(g.players[0].life).toBe(34);
+    expect(g.players[1].battlefield).toHaveLength(0);
+  });
+
+  it('Saw in Half: two token copies at half power and toughness, rounded up', () => {
+    let g = emptyGame((d) => {
+      put(d, 0, 'Saw in Half', 'hand');
+      put(d, 0, 'Swamp', 'battlefield', 3);
+      put(d, 1, 'Serra Angel');
+    });
+    g = settle(run(g, cast(g, 'Saw in Half', { targets: [card(byName(g, 1, 'Serra Angel')!)] })));
+    const copies = g.players[1].battlefield.filter((c) => c.isToken);
+    expect(copies).toHaveLength(2);
+    for (const c of copies) {
+      expect(stats(g, c)).toMatchObject({ power: 2, toughness: 2 });
+      expect(has(g, c, 'flying')).toBe(true);
+    }
+    expect(byName(g, 1, 'Serra Angel', 'graveyard')).toBeTruthy();
+  });
+
+  it('Stingerquill Charm makes a Cadet with haste', () => {
+    let g = emptyGame((d) => {
+      put(d, 0, 'Stingerquill Charm', 'hand');
+      put(d, 0, 'Swamp');
+      put(d, 0, 'Mountain');
+    });
+    g = settle(run(g, cast(g, 'Stingerquill Charm', { modes: [2] })));
+    const cadet = byName(g, 0, 'Cadet')!;
+    expect(stats(g, cadet)).toMatchObject({ power: 2, toughness: 2 });
+    expect(has(g, cadet, 'haste')).toBe(true);
+  });
+
+  it("Untimely Malfunction: two target creatures can't block", () => {
+    let g = emptyGame((d) => {
+      put(d, 0, 'Untimely Malfunction', 'hand');
+      put(d, 0, 'Mountain', 'battlefield', 2);
+      put(d, 1, 'Serra Angel');
+      put(d, 1, 'Walking Corpse');
+    });
+    const [a, b] = g.players[1].battlefield;
+    g = settle(run(g, cast(g, 'Untimely Malfunction', { modes: [2], targets: [card(a), card(b)] })));
+    for (const c of g.players[1].battlefield) expect(has(g, c, "can't block")).toBe(true);
+  });
+
+  it('Matoc exiles the top card when a source you control deals exactly 2, and pings for 2 by exiling two graveyard cards', () => {
+    let g = emptyGame((d) => {
+      put(d, 0, 'Matoc, Lavamancer');
+      put(d, 0, 'Shock', 'hand');
+      put(d, 0, 'Mountain', 'battlefield', 2);
+      put(d, 0, 'Plains', 'graveyard', 2);
+      top(d, 0, ['Lightning Bolt', ...plenty]);
+    });
+    g = settle(run(g, cast(g, 'Shock', { targets: [player(1)] })));
+    const bolt = inExile(g, 0, 'Lightning Bolt')!;
+    expect(bolt).toBeTruthy();
+    expect(g.effects.some((e) => e.kind === 'mayCast' && e.card === bolt.id)).toBe(true);
+    const matoc = byName(g, 0, 'Matoc, Lavamancer')!;
+    g = settle(run(g, { type: 'activate', card: matoc.id, targets: [player(2)], graveyard: g.players[0].graveyard.filter((c) => c.name === 'Plains').map((c) => c.id) }));
+    expect(g.players[2].life).toBe(38);
+    expect(g.players[0].graveyard.filter((c) => c.name === 'Plains')).toHaveLength(0);
+  });
+
+  it('Ensnared by the Mara: each opponent chooses in turn; the damage is the exiled cards’ total mana value', () => {
+    let g = emptyGame((d) => {
+      human(d);
+      put(d, 0, 'Ensnared by the Mara', 'hand');
+      put(d, 0, 'Mountain', 'battlefield', 4);
+      top(d, 1, ['Serra Angel', 'Shock', 'Mountain', 'Mountain', 'Plains']);
+      top(d, 2, ['Mountain', 'Lightning Bolt', 'Plains']);
+      top(d, 3, ['Shock', 'Shock', 'Shock', 'Shock']);
+      d.players[2].life = 10;
+    });
+    g = settle(run(g, cast(g, 'Ensnared by the Mara')), (x) => (x.decision?.type === 'cast' ? { type: 'cast', card: x.decision.choice.card, targets: [player(3)] } : null));
+    // Player 1 took 5 + 1; player 2 (low on life) let you cast its Bolt, at player 3; player 3 took 4.
+    expect(g.players[1].life).toBe(34);
+    expect(g.players[1].exile).toHaveLength(4);
+    expect(g.players[2].life).toBe(10);
+    expect(g.players[3].life).toBe(40 - 3 - 4);
+  });
+});
+
+describe('exile and play', () => {
+  it('Bloodsoaked Insight costs less for life opponents lost; you may play the exiled cards until your next turn ends, with any mana', () => {
+    let g = emptyGame((d) => {
+      put(d, 0, 'Bloodsoaked Insight', 'hand');
+      put(d, 0, 'Mountain', 'battlefield', 4);
+      d.players[1].lifeLost = 3;
+      d.players[2].lifeLost = 2;
+      top(d, 1, ['Serra Angel', 'Plains', 'Shock']);
+    });
+    g = settle(run(g, cast(g, 'Bloodsoaked Insight', { targets: [player(1)] })));
+    expect(g.players[1].exile).toHaveLength(3);
+    const e = g.effects.find((x) => x.kind === 'mayCast' && x.card === inExile(g, 1, 'Serra Angel')!.id)!;
+    expect(e).toMatchObject({ player: 0, play: true, anyMana: true, until: { player: 0, turn: 2 } });
+  });
+
+  it('Light Up the Stage: spectacle only once an opponent lost life this turn', () => {
+    const g = emptyGame((d) => {
+      put(d, 0, 'Light Up the Stage', 'hand');
+      put(d, 0, 'Mountain');
+    });
+    expect(applyAction(g, cast(g, 'Light Up the Stage', { alt: 0 }))).toBe(g);
+    const after = produce(g, (d) => {
+      d.players[3].lifeLost = 1;
+      top(d, 0, plenty);
+    });
+    const done = settle(run(after, cast(after, 'Light Up the Stage', { alt: 0 })));
+    expect(done.players[0].exile).toHaveLength(2);
+  });
+
+  it('Dance with Calamity: exile as many as you like; with 13 or less, cast them free', () => {
+    let g = emptyGame((d) => {
+      human(d);
+      put(d, 0, 'Dance with Calamity', 'hand');
+      put(d, 0, 'Mountain', 'battlefield', 8);
+      top(d, 0, ['Lightning Bolt', 'Lightning Bolt']);
+    });
+    let asks = 0;
+    g = settle(run(g, cast(g, 'Dance with Calamity')), (x) => {
+      const c = asked(x);
+      if (x.decision?.type === 'ask') return { type: 'answer', yes: ++asks < 2 };
+      if (x.decision?.type === 'chooseCards') return { type: 'chooseCards', cards: c!.cards!.slice(0, 1) };
+      if (x.decision?.type === 'cast') return { type: 'cast', card: x.decision.choice.card, targets: [player(1)] };
+      return null;
+    });
+    // One card exiled (the library was shuffled, both are Bolts), then cast.
+    expect(g.players[1].life).toBe(37);
+    expect(g.players[0].library).toHaveLength(1);
+  });
+
+  it('Dance with Calamity: over 13, nothing is cast', () => {
+    let g = emptyGame((d) => {
+      human(d);
+      put(d, 0, 'Dance with Calamity', 'hand');
+      put(d, 0, 'Mountain', 'battlefield', 8);
+      top(d, 0, ['Serra Angel', 'Serra Angel', 'Serra Angel']);
+    });
+    g = settle(run(g, cast(g, 'Dance with Calamity')), (x) => (x.decision?.type === 'ask' ? { type: 'answer', yes: true } : null));
+    expect(g.players[0].exile).toHaveLength(3);
+    expect(g.decision).toBeNull();
+  });
+
+  it('Hex Magic exiles your hand, draws that many, and lets you play the exiled cards', () => {
+    let g = emptyGame((d) => {
+      put(d, 0, 'Hex Magic', 'hand');
+      put(d, 0, 'Shock', 'hand');
+      put(d, 0, 'Plains', 'hand');
+      put(d, 0, 'Mountain', 'battlefield', 3);
+      top(d, 0, plenty);
+    });
+    g = settle(run(g, cast(g, 'Hex Magic')));
+    expect(g.players[0].hand).toHaveLength(2);
+    expect(names(g.players[0].exile)).toEqual(['Plains', 'Shock']);
+    expect(g.effects.filter((e) => e.kind === 'mayCast')).toHaveLength(2);
+  });
+
+  it('Flameshape exiles two face down that you may play only while you control a Wizard', () => {
+    let g = emptyGame((d) => {
+      put(d, 0, "Gandalf, Goblins' Bane", 'hand');
+      put(d, 0, 'Mountain', 'battlefield', 3);
+      top(d, 0, ['Plains', 'Shock', ...plenty]);
+    });
+    g = settle(run(g, cast(g, "Gandalf, Goblins' Bane", { face: 1 })));
+    const exiled = g.players[0].exile.filter((c) => c.faceDown);
+    expect(exiled).toHaveLength(2);
+    expect(exiled.every((c) => c.known.includes(0))).toBe(true);
+    expect(g.effects.filter((e) => e.kind === 'mayCast' && e.ifSubtype === 'Wizard')).toHaveLength(2);
+  });
+
+  it('Flashback gives an instant in your graveyard flashback for its mana cost; it is exiled after', () => {
+    let g = emptyGame((d) => {
+      put(d, 0, 'Flashback', 'hand');
+      put(d, 0, 'Lightning Bolt', 'graveyard');
+      put(d, 0, 'Mountain', 'battlefield', 2);
+    });
+    g = settle(run(g, cast(g, 'Flashback', { targets: [card(g.players[0].graveyard[0])] })));
+    g = settle(run(g, cast(g, 'Lightning Bolt', { targets: [player(1)] }, 'graveyard')));
+    expect(g.players[1].life).toBe(37);
+    expect(inExile(g, 0, 'Lightning Bolt')).toBeTruthy();
+  });
+});
+
+describe('card selection', () => {
+  it('Highway Robbery: discard a card to draw two', () => {
+    let g = emptyGame((d) => {
+      human(d);
+      put(d, 0, 'Highway Robbery', 'hand');
+      put(d, 0, 'Plains', 'hand');
+      put(d, 0, 'Mountain', 'battlefield', 2);
+      top(d, 0, plenty);
+    });
+    g = settle(run(g, cast(g, 'Highway Robbery')), (x) => (x.decision?.type === 'chooseCards' ? { type: 'chooseCards', cards: [byName(x, 0, 'Plains', 'hand')!.id] } : null));
+    expect(names(g.players[0].hand)).toEqual(['Mountain', 'Mountain']);
+  });
+
+  it('Highway Robbery: sacrifice a land to draw two, or do neither and draw nothing', () => {
+    let g = emptyGame((d) => {
+      human(d);
+      put(d, 0, 'Highway Robbery', 'hand', 2);
+      put(d, 0, 'Mountain', 'battlefield', 5);
+      top(d, 0, plenty);
+    });
+    g = settle(run(g, cast(g, 'Highway Robbery')), (x) =>
+      x.decision?.type === 'chooseCards' ? { type: 'chooseCards', cards: [x.players[0].battlefield.find((c) => c.tapped)!.id] } : null,
+    );
+    expect(g.players[0].battlefield).toHaveLength(4);
+    expect(g.players[0].hand.filter((c) => c.name === 'Mountain')).toHaveLength(2);
+    g = settle(run(g, cast(g, 'Highway Robbery')), (x) => (x.decision?.type === 'chooseCards' ? { type: 'chooseCards', cards: [] } : null));
+    expect(g.players[0].hand).toHaveLength(2);
+  });
+
+  it('Valakut Awakening: put cards on the bottom in the order you choose, then draw that many plus one', () => {
+    let g = emptyGame((d) => {
+      human(d);
+      put(d, 0, 'Valakut Awakening', 'hand');
+      put(d, 0, 'Plains', 'hand');
+      put(d, 0, 'Shock', 'hand');
+      put(d, 0, 'Serra Angel', 'hand');
+      put(d, 0, 'Mountain', 'battlefield', 3);
+      top(d, 0, ['Swamp', 'Swamp', 'Swamp', 'Island']);
+    });
+    let step = 0;
+    g = settle(run(g, cast(g, 'Valakut Awakening')), (x) => {
+      if (x.decision?.type !== 'chooseCards') return null;
+      const id = (n: string) => byName(x, 0, n, 'hand')!.id;
+      return { type: 'chooseCards', cards: step++ === 0 ? [id('Plains'), id('Shock')] : [id('Shock'), id('Plains')] };
+    });
+    expect(names(g.players[0].hand)).toEqual(['Serra Angel', 'Swamp', 'Swamp', 'Swamp']);
+    expect(g.players[0].library.map((c) => c.name)).toEqual(['Island', 'Shock', 'Plains']);
+  });
+
+  it('Tablet of Discovery mills a card you may play this turn', () => {
+    let g = emptyGame((d) => {
+      put(d, 0, 'Tablet of Discovery', 'hand');
+      put(d, 0, 'Mountain', 'battlefield', 3);
+      top(d, 0, ['Plains', ...plenty]);
+    });
+    g = settle(run(g, cast(g, 'Tablet of Discovery')));
+    const plains = byName(g, 0, 'Plains', 'graveyard')!;
+    expect(g.effects.some((e) => e.kind === 'mayCast' && e.card === plains.id && e.play)).toBe(true);
+  });
+});
+
+describe('graveyard triggers', () => {
+  it("Vivi's Persistence: when your commander enters, you may pay {2} to return it to your hand", () => {
+    let g = emptyGame((d) => {
+      put(d, 0, "Vivi's Persistence", 'graveyard');
+      put(d, 0, 'Plains', 'battlefield', 7);
+    });
+    g = settle(run(g, { type: 'cast', card: g.players[0].command[0].id }));
+    expect(byName(g, 0, "Vivi's Persistence", 'hand')).toBeTruthy();
+  });
+
+  it('Asgardian Inspiration returns when a source you control deals noncombat damage to an opponent, if you pay {2}', () => {
+    let g = emptyGame((d) => {
+      put(d, 0, 'Asgardian Inspiration', 'graveyard');
+      put(d, 0, 'Shock', 'hand');
+      put(d, 0, 'Mountain', 'battlefield', 3);
+    });
+    g = settle(run(g, cast(g, 'Shock', { targets: [player(1)] })));
+    expect(byName(g, 0, 'Asgardian Inspiration', 'hand')).toBeTruthy();
+  });
+
+  it("Asgardian Inspiration doesn't trigger on damage to you", () => {
+    let g = emptyGame((d) => {
+      put(d, 0, 'Asgardian Inspiration', 'graveyard');
+      put(d, 0, 'Shock', 'hand');
+      put(d, 0, 'Mountain', 'battlefield', 3);
+    });
+    g = settle(run(g, cast(g, 'Shock', { targets: [player(0)] })));
+    expect(byName(g, 0, 'Asgardian Inspiration', 'graveyard')).toBeTruthy();
+  });
+});
+
+describe('Black Market Connections', () => {
+  it('chooses modes at the beginning of your first main phase', () => {
+    let g = emptyGame((d) => {
+      human(d);
+      put(d, 0, 'Black Market Connections');
+      top(d, 0, plenty);
+      d.step = 'upkeep';
+      d.turn = 2;
+    });
+    g = until(g, (x) => x.decision?.type === 'triggerModes');
+    g = settle(run(g, { type: 'chooseModes', modes: [0, 2] }));
+    expect(byName(g, 0, 'Treasure')).toBeTruthy();
+    const shifter = byName(g, 0, 'Shapeshifter 3/2 changeling')!;
+    expect(stats(g, shifter)).toMatchObject({ power: 3, toughness: 2 });
+    expect(g.players[0].life).toBe(36);
+  });
+});
+
+describe('lands and mana', () => {
+  it('Dark Fortress makes {B} or {R} only the turn it entered or with a basic land', () => {
+    const g = emptyGame((d) => {
+      const f = put(d, 0, 'Dark Fortress');
+      f.entered = 0;
+      put(d, 0, 'Shock', 'hand');
+    });
+    const fortress = byName(g, 0, 'Dark Fortress')!;
+    expect(applyAction(g, { type: 'tapMana', card: fortress.id, ability: 1, color: 'R' })).toBe(g);
+    const withBasic = produce(g, (d) => void put(d, 0, 'Mountain'));
+    run(withBasic, { type: 'tapMana', card: fortress.id, ability: 1, color: 'R' });
+  });
+
+  it('Phyrexian Tower sacrifices a creature for {B}{B}', () => {
+    let g = emptyGame((d) => {
+      put(d, 0, 'Phyrexian Tower');
+      put(d, 0, 'Walking Corpse');
+    });
+    g = run(g, { type: 'tapMana', card: byName(g, 0, 'Phyrexian Tower')!.id, ability: 1, sacrifice: byName(g, 0, 'Walking Corpse')!.id });
+    expect(g.players[0].pool.map((m) => m.sym)).toEqual(['B', 'B']);
+    expect(byName(g, 0, 'Walking Corpse', 'graveyard')).toBeTruthy();
+  });
+
+  it('Coruscation Mage with offspring makes a 1/1 token copy that pings too', () => {
+    let g = emptyGame((d) => {
+      put(d, 0, 'Coruscation Mage', 'hand');
+      put(d, 0, 'Mountain', 'battlefield', 5);
+      put(d, 0, 'Shock', 'hand');
+    });
+    g = settle(run(g, cast(g, 'Coruscation Mage', { offspring: true })));
+    const token = g.players[0].battlefield.find((c) => c.name === 'Coruscation Mage' && c.isToken)!;
+    expect(stats(g, token)).toMatchObject({ power: 1, toughness: 1 });
+    g = settle(run(g, cast(g, 'Shock', { targets: [player(1)] })));
+    expect(g.players[1].life).toBe(36);
+  });
+});
