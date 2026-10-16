@@ -359,6 +359,31 @@ export function HandCard({
   );
 }
 
+/**
+ * A card in the bottom seat's hand that the viewer can't see (`isHidden`), as when watching
+ * the bots through the game server: a card back in the same fan as `HandCard`, with nothing
+ * to drag or hover.
+ */
+export function HiddenHandCard({ card, index, total, drawn }: { card: Card; index: number; total: number; drawn?: number }) {
+  const rem = useRem();
+  const { x, tilt, drop } = fan(index, total, 10.5, 84);
+  const fly = useFlight(drawn, () =>
+    onLibrary(card.owner, document.querySelector('.hand'), 0, x * rem, HAND_W * rem, HAND_W * 1.4 * rem),
+  );
+  return (
+    <div className="hand-slot" style={{ left: `${x}rem`, zIndex: index }}>
+      <motion.div
+        className="card-back"
+        style={{ originY: 1 }}
+        initial={fly.start ? { opacity: 1, ...fly.start } : { opacity: 0, y: 8 * rem }}
+        animate={{ opacity: 1, x: 0, y: drop * rem, rotate: tilt, scale: 1 }}
+        transition={fly.transition}
+        onAnimationComplete={fly.landed}
+      />
+    </div>
+  );
+}
+
 /** Width of a face-down card in an opponent's hand in rem. Keep in step with .opp-fan .card-back. */
 const BACK_W = 9;
 

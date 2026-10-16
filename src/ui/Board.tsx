@@ -2,9 +2,9 @@ import { useEffect, useRef, useState } from 'react';
 import type { CSSProperties } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import { cardData } from '../cards/db';
-import { COMMANDER_DAMAGE, attachmentsOf, creaturesOf, data, isCreature, isLand, permanent } from '../engine';
+import { COMMANDER_DAMAGE, attachmentsOf, creaturesOf, data, isCreature, isHidden, isLand, permanent } from '../engine';
 import type { Card, ManaSym, Player } from '../engine';
-import { HandBack, HandCard, Permanent } from './Card';
+import { HandBack, HandCard, HiddenHandCard, Permanent } from './Card';
 import { CardImage } from './TextCard';
 import { useRem } from './rem';
 import { useStore } from './store';
@@ -394,16 +394,12 @@ export function PlayerField({ player }: { player: Player }) {
         <Piles player={player} />
       </div>
       <div className="hand">
-        {hand.map((c, i) => (
-          <HandCard
-            key={c.id}
-            card={c}
-            index={i}
-            total={hand.length}
-            drawn={drawn.includes(c.id) ? drawn.indexOf(c.id) : undefined}
-            onMove={(to) => moveCard(i, to)}
-          />
-        ))}
+        {hand.map((c, i) => {
+          const d = drawn.includes(c.id) ? drawn.indexOf(c.id) : undefined;
+          // Watching the bots, nobody sits at the bottom, so that seat's hand is hidden too (`viewFor`).
+          if (isHidden(c)) return <HiddenHandCard key={c.id} card={c} index={i} total={hand.length} drawn={d} />;
+          return <HandCard key={c.id} card={c} index={i} total={hand.length} drawn={d} onMove={(to) => moveCard(i, to)} />;
+        })}
       </div>
     </>
   );
