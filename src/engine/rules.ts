@@ -1,6 +1,6 @@
 // Queries and effect primitives. Everything here either reads a Game or mutates an
 // Immer draft of one; turn structure and action handling live in engine.ts.
-import { cardData } from '../cards/db';
+import { CREATURE_TYPES, cardData } from '../cards/db';
 import { scriptOf } from './registry';
 import type {
   ActivatedAbility,
@@ -242,7 +242,11 @@ export const layoutOf = (c: Card) => cardData(c.name).layout;
 export const label = (c: Card) => data(c).name;
 export const hasType = (c: Card, t: string) => data(c).typeLine.includes(t);
 /** Its subtypes (205.3): the words after the dash in its type line. */
-export const subtypesOf = (c: Card) => data(c).typeLine.split(' — ')[1]?.split(' ') ?? [];
+export const subtypesOf = (c: Card) => {
+  const own = data(c).typeLine.split(' — ')[1]?.split(' ') ?? [];
+  // Changeling: "This object is every creature type" (702.73a), in every zone.
+  return data(c).keywords.includes('Changeling') ? [...own, ...CREATURE_TYPES.filter((t) => !own.includes(t))] : own;
+};
 /**
  * Printed as a creature, or made one until end of turn (a crewed Vehicle, 702.122a). An
  * Equipment with reconfigure stops being a creature while it is attached (702.151b).
@@ -841,6 +845,8 @@ interface Source {
   only?: string;
   /** Its mana can be spent only on a legendary spell (106.6, Plaza of Heroes). */
   legendary?: boolean;
+  /** Its mana can be spent only on spells with one of these card types (106.6, Tablet of Discovery). */
+  types?: string[];
   /** Not a mana ability: a creature tapped to pay for one mana of a spell with convoke (702.51a). */
   convoke?: boolean;
   /** A spell its mana is spent on can't be countered (106.6). */
@@ -877,8 +883,13 @@ export const tapCandidates = (g: Game, pid: PlayerId, ab: Pick<ManaAbility, 'tap
  * Can mana with these restrictions be spent on `spell` (106.6)? Restricted to creature
  * spells of type `only`, or to legendary spells.
  */
-const spendable = (m: { only?: string; legendary?: boolean }, spell?: Card) =>
-  (!m.only || (!!spell && isCreature(spell) && subtypesOf(spell).includes(m.only))) && (!m.legendary || (!!spell && hasType(spell, 'Legendary')));
+const spendable = (m: { only?: string; legendary?: boolean; types?: string[] }, spell?: Card) =>
+  (!m.only || (!!spell && isCreature(spell) && subtypesOf(spell).includes(m.only))) &&
+  (!m.legendary || (!!spell && hasType(spell, 'Legendary'))) &&
+  (!m.types || (!!spell && m.types.some((t) => hasType(spell, t))));
+
+/** Mana that can be spent only on some spells (106.6). */
+const restricted = (m: { only?: string; legendary?: boolean; types?: string[] }) => !!(m.only || m.legendary || m.types);
 
 /**
  * The mana abilities `pid` could use now, one entry per ability. `manual` adds the ones
@@ -914,6 +925,7 @@ export function manaSources(g: Game, pid: PlayerId, manual = false): Source[] {
           busy: !!creature || (!ab.noTap && !ab.fromHand && (isCreature(c) || activatedAbilities(c).some((a) => a.cost.tap))),
           ...(ab.chosenType ? { only: c.chosen ?? undefined, uncounterable: ab.uncounterable } : {}),
           ...(ab.legendary ? { legendary: true } : {}),
+          ...(ab.types ? { types: ab.types } : {}),
         });
       }
     }
@@ -1014,7 +1026,14 @@ export function tapForMana(g: Game, pid: PlayerId, c: Card, ability = pickManaAb
   const sym = color && ab.colors.includes(color) ? color : ab.colors.length === 1 ? ab.colors[0] : pickColor(g, pid, ab.colors);
   const only = ab.chosenType ? (c.chosen ?? undefined) : undefined;
   for (let k = 0; k < ab.amount; k++)
-    g.players[pid].pool.push({ sym, source: c.id, ability: ab.index, ...(only ? { only, uncounterable: ab.uncounterable } : {}), ...(ab.legendary ? { legendary: true } : {}) });
+    g.players[pid].pool.push({
+      sym,
+      source: c.id,
+      ability: ab.index,
+      ...(only ? { only, uncounterable: ab.uncounterable } : {}),
+      ...(ab.legendary ? { legendary: true } : {}),
+      ...(ab.types ? { types: ab.types } : {}),
+    });
   useManaAbility(g, pid, c, ab, tapId, discardId);
 }
 
@@ -1108,6 +1127,7 @@ const extraMana = (s: Source, paying: ManaSym | null): Mana[] =>
     ability: s.ability,
     ...(s.only ? { only: s.only, uncounterable: s.uncounterable } : {}),
     ...(s.legendary ? { legendary: true } : {}),
+    ...(s.types ? { types: s.types } : {}),
   }));
 
 /** Uses source `s` to pay one mana: the permanent's other mana abilities are gone with it (it is tapped, or sacrificed). */
@@ -1159,7 +1179,7 @@ function payGeneric(plan: Plan): Plan | null {
   while (remaining > 0) {
     if (plan.pool.length) {
       // Restricted mana first (it can't pay for anything else), then colourless, then the colour other cards want least.
-      const rank = (m: Mana) => (m.only || m.legendary ? -2 : m.sym === 'C' ? -1 : (plan.wants.get(m.sym) ?? 0));
+      const rank = (m: Mana) => (restricted(m) ? -2 : m.sym === 'C' ? -1 : (plan.wants.get(m.sym) ?? 0));
       const i = plan.pool.reduce((best, m, k) => (rank(m) < rank(plan.pool[best]) ? k : best), 0);
       plan = fromPool(plan, i);
       remaining--;
@@ -1408,7 +1428,7 @@ function planPlain(g: Game, pid: PlayerId, cost: Cost, spell: Card | undefined, 
     !WUBRG.includes(x as ManaSym) ? 1e6 + i : pool.some((m) => m.sym === x) ? -1e6 : (wants.get(x as ManaSym) ?? 0) * 1000 - makers(x);
   const hybrid = cost.hybrid.map((h) => h.map((x, i) => ({ x, k: order(x, i) })).sort((a, b) => a.k - b.k).map((o) => o.x));
   // Restricted mana goes first: it can pay for nothing else.
-  const ordered = [...pool.filter((m) => m.only || m.legendary), ...pool.filter((m) => !m.only && !m.legendary)];
+  const ordered = [...pool.filter(restricted), ...pool.filter((m) => !restricted(m))];
   const start: Plan = { pool: ordered, sources: all, uses: [], abilityLife: 0, generic: cost.generic, life: cost.life, spent: 0, uncounterable: false, wants };
   const paid = payShards([...pips, ...hybrid], start, locked ? 0 : p.life);
   if (!paid || paid.life + paid.abilityLife > p.life) return null;
@@ -1708,10 +1728,12 @@ export function copyItem(g: Game, item: StackItem, controller: PlayerId) {
   }
   // A copy is owned by the player who controls it (707.10). It wasn't cast (707.10), so
   // nothing about how it was cast carries over but the choices made (707.2).
-  const cast = item.card.cast && { ...item.card.cast, from: undefined, flashback: false, escaped: false, free: false };
+  // An effect that made the original uncounterable doesn't apply to the copy, a new object.
+  const cast = item.card.cast && { ...item.card.cast, from: undefined, flashback: false, escaped: false, free: false, uncounterable: false };
   const card: Card = { ...snapshot(item.card), id: `c${g.nextId++}`, owner: controller, controller, isToken: true, isCommander: false, cast };
   log(g, `${says(g.players[controller], 'copies')} ${label(item.card)}.`, controller, [item.card]);
   g.triggers.push({ id: `s${g.nextId++}`, kind: 'spell', controller, card, targets: [...item.targets], copy: true, ordered: true });
+  broadcast(g, 'onCopy', { card: snapshot(card), controller });
 }
 
 // ---------- randomness (seeded, so games can be replayed in tests) ----------
@@ -2172,6 +2194,7 @@ export const WARP = '@warp';
 /** Sets up a permanent that was just put onto the battlefield, before anything triggers on it. */
 function setUp(g: Game, c: Card, opts: EnterOpts) {
   c.sick = true;
+  c.entered = g.turn;
   refreshSubtypes(g); // its choice or copy is set by now
   const tapped = scriptFor(c).entersTapped;
   c.tapped =

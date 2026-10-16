@@ -125,11 +125,13 @@ import {
   withOrderAnswers,
   tokenCopy,
   canChangeTargets,
+  hasType,
 } from './rules';
 import type { EnterOpts } from './rules';
 import type {
   AbilityRef,
   Action,
+  Mana,
   AskChoice,
   Card,
   CardChoice,
@@ -1259,10 +1261,13 @@ function beginStep(g: Game, step: Step) {
   }
 }
 
+/** Does a permanent say player `pid` doesn't lose this mana as steps and phases end (Electro's red mana, 500.5)? */
+const keptMana = (g: Game, pid: PlayerId, m: Mana) => battlefield(g).some((src) => scriptFor(src).keepsMana?.(g, src, pid, m));
+
 /** Ends the current step or phase and begins the next. */
 function nextStep(g: Game) {
   // Unspent mana empties (500.5), except mana an effect says isn't lost this turn (Birgi).
-  for (const p of g.players) p.pool = p.pool.filter((m) => m.keep === g.turn);
+  for (const p of g.players) p.pool = p.pool.filter((m) => m.keep === g.turn || keptMana(g, p.id, m));
   const combat = g.combat;
   switch (g.step) {
     case 'upkeep':
@@ -1298,7 +1303,8 @@ function nextStep(g: Game) {
  */
 function cleanup(g: Game) {
   for (const p of g.players) {
-    p.pool = []; // mana kept "until end of turn" is gone now (514.2)
+    // Mana kept "until end of turn" is gone now (514.2), but not mana an effect says isn't lost (Electro).
+    p.pool = p.pool.filter((m) => keptMana(g, p.id, m));
     // Phased-out permanents too (514.2, 702.26f).
     for (const c of [...p.battlefield, ...(p.phasedOut ?? [])]) {
       c.damage = 0;
@@ -2049,6 +2055,12 @@ function act(g: Game, a: Action): boolean {
         spent: paid.spent,
         uncounterable: paid.uncounterable,
       };
+      // "The next instant or sorcery spell you cast this turn can't be countered" (Overmaster).
+      const next = g.effects.findIndex((e) => e.kind === 'uncounterableNext' && e.player === pid);
+      if (next >= 0 && (hasType(spell, 'Instant') || hasType(spell, 'Sorcery'))) {
+        info.uncounterable = true;
+        g.effects.splice(next, 1);
+      }
       c.cast = info;
       const item: StackItem = { id: `s${g.nextId++}`, kind: 'spell', controller: pid, card: c, targets };
       if (sacrificed.length) {
