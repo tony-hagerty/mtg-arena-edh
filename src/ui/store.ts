@@ -1,7 +1,7 @@
 import { produce } from 'immer';
 import { create } from 'zustand';
 import { HIDDEN, applyAction, applyBotAction, defaultStops, newGame } from '../engine';
-import type { Action, ApplyOptions, AttackOption, CastChoices, Game, ManaSym, PlayerId, SeatDef, Step, StopKind, Stops, TargetRef, TargetSpec, Zone } from '../engine';
+import type { Action, ApplyOptions, AttackOption, CardData, CastChoices, Game, ManaSym, PlayerId, SeatDef, Step, StopKind, Stops, TargetRef, TargetSpec, Zone } from '../engine';
 import { DECKS, cardData, isCardName } from '../cards/db';
 import type { DeckDef } from '../cards/db';
 import { savedDeckIssues } from '../cards/decklist';
@@ -166,6 +166,11 @@ export function seatDecks(human: DeckDef | null, opponents: (string | null)[], s
 export interface Hover {
   name: string;
   el: HTMLElement;
+  /**
+   * The card as it looks now, for a card in the game. A token's name isn't the key it is
+   * looked up by, and a copy or a flipped card looks different from its name's card.
+   */
+  d?: CardData;
   /** A card in the human's hand. It zooms itself, so it only gets a preview when right-clicked. */
   hand?: boolean;
 }
