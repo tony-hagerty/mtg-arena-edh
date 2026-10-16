@@ -120,6 +120,7 @@ import {
   activationCost,
   enterTogether,
   settleEntering,
+  flashbackCost,
   NeedsOrder,
   withOrderAnswers,
 } from './rules';
@@ -546,13 +547,26 @@ function timingOk(g: Game, pid: PlayerId, instantSpeed: boolean): boolean {
 }
 
 /** Playing a land is a special action with sorcery timing, once a turn (305.1, 305.2). */
+/**
+ * Can `pid` plot card `c` now (702.170a)? A special action: from their hand, any time they
+ * have priority during their own turn while the stack is empty (116.2k), if they can pay its
+ * plot cost.
+ */
+export function canPlot(g: Game, pid: PlayerId, c: Card): boolean {
+  const cost = scriptFor(c).plot;
+  if (!cost || c.zone !== 'hand' || c.owner !== pid) return false;
+  if (g.priority !== pid || g.active !== pid || g.decision || g.stack.length || g.step === 'gameOver') return false;
+  return !!planPayment(g, pid, parseCost(cost));
+}
+
 export function canPlayLand(g: Game, pid: PlayerId, c: Card, face?: number): boolean {
   const faces = landFaces(c);
   if (face !== undefined ? !faces.includes(face) : !faces.length) return false;
   // From a hand, or from exile with an effect that lets them play it (Jeska's Will). Either
   // way it counts as their land for the turn (305.2a).
   // A land with an Adventure can be played from exile once its Adventure has resolved (715.3d).
-  const from = c.zone === 'hand' ? c.owner === pid : c.zone === 'exile' && ((c.adventure && c.owner === pid) || !!permission(g, pid, c)?.play);
+  const from =
+    c.zone === 'hand' ? c.owner === pid : (c.zone === 'exile' && c.adventure && c.owner === pid) || ((c.zone === 'exile' || c.zone === 'graveyard') && !!permission(g, pid, c)?.play);
   return from && g.players[pid].landsPlayed < 1 && timingOk(g, pid, false);
 }
 
@@ -565,7 +579,8 @@ export function canPlayLand(g: Game, pid: PlayerId, c: Card, face?: number): boo
 function castableFrom(g: Game, pid: PlayerId, c: Card): boolean {
   if (castingNow(g, pid, c)) return true;
   if (c.zone === 'hand' || c.zone === 'command') return c.owner === pid;
-  if (c.zone === 'graveyard') return c.owner === pid && (!!scriptFor(c).flashback || hasEscape(g, c) || facesOf(c).some((f) => isAftermath(c, f)));
+  // A card an effect lets them play from there (Tablet of Discovery) needn't be theirs.
+  if (c.zone === 'graveyard') return (c.owner === pid && (!!flashbackCost(g, c) || hasEscape(g, c) || facesOf(c).some((f) => isAftermath(c, f)))) || !!permission(g, pid, c);
   if (c.zone !== 'exile') return false;
   // Its owner may cast it while it stays exiled: airbent (701.65a), warped on a later turn
   // (702.185a), or plotted on a later turn (702.170d).
@@ -611,12 +626,13 @@ export function castFaces(c: Card): number[] {
  */
 export function graveyardWays(g: Game, c: Card, face: number): { flashback: boolean; escape: boolean; aftermath: boolean; permitted: boolean } {
   return {
-    flashback: !!scriptFor(c).flashback && !isPermanentCard(asSpell(c, face)) && !isAftermath(c, face),
+    flashback: !!flashbackCost(g, c) && !isPermanentCard(asSpell(c, face)) && !isAftermath(c, face),
     escape: escapes(g, c).some((e) => escapeOptions(g, c).length >= e.exile),
     // An aftermath half, from a graveyard (702.127a).
     aftermath: isAftermath(c, face),
     // An effect lets the player cast it from there now, paying its mana cost (Emet-Selch, 608.2g).
-    permitted: castingNow(g, c.owner, c),
+    // Or an effect lets them cast it this turn (Tablet of Discovery).
+    permitted: castingNow(g, c.owner, c) || !!permission(g, c.owner, c),
   };
 }
 
@@ -1261,7 +1277,9 @@ function cleanup(g: Game) {
   }
   // "Until end of turn" effects end; one that lasts until the end of a later turn, or until
   // someone's next turn (`ends`), stays (514.2, 611.2a).
-  g.effects = g.effects.filter((e) => ('ends' in e && e.ends) || (e.kind === 'cantCast' && e.until && !(g.active === e.until.player && g.turn >= e.until.turn)));
+  g.effects = g.effects.filter(
+    (e) => ('ends' in e && e.ends) || (e.kind === 'mayCast' && e.lasting) || ('until' in e && e.until && !(g.active === e.until.player && g.turn >= e.until.turn)),
+  );
   // An extra turn comes next if there is one, the most recent first (500.7). "If an opponent
   // would begin an extra turn, that player skips that turn instead" (Trouble in Pairs, 614.10).
   while (g.extraTurns.length) {
@@ -1889,6 +1907,18 @@ function act(g: Game, a: Action): boolean {
   if (g.step === 'gameOver') return false;
 
   switch (a.type) {
+    case 'plot': {
+      const c = p.hand.find((x) => x.id === a.card);
+      if (!c || !canPlot(g, pid, c)) return false;
+      // A special action (116.2k): it doesn't use the stack, and the player keeps priority (116.3).
+      pay(g, pid, parseCost(scriptFor(c).plot!));
+      log(g, `${says(p, 'plots')} ${label(c)}.`, pid, [c]);
+      moveCard(g, c, 'exile');
+      const exiled = p.exile.find((x) => x.id === c.id);
+      if (exiled) exiled.plotted = g.turn;
+      return true;
+    }
+
     case 'playLand': {
       // From the hand, or from exile with an effect that lets them play it (Jeska's Will).
       const c = findCard(g, a.card);
@@ -1943,7 +1973,7 @@ function act(g: Game, a: Action): boolean {
       const alt = choices.alt === undefined ? undefined : script.alternativeCosts![choices.alt];
       // X is chosen only if the cost being paid has {X}: an alternative cost without it makes X 0 (107.3b).
       const escapeMana = escaped ? escapeFor(g, c, choices.escape!.length)?.mana : undefined;
-      const paying = free || fromExile === 'plotted' ? '' : fromExile === 'airbent' ? '{2}' : flashback ? scriptFor(c).flashback! : (escapeMana ?? (alt ? alt.mana : data(spell).manaCost));
+      const paying = free || fromExile === 'plotted' ? '' : fromExile === 'airbent' ? '{2}' : flashback ? flashbackCost(g, c)! : (escapeMana ?? (alt ? alt.mana : data(spell).manaCost));
       const hasX = parseCost(paying).x > 0 || script.additionalCost?.life === 'x';
       const cost = castCost(g, c, choices, pid);
       // Costs are paid (601.2f-h): mana and life, then sacrifices and cards exiled.

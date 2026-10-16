@@ -11,7 +11,7 @@ import { SoundButton } from './SoundControl';
 import { useStore } from './store';
 import type { Hover } from './store';
 import { type Seat, cx, deckColor, faceUp, hoverProps, seatOf } from './util';
-import { STEP_NAMES, activateFromHand, cancel, clickStackItem, pickAbility, pickColor, pickTapCreature, pickManaDiscard, pickFace, pickMode, playHandCard, setAbilityX, setChoices, exileForMana, useView } from './view';
+import { STEP_NAMES, activateFromHand, cancel, clickStackItem, pickAbility, pickColor, pickTapCreature, pickManaDiscard, pickFace, pickMode, playHandCard, setAbilityX, setChoices, exileForMana, plotCard, useView } from './view';
 import type { AbilityOption, Btn } from './view';
 
 // ---------- phase tracker + buttons (bottom right) ----------
@@ -264,6 +264,14 @@ export function CastOptions() {
           <span className="cast-label">Or</span>
           <button className="chip" onClick={exileForMana}>
             Exile it for mana
+          </button>
+        </div>
+      )}
+      {a.plot && (
+        <div className="cast-row">
+          <span className="cast-label">Or</span>
+          <button className="chip" onClick={plotCard}>
+            Plot <ManaCost cost={a.plot} />
           </button>
         </div>
       )}

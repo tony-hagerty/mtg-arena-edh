@@ -357,8 +357,24 @@ export type TurnEffect =
   /**
    * The player may cast card `card` (while it is the same object, `moves`) this turn, or
    * also play it if it is a land (`play`). `anyMana`: mana of any type can be spent to cast it.
+   * `until`: it lasts until the end of that player's turn numbered `turn` or later ("until the
+   * end of your next turn"). `lasting`: for as long as the card stays where it is (Flameshape),
+   * and `ifSubtype` only while the player controls a permanent with that subtype ("if you
+   * control a Wizard").
    */
-  | { kind: 'mayCast'; player: PlayerId; card: string; moves: number; play?: boolean; anyMana?: boolean }
+  | {
+      kind: 'mayCast';
+      player: PlayerId;
+      card: string;
+      moves: number;
+      play?: boolean;
+      anyMana?: boolean;
+      until?: { player: PlayerId; turn: number };
+      lasting?: boolean;
+      ifSubtype?: string;
+    }
+  /** Card `card` in a graveyard has flashback this turn, its flashback cost its mana cost (Flashback, Stingcaster Mage). */
+  | { kind: 'flashback'; card: string; moves: number }
   /** The player may cast spells as though they had flash this turn (Borne Upon a Wind). */
   | { kind: 'flash'; player: PlayerId };
 
@@ -781,6 +797,8 @@ export interface Game {
 export type Action =
   /** `face`: the land face of a modal double-faced card to put onto the battlefield (712.12). */
   | { type: 'playLand'; card: string; face?: number }
+  /** Plot (702.170a): a special action, paying the card's plot cost and exiling it from the hand. */
+  | { type: 'plot'; card: string }
   /** `hold`: keep priority afterwards instead of letting auto-pass pass it (117.3c). */
   | ({ type: 'cast'; card: string; targets?: (TargetRef | null)[]; hold?: boolean } & CastChoices)
   /** `crew`: the creatures tapped to pay a crew cost (702.122a). */
@@ -1244,6 +1262,8 @@ export interface CardScript extends Triggers {
   then?: Record<string, (g: Game, ctx: ThenCtx) => void>;
   /** Reflexive triggered abilities this card creates (603.12), by key: their targets and what they do. */
   reflexive?: Record<string, { targets?: TargetSpec[]; text?: string; resolve: (g: Game, ctx: Ctx & { data: Record<string, unknown> }) => void }>;
+  /** Plot (702.170a): its plot cost. Its owner may pay it and exile the card from their hand, as a sorcery; it becomes plotted. */
+  plot?: string;
   /** Escape (702.138a) printed on the card: cast from its owner's graveyard for `mana` plus exiling `exile` other cards from there. */
   escape?: { mana: string; exile: number };
   /** While this permanent is on the battlefield: does creature spell `spell` cast by `caster` have convoke (702.51a)? */

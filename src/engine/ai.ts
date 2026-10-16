@@ -4,6 +4,7 @@
 // on what other players do next.
 import {
   abilityHasX,
+  canPlot,
   activatable,
   autoAssignments,
   applyAction,
@@ -32,6 +33,7 @@ import {
 } from './engine';
 import {
   activatedAt,
+  flashbackCost,
   preferredColor,
   CANT_ATTACK,
   CANT_BLOCK,
@@ -148,7 +150,7 @@ const handValue = (g: Game, p: Player) => {
   const allowed = g.effects.filter((e) => e.kind === 'mayCast' && e.player === p.id).length;
   // So do their cards in exile they may cast: an Adventure, airbent, plotted or warped.
   const castable = p.exile.filter((c) => c.adventure || c.airbent || c.plotted !== undefined || c.warped !== undefined).length;
-  const n = p.hand.length + castable + allowed + p.graveyard.filter((c) => scriptFor(c).flashback).length * 0.5;
+  const n = p.hand.length + castable + allowed + p.graveyard.filter((c) => flashbackCost(g, c)).length * 0.5;
   return Math.min(n, 5) + Math.max(0, n - 5) * 0.4;
 };
 
@@ -333,6 +335,8 @@ function candidateActions(g: Game, pid: PlayerId): { action: Action; spendsCard:
       }
     }
   }
+  // Plotting a card to cast it free on a later turn (702.170a).
+  for (const c of p.hand) if (canPlot(g, pid, c)) out.push({ action: { type: 'plot', card: c.id }, spendsCard: true });
   // Abilities of permanents, and of cards in the hand that work from there (channel).
   for (const c of [...p.battlefield, ...p.hand]) {
     for (const ref of activatable(g, pid, c)) {
