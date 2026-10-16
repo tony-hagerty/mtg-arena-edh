@@ -341,7 +341,8 @@ are from the Comprehensive Rules in `docs/rules/`.
   Urborg's "Each land is a Swamp", which then taps for {B}, 305.6).
 - **Continuous effects in layers (613):** every permanent's types, abilities, power and
   toughness are worked out by `characteristics` (src/engine/layers.ts) from its copiable
-  values, applying each effect in its layer: types (4), abilities (6), then power and
+  values, applying each effect in its layer: types (4), colours (5: "becomes black"
+  replaces its other colours, 105.3), abilities (6), then power and
   toughness: characteristic-defining abilities (7a), "base power and toughness" (7b),
   +N/+N and counters (7c), switching (7d). Within a layer, effects apply in timestamp
   order (613.7), and an ability that changes something in several layers does so in all
@@ -530,7 +531,8 @@ are from the Comprehensive Rules in `docs/rules/`.
   The Eternal Wanderer). "Until your next turn, your opponents can't cast spells from
   anywhere other than their hands" (Avatar's Wrath).
 - **Keywords:** flying, reach, first strike, double strike, deathtouch, lifelink,
-  trample, vigilance, haste, defender, hexproof, indestructible, menace, flash, storm,
+  trample, vigilance, haste, defender, hexproof, indestructible, menace, fear (702.36),
+  flash, storm,
   cumulative upkeep, mobilize, ward, dash, bargain, gift, afterlife, delve, rebound,
   aftermath, paradigm, extort (702.101), job select (702.182), convoke, escape,
   overload, evoke, warp, spree, persist, reconfigure, and protection from a colour or from
@@ -568,10 +570,6 @@ These are deliberate cuts for a prototype. The biggest ones come first.
   before anyone gets priority. By the rules (903.9b) that is a replacement effect chosen
   as it moves, but an effect can't stop partway through to ask. Bots get the real
   replacement. No card in the pool puts a permanent into a hand or library yet.
-
-- **Colour-changing effects** (layer 5, 613.1e) aren't supported yet, so Aphotic Wisps
-  ("target creature becomes black and gains fear") can't be played, and the Kuja deck
-  stays out of the deck list until it can.
 
 ### Rules
 

@@ -30,6 +30,7 @@ const LAYER_OF: Record<keyof LayerParts, Layer> = {
   types: '4',
   notTypes: '4',
   subtypes: '4',
+  colors: '5',
   keywords: '6',
   mana: '6',
   grant: '6',
@@ -169,6 +170,7 @@ function apply(w: Working, p: LayerParts, l: Layer) {
       if (p.switchPT) [w.power, w.toughness] = [w.toughness, w.power];
       break;
     case '5':
+      if (p.colors) w.colors = [...p.colors];
       break;
   }
   w.version++;

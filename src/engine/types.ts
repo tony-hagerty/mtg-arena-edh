@@ -66,6 +66,11 @@ export interface LayerParts {
   /** Layer 4: subtypes it adds (205.1b), like Urborg's Swamp. */
   subtypes?: string[];
   /**
+   * Layer 5 (613.1e): its new colours, which replace all the ones it had (105.3), like
+   * Aphotic Wisps' "becomes black". Empty makes it colorless.
+   */
+  colors?: Color[];
+  /**
    * Layer 6 (613.1f): keyword abilities it adds, in lower case ("flying", "protection from
    * white"), and restrictions carried the same way (`CANT_ATTACK`).
    */

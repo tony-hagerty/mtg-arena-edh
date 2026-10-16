@@ -538,6 +538,16 @@ const blackMarket: Mode[] = [
 ];
 
 registerScripts({
+  'Aphotic Wisps': {
+    // "Target creature becomes black and gains fear until end of turn. Draw a card." Black
+    // replaces its other colours (105.3, layer 5); fear is layer 6 (702.36b). With its target
+    // gone, the spell does nothing, not even the draw (608.2b).
+    targets: [{ type: 'creature', label: 'target creature' }],
+    onResolve: (g, { you, targets }) => {
+      untilEndOfTurn(g, refCard(g, targets[0]), { colors: ['B'], keywords: ['fear'] });
+      draw(g, you);
+    },
+  },
   'Asgardian Inspiration': {
     // "Exile the top card of your library. You may play it this turn."
     onResolve: (g, { you }) => mayCast(g, you, exileTop(g, you, 1), { play: true }),

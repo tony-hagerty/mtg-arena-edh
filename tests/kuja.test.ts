@@ -1,6 +1,6 @@
 // The Kuja deck's hand scripts and the rules they needed: the clauses that could go wrong.
 import { describe, expect, it } from 'vitest';
-import { applyAction, applyBotAction, botAction, has, makeCard, stats } from '../src/engine';
+import { applyAction, applyBotAction, botAction, canBlock, colorsOf, has, makeCard, stats } from '../src/engine';
 import type { Action, Game, PlayerId, TargetRef } from '../src/engine';
 import { produce } from 'immer';
 import { byName, emptyGame, put, run } from './helpers';
@@ -335,6 +335,37 @@ const human = (d: Game) => {
   d.players[0].isBot = false;
 };
 const inExile = (g: Game, pid: PlayerId, name: string) => g.players[pid].exile.find((c) => c.name === name);
+
+describe('Aphotic Wisps', () => {
+  it('the creature becomes black and gains fear until end of turn; you draw a card', () => {
+    let g = emptyGame((d) => {
+      put(d, 0, 'Llanowar Elves');
+      put(d, 0, 'Swamp');
+      put(d, 0, 'Aphotic Wisps', 'hand');
+      top(d, 0, plenty);
+      put(d, 1, 'Elvish Mystic');
+      put(d, 1, 'Blood Artist');
+      put(d, 1, 'Meteor Golem');
+    });
+    const elves = byName(g, 0, 'Llanowar Elves')!;
+    g = settle(run(g, cast(g, 'Aphotic Wisps', { targets: [card(elves)] })));
+    const now = byName(g, 0, 'Llanowar Elves')!;
+    // Black replaces green (105.3).
+    expect(colorsOf(g, now)).toEqual(['B']);
+    expect(has(g, now, 'fear')).toBe(true);
+    expect(g.players[0].hand.map((c) => c.name)).toEqual(['Mountain']);
+    // Only artifact creatures and black creatures can block it (702.36b).
+    const blocks = (name: string) => canBlock(g, byName(g, 1, name)!, now);
+    expect(blocks('Elvish Mystic')).toBe(false);
+    expect(blocks('Blood Artist')).toBe(true);
+    expect(blocks('Meteor Golem')).toBe(true);
+    // Both end at the cleanup step (514.2).
+    g = until(g, (x) => x.active === 1);
+    const later = byName(g, 0, 'Llanowar Elves')!;
+    expect(colorsOf(g, later)).toEqual(['G']);
+    expect(has(g, later, 'fear')).toBe(false);
+  });
+});
 
 describe('changing and copying spells', () => {
   it('Redirect Lightning: pay 5 life, then the Bolt must go to another target', () => {

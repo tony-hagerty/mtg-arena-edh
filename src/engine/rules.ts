@@ -60,6 +60,7 @@ export const SUPPORTED_KEYWORDS = [
   'first strike',
   'double strike',
   'menace',
+  'fear',
   'defender',
   'hexproof',
   'indestructible',
@@ -373,6 +374,8 @@ export function canBlock(g: Game, blocker: Card, attacker: Card): boolean {
   if (has(g, blocker, CANT_BLOCK)) return false;
   // An attacker with protection can't be blocked by creatures with the stated quality (702.16f).
   if (protectedFrom(g, attacker, blocker)) return false;
+  // Fear: only artifact creatures and/or black creatures can block it (702.36b).
+  if (has(g, attacker, 'fear') && !hasType(g, blocker, 'Artifact') && !isColor(g, blocker, 'B')) return false;
   if (has(g, attacker, 'flying')) {
     const kw = stats(g, blocker).keywords;
     return kw.has('flying') || kw.has('reach');
@@ -1401,7 +1404,7 @@ function convokeSources(g: Game, pid: PlayerId, spell: Card | undefined): Source
   if (convokeChosen || !hasConvoke(g, pid, spell)) return [];
   return creaturesOf(g, pid)
     .filter((c) => !c.tapped)
-    .map((c) => ({ id: c.id, ability: -1, taps: [c.id], amount: 1, colors: data(c).colors as ManaSym[], pain: 0, life: 0, busy: true, convoke: true }));
+    .map((c) => ({ id: c.id, ability: -1, taps: [c.id], amount: 1, colors: colorsOf(g, c) as ManaSym[], pain: 0, life: 0, busy: true, convoke: true }));
 }
 
 /** Whether `pay` looks ahead (`bestPayment`). Off while a bot tries moves out on copies of the game. */
