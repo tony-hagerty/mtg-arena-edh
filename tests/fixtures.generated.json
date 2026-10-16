@@ -1,5 +1,648 @@
 {
  "cards": {
+  "Abandoned Air Temple": {
+   "name": "Abandoned Air Temple",
+   "manaCost": "",
+   "cmc": 0,
+   "colors": [],
+   "colorIdentity": [
+    "W"
+   ],
+   "typeLine": "Land",
+   "oracleText": "This land enters tapped unless you control a basic land.\n{T}: Add {W}.\n{3}{W}, {T}: Put a +1/+1 counter on each creature you control.",
+   "keywords": [],
+   "image": "https://cards.scryfall.io/normal/front/9/c/9c0433f9-8f1e-4a19-a83f-a41925f1b1a9.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/9/c/9c0433f9-8f1e-4a19-a83f-a41925f1b1a9.jpg"
+  },
+  "Arcane Sanctum": {
+   "name": "Arcane Sanctum",
+   "manaCost": "",
+   "cmc": 0,
+   "colors": [],
+   "colorIdentity": [
+    "B",
+    "U",
+    "W"
+   ],
+   "typeLine": "Land",
+   "oracleText": "This land enters tapped.\n{T}: Add {W}, {U}, or {B}.",
+   "keywords": [],
+   "image": "https://cards.scryfall.io/normal/front/c/7/c75eeb97-3249-4762-84b0-387f27fb255f.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/c/7/c75eeb97-3249-4762-84b0-387f27fb255f.jpg"
+  },
+  "Black Waltz No. 3": {
+   "name": "Black Waltz No. 3",
+   "manaCost": "{2}{B}{R}",
+   "cmc": 4,
+   "colors": [
+    "B",
+    "R"
+   ],
+   "colorIdentity": [
+    "B",
+    "R"
+   ],
+   "typeLine": "Legendary Creature — Wizard",
+   "oracleText": "Flying, deathtouch\nWhenever you cast a noncreature spell, Black Waltz No. 3 deals 2 damage to each opponent.",
+   "power": "2",
+   "toughness": "2",
+   "keywords": [
+    "Deathtouch",
+    "Flying"
+   ],
+   "image": "https://cards.scryfall.io/normal/front/f/e/fe86e41b-b0f6-4aa1-8827-c095c721f304.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/f/e/fe86e41b-b0f6-4aa1-8827-c095c721f304.jpg"
+  },
+  "Blazemire Verge": {
+   "name": "Blazemire Verge",
+   "manaCost": "",
+   "cmc": 0,
+   "colors": [],
+   "colorIdentity": [
+    "B",
+    "R"
+   ],
+   "typeLine": "Land",
+   "oracleText": "{T}: Add {B}.\n{T}: Add {R}. Activate only if you control a Swamp or a Mountain.",
+   "keywords": [],
+   "image": "https://cards.scryfall.io/normal/front/d/1/d151c8e2-d715-470d-868a-f45191db9fa0.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/d/1/d151c8e2-d715-470d-868a-f45191db9fa0.jpg"
+  },
+  "Bleachbone Verge": {
+   "name": "Bleachbone Verge",
+   "manaCost": "",
+   "cmc": 0,
+   "colors": [],
+   "colorIdentity": [
+    "B",
+    "W"
+   ],
+   "typeLine": "Land",
+   "oracleText": "{T}: Add {B}.\n{T}: Add {W}. Activate only if you control a Plains or a Swamp.",
+   "keywords": [],
+   "image": "https://cards.scryfall.io/normal/front/5/2/52dcdabd-a186-45fe-9fee-6c0f1afeaf16.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/5/2/52dcdabd-a186-45fe-9fee-6c0f1afeaf16.jpg"
+  },
+  "Bojuka Bog": {
+   "name": "Bojuka Bog",
+   "manaCost": "",
+   "cmc": 0,
+   "colors": [],
+   "colorIdentity": [
+    "B"
+   ],
+   "typeLine": "Land",
+   "oracleText": "This land enters tapped.\nWhen this land enters, exile target player's graveyard.\n{T}: Add {B}.",
+   "keywords": [],
+   "image": "https://cards.scryfall.io/normal/front/5/5/55b5b094-9d2d-4d96-b90c-78fecdae725a.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/5/5/55b5b094-9d2d-4d96-b90c-78fecdae725a.jpg"
+  },
+  "Deadly Rollick": {
+   "name": "Deadly Rollick",
+   "manaCost": "{3}{B}",
+   "cmc": 4,
+   "colors": [
+    "B"
+   ],
+   "colorIdentity": [
+    "B"
+   ],
+   "typeLine": "Instant",
+   "oracleText": "If you control a commander, you may cast this spell without paying its mana cost.\nExile target creature.",
+   "keywords": [],
+   "image": "https://cards.scryfall.io/normal/front/0/e/0e13f735-54fa-42b6-aea4-ced33811d7d4.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/0/e/0e13f735-54fa-42b6-aea4-ced33811d7d4.jpg"
+  },
+  "Decanter of Endless Water": {
+   "name": "Decanter of Endless Water",
+   "manaCost": "{3}",
+   "cmc": 3,
+   "colors": [],
+   "colorIdentity": [],
+   "typeLine": "Artifact",
+   "oracleText": "You have no maximum hand size.\n{T}: Add one mana of any color.",
+   "keywords": [],
+   "image": "https://cards.scryfall.io/normal/front/5/1/518bbc36-58ea-44c4-a857-75a3aff058f5.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/5/1/518bbc36-58ea-44c4-a857-75a3aff058f5.jpg"
+  },
+  "Drowned Catacomb": {
+   "name": "Drowned Catacomb",
+   "manaCost": "",
+   "cmc": 0,
+   "colors": [],
+   "colorIdentity": [
+    "B",
+    "U"
+   ],
+   "typeLine": "Land",
+   "oracleText": "This land enters tapped unless you control an Island or a Swamp.\n{T}: Add {U} or {B}.",
+   "keywords": [],
+   "image": "https://cards.scryfall.io/normal/front/4/a/4acb0f92-74be-40e8-b70e-61c4aaaeb47b.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/4/a/4acb0f92-74be-40e8-b70e-61c4aaaeb47b.jpg"
+  },
+  "Dust Bowl": {
+   "name": "Dust Bowl",
+   "manaCost": "",
+   "cmc": 0,
+   "colors": [],
+   "colorIdentity": [],
+   "typeLine": "Land",
+   "oracleText": "{T}: Add {C}.\n{3}, {T}, Sacrifice a land: Destroy target nonbasic land.",
+   "keywords": [],
+   "image": "https://cards.scryfall.io/normal/front/7/5/75b03c30-c2b8-4207-b675-26c59c40a7e5.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/7/5/75b03c30-c2b8-4207-b675-26c59c40a7e5.jpg"
+  },
+  "Eclipsed Steppe": {
+   "name": "Eclipsed Steppe",
+   "manaCost": "",
+   "cmc": 0,
+   "colors": [],
+   "colorIdentity": [
+    "B",
+    "W"
+   ],
+   "typeLine": "Land — Plains Swamp",
+   "oracleText": "({T}: Add {W} or {B}.)\nThis land enters tapped unless you control two or more basic lands.",
+   "keywords": [],
+   "image": "https://cards.scryfall.io/normal/front/d/8/d890999a-dcc7-479e-b0f0-60388c737043.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/d/8/d890999a-dcc7-479e-b0f0-60388c737043.jpg"
+  },
+  "Gilded Lotus": {
+   "name": "Gilded Lotus",
+   "manaCost": "{5}",
+   "cmc": 5,
+   "colors": [],
+   "colorIdentity": [],
+   "typeLine": "Artifact",
+   "oracleText": "{T}: Add three mana of any one color.",
+   "keywords": [],
+   "image": "https://cards.scryfall.io/normal/front/2/8/28e619e6-ecc1-49c3-8fa9-ce42becdb9ba.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/2/8/28e619e6-ecc1-49c3-8fa9-ce42becdb9ba.jpg"
+  },
+  "Glacial Fortress": {
+   "name": "Glacial Fortress",
+   "manaCost": "",
+   "cmc": 0,
+   "colors": [],
+   "colorIdentity": [
+    "U",
+    "W"
+   ],
+   "typeLine": "Land",
+   "oracleText": "This land enters tapped unless you control a Plains or an Island.\n{T}: Add {W} or {U}.",
+   "keywords": [],
+   "image": "https://cards.scryfall.io/normal/front/3/c/3c726a60-8de7-4d5e-8ad5-8405e6ac36b5.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/3/c/3c726a60-8de7-4d5e-8ad5-8405e6ac36b5.jpg"
+  },
+  "Hallowed Fountain": {
+   "name": "Hallowed Fountain",
+   "manaCost": "",
+   "cmc": 0,
+   "colors": [],
+   "colorIdentity": [
+    "U",
+    "W"
+   ],
+   "typeLine": "Land — Plains Island",
+   "oracleText": "({T}: Add {W} or {U}.)\nAs this land enters, you may pay 2 life. If you don't, it enters tapped.",
+   "keywords": [],
+   "image": "https://cards.scryfall.io/normal/front/b/7/b7285986-7e08-4969-86ef-452dc5bfdd9f.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/b/7/b7285986-7e08-4969-86ef-452dc5bfdd9f.jpg"
+  },
+  "Hapless Researcher": {
+   "name": "Hapless Researcher",
+   "manaCost": "{U}",
+   "cmc": 1,
+   "colors": [
+    "U"
+   ],
+   "colorIdentity": [
+    "U"
+   ],
+   "typeLine": "Creature — Human Wizard",
+   "oracleText": "Sacrifice this creature: Draw a card, then discard a card.",
+   "power": "1",
+   "toughness": "1",
+   "keywords": [],
+   "image": "https://cards.scryfall.io/normal/front/2/2/22ed0ee7-6749-4f38-8e53-c11b46b17e5d.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/2/2/22ed0ee7-6749-4f38-8e53-c11b46b17e5d.jpg"
+  },
+  "Haunted Ridge": {
+   "name": "Haunted Ridge",
+   "manaCost": "",
+   "cmc": 0,
+   "colors": [],
+   "colorIdentity": [
+    "B",
+    "R"
+   ],
+   "typeLine": "Land",
+   "oracleText": "This land enters tapped unless you control two or more other lands.\n{T}: Add {B} or {R}.",
+   "keywords": [],
+   "image": "https://cards.scryfall.io/normal/front/a/4/a4e4966b-8963-4fac-a8bf-e778e063c7dd.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/a/4/a4e4966b-8963-4fac-a8bf-e778e063c7dd.jpg"
+  },
+  "Luxury Suite": {
+   "name": "Luxury Suite",
+   "manaCost": "",
+   "cmc": 0,
+   "colors": [],
+   "colorIdentity": [
+    "B",
+    "R"
+   ],
+   "typeLine": "Land",
+   "oracleText": "This land enters tapped unless you have two or more opponents.\n{T}: Add {B} or {R}.",
+   "keywords": [],
+   "image": "https://cards.scryfall.io/normal/front/3/c/3c409d1e-f634-44a2-8fcf-dcdcb0babc3f.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/3/c/3c409d1e-f634-44a2-8fcf-dcdcb0babc3f.jpg"
+  },
+  "Meticulous Archive": {
+   "name": "Meticulous Archive",
+   "manaCost": "",
+   "cmc": 0,
+   "colors": [],
+   "colorIdentity": [
+    "U",
+    "W"
+   ],
+   "typeLine": "Land — Plains Island",
+   "oracleText": "({T}: Add {W} or {U}.)\nThis land enters tapped.\nWhen this land enters, surveil 1. (Look at the top card of your library. You may put it into your graveyard.)",
+   "keywords": [
+    "Surveil"
+   ],
+   "image": "https://cards.scryfall.io/normal/front/6/5/652236c2-84ef-45e4-b5fc-ed6170bc3d6c.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/6/5/652236c2-84ef-45e4-b5fc-ed6170bc3d6c.jpg"
+  },
+  "Morphic Pool": {
+   "name": "Morphic Pool",
+   "manaCost": "",
+   "cmc": 0,
+   "colors": [],
+   "colorIdentity": [
+    "B",
+    "U"
+   ],
+   "typeLine": "Land",
+   "oracleText": "This land enters tapped unless you have two or more opponents.\n{T}: Add {U} or {B}.",
+   "keywords": [],
+   "image": "https://cards.scryfall.io/normal/front/4/8/48e40927-dd87-42ed-b805-0ae8ba81f5fb.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/4/8/48e40927-dd87-42ed-b805-0ae8ba81f5fb.jpg"
+  },
+  "Pearl Medallion": {
+   "name": "Pearl Medallion",
+   "manaCost": "{2}",
+   "cmc": 2,
+   "colors": [],
+   "colorIdentity": [],
+   "typeLine": "Artifact",
+   "oracleText": "White spells you cast cost {1} less to cast.",
+   "keywords": [],
+   "image": "https://cards.scryfall.io/normal/front/1/2/1225264f-b298-4b56-b208-c5da87bd6867.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/1/2/1225264f-b298-4b56-b208-c5da87bd6867.jpg"
+  },
+  "Raffine's Tower": {
+   "name": "Raffine's Tower",
+   "manaCost": "",
+   "cmc": 0,
+   "colors": [],
+   "colorIdentity": [
+    "B",
+    "U",
+    "W"
+   ],
+   "typeLine": "Land — Plains Island Swamp",
+   "oracleText": "({T}: Add {W}, {U}, or {B}.)\nThis land enters tapped.\nCycling {3} ({3}, Discard this card: Draw a card.)",
+   "keywords": [
+    "Cycling"
+   ],
+   "image": "https://cards.scryfall.io/normal/front/a/2/a2c56479-4bee-4edb-80d7-4af010b7c793.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/a/2/a2c56479-4bee-4edb-80d7-4af010b7c793.jpg"
+  },
+  "Raucous Theater": {
+   "name": "Raucous Theater",
+   "manaCost": "",
+   "cmc": 0,
+   "colors": [],
+   "colorIdentity": [
+    "B",
+    "R"
+   ],
+   "typeLine": "Land — Swamp Mountain",
+   "oracleText": "({T}: Add {B} or {R}.)\nThis land enters tapped.\nWhen this land enters, surveil 1. (Look at the top card of your library. You may put it into your graveyard.)",
+   "keywords": [
+    "Surveil"
+   ],
+   "image": "https://cards.scryfall.io/normal/front/b/5/b598c93e-dae1-4d71-a9e4-917abf76d2d0.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/b/5/b598c93e-dae1-4d71-a9e4-917abf76d2d0.jpg"
+  },
+  "Razaketh, the Foulblooded": {
+   "name": "Razaketh, the Foulblooded",
+   "manaCost": "{5}{B}{B}{B}",
+   "cmc": 8,
+   "colors": [
+    "B"
+   ],
+   "colorIdentity": [
+    "B"
+   ],
+   "typeLine": "Legendary Creature — Demon",
+   "oracleText": "Flying, trample\nPay 2 life, Sacrifice another creature: Search your library for a card, put that card into your hand, then shuffle.",
+   "power": "8",
+   "toughness": "8",
+   "keywords": [
+    "Flying",
+    "Trample"
+   ],
+   "image": "https://cards.scryfall.io/normal/front/d/6/d6bb956d-0df6-4910-9320-55f2c5674d98.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/d/6/d6bb956d-0df6-4910-9320-55f2c5674d98.jpg"
+  },
+  "Sea of Clouds": {
+   "name": "Sea of Clouds",
+   "manaCost": "",
+   "cmc": 0,
+   "colors": [],
+   "colorIdentity": [
+    "U",
+    "W"
+   ],
+   "typeLine": "Land",
+   "oracleText": "This land enters tapped unless you have two or more opponents.\n{T}: Add {W} or {U}.",
+   "keywords": [],
+   "image": "https://cards.scryfall.io/normal/front/d/4/d4fb722f-40af-4bd1-b660-e8186b98f233.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/d/4/d4fb722f-40af-4bd1-b660-e8186b98f233.jpg"
+  },
+  "Shadowy Backstreet": {
+   "name": "Shadowy Backstreet",
+   "manaCost": "",
+   "cmc": 0,
+   "colors": [],
+   "colorIdentity": [
+    "B",
+    "W"
+   ],
+   "typeLine": "Land — Plains Swamp",
+   "oracleText": "({T}: Add {W} or {B}.)\nThis land enters tapped.\nWhen this land enters, surveil 1. (Look at the top card of your library. You may put it into your graveyard.)",
+   "keywords": [
+    "Surveil"
+   ],
+   "image": "https://cards.scryfall.io/normal/front/6/9/69c1b656-1d67-499c-bf0f-417682a86c7d.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/6/9/69c1b656-1d67-499c-bf0f-417682a86c7d.jpg"
+  },
+  "Shattered Sanctum": {
+   "name": "Shattered Sanctum",
+   "manaCost": "",
+   "cmc": 0,
+   "colors": [],
+   "colorIdentity": [
+    "B",
+    "W"
+   ],
+   "typeLine": "Land",
+   "oracleText": "This land enters tapped unless you control two or more other lands.\n{T}: Add {W} or {B}.",
+   "keywords": [],
+   "image": "https://cards.scryfall.io/normal/front/5/a/5aa0c810-3b7d-4661-979e-e84fb327742d.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/5/a/5aa0c810-3b7d-4661-979e-e84fb327742d.jpg"
+  },
+  "Shipwreck Marsh": {
+   "name": "Shipwreck Marsh",
+   "manaCost": "",
+   "cmc": 0,
+   "colors": [],
+   "colorIdentity": [
+    "B",
+    "U"
+   ],
+   "typeLine": "Land",
+   "oracleText": "This land enters tapped unless you control two or more other lands.\n{T}: Add {U} or {B}.",
+   "keywords": [],
+   "image": "https://cards.scryfall.io/normal/front/9/e/9e944c5b-68ac-4a30-bbd4-09a4288319ce.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/9/e/9e944c5b-68ac-4a30-bbd4-09a4288319ce.jpg"
+  },
+  "Smoldering Marsh": {
+   "name": "Smoldering Marsh",
+   "manaCost": "",
+   "cmc": 0,
+   "colors": [],
+   "colorIdentity": [
+    "B",
+    "R"
+   ],
+   "typeLine": "Land — Swamp Mountain",
+   "oracleText": "({T}: Add {B} or {R}.)\nThis land enters tapped unless you control two or more basic lands.",
+   "keywords": [],
+   "image": "https://cards.scryfall.io/normal/front/d/7/d707c477-440f-417c-970a-0e7426a58045.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/d/7/d707c477-440f-417c-970a-0e7426a58045.jpg"
+  },
+  "Talisman of Dominance": {
+   "name": "Talisman of Dominance",
+   "manaCost": "{2}",
+   "cmc": 2,
+   "colors": [],
+   "colorIdentity": [
+    "B",
+    "U"
+   ],
+   "typeLine": "Artifact",
+   "oracleText": "{T}: Add {C}.\n{T}: Add {U} or {B}. This artifact deals 1 damage to you.",
+   "keywords": [],
+   "image": "https://cards.scryfall.io/normal/front/7/8/78d5366f-eb6d-4ec1-880b-111872863766.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/7/8/78d5366f-eb6d-4ec1-880b-111872863766.jpg"
+  },
+  "Talisman of Hierarchy": {
+   "name": "Talisman of Hierarchy",
+   "manaCost": "{2}",
+   "cmc": 2,
+   "colors": [],
+   "colorIdentity": [
+    "B",
+    "W"
+   ],
+   "typeLine": "Artifact",
+   "oracleText": "{T}: Add {C}.\n{T}: Add {W} or {B}. This artifact deals 1 damage to you.",
+   "keywords": [],
+   "image": "https://cards.scryfall.io/normal/front/0/c/0c959368-2f58-48de-b7a5-2bab408652b5.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/0/c/0c959368-2f58-48de-b7a5-2bab408652b5.jpg"
+  },
+  "Talisman of Indulgence": {
+   "name": "Talisman of Indulgence",
+   "manaCost": "{2}",
+   "cmc": 2,
+   "colors": [],
+   "colorIdentity": [
+    "B",
+    "R"
+   ],
+   "typeLine": "Artifact",
+   "oracleText": "{T}: Add {C}.\n{T}: Add {B} or {R}. This artifact deals 1 damage to you.",
+   "keywords": [],
+   "image": "https://cards.scryfall.io/normal/front/3/6/36bd614f-ab3b-4ad1-ab5c-a7ca0a641f32.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/3/6/36bd614f-ab3b-4ad1-ab5c-a7ca0a641f32.jpg"
+  },
+  "Talisman of Progress": {
+   "name": "Talisman of Progress",
+   "manaCost": "{2}",
+   "cmc": 2,
+   "colors": [],
+   "colorIdentity": [
+    "U",
+    "W"
+   ],
+   "typeLine": "Artifact",
+   "oracleText": "{T}: Add {C}.\n{T}: Add {W} or {U}. This artifact deals 1 damage to you.",
+   "keywords": [],
+   "image": "https://cards.scryfall.io/normal/front/4/5/454ed9c8-3ec1-4b65-bf3f-29a186742aed.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/4/5/454ed9c8-3ec1-4b65-bf3f-29a186742aed.jpg"
+  },
+  "Thought Vessel": {
+   "name": "Thought Vessel",
+   "manaCost": "{2}",
+   "cmc": 2,
+   "colors": [],
+   "colorIdentity": [],
+   "typeLine": "Artifact",
+   "oracleText": "You have no maximum hand size.\n{T}: Add {C}.",
+   "keywords": [],
+   "image": "https://cards.scryfall.io/normal/front/a/d/ad077996-6b5e-4eb8-bb6e-93d43c5efa8f.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/a/d/ad077996-6b5e-4eb8-bb6e-93d43c5efa8f.jpg"
+  },
+  "Turbulent Moor": {
+   "name": "Turbulent Moor",
+   "manaCost": "",
+   "cmc": 0,
+   "colors": [],
+   "colorIdentity": [
+    "B",
+    "W"
+   ],
+   "typeLine": "Land — Plains Swamp",
+   "oracleText": "({T}: Add {W} or {B}.)\nThis land enters tapped unless your opponents control eight or more lands.",
+   "keywords": [],
+   "image": "https://cards.scryfall.io/normal/front/d/a/da54562d-8c09-4728-bb2b-ae8d464106b8.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/d/a/da54562d-8c09-4728-bb2b-ae8d464106b8.jpg"
+  },
+  "Undercity Sewers": {
+   "name": "Undercity Sewers",
+   "manaCost": "",
+   "cmc": 0,
+   "colors": [],
+   "colorIdentity": [
+    "B",
+    "U"
+   ],
+   "typeLine": "Land — Island Swamp",
+   "oracleText": "({T}: Add {U} or {B}.)\nThis land enters tapped.\nWhen this land enters, surveil 1. (Look at the top card of your library. You may put it into your graveyard.)",
+   "keywords": [
+    "Surveil"
+   ],
+   "image": "https://cards.scryfall.io/normal/front/2/b/2b5801fb-2026-4f25-98bc-ebb2f99684b9.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/2/b/2b5801fb-2026-4f25-98bc-ebb2f99684b9.jpg"
+  },
+  "Underground River": {
+   "name": "Underground River",
+   "manaCost": "",
+   "cmc": 0,
+   "colors": [],
+   "colorIdentity": [
+    "B",
+    "U"
+   ],
+   "typeLine": "Land",
+   "oracleText": "{T}: Add {C}.\n{T}: Add {U} or {B}. This land deals 1 damage to you.",
+   "keywords": [],
+   "image": "https://cards.scryfall.io/normal/front/e/8/e8b05f37-815f-4854-bf82-ca544ca67532.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/e/8/e8b05f37-815f-4854-bf82-ca544ca67532.jpg"
+  },
+  "Urza's Cave": {
+   "name": "Urza's Cave",
+   "manaCost": "",
+   "cmc": 0,
+   "colors": [],
+   "colorIdentity": [],
+   "typeLine": "Land — Urza's Cave",
+   "oracleText": "{T}: Add {C}.\n{3}, {T}, Sacrifice this land: Search your library for a land card, put it onto the battlefield tapped, then shuffle.",
+   "keywords": [],
+   "image": "https://cards.scryfall.io/normal/front/9/2/926916ed-2f22-4ba9-9427-194886ad6c1e.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/9/2/926916ed-2f22-4ba9-9427-194886ad6c1e.jpg"
+  },
+  "Vault of Champions": {
+   "name": "Vault of Champions",
+   "manaCost": "",
+   "cmc": 0,
+   "colors": [],
+   "colorIdentity": [
+    "B",
+    "W"
+   ],
+   "typeLine": "Land",
+   "oracleText": "This land enters tapped unless you have two or more opponents.\n{T}: Add {W} or {B}.",
+   "keywords": [],
+   "image": "https://cards.scryfall.io/normal/front/c/a/cafd7db6-b04e-4fa2-bccd-981211132a93.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/c/a/cafd7db6-b04e-4fa2-bccd-981211132a93.jpg"
+  },
+  "Void Rend": {
+   "name": "Void Rend",
+   "manaCost": "{W}{U}{B}",
+   "cmc": 3,
+   "colors": [
+    "B",
+    "U",
+    "W"
+   ],
+   "colorIdentity": [
+    "B",
+    "U",
+    "W"
+   ],
+   "typeLine": "Instant",
+   "oracleText": "This spell can't be countered.\nDestroy target nonland permanent.",
+   "keywords": [],
+   "image": "https://cards.scryfall.io/normal/front/2/d/2daab74d-d66b-4164-aa19-24e8d5536f7d.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/2/d/2daab74d-d66b-4164-aa19-24e8d5536f7d.jpg"
+  },
+  "Watery Grave": {
+   "name": "Watery Grave",
+   "manaCost": "",
+   "cmc": 0,
+   "colors": [],
+   "colorIdentity": [
+    "B",
+    "U"
+   ],
+   "typeLine": "Land — Island Swamp",
+   "oracleText": "({T}: Add {U} or {B}.)\nAs this land enters, you may pay 2 life. If you don't, it enters tapped.",
+   "keywords": [],
+   "image": "https://cards.scryfall.io/normal/front/5/5/5525d6a6-e532-4047-9da4-bfae7927fecc.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/5/5/5525d6a6-e532-4047-9da4-bfae7927fecc.jpg"
+  },
+  "Withering Torment": {
+   "name": "Withering Torment",
+   "manaCost": "{2}{B}",
+   "cmc": 3,
+   "colors": [
+    "B"
+   ],
+   "colorIdentity": [
+    "B"
+   ],
+   "typeLine": "Instant",
+   "oracleText": "Destroy target creature or enchantment. You lose 2 life.",
+   "keywords": [],
+   "image": "https://cards.scryfall.io/normal/front/0/6/06d44ada-f98e-405f-89d3-ac1002bfb854.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/0/6/06d44ada-f98e-405f-89d3-ac1002bfb854.jpg"
+  },
+  "Wooded Foothills": {
+   "name": "Wooded Foothills",
+   "manaCost": "",
+   "cmc": 0,
+   "colors": [],
+   "colorIdentity": [],
+   "typeLine": "Land",
+   "oracleText": "{T}, Pay 1 life, Sacrifice this land: Search your library for a Mountain or Forest card, put it onto the battlefield, then shuffle.",
+   "keywords": [],
+   "image": "https://cards.scryfall.io/normal/front/4/e/4e11ea8a-f895-438d-a3b7-f070238e4161.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/4/e/4e11ea8a-f895-438d-a3b7-f070238e4161.jpg"
+  },
   "Blaze": {
    "name": "Blaze",
    "manaCost": "{X}{R}",

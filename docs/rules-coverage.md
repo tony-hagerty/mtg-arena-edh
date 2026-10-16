@@ -426,30 +426,46 @@ no hand script. It matches each ability, clause by clause, against a short list 
 templates and builds the script from the helpers in `rules.ts`. One clause it can't read
 refuses the whole card, naming the clause: it never guesses. Hand scripts always win.
 
-- **Abilities:** "When this enters", "When this dies" and "Whenever this attacks" (603.1);
-  activated abilities (602) with `{T}`, mana (with `{X}`, 107.3a), "Sacrifice this" and
-  "Sacrifice a/another [creature, artifact, land, permanent]" costs, and "Activate only as
-  a sorcery"; mana abilities "{T}: Add {G}", "{C}{C}", "{W} or {B}", "one mana of any
-  color" (605); "[Other] [Soldier] creatures you control get +N/+N [and have flying]" and
-  "... have haste" (613); instants and sorceries.
-- **Effects:** draw, gain or lose life, mill, surveil, deal damage, destroy, exile, return
-  to its owner's hand, create a token listed in `decklists.json`, put +1/+1 counters,
-  "gets +N/+N until end of turn", search for a basic land, "each opponent loses N life".
-  Clauses join with "and" ("you draw a card and you lose 1 life"); a subject carried over
-  is the same target ("target player draws two cards and loses 2 life").
+- **Abilities:** "When this enters", "When this dies", "Whenever this attacks" and
+  "Whenever you cast a [noncreature] spell" (603.1); activated abilities (602) with `{T}`,
+  mana (with `{X}`, 107.3a), "Pay N life" (119.4), "Sacrifice this" and "Sacrifice
+  a/another [creature, artifact, land, permanent]" costs, and "Activate only as a
+  sorcery"; cycling (702.29a); mana abilities "{T}: Add {G}", "{C}{C}", "{W} or {B}",
+  "{W}, {U}, or {B}", "one mana of any color", "three mana of any one color", with "This
+  deals 1 damage to you" or "Activate only if you control a Plains or a Swamp" (605);
+  "[Other] [Soldier] creatures you control get +N/+N [and have flying]" and "... have
+  haste" (613); instants and sorceries.
+- **Lines about the card itself:** "This land enters tapped", "... unless you control two
+  or more other lands / two or more basic lands / a basic land / an Island or a Swamp",
+  "... unless you have two or more opponents", "... unless your opponents control eight
+  or more lands" (614.1c); "As this land enters, you may pay 2 life. If you don't, it
+  enters tapped" (614.12a); "This spell can't be countered"; "You have no maximum hand
+  size" (402.2); "[Colour] spells you cast cost {N} less to cast" (601.2f); "If you
+  control a commander, you may cast this spell without paying its mana cost" (118.9).
+- **Effects:** draw, gain or lose life, mill, surveil, deal damage, "deals N damage to
+  each opponent", destroy, exile, "exile target player's graveyard", return to its
+  owner's hand, create a token listed in `decklists.json`, put +1/+1 counters (on a
+  target, on this, or on each creature you control), "gets +N/+N until end of turn",
+  "creatures you control gain [keyword] until end of turn", "draw N, then discard N",
+  search for a basic land, a land card, a "[basic type] or [basic type] card" or any card,
+  "each opponent loses N life". Clauses join with "and" ("you draw a card and you lose 1
+  life"); a subject carried over is the same target ("target player draws two cards and
+  loses 2 life"). An effect that waits for a choice (a search, a discard, surveil) can be
+  followed only by another choice or a "you may", so nothing happens out of order.
 - **Targets (115):** "any target", "target player/opponent", "target player or
-  planeswalker", and "target [non-type or colour words] creature / permanent / artifact /
-  enchantment / land / planeswalker / artifact or enchantment / creature or planeswalker
-  [you control / an opponent controls / you don't control]".
+  planeswalker", and "target [non-type, colour, basic or nonbasic words] creature /
+  permanent / artifact / enchantment / land / planeswalker / artifact or enchantment /
+  creature or enchantment / creature or planeswalker [you control / an opponent controls /
+  you don't control]".
 - **"You may" (608.2d)** asks the player each time; the rest of the ability waits for the
   answer.
 - **Refused:** anything else, including modal text, "instead", "for each", conditions,
   X outside a cost, other triggers, and cards with faces. A fetched card it refuses can't
   be played: it is never played as a stand-in.
-- `npm run parse-report` prints, for the pool, the cards it scripts on its own (60 of 263
+- `npm run parse-report` prints, for the pool, the cards it scripts on its own (92 of 263
   with rules text today) and every refusal grouped by reason. A test plays a sample of
-  42 pool cards with the parsed script and with the hand script and checks the table
-  ends the same.
+  55 pool cards with the parsed script and with the hand script and checks the table
+  ends the same, and another reads every requested card the parser was taught.
 
 ### Bots
 
