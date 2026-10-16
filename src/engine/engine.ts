@@ -132,6 +132,7 @@ import type {
   AskChoice,
   Card,
   CardChoice,
+  CardScript,
   CastChoices,
   CastInfo,
   Choice,
@@ -924,6 +925,22 @@ export const crewOptions = (g: Game, pid: PlayerId, v: Card) => creaturesOf(g, p
 export const crewPower = (g: Game, _pid: PlayerId, _v: Card, cards: Card[]) => cards.reduce((n, c) => n + Math.max(0, stats(g, c).power), 0);
 
 /** Every slot has a legal target, or is an optional one left empty, and none repeats one it must differ from (115.3). */
+/** The total a spell divides among its targets (601.2d), or null if it divides nothing. */
+export const divisionTotal = (script: CardScript, x: number): number | null => (script.divide === undefined ? null : script.divide === 'x' ? x : script.divide);
+
+/**
+ * Is `divide` a legal division for a spell with these targets (601.2d)? Each target gets a
+ * whole amount, at least 1, and together they get the whole total. A spell that divides
+ * nothing has no division; one with no targets left divides nothing.
+ */
+export function divisionOk(script: CardScript, x: number, targets: (TargetRef | null)[], divide: number[] | undefined): boolean {
+  const total = divisionTotal(script, x);
+  if (total === null || targets.every((t) => !t)) return !divide?.length;
+  if (!divide || divide.length !== targets.length) return false;
+  if (divide.some((n, i) => (targets[i] ? !Number.isInteger(n) || n < 1 : n !== 0))) return false;
+  return divide.reduce((a, b) => a + b, 0) === total;
+}
+
 function targetsOk(g: Game, pid: PlayerId, c: Card, specs: TargetSpec[], targets: (TargetRef | null)[]) {
   return specs.every((spec, i) => {
     const t = targets[i];
@@ -1955,6 +1972,7 @@ function act(g: Game, a: Action): boolean {
       if (!targetsOk(g, pid, { ...c, controller: pid }, specs, targets)) return false;
       const spell = asSpell(c, face, pid);
       const script = scriptFor(spell);
+      if (!divisionOk(script, choices.x ?? 0, targets, choices.divide)) return false;
       const from = c.zone as Zone;
       // Cast while a spell resolves (608.2g): the choice that allowed it is answered.
       const during = g.decision?.type === 'cast' ? g.decision.choice : null;
@@ -2009,6 +2027,7 @@ function act(g: Game, a: Action): boolean {
         ...(fromExile === 'airbent' ? { airbent: true } : {}),
         ...(fromExile === 'plotted' ? { plotted: true } : {}),
         ...(choices.offspring ? { offspring: true } : {}),
+        ...(choices.divide?.length ? { divide: [...choices.divide] } : {}),
         bargained: !!script.additionalCost?.optional && sacrificed.length > (alt?.sacrifice ? 1 : 0),
         ...(discarded.length ? { discarded: discarded.map(snapshot) } : {}),
         gift: choices.gift,

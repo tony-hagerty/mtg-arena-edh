@@ -69,6 +69,8 @@ import {
   manaAbilities,
   maxModes,
   activationSacrificeOptions,
+  divisionOk,
+  divisionTotal,
 } from '../engine';
 import type { AbilityRef, Action, AttackOption, Card, CastChoices, Cost, Game, ManaSym, Payment, PlayerId, StackItem, Step, Stops, TargetRef, TargetSpec } from '../engine';
 import { absoluteStops, useStore } from './store';
@@ -117,6 +119,8 @@ export interface View {
   escape: { card: Card; options: Card[]; count: number } | null;
   /** Delve (702.66a): cards in the graveyard the human may exile, up to `max`, each paying for {1}. */
   delve: { card: Card; options: Card[]; max: number } | null;
+  /** Dividing a spell's damage among its targets (601.2d): the total, and each target with its share so far. */
+  divide: { card: Card; total: number; rows: { name: string; amount: number }[] } | null;
   /** Cards in a graveyard the human can target now (Sevinne's Reclamation), for a picker. */
   graveTargets: { card: Card; spec: TargetSpec; options: Card[] } | null;
   prompt: string | null;
@@ -271,8 +275,35 @@ function sacrificeNeeds(t: Targeting): { spec: TargetSpec; alt: number | undefin
   ];
 }
 
+/** The total a spell being cast divides among its targets (601.2d), or null. */
+function divideTotal(t: Targeting): number | null {
+  const card = t.mode === 'cast' ? findCard(S().game!, t.cardId) : undefined;
+  return card ? divisionTotal(scriptFor(asSpell(card, t.choices.face ?? 0)), t.choices.x ?? 0) : null;
+}
+
+/** The division as it stands: the human's, or at first as even as it can be, the rest to the first target. */
+function draftDivision(t: Targeting): number[] {
+  if (t.dividing) return t.dividing;
+  const total = divideTotal(t) ?? 0;
+  const n = t.chosen.filter(Boolean).length;
+  let first = true;
+  return t.chosen.map((ref) => {
+    if (!ref) return 0;
+    const share = Math.floor(total / n) + (first ? total % n : 0);
+    first = false;
+    return share;
+  });
+}
+
+/** Targets are chosen and the spell's damage is still to be divided among two or more of them (601.2d). */
+function isDividing(t: Targeting): boolean {
+  if (t.mode !== 'cast' || t.announcing || t.chosen.length < t.specs.length || t.choices.divide) return false;
+  return divideTotal(t) !== null && t.chosen.filter(Boolean).length > 1;
+}
+
 /** Targets are chosen and the spell still needs a permanent to sacrifice for a cost (118.8, 118.9). */
 function isSacrificing(t: Targeting): boolean {
+  if (isDividing(t)) return false;
   if ((t.mode !== 'cast' && t.mode !== 'activate') || t.announcing || t.pickingAbility || t.chosen.length < t.specs.length || t.sacrificeDone) return false;
   return (t.choices.sacrifice?.length ?? 0) < sacrificeNeeds(t).length;
 }
@@ -341,6 +372,7 @@ const isPaying = (t: Targeting) =>
   !t.pickingAbility &&
   !t.choosingX &&
   t.chosen.length === t.specs.length &&
+  !isDividing(t) &&
   !isSacrificing(t) &&
   !isExiling(t) &&
   !isExilingForAbility(t) &&
@@ -511,6 +543,7 @@ export function buildView(): View {
     abilityX: null,
     escape: null,
     delve: null,
+    divide: null,
     graveTargets: null,
     prompt: null,
     primary: null,
@@ -607,6 +640,20 @@ export function buildView(): View {
       ? `${label(card)}: choose X. It removes X loyalty counters (${loyaltyOf(card)} now).${dies}`
       : `${label(card)}: choose X. It costs ${costOf(g, t).text}.`;
     view.primary = { label: 'Continue', sub: `X = ${x}`, tone: 'go', disabled: !canActivate(g, me, card, t.ability, t.activated, x), onClick: confirmAbilityX };
+    view.secondary = { label: 'Cancel', tone: 'cancel', onClick: cancel };
+    return view;
+  }
+
+  // --- dividing the spell's damage among its targets (601.2d) ---
+  if (t && isDividing(t)) {
+    const card = findCard(g, t.cardId)!;
+    const total = divideTotal(t)!;
+    const draft = draftDivision(t);
+    view.glow.set(card.id, 'picked');
+    view.divide = { card, total, rows: t.chosen.map((ref, i) => ({ name: ref ? describeRef(g, ref) : '', amount: draft[i] })).filter((_, i) => !!t.chosen[i]) };
+    view.prompt = `${label(card)}: divide ${total} damage among its targets. Each gets at least 1.`;
+    const ok = divisionOk(scriptFor(asSpell(card, t.choices.face ?? 0)), t.choices.x ?? 0, t.chosen, draft);
+    view.primary = { label: 'Continue', tone: 'go', disabled: !ok, onClick: confirmDivision };
     view.secondary = { label: 'Cancel', tone: 'cancel', onClick: cancel };
     return view;
   }
@@ -1107,9 +1154,12 @@ function pay() {
   if (!t || !isPaying(t) || t.mode === 'trigger') return;
   const hold = S().hold;
   useStore.setState({ hold: false });
+  // A spell dividing damage with one target gives it all (601.2d).
+  const total = divideTotal(t);
+  const single = total !== null && !t.choices.divide && t.chosen.some(Boolean) ? { divide: t.chosen.map((ref) => (ref ? total : 0)) } : {};
   const action: Action =
     t.mode === 'cast'
-      ? { type: 'cast', card: t.cardId, targets: t.chosen, hold, ...t.choices, ...(t.discard ? { discard: t.discard } : {}) }
+      ? { type: 'cast', card: t.cardId, targets: t.chosen, hold, ...t.choices, ...single, ...(t.discard ? { discard: t.discard } : {}) }
       : { type: 'activate', card: t.cardId, ability: t.ability, activated: t.activated, x: t.x, targets: t.chosen, hold, crew: t.crew, discard: t.discard, sacrifice: t.choices.sacrifice, exile: t.exile };
   if (!S().act(action)) cancel();
 }
@@ -1225,6 +1275,32 @@ export function chooseEscape(ids: string[]) {
   const next = { ...t, choices: { ...t.choices, escape: ids } };
   useStore.setState({ targeting: next });
   if (paidUp(g, me, next)) pay();
+}
+
+/** Moves damage to or from the `row`th target being divided among (601.2d). Each keeps at least 1. */
+export function shiftDivision(row: number, delta: 1 | -1) {
+  const t = S().targeting;
+  if (!t || !isDividing(t)) return;
+  const draft = [...draftDivision(t)];
+  const at = t.chosen.map((ref, i) => (ref ? i : -1)).filter((i) => i >= 0);
+  const i = at[row];
+  if (i === undefined || draft[i] + delta < 1) return;
+  // Taken from, or given to, the first other target that can spare it.
+  const other = at.find((j) => j !== i && draft[j] - delta >= 1);
+  if (other === undefined) return;
+  draft[i] += delta;
+  draft[other] -= delta;
+  useStore.setState({ targeting: { ...t, dividing: draft } });
+}
+
+/** Done dividing the damage (601.2d). Paying comes next. */
+function confirmDivision() {
+  const t = S().targeting;
+  const { game: g, human: me } = S();
+  if (!t || !g || me === null || !isDividing(t)) return;
+  const next = { ...t, choices: { ...t.choices, divide: draftDivision(t) } };
+  useStore.setState({ targeting: next });
+  if (isPaying(next) && paidUp(g, me, next)) pay();
 }
 
 /** Picks the cards to exile for delve, maybe none (702.66a). Paying comes next. */

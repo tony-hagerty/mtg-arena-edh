@@ -307,7 +307,8 @@ function castChoices(g: Game, pid: PlayerId, c: Card): CastChoices[] {
             for (const kicked of kicks)
               for (const offspring of offsprings) {
                 const most = maxX(g, pid, c, { ...base, gift, kicked, offspring });
-                const xs = lifeX ? lifeXChoices(g, pid, most) : [most, Math.floor(most / 2)];
+                // X damage divided among targets: X follows from the targets (`divisions`).
+                const xs = script.divide === 'x' ? [0] : lifeX ? lifeXChoices(g, pid, most) : [most, Math.floor(most / 2)];
                 for (const x of new Set(xs)) {
                   const choices: CastChoices = { ...base, x, kicked, ...(gift !== undefined ? { gift } : {}), ...(offspring ? { offspring } : {}) };
                   if (x >= 0 && canCast(g, pid, c, choices)) out.push(choices);
@@ -316,6 +317,42 @@ function castChoices(g: Game, pid: PlayerId, c: Card): CastChoices[] {
           }
         }
       }
+    }
+  }
+  return out;
+}
+
+/**
+ * Ways to cast a spell that divides damage among its targets (601.2d): at opponents' most
+ * valuable creatures and planeswalkers, each given just enough to destroy it. For X damage,
+ * X is what that adds up to (a few targets at most, never all of the bot's life); for a set
+ * amount, what is left over goes to the first target.
+ */
+function divisions(g: Game, pid: PlayerId, c: Card, choices: CastChoices, specs: TargetSpec[]): { targets: TargetRef[]; divide: number[]; x?: number }[] {
+  const spell = asSpell(c, choices.face ?? 0, pid);
+  const total = scriptFor(spell).divide!;
+  const spec = specs[specs.length - 1];
+  if (!spec) return [];
+  const lethal = (x: Card) => (isPlaneswalker(x) && !isCreature(x) ? loyaltyOf(x) : Math.max(1, stats(g, x).toughness - x.damage));
+  const foes = legalTargets(g, pid, spec, spell)
+    .filter((t) => t.kind === 'card')
+    .map((t) => findCard(g, t.id as string)!)
+    .filter((x) => x.controller !== pid)
+    .sort((a, b) => worth(g, b) - worth(g, a))
+    .slice(0, spec.any ? 4 : specs.length);
+  const out: { targets: TargetRef[]; divide: number[]; x?: number }[] = [];
+  for (let k = 1; k <= foes.length; k++) {
+    const picked = foes.slice(0, k);
+    const divide = picked.map(lethal);
+    const sum = divide.reduce((a, b) => a + b, 0);
+    if (total === 'x') {
+      if (!canCast(g, pid, c, { ...choices, x: sum }) || sum >= g.players[pid].life) break;
+      out.push({ targets: picked.map((x) => ({ kind: 'card', id: x.id })), divide, x: sum });
+    } else {
+      if (k > total) break;
+      // Short of killing them all, each still gets at least 1 (601.2d).
+      const fair = sum > total ? picked.map((_, i) => (i === 0 ? total - (k - 1) : 1)) : divide.map((n, i) => (i === 0 ? n + total - sum : n));
+      out.push({ targets: picked.map((x) => ({ kind: 'card', id: x.id })), divide: fair });
     }
   }
   return out;
@@ -333,7 +370,12 @@ function candidateActions(g: Game, pid: PlayerId): { action: Action; spendsCard:
     const ways = castChoices(g, pid, c);
     const each = Math.max(4, Math.floor(36 / Math.max(1, ways.length)));
     for (const choices of ways) {
-      for (const targets of targetChoices(g, pid, castTargets(c, choices.modes, choices.face, choices.gift, choices.alt), c).slice(0, each)) {
+      const specs = castTargets(c, choices.modes, choices.face, choices.gift, choices.alt);
+      if (scriptFor(asSpell(c, choices.face ?? 0)).divide !== undefined) {
+        for (const d of divisions(g, pid, c, choices, specs)) out.push({ action: { type: 'cast', card: c.id, ...choices, ...d }, spendsCard: c.zone === 'hand' || c.zone === 'command' });
+        continue;
+      }
+      for (const targets of targetChoices(g, pid, specs, c).slice(0, each)) {
         out.push({ action: { type: 'cast', card: c.id, targets, ...choices }, spendsCard: c.zone === 'hand' || c.zone === 'command' });
       }
     }

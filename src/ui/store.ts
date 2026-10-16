@@ -49,6 +49,8 @@ export interface Targeting {
   exile?: string[];
   /** Done picking "any number of" targets (115.1d): the trailing slot is gone. */
   anyDone?: boolean;
+  /** The division of a spell's damage among its targets so far (601.2d), before it is confirmed into `choices.divide`. */
+  dividing?: number[];
 }
 
 // Renamed when the defaults change, so everyone starts again from the new ones once.
