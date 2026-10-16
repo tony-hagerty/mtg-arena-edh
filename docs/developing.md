@@ -233,6 +233,12 @@ through `g`, because another effect may have changed it: `isCreature(g, c)`,
 `static`, "creatures you control" needs `isCreature(g, c)`, while "permanents you control"
 needs no type check.
 
+Working out a permanent means asking every static ability on the battlefield, so the
+engine keeps answers where it can: for a finished state (Immer freezes it), and inside
+`settled(g, fn)`, for code that asks many questions without changing the game
+(`checkState`'s checks, `legalTargets`; `broadcast` only queues triggered abilities).
+Nothing inside `settled` may change what a permanent is.
+
 An effect from a resolving spell or ability is locked in as it starts (611.2c), with its
 own timestamp (613.7b): `untilEndOfTurn(g, c, parts)` ("gets +2/+2 until end of turn",
 `pump` for just P/T), `addLasting(g, c, parts)` (for as long as it stays), or

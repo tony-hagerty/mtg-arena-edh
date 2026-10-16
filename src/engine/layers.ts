@@ -17,9 +17,10 @@
  * another object works that one out in full first. Dependency (613.8) isn't applied yet:
  * effects in one layer apply in timestamp order.
  */
-import { CREATURE_TYPES } from '../cards/db';
-import { SUPPORTED_KEYWORDS, battlefield, data, hasReconfigure, permanent, scriptFor } from './rules';
-import type { Card, Characteristics, ContinuousEffect, Game, LayerParts } from './types';
+import { CREATURE_TYPES, cardData } from '../cards/db';
+import { hasStaticScript } from './registry';
+import { SUPPORTED_KEYWORDS, data, hasReconfigure, permanent, scriptFor } from './rules';
+import type { Card, CardScript, Characteristics, ContinuousEffect, Game, LayerParts } from './types';
 
 /** The layers that change characteristics this engine has effects for, in order (613.1, 613.4). Layers 1-3 come first: see `LayerParts`. */
 export const LAYERS = ['4', '5', '6', '7a', '7b', '7c', '7d'] as const;
@@ -209,9 +210,7 @@ function entries(g: Game, c: Card, temporary: boolean): Entry[] {
   }
   for (const e of c.continuous) if ((temporary || e.until === 'leaves') && lasts(g, e)) out.push({ ts: e.ts, seq: seq++, parts: e });
   // Static abilities of permanents on the battlefield (611.3), with their source's timestamp (613.7a).
-  for (const src of battlefield(g)) {
-    const fn = scriptFor(src).static;
-    if (!fn) continue;
+  for (const { src, fn } of staticSources(g)) {
     const source: Source = { ask: () => fn(g, src, c), version: -1, answer: [] };
     answerOf(source, 0, 0);
     source.answer.forEach((_, i) => out.push({ ts: src.ts, seq: seq++, source, i }));
@@ -219,15 +218,82 @@ function entries(g: Game, c: Card, temporary: boolean): Entry[] {
   return out.sort((a, b) => (a.cda === b.cda ? 0 : a.cda ? -1 : 1) || a.ts - b.ts || a.seq - b.seq);
 }
 
-/** Objects partway through the layers now, by id, so a question about one gets its state so far. */
-const working = new Map<string, Working>();
+/** The names a card's scripts are under: its own, and each face's. */
+const scriptNames = new Map<string, string[]>();
+
+/** Could permanent `c` have a static ability? A quick check before looking up its script. */
+function mayHaveStatic(c: Card): boolean {
+  if (c.copy) return true;
+  let names = scriptNames.get(c.name);
+  if (!names) {
+    const d = cardData(c.name);
+    scriptNames.set(c.name, (names = [d.name, c.name, ...(d.faces ?? []).map((f) => f.name)]));
+  }
+  return names.some(hasStaticScript);
+}
+
+type StaticFn = NonNullable<CardScript['static']>;
+type Sources = { src: Card; fn: StaticFn }[];
+const frozenSources = new WeakMap<Game, Sources>();
+
+/** The permanents with static abilities (611.3), in battlefield order. */
+function staticSources(g: Game): Sources {
+  const isHeld = held?.g === g;
+  const isFrozen = !isHeld && Object.isFrozen(g) && Object.isFrozen(g.players);
+  const known = isHeld ? held!.sources : isFrozen ? frozenSources.get(g) : undefined;
+  if (known) return known;
+  const out: Sources = [];
+  for (const p of g.players) {
+    if (p.lost) continue;
+    for (const src of p.battlefield) {
+      const fn = mayHaveStatic(src) && scriptFor(src).static;
+      if (fn) out.push({ src, fn });
+    }
+  }
+  if (isHeld) held!.sources = out;
+  else if (isFrozen) frozenSources.set(g, out);
+  return out;
+}
+
+/**
+ * Objects partway through the layers now, by id, so a question about one gets its state so
+ * far, with how deep in the questions it was asked (`depth`: 0 for the first).
+ */
+const working = new Map<string, { w: Working; depth: number }>();
+/** For each object partway, from the first asked: has its answer seen an object below it partway? */
+const tainted: boolean[] = [];
 /** Answers for games that can't change any more: Immer freezes every state it makes. */
 const frozen = new WeakMap<Game, WeakMap<Card, Result>>();
+/** Answers kept while a game doesn't change (`settled`). */
+let held: { g: Game; answers: WeakMap<Card, Result>; sources?: Sources } | null = null;
 
 interface Result {
   chars: Characteristics;
   /** The last layer it was worked out to. */
   upTo: Layer;
+}
+
+/**
+ * Runs `fn`, which only asks about `g` and doesn't change it: each object's characteristics
+ * are worked out once in it, not once for each question.
+ */
+export function settled<T>(g: Game, fn: () => T): T {
+  if (held) return fn();
+  held = { g, answers: new WeakMap() };
+  try {
+    return fn();
+  } finally {
+    held = null;
+  }
+}
+
+/** Where answers about `g` are kept, if they can be. */
+function storeFor(g: Game): WeakMap<Card, Result> | null {
+  if (held?.g === g) return held.answers;
+  if (!Object.isFrozen(g) || !Object.isFrozen(g.players)) return null;
+  let store = frozen.get(g);
+  if (!store) frozen.set(g, (store = new WeakMap()));
+  return store;
 }
 
 /**
@@ -240,15 +306,20 @@ interface Result {
 export function characteristics(g: Game, c: Card, upTo: Layer = '7d', temporary = true): Characteristics {
   if (c.lki) return c.lki;
   const partial = working.get(c.id);
-  if (partial) return partial;
+  if (partial) {
+    // Every answer being worked out above it now depends on it partway.
+    for (let d = partial.depth + 1; d < tainted.length; d++) tainted[d] = true;
+    return partial.w;
+  }
   if (c.zone !== 'battlefield') return offBattlefield(g, c);
-  // Only an answer worked out on its own is kept: one worked out for another object's
-  // question may have seen that object partway.
-  const store = temporary && !working.size && Object.isFrozen(g) && Object.isFrozen(g.players) ? (frozen.get(g) ?? frozen.set(g, new WeakMap()).get(g)!) : null;
-  const known = store?.get(c);
+  const store = temporary ? storeFor(g) : null;
+  // A kept answer is used only for a first question: asked while another object is partway,
+  // the answer could depend on that object as it is so far.
+  const known = !working.size ? store?.get(c) : undefined;
   if (known && LAYERS.indexOf(known.upTo) >= LAYERS.indexOf(upTo)) return known.chars;
-  const chars = layers(g, c, upTo, temporary);
-  store?.set(c, { chars, upTo });
+  const { chars, clean } = layers(g, c, upTo, temporary);
+  // An answer is kept only if it saw no other object partway: it is the same as a first question's.
+  if (clean) store?.set(c, { chars, upTo });
   return chars;
 }
 
@@ -260,9 +331,12 @@ function offBattlefield(g: Game, c: Card): Characteristics {
   return w;
 }
 
-function layers(g: Game, c: Card, upTo: Layer, temporary: boolean): Characteristics {
+function layers(g: Game, c: Card, upTo: Layer, temporary: boolean): { chars: Characteristics; clean: boolean } {
   const w = start(c);
-  working.set(c.id, w);
+  const depth = tainted.length;
+  working.set(c.id, { w, depth });
+  tainted.push(false);
+  let clean = false;
   try {
     const all = entries(g, c, temporary);
     for (const l of LAYERS) {
@@ -277,7 +351,8 @@ function layers(g: Game, c: Card, upTo: Layer, temporary: boolean): Characterist
     }
   } finally {
     working.delete(c.id);
+    clean = !tainted.pop();
   }
   const { version: _, ...chars } = w;
-  return chars;
+  return { chars, clean };
 }
