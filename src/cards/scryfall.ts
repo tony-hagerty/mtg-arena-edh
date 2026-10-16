@@ -24,6 +24,10 @@ export interface ScryfallCard extends ScryfallFace {
   card_faces?: ScryfallFace[];
   /** Format name to "legal", "not_legal", "banned" or "restricted". */
   legalities?: Record<string, string>;
+  /** The date its printing is released, like "2026-10-19". */
+  released_at?: string;
+  /** Its set's kind, like "expansion", "funny" (Un-sets) or "alchemy". */
+  set_type?: string;
 }
 
 /**
@@ -118,6 +122,21 @@ export interface FetchResult {
 /** Scryfall's limit on names per /cards/collection request. */
 export const BATCH = 75;
 
+/** Sets whose cards are never legal in Commander, released or not. */
+const NEVER_LEGAL_SETS = ['funny', 'alchemy', 'memorabilia', 'minigame', 'token'];
+
+/**
+ * A card's Commander legality. Scryfall lists a previewed card as "not_legal" until its
+ * release date, so a card from an ordinary set that isn't out yet is let in as legal, as
+ * it will be once released. `today` is a "YYYY-MM-DD" date.
+ */
+export function legalityOf(c: ScryfallCard, today: string): Legality {
+  // A card Scryfall sends without legalities is taken as not legal, so it is never let in unchecked.
+  const l = (c.legalities?.commander as Legality | undefined) ?? 'not_legal';
+  const unreleased = !!c.released_at && c.released_at > today && !NEVER_LEGAL_SETS.includes(c.set_type ?? '');
+  return l === 'not_legal' && c.legalities && unreleased ? 'legal' : l;
+}
+
 /**
  * Fetches cards by name from Scryfall's /cards/collection, `BATCH` names a request and
  * `pause` ms between requests (Scryfall asks for 50-100 ms). Stops at the first request
@@ -125,9 +144,10 @@ export const BATCH = 75;
  */
 export async function fetchCollection(
   names: string[],
-  opts: { fetch?: typeof fetch; pause?: number; headers?: Record<string, string> } = {},
+  opts: { fetch?: typeof fetch; pause?: number; headers?: Record<string, string>; today?: string } = {},
 ): Promise<FetchResult> {
   const get = opts.fetch ?? fetch;
+  const today = opts.today ?? new Date().toISOString().slice(0, 10);
   const out: FetchResult = { cards: [], legality: {}, notFound: [], failed: [], error: null };
   for (let i = 0; i < names.length; i += BATCH) {
     if (i > 0) await new Promise((r) => setTimeout(r, opts.pause ?? 100));
@@ -162,8 +182,7 @@ export async function fetchCollection(
     }
     for (const c of body.data ?? []) {
       out.cards.push(toCard(c));
-      // A card Scryfall sends without legalities is taken as not legal, so it is never let in unchecked.
-      out.legality[c.name] = (c.legalities?.commander as Legality | undefined) ?? 'not_legal';
+      out.legality[c.name] = legalityOf(c, today);
     }
     out.notFound.push(...(body.not_found ?? []).map((x) => x.name ?? '').filter(Boolean));
   }

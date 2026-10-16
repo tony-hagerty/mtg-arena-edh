@@ -97,6 +97,7 @@ import {
   trigger,
   turnOrder,
   untapMana,
+  simultaneously,
   scriptFor,
   withoutLookahead,
 } from './rules';
@@ -226,6 +227,7 @@ export function newGame(opts: NewGameOptions): Game {
       spellsCast: 0,
       noncreatureSpellsCast: 0,
       drawn: 0,
+      lifeLost: 0,
       ...(human && manualDamage ? { manualDamage } : {}),
     };
     // Every commander starts in the command zone, both partners included (903.6, 702.124b).
@@ -988,6 +990,7 @@ function beginTurn(g: Game, pid: PlayerId, extra?: ExtraTurn) {
     p.spellsCast = 0;
     p.noncreatureSpellsCast = 0;
     p.drawn = 0;
+    p.lifeLost = 0;
   }
   // Delayed abilities waiting for a turn that has passed never trigger.
   g.delayed = g.delayed.filter((d) => d.turn === undefined || d.turn >= g.turn);
@@ -1348,11 +1351,14 @@ function dealCombatDamage(g: Game, firstStrike: boolean, struckFirst: Set<string
       hits.push({ src: b, card: atk, n: bs.power });
     }
   }
-  for (const h of hits) {
-    if (h.card && !isCreature(h.card)) dealDamage(g, h.src, { kind: 'card', id: h.card.id }, h.n); // logged: a planeswalker or battle
-    else if (h.card) damageCard(g, h.src, h.card, h.n);
-    else damagePlayer(g, h.src, h.player!, h.n, true);
-  }
+  // Combat damage is dealt all at once, as one event (510.2).
+  simultaneously(g, () => {
+    for (const h of hits) {
+      if (h.card && !isCreature(h.card)) dealDamage(g, h.src, { kind: 'card', id: h.card.id }, h.n, true); // logged: a planeswalker or battle
+      else if (h.card) damageCard(g, h.src, h.card, h.n, true);
+      else damagePlayer(g, h.src, h.player!, h.n, true);
+    }
+  });
 }
 
 // ---------- priority and the stack ----------

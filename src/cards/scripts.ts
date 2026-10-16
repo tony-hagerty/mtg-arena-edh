@@ -59,6 +59,7 @@ import {
   subtypesOf,
   tap,
   turnOrder,
+  simultaneously,
 } from '../engine/rules';
 import type { Card, CardScript, Ctx, Game, ManaSym, PlayerId, TargetSpec } from '../engine/types';
 
@@ -79,8 +80,12 @@ const artifactOrEnchantment: TargetSpec = {
 
 // ---------- reusable pieces ----------
 
-const eachOpponentLoses = (g: Game, you: PlayerId, n: number) =>
-  opponentsOf(g, you).reduce((total, o) => total + loseLife(g, o.id, n), 0);
+/** "Each opponent loses N life", all at once (one event): returns the total actually lost. */
+const eachOpponentLoses = (g: Game, you: PlayerId, n: number) => {
+  let total = 0;
+  simultaneously(g, () => opponentsOf(g, you).forEach((o) => (total += loseLife(g, o.id, n))));
+  return total;
+};
 
 const burn = (n: number): CardScript => ({
   targets: [anyTarget],
@@ -300,12 +305,11 @@ registerScripts({
   "Night's Whisper": { onResolve: drawAndLose(2, 2) },
   Damnation: wrath,
   'Syphon Soul': {
-    onResolve: (g, { self, you }) =>
-      gainLife(
-        g,
-        you,
-        opponentsOf(g, you).reduce((n, o) => n + damagePlayer(g, self, o.id, 2), 0),
-      ),
+    onResolve: (g, { self, you }) => {
+      let dealt = 0;
+      simultaneously(g, () => opponentsOf(g, you).forEach((o) => (dealt += damagePlayer(g, self, o.id, 2))));
+      gainLife(g, you, dealt);
+    },
   },
   'Phyrexian Arena': {
     onUpkeep: {
@@ -322,12 +326,13 @@ registerScripts({
     damageBonus: (_g, self, source, targetOwner) => (isColor(source, 'R') && targetOwner !== self.controller ? 2 : 0),
   },
   'Goblin Chainwhirler': {
-    onEnter: (g, { self, you }) => {
-      for (const o of opponentsOf(g, you)) {
-        damagePlayer(g, self, o.id, 1);
-        for (const c of o.battlefield.filter((x) => isCreature(x) || isPlaneswalker(x))) damageCard(g, self, c, 1);
-      }
-    },
+    onEnter: (g, { self, you }) =>
+      simultaneously(g, () => {
+        for (const o of opponentsOf(g, you)) {
+          damagePlayer(g, self, o.id, 1);
+          for (const c of o.battlefield.filter((x) => isCreature(x) || isPlaneswalker(x))) damageCard(g, self, c, 1);
+        }
+      }),
   },
   'Beetleback Chief': { onEnter: (g, { you }) => createToken(g, you, 'Goblin', 2) },
   'Shivan Dragon': firebreathing,
@@ -351,18 +356,14 @@ registerScripts({
   Guttersnipe: {
     onCast: {
       when: youCastASpell,
-      resolve: (g, { self, you }) => {
-        for (const o of opponentsOf(g, you)) damagePlayer(g, self, o.id, 2);
-      },
+      resolve: (g, { self, you }) => simultaneously(g, () => opponentsOf(g, you).forEach((o) => void damagePlayer(g, self, o.id, 2))),
     },
   },
   'Thermo-Alchemist': {
     activated: {
       cost: { tap: true },
       text: '{T}: 1 damage to each opponent',
-      resolve: (g, { self, you }) => {
-        for (const o of opponentsOf(g, you)) damagePlayer(g, self, o.id, 1);
-      },
+      resolve: (g, { self, you }) => simultaneously(g, () => opponentsOf(g, you).forEach((o) => void damagePlayer(g, self, o.id, 1))),
     },
     onCast: {
       when: youCastASpell,
@@ -405,7 +406,7 @@ registerScripts({
   'Lava Axe': { targets: [playerOrPlaneswalker], onResolve: (g, { self, targets }) => void dealDamage(g, self, targets[0], 5) },
   'Flame Rift': {
     onResolve: (g, { self }) => {
-      for (const p of g.players) damagePlayer(g, self, p.id, 4);
+      simultaneously(g, () => g.players.forEach((p) => void damagePlayer(g, self, p.id, 4)));
     },
   },
   Pyroclasm: {
@@ -665,7 +666,7 @@ registerScripts({
         {
           text: 'Each creature deals 1 damage to its controller.',
           resolve: (g) => {
-            for (const c of allCreatures(g)) damagePlayer(g, c, c.controller, 1);
+            simultaneously(g, () => allCreatures(g).forEach((c) => void damagePlayer(g, c, c.controller, 1)));
           },
         },
       ],
@@ -769,7 +770,7 @@ registerScripts({
     onResolve: (g, { self, you }) => {
       draw(g, you, 2);
       const discarded = self.cast?.discarded?.[0];
-      if (discarded && !isLand(discarded)) for (const o of opponentsOf(g, you)) damagePlayer(g, self, o.id, 2);
+      if (discarded && !isLand(discarded)) simultaneously(g, () => opponentsOf(g, you).forEach((o) => void damagePlayer(g, self, o.id, 2)));
     },
   },
   Windfall: {
@@ -897,7 +898,7 @@ registerScripts({
         const x = source.counters.descent ?? 0;
         const order = turnOrder(g, g.active);
         for (const pid of order) createToken(g, pid, 'Treasure', x);
-        for (const pid of order) damagePlayer(g, source, pid, x);
+        simultaneously(g, () => order.forEach((pid) => void damagePlayer(g, source, pid, x)));
       },
     },
   },
