@@ -144,6 +144,8 @@ export interface Announce {
   kicker: { text: string; most: number } | null;
   /** The offspring cost (702.175a), and whether it can be paid on top of the rest. */
   offspring: { text: string; payable: boolean } | null;
+  /** The additional costs it offers a choice of ("pay 5 life or pay {2}"), and whether each can be paid. */
+  extraCosts: { label: string; payable: boolean }[] | null;
   /** Plot (702.170a): its plot cost, if the card could be plotted now instead of cast. */
   plot: string | null;
   /**
@@ -463,6 +465,7 @@ function announceOf(g: Game, me: PlayerId, card: Card, choices: CastChoices): An
         : null,
     kicker: script.kicker && !land ? { text: costText(parseCost(script.kicker.mana)), most } : null,
     offspring: script.offspring && !land ? { text: costText(parseCost(script.offspring)), payable: payable({ ...choices, offspring: true }) } : null,
+    extraCosts: script.additionalCost?.oneOf && !land ? script.additionalCost.oneOf.map((o, i) => ({ label: o.label, payable: payable({ ...choices, extra: i }) })) : null,
     plot: canPlot(g, me, card) ? scriptFor(card).plot! : null,
     handMana: card.zone === 'hand' && canTapForMana(g, me, card),
     handAbility: handAb ? activatedAt(card, handAb.activated)!.text : null,
@@ -1012,6 +1015,7 @@ function propose(mode: 'cast' | 'activate', card: Card) {
       hasX ||
       !!script.kicker ||
       !!script.offspring ||
+      !!script.additionalCost?.oneOf ||
       altCostsOf(g, card, face, me).length > 0 ||
       !!script.modal ||
       !!script.gift ||
@@ -1061,11 +1065,20 @@ function defaultChoices(g: Game, me: PlayerId, card: Card, face: number): CastCh
   const ability = escapes(g, card).find((e) => escapeOptions(g, card).length >= e.exile);
   const escape = ways && ways.escape && ability && !ways.flashback && !ways.aftermath && !ways.permitted ? escapeSlots(ability.exile) : undefined;
   const spell = asSpell(card, face, me);
+  // "Pay 5 life or pay {2}": the first of the additional costs it offers that can be paid.
+  const oneOf = scriptFor(asSpell(card, face)).additionalCost?.oneOf;
+  const extra = oneOf ? Math.max(0, oneOf.findIndex((_, i) => planPayment(g, me, castCost(g, card, { face, escape, extra: i }, me), spell))) : undefined;
   const alts = ways ? [] : altCostsOf(g, card, face, me);
-  const alt = planPayment(g, me, castCost(g, card, { face, escape }, me), spell) ? undefined : alts.find((i) => planPayment(g, me, castCost(g, card, { alt: i, face }, me), spell));
+  const alt = planPayment(g, me, castCost(g, card, { face, escape, extra }, me), spell) ? undefined : alts.find((i) => planPayment(g, me, castCost(g, card, { alt: i, face, extra }, me), spell));
   // An X paid in life ("pay X life", Toxic Deluge) starts at 0, not at all the player's life.
   const hasX = !paysFlashback(g, card, { face, escape }) && parseCost(data(asSpell(card, face)).manaCost).x > 0;
-  const choices: CastChoices = { alt, x: hasX && alt === undefined ? Math.max(0, maxX(g, me, card, { alt, face, escape })) : 0, kicked: 0, ...(escape ? { escape } : {}) };
+  const choices: CastChoices = {
+    alt,
+    x: hasX && alt === undefined ? Math.max(0, maxX(g, me, card, { alt, face, escape, extra })) : 0,
+    kicked: 0,
+    ...(escape ? { escape } : {}),
+    ...(extra !== undefined ? { extra } : {}),
+  };
   if (face) choices.face = face;
   if (isSiege(spell)) choices.protector = defaultProtector(g, spell) ?? undefined;
   return choices;

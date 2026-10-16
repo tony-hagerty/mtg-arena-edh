@@ -692,6 +692,10 @@ export function castCost(g: Game, c: Card, choices: CastChoices = {}, pid = c.ow
   for (let k = 0; k < (choices.kicked ?? 0) && script.kicker; k++) cost = addCosts(cost, parseCost(script.kicker.mana));
   // Offspring is an optional additional cost (702.175a).
   if (choices.offspring && script.offspring) cost = addCosts(cost, parseCost(script.offspring));
+  // "Pay 5 life or pay {2}": the additional cost chosen (118.8).
+  const extra = choices.extra === undefined ? undefined : script.additionalCost?.oneOf?.[choices.extra];
+  if (extra?.mana) cost = addCosts(cost, parseCost(extra.mana));
+  cost.life += extra?.life ?? 0;
   // Spree: each chosen mode's cost is an additional cost (702.172a).
   for (const i of choices.modes ?? []) {
     const extra = script.modal?.modes[i]?.cost;

@@ -141,6 +141,8 @@ export interface CastChoices {
   modes?: number[];
   /** Pay the offspring cost (702.175a). */
   offspring?: boolean;
+  /** Which of the additional costs it offers to pay ("pay 5 life or pay {2}"), by index into `additionalCost.oneOf`. */
+  extra?: number;
   /**
    * How a spell that divides damage among its targets divides it (601.2d): so much to each
    * target, by index into the targets. Each target gets at least 1, and it adds up to the total.
@@ -1283,7 +1285,14 @@ export interface CardScript extends Triggers {
    * `life`: that much life (119.4), or `'x'` for "pay X life", X announced as it is cast
    * (601.2b, 107.3a) and kept in `CastInfo.x`.
    */
-  additionalCost?: { sacrifice?: TargetSpec; optional?: boolean; discard?: number; life?: number | 'x' };
+  additionalCost?: {
+    sacrifice?: TargetSpec;
+    optional?: boolean;
+    discard?: number;
+    life?: number | 'x';
+    /** "Pay 5 life or pay {2}" (Redirect Lightning): the caster pays one of these, chosen as it is cast (`CastChoices.extra`). */
+    oneOf?: { label: string; mana?: string; life?: number }[];
+  };
   /**
    * Gift (702.174): "Gift a [token]". The caster may promise an opponent a gift as they
    * cast it; that player then creates the token before the spell's other effects
