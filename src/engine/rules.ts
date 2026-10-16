@@ -73,6 +73,8 @@ export const SUPPORTED_KEYWORDS = [
   'cumulative upkeep',
   'partner',
   'mobilize',
+  // Cycling (702.29) is read by the Oracle text parser as an ability activated from the hand.
+  'cycling',
   // Ward (702.21), dash (702.109), bargain (702.166) and gift (702.174) by the engine with
   // the card's script; escape (702.138) is given by Underworld Breach.
   'ward',

@@ -9,25 +9,34 @@ import {
   addCounters,
   ask,
   bounce,
+  chooseToDiscard,
   createToken,
+  creaturesOf,
+  damagePlayer,
   dealDamage,
   destroy,
   draw,
   exile,
+  finishEnter,
   gainLife,
   hasType,
   isColor,
   isCreature,
   isLand,
   isPlaneswalker,
+  log,
   loseLife,
   mill,
+  moveCard,
   opponentsOf,
   pump,
   refCard,
   refPlayer,
+  says,
+  search,
   searchBasic,
   surveil,
+  their,
 } from '../engine/rules';
 import type { ActivatedAbility, Card, CardData, CardScript, Color, Ctx, Game, ManaAbility, ManaSym, PlayerId, StaticBonus, TargetSpec, ThenCtx } from '../engine/types';
 import { ALL_CARD_NAMES, cardData } from './db';
@@ -90,15 +99,17 @@ const NOUNS: Record<string, { type: TargetSpec['type']; filter?: (c: Card) => bo
   planeswalker: { type: 'permanent', filter: isPlaneswalker },
   'artifact or enchantment': { type: 'permanent', filter: (c) => hasType(c, 'Artifact') || hasType(c, 'Enchantment') },
   'creature or planeswalker': { type: 'creature or planeswalker' },
+  'creature or enchantment': { type: 'permanent', filter: (c) => isCreature(c) || hasType(c, 'Enchantment') },
 };
 
-/** "non[type]" or a colour word, or "non[colour]", as a test on a card. */
+/** "non[type]", a colour word, "non[colour]", or "basic" / "nonbasic" (205.4a), as a test on a card. */
 function modifier(word: string): ((c: Card) => boolean) | null {
   const not = word.startsWith('non');
   const base = not ? word.slice(3) : word;
   let test: ((c: Card) => boolean) | null = null;
   if (base in COLOR_WORDS) test = (c) => isColor(c, COLOR_WORDS[base]);
   else if (not && base === 'token') test = (c) => !!c.isToken;
+  else if (base === 'basic') test = (c) => hasType(c, 'Basic');
   else if (not && ['land', 'artifact', 'creature', 'enchantment'].includes(base)) test = (c) => hasType(c, base[0].toUpperCase() + base.slice(1));
   if (!test) return null;
   return not ? (c) => !test!(c) : test;
@@ -173,6 +184,11 @@ interface Effect {
   joined?: boolean;
   /** Its subject is the previous clause's target player ("target player draws two cards and loses 2 life"). */
   reuse?: boolean;
+  /**
+   * It asks a player to choose (a search, a discard, surveil), and the choice is made after
+   * the ability's other effects have run. Only a "you may", which waits too, can follow it.
+   */
+  waits?: boolean;
 }
 
 type Subject = 'you' | 'target player' | 'target opponent' | 'each opponent';
@@ -222,7 +238,47 @@ function effect(clause: string, env: Env, who: Subject | null): { effect: Effect
   // Surveil N (701.25).
   if ((m = new RegExp(`^surveil ${NUM}$`).exec(rest))) {
     const n = amount(m[1], env, clause);
-    return done({ targets: [], run: (g, ctx) => surveil(g, ctx.you, amountOf(ctx, n)) });
+    return done({ targets: [], waits: true, run: (g, ctx) => surveil(g, ctx.you, amountOf(ctx, n)) });
+  }
+  // "Draw N cards, then discard N cards" (121, 701.9a): the discards are chosen after the draw.
+  if ((m = new RegExp(`^draw ${NUM} cards?, then discard ${NUM} cards?$`).exec(rest))) {
+    const [d, k] = [amount(m[1], env, clause), amount(m[2], env, clause)];
+    return done({
+      targets: [],
+      waits: true,
+      run: (g, ctx) => {
+        draw(g, ctx.you, amountOf(ctx, d));
+        chooseToDiscard(g, ctx.you, amountOf(ctx, k));
+      },
+    });
+  }
+  // "[This] deals N damage to each opponent" (120): no target, so every opponent, in APNAP order (101.4).
+  if ((m = new RegExp(`^~ deals ${NUM} damage to each opponent$`).exec(rest))) {
+    const n = amount(m[1], env, clause);
+    return done({ targets: [], run: (g, ctx) => opponentsOf(g, ctx.you).forEach((o) => void damagePlayer(g, ctx.self, o.id, amountOf(ctx, n))) });
+  }
+  // "Exile target player's graveyard": every card in it (406.2).
+  if (rest === "exile target player's graveyard") {
+    return done({
+      targets: [targetSpec('target player')!],
+      run: (g, ctx, i) => {
+        const p = refPlayer(g, ctx.targets[i]);
+        if (!p || !p.graveyard.length) return;
+        log(g, `${says(p, 'exiles')} ${their(p)} graveyard.`, p.id, [...p.graveyard]);
+        for (const c of [...p.graveyard]) moveCard(g, c, 'exile');
+      },
+    });
+  }
+  // "Put a +1/+1 counter on each creature you control": the ones you control as it resolves.
+  if ((m = new RegExp(`^put ${NUM} \\+1/\\+1 counters? on each creature you control$`).exec(rest))) {
+    const n = amount(m[1], env, clause);
+    return done({ targets: [], run: (g, ctx) => creaturesOf(g, ctx.you).forEach((c) => addCounters(g, c, amountOf(ctx, n))) });
+  }
+  // "Creatures you control gain indestructible until end of turn": those you control now (611.2c).
+  if ((m = /^creatures you control gain (.+) until end of turn$/.exec(rest))) {
+    const keywords = m[1].replace(/,? and /g, ', ').split(', ');
+    if (keywords.some((k) => !GRANTABLE.includes(k))) return refuse(clause, `can't grant "${m[1]}"`);
+    return done({ targets: [], run: (g, ctx) => creaturesOf(g, ctx.you).forEach((c) => pump(g, c, 0, 0, keywords)) });
   }
   // "[This] deals N damage to [target]" (120).
   if ((m = new RegExp(`^~ deals ${NUM} damage to (.+)$`).exec(rest))) {
@@ -274,16 +330,27 @@ function effect(clause: string, env: Env, who: Subject | null): { effect: Effect
   // Searching for a basic land (701.23). A search for a card with a stated quality may find nothing (701.23b).
   if ((m = /^search your library for a basic land card, put (?:it|that card) onto the battlefield( tapped)?, then shuffle$/.exec(rest))) {
     const tapped = !!m[1];
-    return done({ targets: [], run: (g, ctx) => searchBasic(g, ctx.you, 'battlefield', { tapped }) });
+    return done({ targets: [], waits: true, run: (g, ctx) => searchBasic(g, ctx.you, 'battlefield', { tapped }) });
   }
   if (/^search your library for a basic land card, reveal (?:it|that card), put (?:it|that card) into your hand, then shuffle$/.test(rest)) {
-    return done({ targets: [], run: (g, ctx) => searchBasic(g, ctx.you, 'hand') });
+    return done({ targets: [], waits: true, run: (g, ctx) => searchBasic(g, ctx.you, 'hand') });
+  }
+  // "A land card", or "a Mountain or Forest card" (a fetch land): found cards aren't revealed (701.23e).
+  if ((m = /^search your library for an? (land|(plains|island|swamp|mountain|forest) or (plains|island|swamp|mountain|forest)) card, put (?:it|that card) onto the battlefield( tapped)?, then shuffle$/.exec(rest))) {
+    const cap = (w: string) => w[0].toUpperCase() + w.slice(1);
+    const find = m[2] ? { subtypes: [cap(m[2]), cap(m[3])], label: `a ${cap(m[2])} or ${cap(m[3])} card` } : { types: ['Land'], label: 'a land card' };
+    const tapped = !!m[4];
+    return done({ targets: [], waits: true, run: (g, ctx) => search(g, ctx.you, 'battlefield', find, { tapped }) });
+  }
+  // "Search your library for a card, put that card into your hand, then shuffle": it must find one if it can (701.23d).
+  if (/^search your library for a card, put (?:it|that card) into your hand, then shuffle$/.test(rest)) {
+    return done({ targets: [], waits: true, run: (g, ctx) => search(g, ctx.you, 'hand') });
   }
   return refuse(clause, 'no template matches');
 }
 
 /** Verbs that start a new clause after "and": "you draw a card and you lose 1 life", "gain 1 life and draw a card". */
-const CLAUSE_START = /\s+and\s+(?=(?:you |target |each opponent |draws? |gains? |loses? |mills? |create |put |destroy |exile |return |surveil |search ))/;
+const CLAUSE_START = /\s+and\s+(?=(?:you |target |each opponent |draws? |gains? |loses? |mills? |create |put |destroy |exile |return |surveil |search |~ deals ))/;
 
 /**
  * Reads an ability's effect text, sentence by sentence and clause by clause. "You may"
@@ -316,6 +383,14 @@ function effects(text: string, env: Env): Effect[] {
  * the answer is yes, then the rest of the ability.
  */
 function build(list: Effect[], key: string, name: string, then: NonNullable<CardScript['then']>): { targets: TargetSpec[]; run: (g: Game, ctx: Ctx) => void } {
+  // A choice is made after the effects that don't wait have run: refuse anything that would
+  // then happen out of order, unless a "you may" (which waits too) comes between.
+  let waiting = false;
+  for (const e of list) {
+    if (e.may) waiting = false;
+    else if (waiting && !e.waits && !e.joined) refuse(e.text, 'an effect after a choice');
+    if (e.waits) waiting = true;
+  }
   const targets: TargetSpec[] = [];
   const steps = list.map((e) => {
     const i = e.reuse ? targets.length - 1 : targets.length;
@@ -358,7 +433,9 @@ function cost(text: string, line: string): { cost: ActivatedAbility['cost']; x: 
   const out: ActivatedAbility['cost'] = {};
   let x = false;
   for (const part of text.split(/,\s*/)) {
+    const life = /^pay (\d+) life$/.exec(part);
     if (part === '{t}') out.tap = true;
+    else if (life && !out.life) out.life = parseInt(life[1], 10); // paid only with that much life (119.4)
     else if (/^(\{([0-9]+|[wubrgcx])\})+$/.test(part) && !out.mana) {
       out.mana = part.toUpperCase();
       x = part.includes('{x}');
@@ -379,11 +456,39 @@ function cost(text: string, line: string): { cost: ActivatedAbility['cost']; x: 
   return { cost: out, x };
 }
 
-/** "Add {G}.", "Add {C}{C}.", "Add {W} or {B}.", "Add one mana of any color." (106, 605). */
+const BASIC_TYPES = ['plains', 'island', 'swamp', 'mountain', 'forest'];
+
+/**
+ * "Add {G}.", "Add {C}{C}.", "Add {W} or {B}.", "Add {W}, {U}, or {B}.", "Add one mana of
+ * any color.", "Add three mana of any one color." (106, 605), then optionally "This
+ * deals 1 damage to you." (a pain land or Talisman) or "Activate only if you control a
+ * Plains or a Swamp." (602.5b).
+ */
 function manaEffect(text: string): ManaAbility | null {
+  let rest = text;
+  const extra: Partial<ManaAbility> = {};
+  let m = / ~ deals (\d+) damage to you\.$/.exec(rest);
+  if (m) {
+    extra.damage = parseInt(m[1], 10);
+    rest = rest.slice(0, m.index) + (rest[m.index - 1] === '.' ? '' : '.');
+  }
+  m = / activate only if you control an? (\w+) or an? (\w+)\.$/.exec(rest);
+  if (m && BASIC_TYPES.includes(m[1]) && BASIC_TYPES.includes(m[2])) {
+    const types = [m[1], m[2]].map((t) => t[0].toUpperCase() + t.slice(1));
+    extra.when = (g, self) => g.players[self.controller].battlefield.some((c) => types.some((t) => hasType(c, t)));
+    rest = rest.slice(0, m.index);
+  }
+  const base = baseMana(rest);
+  return base && { ...base, ...extra };
+}
+
+function baseMana(text: string): ManaAbility | null {
   if (text === 'add one mana of any color.') return { amount: 1, colors: 'any' };
   if (text === "add one mana of any color in your commander's color identity.") return { amount: 1, colors: 'identity' };
-  let m = /^add ((?:\{[wubrgc]\})+)\.$/.exec(text);
+  // "Any one color": all of it the same colour (106.1b), as a ManaAbility makes it.
+  let m = new RegExp(`^add ${NUM} mana of any one color\\.$`).exec(text);
+  if (m && m[1] !== 'x') return { amount: /^\d+$/.test(m[1]) ? parseInt(m[1], 10) : NUMBERS[m[1]], colors: 'any' };
+  m = /^add ((?:\{[wubrgc]\})+)\.$/.exec(text);
   if (m) {
     const syms = m[1].slice(1, -1).split('}{');
     if (syms.some((s) => s !== syms[0])) return null;
@@ -391,6 +496,8 @@ function manaEffect(text: string): ManaAbility | null {
   }
   m = /^add \{([wubrg])\} or \{([wubrg])\}\.$/.exec(text);
   if (m) return { amount: 1, colors: [m[1].toUpperCase(), m[2].toUpperCase()] as ManaSym[] };
+  m = /^add \{([wubrg])\}, \{([wubrg])\}, or \{([wubrg])\}\.$/.exec(text);
+  if (m) return { amount: 1, colors: [m[1], m[2], m[3]].map((x) => x.toUpperCase()) as ManaSym[] };
   return null;
 }
 
@@ -424,6 +531,106 @@ const isKeywordLine = (line: string) => line.split(',').every((part) => BARE_KEY
 
 const HOOKS: Record<string, 'onEnter' | 'onDies' | 'onAttack'> = { 'when ~ enters': 'onEnter', 'when ~ dies': 'onDies', 'whenever ~ attacks': 'onAttack' };
 
+const landsOf = (g: Game, pid: PlayerId) => g.players[pid].battlefield.filter(isLand);
+const capital = (w: string) => w[0].toUpperCase() + w.slice(1);
+
+/**
+ * "This land enters tapped unless [condition]": the conditions, checked as it enters
+ * (614.1c), from the side of the player it enters under. It is on the battlefield by then,
+ * so "other lands" leaves it out.
+ */
+const UNLESS: [RegExp, (m: RegExpExecArray) => (g: Game, c: Card, you: PlayerId) => boolean][] = [
+  [/^you control two or more other lands$/, () => (g, c, you) => landsOf(g, you).filter((x) => x.id !== c.id).length >= 2],
+  [/^you control two or more basic lands$/, () => (g, c, you) => landsOf(g, you).filter((x) => x.id !== c.id && hasType(x, 'Basic')).length >= 2],
+  [/^you control a basic land$/, () => (g, c, you) => landsOf(g, you).some((x) => x.id !== c.id && hasType(x, 'Basic'))],
+  // Players who have left the game aren't opponents any more (800.4a).
+  [/^you have two or more opponents$/, () => (g, _c, you) => opponentsOf(g, you).length >= 2],
+  [/^your opponents control eight or more lands$/, () => (g, _c, you) => opponentsOf(g, you).reduce((n, o) => n + landsOf(g, o.id).length, 0) >= 8],
+  [
+    /^you control an? (plains|island|swamp|mountain|forest) or an? (plains|island|swamp|mountain|forest)$/,
+    (m) => (g, c, you) => g.players[you].battlefield.some((x) => x.id !== c.id && [m[1], m[2]].some((t) => hasType(x, capital(t)))),
+  ],
+];
+
+/**
+ * "As this land enters, you may pay 2 life. If you don't, it enters tapped." A replacement
+ * effect with a choice (614.12a): the player can pay only with 2 life to pay (119.4).
+ */
+const shockEnter: Pick<CardScript, 'replaceEnter' | 'then' | 'botChoice'> = {
+  replaceEnter: (g, c, controller) => {
+    ask(g, controller, { text: `Pay 2 life, or ${c.name} enters tapped.`, life: 2, yes: 'Pay 2 Life', no: 'Enter Tapped', then: 'shock', script: c.id });
+    return true;
+  },
+  then: { shock: (g, { self, yes, data }) => finishEnter(g, self, data, { tapped: !yes }) },
+  // A bot pays on its own turn while it has life to spare.
+  botChoice: { shock: (g, pid) => ({ type: 'answer', yes: g.active === pid && g.players[pid].life > 15 }) },
+};
+
+/**
+ * Lines that change how the card is cast or enters, or that apply while it is on the
+ * battlefield: they add to the script and return true. Lines it doesn't know return false.
+ */
+function cardLine(text: string, original: string, script: CardScript, then: NonNullable<CardScript['then']>): boolean {
+  let m: RegExpExecArray | null;
+  // "This land enters tapped." (614.1c)
+  if (text === '~ enters tapped.') {
+    script.entersTapped = true;
+    return true;
+  }
+  if ((m = /^~ enters tapped unless (.+)\.$/.exec(text))) {
+    const unless = m[1];
+    for (const [re, make] of UNLESS) {
+      const hit = re.exec(unless);
+      if (!hit) continue;
+      const ok = make(hit);
+      script.entersTapped = (g, c, you) => !ok(g, c, you);
+      return true;
+    }
+    return refuse(original, `no template for "unless ${unless}"`);
+  }
+  if (text === "as ~ enters, you may pay 2 life. if you don't, it enters tapped.") {
+    script.replaceEnter = shockEnter.replaceEnter;
+    Object.assign(then, shockEnter.then);
+    script.botChoice = shockEnter.botChoice;
+    return true;
+  }
+  // "You have no maximum hand size." (402.2)
+  if (text === 'you have no maximum hand size.') {
+    script.noMaxHandSize = true;
+    return true;
+  }
+  // "This spell can't be countered." (101.2)
+  if (text === "~ can't be countered.") {
+    script.uncounterable = true;
+    return true;
+  }
+  // "Red spells you cast cost {1} less to cast." Only generic mana is taken off (601.2f).
+  if ((m = /^(white|blue|black|red|green) spells you cast cost \{(\d+)\} less to cast\.$/.exec(text))) {
+    const color = COLOR_WORDS[m[1]];
+    const n = parseInt(m[2], 10);
+    script.costModifier = (_g, self, spell, caster) => (caster === self.controller && isColor(spell, color) ? -n : 0);
+    return true;
+  }
+  // "If you control a commander, you may cast this spell without paying its mana cost." An alternative cost (118.9).
+  if (text === 'if you control a commander, you may cast ~ without paying its mana cost.') {
+    const alt = { label: 'free: you control a commander', mana: '', when: (g: Game, self: Card) => g.players[self.controller].battlefield.some((c) => c.isCommander) };
+    script.alternativeCosts = [...(script.alternativeCosts ?? []), alt];
+    return true;
+  }
+  // Cycling [cost] (702.29a): "[Cost], Discard this card: Draw a card", activated from the hand.
+  if ((m = /^cycling ((?:\{[0-9wubrgc]\})+)$/.exec(text))) {
+    const mana = m[1].toUpperCase();
+    const ab: ActivatedAbility = { cost: { mana, discardSelf: true }, fromHand: true, text: `Cycling ${mana}`, resolve: (g, ctx) => draw(g, ctx.you) };
+    const had = script.activated ? (Array.isArray(script.activated) ? script.activated : [script.activated]) : [];
+    script.activated = [...had, ab];
+    return true;
+  }
+  return false;
+}
+
+/** "Whenever you cast a spell", "Whenever you cast a noncreature spell" (603.2, 601.2i). */
+const CAST_TRIGGER = /^whenever you cast an? (noncreature )?spell, (.+)$/;
+
 /**
  * Reads a card's Oracle text into a script, or refuses it with the clause it couldn't
  * read. A card with only keywords the engine knows gets an empty script.
@@ -449,6 +656,7 @@ function readCard(d: CardData): CardScript {
   const spellEffects: Effect[] = [];
   lines(d).forEach(({ text, original }, n) => {
     if (isKeywordLine(text)) return;
+    if (cardLine(text, original, script, then)) return;
     if (spell) {
       spellEffects.push(...effects(text, { permanent: false, x: false }));
       return;
@@ -464,6 +672,19 @@ function readCard(d: CardData): CardScript {
         if (targets.length) script.targets = targets;
         script.onEnter = (g, ctx) => run(g, ctx);
       } else script[hook] = { resolve: (g: Game, ctx: Ctx) => run(g, ctx), targets, text: original };
+      return;
+    }
+    const cast = CAST_TRIGGER.exec(text);
+    if (cast) {
+      if (script.onCast) refuse(original, 'two abilities that trigger on the same event');
+      const noncreature = !!cast[1];
+      const { targets, run } = build(effects(cast[2], { permanent: true, x: false }), `t${n}`, d.name, then);
+      script.onCast = {
+        when: (_g, e) => e.caster === e.self.controller && (!noncreature || !isCreature(e.card)),
+        resolve: (g: Game, ctx: Ctx) => run(g, ctx),
+        targets,
+        text: original,
+      };
       return;
     }
     // Activated abilities, mana abilities among them: "[Cost]: [Effect]" (602.1, 605.1a).
@@ -495,7 +716,10 @@ function readCard(d: CardData): CardScript {
     script.onResolve = run;
   }
   if (mana.length) script.mana = mana.length === 1 ? mana[0] : mana;
-  if (activated.length) script.activated = activated.length === 1 ? activated[0] : activated;
+  // Cycling, read as a card line, comes after the card's other activated abilities.
+  const had = script.activated ? (Array.isArray(script.activated) ? script.activated : [script.activated]) : [];
+  const all = [...activated, ...had];
+  if (all.length) script.activated = all.length === 1 ? all[0] : all;
   if (statics.length) {
     script.static = (_g, self, c) => {
       const all = statics.map((s) => s(self, c)).filter((b): b is StaticBonus => !!b);
