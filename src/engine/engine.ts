@@ -1946,20 +1946,8 @@ function act(g: Game, a: Action): boolean {
     // them leaves the game as if the spell was never started (733.1).
     case 'cast': {
       const c = findCard(g, a.card);
-      const choices: CastChoices = {
-        x: a.x,
-        kicked: a.kicked,
-        alt: a.alt,
-        sacrifice: a.sacrifice,
-        discard: a.discard,
-        exile: a.exile,
-        modes: a.modes,
-        protector: a.protector,
-        face: a.face,
-        escape: a.escape,
-        gift: a.gift,
-        delve: a.delve,
-      };
+      // Everything announced with it (601.2b), convoke and offspring included.
+      const { type: _type, card: _card, targets: _targets, hold: _hold, ...choices } = a;
       if (!c || !['hand', 'command', 'graveyard', 'exile'].includes(c.zone) || !canCast(g, pid, c, choices)) return false;
       const face = choices.face ?? 0;
       const specs = specsFor(castTargets(c, choices.modes, face, choices.gift, choices.alt), a.targets?.length ?? 0);
