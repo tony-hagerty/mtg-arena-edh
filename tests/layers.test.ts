@@ -2,7 +2,7 @@
 // the timestamps themselves (613.7).
 import { produce } from 'immer';
 import { describe, expect, it } from 'vitest';
-import { registerCards } from '../src/cards/db';
+import { DECKS, registerCards } from '../src/cards/db';
 import {
   addContinuous,
   addCounters,
@@ -18,7 +18,9 @@ import {
   isCreature,
   lastKnown,
   moveCard,
+  newGame,
   pump,
+  settled,
   stats,
   subtypesOf,
   timestampTogether,
@@ -332,6 +334,29 @@ describe('what the layers see', () => {
     });
     expect(isCreature(g, express())).toBe(false);
     expect(stats(g, express()).toughness).toBe(4);
+  });
+
+  it('answers kept while a game stays the same are the answers worked out afresh', () => {
+    let g = newGame({ seed: 7, seats: DECKS.slice(0, 4).map((deck) => ({ deck })) });
+    const all = (x: Game) => x.players.flatMap((p) => p.battlefield);
+    // Up to layer 4 only the types are settled.
+    const each = (x: Game) => JSON.stringify(all(x).map((c) => [c.id, characteristics(x, c, '4').typeLine, characteristics(x, c)]));
+    for (let i = 0; g.step !== 'gameOver' && i < 120; i++) {
+      if (i % 10 === 0 && all(g).length) {
+        // Inside a draft nothing is kept, so these are worked out afresh.
+        let fresh = '';
+        let held = '';
+        produce(g, (d) => {
+          fresh = each(d);
+          held = settled(d, () => each(d) && each(d));
+        });
+        expect(held).toBe(fresh);
+        // A finished state keeps its answers: the second time they are the kept ones.
+        expect(each(g)).toBe(fresh);
+        expect(each(g)).toBe(fresh);
+      }
+      g = applyBotAction(g, botAction(g, g.priority));
+    }
   });
 
   it('remembers a permanent as it last was, with the effects of others that left with it (603.10a)', () => {
