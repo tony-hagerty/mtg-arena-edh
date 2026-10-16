@@ -968,21 +968,18 @@ export function withoutLookahead<T>(fn: () => T): T {
 /**
  * The way to pay `cost` that leaves the most of the player's other cards in hand and
  * command zone castable afterwards, this turn. Instants and cards with flash count double.
- * Each card is checked against its printed mana cost (plus commander tax), not cost
- * changes. The candidates are the usual plan and, for each card castable now, a plan that
- * leaves alone the sources that card would use. Ties go to the usual plan.
+ * Each card is checked against what it costs now (`castCost`: commander tax, cost
+ * increases and reductions), with no kicker and X as 0. The candidates are the usual plan
+ * and, for each card castable now, a plan that leaves alone the sources that card would
+ * use. Ties go to the usual plan.
  */
 function bestPayment(g: Game, pid: PlayerId, cost: Cost, spell?: Card, keep: string[] = []): Payment | null {
   const usual = planPayment(g, pid, cost, spell, keep);
   if (!usual) return null;
   const p = g.players[pid];
-  const costOf = (c: Card): Cost => {
-    const printed = parseCost(data(c).manaCost);
-    return c.zone === 'command' ? { ...printed, generic: printed.generic + commanderTax(g, c) } : printed;
-  };
   const others = [...p.hand, ...p.command]
     .filter((c) => c.id !== spell?.id && !isLand(c) && data(c).manaCost)
-    .map((c) => ({ c, cost: costOf(c), weight: isInstantSpeed(c) ? 2 : 1 }))
+    .map((c) => ({ c, cost: castCost(g, c, {}, pid), weight: isInstantSpeed(c) ? 2 : 1 }))
     .map((o) => ({ ...o, plan: planPayment(g, pid, o.cost, o.c) }))
     .filter((o) => o.plan);
   const most = others.reduce((n, o) => n + o.weight, 0);

@@ -385,6 +385,21 @@ describe('auto-pay: which sources it taps', () => {
     expect(tappedBy(applyAction(g, solRing(g)))).toEqual(['Plains']);
   });
 
+  it('looks ahead with what cards cost now, after reductions (601.2f)', () => {
+    // Ruby Medallion makes Fiery Confluence {1}{R}{R}: three lands, not four, so it stays
+    // castable only if the {1} isn't paid with a Mountain.
+    const g = game((d) => {
+      put(d, 0, 'Ruby Medallion');
+      put(d, 0, 'Mountain', 'battlefield', 2);
+      put(d, 0, 'Plains', 'battlefield', 2);
+      put(d, 0, 'Fiery Confluence', 'hand'); // {2}{R}{R}
+      put(d, 0, 'Thraben Inspector', 'hand'); // {W}
+      put(d, 0, 'Sol Ring', 'hand');
+    });
+    expect(tapped(g, '{1}')).toEqual(['Mountain']); // the colour weighing alone
+    expect(tappedBy(applyAction(g, solRing(g)))).toEqual(['Plains']);
+  });
+
   it("skips the lookahead while a bot only tries a move out, and uses it for the bot's real move", () => {
     const g = strands();
     expect(tappedBy(applyAction(g, solRing(g), { simulate: true }))).toEqual(['Mountain']);
