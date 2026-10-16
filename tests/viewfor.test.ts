@@ -172,7 +172,7 @@ describe('viewFor through whole games', () => {
 
   it('keeps hidden stand-ins blank', () => {
     const v = viewFor(newGame({ seed: 2, seats: DECKS.slice(0, 2).map((deck) => ({ deck })) }), 0);
-    const blank = (c: Card) => c.name === '' && c.mods.length === 0 && c.cast === null;
+    const blank = (c: Card) => c.name === '' && c.continuous.length === 0 && c.cast === null;
     expect(v.players[1].hand.every(blank)).toBe(true);
   });
 });

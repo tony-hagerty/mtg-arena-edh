@@ -257,7 +257,7 @@ describe('lands and mana from Oracle text', () => {
     });
     g = run(g, { type: 'activate', card: byName(g, 0, 'Test Cave')!.id });
     for (let i = 0; i < 10 && (g.decision || g.stack.length); i++) g = g.decision ? applyBotAction(g, botAction(g, g.priority)) : applyAction(g, { type: 'pass' });
-    const found = g.players[0].battlefield.find((c) => isLand(c) && c.name !== 'Plains');
+    const found = g.players[0].battlefield.find((c) => isLand(g, c) && c.name !== 'Plains');
     expect(found?.tapped).toBe(true);
   });
 
@@ -416,7 +416,7 @@ describe('more effects and static lines from Oracle text', () => {
       put(d, 1, 'Plains');
       put(d, 1, 'Test Gate');
     });
-    const spec = activatedAt(byName(g, 0, 'Test Bowl')!)!.targets![0];
+    const spec = activatedAt(g, byName(g, 0, 'Test Bowl')!)!.targets![0];
     expect(legalTargets(g, 0, spec, byName(g, 0, 'Test Bowl')!).map((r) => (r.kind === 'card' ? permanent(g, r.id)!.name : r.id))).toEqual(['Test Bowl', 'Test Gate']);
     const p = parse('Instant', 'Destroy target creature or enchantment. You lose 2 life.');
     expect(p.ok && p.script.targets).toMatchObject([{ type: 'permanent', label: 'target creature or enchantment' }]);
@@ -489,7 +489,7 @@ function scenario(name: string, parsed: CardScript): unknown {
   let action: Action | null;
   if (parsed.mana) action = { type: 'tapMana', card: me.id };
   else if (parsed.activated) {
-    const ab = activatedAt(me)!;
+    const ab = activatedAt(g, me)!;
     action = { type: 'activate', card: me.id, targets: pick(ab.targets ?? [], me), ...(ab.cost.sacrificeOne ? { sacrifice: [byName(g, 0, 'Elite Vanguard')!.id] } : {}) };
   } else if (onTable) action = null;
   else action = { type: 'cast', card: me.id, targets: pick(spellTargets(me), me) };
@@ -510,7 +510,7 @@ const summary = (g: Game) =>
     battlefield: p.battlefield
       .map((c) => {
         const s = stats(g, c);
-        return `${c.name}${c.tapped ? ' tapped' : ''}${isCreature(c) ? ` ${s.power}/${s.toughness} ${[...s.keywords].sort().join(',')}` : ''} ${JSON.stringify(c.counters)}`;
+        return `${c.name}${c.tapped ? ' tapped' : ''}${isCreature(g, c) ? ` ${s.power}/${s.toughness} ${[...s.keywords].sort().join(',')}` : ''} ${JSON.stringify(c.counters)}`;
       })
       .sort(),
     graveyard: p.graveyard.map((c) => c.name).sort(),

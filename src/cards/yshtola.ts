@@ -25,6 +25,7 @@ import {
   gainLife,
   hasType,
   isColor,
+  untilEndOfTurn,
   isCreature,
   isPlaneswalker,
   jobSelect,
@@ -67,7 +68,7 @@ import { favouriteType } from './kraum-tymna';
 const isOpponent = (g: Game, a: PlayerId, b: PlayerId | null) => b !== null && a !== b && !g.players[b].lost;
 
 /** "Whenever you cast a noncreature spell" (the permanent's controller casts it). */
-const youCastNoncreature = (_g: Game, e: { self: Card; card: Card; caster: PlayerId }) => e.caster === e.self.controller && !isCreature(e.card);
+const youCastNoncreature = (g: Game, e: { self: Card; card: Card; caster: PlayerId }) => e.caster === e.self.controller && !isCreature(g, e.card);
 
 /** `source` deals `n` damage to each opponent of `you`, all at once (120.3, 510.2's "at the same time"). */
 const damageEachOpponent = (g: Game, source: Card, you: PlayerId, n: number) =>
@@ -183,7 +184,7 @@ function chooseInTurn(g: Game, order: PlayerId[], i: number, chosen: string[], o
 
 // ---------- Single Combat and Papalymo Totolymo ----------
 
-const keepers = (g: Game, pid: PlayerId) => g.players[pid].battlefield.filter((c) => isCreature(c) || isPlaneswalker(c));
+const keepers = (g: Game, pid: PlayerId) => g.players[pid].battlefield.filter((c) => isCreature(g, c) || isPlaneswalker(g, c));
 
 /** Single Combat, once each player has chosen what to keep. */
 function singleCombat(g: Game, you: PlayerId, order: PlayerId[], i: number, kept: string[]) {
@@ -198,7 +199,7 @@ function singleCombat(g: Game, you: PlayerId, order: PlayerId[], i: number, kept
 
 /** "A creature with the greatest power among creatures they control" (ties: any of them). */
 function strongest(g: Game, pid: PlayerId): Card[] {
-  const mine = g.players[pid].battlefield.filter(isCreature);
+  const mine = g.players[pid].battlefield.filter((x) => isCreature(g, x));
   const most = Math.max(...mine.map((c) => stats(g, c).power));
   return mine.filter((c) => stats(g, c).power === most);
 }
@@ -270,7 +271,7 @@ registerScripts({
     // it doesn't trigger again that turn (603.2h).
     onLifeLossTogether: {
       when: (g, { self, losses }) => losses.some((l) => isOpponent(g, self.controller, l.player)) && !didThisTurn(g, self.controller, 'Emet-Selch'),
-      targets: [{ type: 'graveyard card', who: 'you', label: 'target instant or sorcery card in your graveyard', filter: (_g, c) => hasType(c, 'Instant') || hasType(c, 'Sorcery') }],
+      targets: [{ type: 'graveyard card', who: 'you', label: 'target instant or sorcery card in your graveyard', filter: (g, c) => hasType(g, c, 'Instant') || hasType(g, c, 'Sorcery') }],
       resolve: (g, { you, targets }) => {
         const card = refGraveyard(g, targets[0]);
         if (!card || didThisTurn(g, you, 'Emet-Selch')) return;
@@ -332,11 +333,11 @@ registerScripts({
     then: { type: (g, { self, name, data: d }) => finishEnter(g, self, d, { chosen: name }) },
     botChoice: { type: (g, pid) => ({ type: 'name', name: favouriteType(g, pid) }) },
     // "This creature is the chosen type in addition to its other types."
-    grantsSubtypes: (_g, self, c) => (c.id === self.id && self.chosen ? [self.chosen] : []),
+    static: (_g, self, c) => (c.id === self.id && self.chosen ? { subtypes: [self.chosen] } : null),
     // "If a triggered ability of another creature you control of the chosen type triggers, it
     // triggers an additional time." (603.2d)
-    doublesTriggers: (_g, self, source) =>
-      !!self.chosen && source.id !== self.id && source.controller === self.controller && isCreature(source) && subtypesOf(source).includes(self.chosen),
+    doublesTriggers: (g, self, source) =>
+      !!self.chosen && source.id !== self.id && source.controller === self.controller && isCreature(g, source) && subtypesOf(g, source).includes(self.chosen),
   },
 
   // ===== Artifacts =====
@@ -350,9 +351,8 @@ registerScripts({
     onEnter: jobSelect,
     // "Equipped creature gets +1/+0, has 'Whenever you cast a noncreature spell, this creature
     // deals 1 damage to each opponent,' and is a Wizard in addition to its other types."
-    static: (_g, self, c) => (self.attachedTo === c.id ? { power: 1 } : null),
+    static: (_g, self, c) => (self.attachedTo === c.id ? { power: 1, subtypes: ['Wizard'] } : null),
     grants: [granted('onCast', wizardPing, (_g, self, c) => self.attachedTo === c.id)],
-    grantsSubtypes: (_g, self, c) => (self.attachedTo === c.id ? ['Wizard'] : []),
     activated: equip('{3}'),
   },
   'Coalition Relic': {
@@ -402,7 +402,7 @@ registerScripts({
   },
   'Unwinding Clock': {
     // "Untap all artifacts you control during each other player's untap step." (502.3)
-    untapsOthersTurn: (_g, self, c, active) => active !== self.controller && c.controller === self.controller && hasType(c, 'Artifact'),
+    untapsOthersTurn: (g, self, c, active) => active !== self.controller && c.controller === self.controller && hasType(g, c, 'Artifact'),
   },
 
   // ===== Enchantments =====
@@ -410,7 +410,7 @@ registerScripts({
     // "Extort" (702.101a).
     ...extort,
     // "Artifacts and creatures your opponents control enter tapped." (614.1c)
-    entersTappedFor: (_g, self, c) => c.controller !== self.controller && (hasType(c, 'Artifact') || isCreature(c)),
+    entersTappedFor: (g, self, c) => c.controller !== self.controller && (hasType(g, c, 'Artifact') || isCreature(g, c)),
   },
   'Bloodchief Ascension': {
     // "At the beginning of each end step, if an opponent lost 2 or more life this turn, you may
@@ -458,10 +458,11 @@ registerScripts({
     // deals damage to an opponent, draw a card.' As long as enchanted creature is black, it
     // gets +1/+1 and has 'Whenever this creature deals damage to an opponent, that player
     // discards a card.'" Both apply to a blue and black creature.
-    static: (_g, self, c) => {
+    // Two abilities, each its own effect: the colour is checked in layer 7c, after layer 5 (613.5).
+    static: (g, self, c) => {
       if (self.attachedTo !== c.id) return null;
-      const n = (isColor(c, 'U') ? 1 : 0) + (isColor(c, 'B') ? 1 : 0);
-      return n ? { power: n, toughness: n } : null;
+      const plus = { power: 1, toughness: 1 };
+      return [isColor(g, c, 'U') ? plus : null, isColor(g, c, 'B') ? plus : null];
     },
     grants: [
       granted(
@@ -471,7 +472,7 @@ registerScripts({
           resolve: (g, { you }) => draw(g, you),
           text: 'Whenever this creature deals damage to an opponent, draw a card.',
         },
-        (_g, self, c) => self.attachedTo === c.id && isColor(c, 'U'),
+        (g, self, c) => self.attachedTo === c.id && isColor(g, c, 'U'),
       ),
       granted(
         'onDamage',
@@ -480,7 +481,7 @@ registerScripts({
           resolve: (g, { player }) => player !== null && chooseToDiscard(g, player, 1),
           text: 'Whenever this creature deals damage to an opponent, that player discards a card.',
         },
-        (_g, self, c) => self.attachedTo === c.id && isColor(c, 'B'),
+        (g, self, c) => self.attachedTo === c.id && isColor(g, c, 'B'),
       ),
     ],
   },
@@ -534,7 +535,7 @@ registerScripts({
       draw(g, you, 2);
       loseLife(g, you, 2);
       createToken(g, you, 'Wizard 0/1 ping');
-      for (const c of g.players[you].battlefield.filter((x) => isCreature(x) && subtypesOf(x).includes('Wizard'))) pump(g, c, 1, 0, ['lifelink']);
+      for (const c of g.players[you].battlefield.filter((x) => isCreature(g, x) && subtypesOf(g, x).includes('Wizard'))) pump(g, c, 1, 0, ['lifelink']);
     },
   },
   'Decorum Dissertation': {
@@ -562,7 +563,7 @@ registerScripts({
     // Aftermath (702.127a) is the engine's.
     onResolve: (g, { you }) => {
       const p = g.players[you];
-      const back = p.graveyard.filter((c) => hasType(c, 'Creature') && stats(g, c).power <= 2);
+      const back = p.graveyard.filter((c) => hasType(g, c, 'Creature') && stats(g, c).power <= 2);
       for (const c of back) moveCard(g, c, 'hand');
       if (back.length) log(g, `${says(p, 'returns')} ${back.map(label).join(', ')} to ${their(p)} hand.`, you, back);
     },
@@ -576,7 +577,7 @@ registerScripts({
         who: 'you',
         optional: true,
         label: 'up to two target artifact and/or enchantment cards in your graveyard',
-        filter: (_g, c) => hasType(c, 'Artifact') || hasType(c, 'Enchantment'),
+        filter: (g, c) => hasType(g, c, 'Artifact') || hasType(g, c, 'Enchantment'),
         ...(i ? { distinctFrom: 0 } : {}),
       }),
     ),
@@ -594,7 +595,7 @@ registerScripts({
     onResolve: (g, { you, targets }) => {
       loseLife(g, you, 2);
       const c = refCard(g, targets[0]);
-      if (c) c.mods.push({ power: 0, toughness: 0, keywords: [], grant: { from: 'Malakir Rebirth', index: 0 } });
+      untilEndOfTurn(g, c, { grant: { from: 'Malakir Rebirth', index: 0 } });
     },
     grants: [
       granted('onDies', {
@@ -623,7 +624,7 @@ registerScripts({
     onResolve: (g, { you }) => {
       const top = g.players[you].library.slice(0, 6);
       if (!top.length) return;
-      const pickable = top.filter((c) => hasType(c, 'Instant') || hasType(c, 'Sorcery'));
+      const pickable = top.filter((c) => hasType(g, c, 'Instant') || hasType(g, c, 'Sorcery'));
       pickCards(g, you, top, { min: 0, max: 1, pickable, text: 'you may reveal an instant or sorcery card and put it into your hand', button: 'Reveal', then: 'vision', data: { top: top.map((c) => c.id) } });
     },
     then: {
@@ -685,7 +686,7 @@ registerScripts({
   // ===== Lands =====
   'Urborg, Tomb of Yawgmoth': {
     // "Each land is a Swamp in addition to its other land types." So each can tap for {B} (305.6).
-    grantsSubtypes: (_g, _self, c) => (hasType(c, 'Land') && !subtypesOf(c).includes('Swamp') ? ['Swamp'] : []),
+    static: (g, _self, c) => (hasType(g, c, 'Land') ? { subtypes: ['Swamp'] } : null),
   },
 
   // ===== Tokens =====

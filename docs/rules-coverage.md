@@ -303,6 +303,24 @@ are from the Comprehensive Rules in `docs/rules/`.
   turn (Malakir Rebirth's "When this creature dies, return it"). The ability is the
   creature's own. Types given by effects ("is a Wizard in addition to its other types",
   Urborg's "Each land is a Swamp", which then taps for {B}, 305.6).
+- **Continuous effects in layers (613):** every permanent's types, abilities, power and
+  toughness are worked out by `characteristics` (src/engine/layers.ts) from its copiable
+  values, applying each effect in its layer: types (4), abilities (6), then power and
+  toughness: characteristic-defining abilities (7a), "base power and toughness" (7b),
+  +N/+N and counters (7c), switching (7d). Within a layer, effects apply in timestamp
+  order (613.7), and an ability that changes something in several layers does so in all
+  of them as it first applied (613.6). Timestamps: a permanent gets one as it enters,
+  becomes attached, or transforms; a static ability has its permanent's; an effect from a
+  spell or ability gets its own when it starts, locked in (611.2c); counters of a kind
+  get the newest one's (613.7c). Permanents entering together get theirs in APNAP order,
+  and a person chooses the order of their own when two or more have static abilities
+  (613.7m; bots keep the listed order). "Other permanents you control have
+  indestructible" covers noncreature permanents too, and a Vehicle crewed into a creature
+  gets "creatures you control" bonuses. A reconfigured Equipment stops being a creature
+  and loses its creature types (702.151b), and a creature type given to a noncreature
+  does nothing (205.3d). "Until your next turn" ends as that turn begins, or as the next
+  player's would if you left the game (800.4m); "for as long as" ends when that object
+  leaves.
 - **Untapping in other players' untap steps** (502.3, Unwinding Clock, Bender's
   Waterskin).
 - **Entering at the same time (603.6a):** cards an effect puts onto the battlefield
@@ -502,6 +520,9 @@ These are deliberate cuts for a prototype. The biggest ones come first.
 - **Modes and copies:** only spells can be modal: modal triggered and activated abilities
   (700.2b) aren't supported. A copy's controller must pick legal new targets or keep all
   the old ones (707.10c allows keeping some). Copying abilities isn't supported yet.
+- **Layers (613) not built yet:** dependency between effects (613.8), effects that
+  remove abilities (layer 6), effects that set or change colour (layer 5), and copy
+  effects on a permanent already on the battlefield (layer 1).
 - **Counters:** proliferate, shield, stun and other counters with their own rules
   (122.1c-j) do nothing special yet.
 - **Auras** can only enchant permanents, not players (702.5d).

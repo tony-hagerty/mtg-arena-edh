@@ -58,7 +58,7 @@ const exileFromGraveyard = (g: Game, c: Card | undefined) => {
 };
 
 const anyTarget: TargetSpec = { type: 'any', label: 'any target' };
-const land: TargetSpec = { type: 'permanent', label: 'target land', filter: (_g, c) => hasType(c, 'Land') };
+const land: TargetSpec = { type: 'permanent', label: 'target land', filter: (g, c) => hasType(g, c, 'Land') };
 
 registerScripts({
   Blaze: { targets: [anyTarget], onResolve: (g, { self, targets }) => void dealDamage(g, self, targets[0], self.cast?.x ?? 0) },
@@ -85,14 +85,14 @@ registerScripts({
       for (const c of creaturesOf(g, you)) pump(g, c, 0, 0, ['indestructible']);
     },
   },
-  'Thalia, Guardian of Thraben': { costModifier: (_g, _self, spell) => (isCreature(spell) ? 0 : 1) },
+  'Thalia, Guardian of Thraben': { costModifier: (g, _self, spell) => (isCreature(g, spell) ? 0 : 1) },
   Counterspell: { targets: [{ type: 'spell', label: 'target spell' }], onResolve: (g, { targets }) => counter(g, targets[0]) },
   Negate: {
-    targets: [{ type: 'spell', label: 'target noncreature spell', filter: (_g, c) => !isCreature(c) }],
+    targets: [{ type: 'spell', label: 'target noncreature spell', filter: (g, c) => !isCreature(g, c) }],
     onResolve: (g, { targets }) => counter(g, targets[0]),
   },
   'Essence Scatter': {
-    targets: [{ type: 'spell', label: 'target creature spell', filter: (_g, c) => isCreature(c) }],
+    targets: [{ type: 'spell', label: 'target creature spell', filter: (g, c) => isCreature(g, c) }],
     onResolve: (g, { targets }) => counter(g, targets[0]),
   },
   Stifle: { targets: [{ type: 'ability', label: 'target activated or triggered ability' }], onResolve: (g, { targets }) => counter(g, targets[0]) },
@@ -167,14 +167,14 @@ registerScripts({
         },
         {
           text: 'Destroy target artifact.',
-          targets: [{ type: 'permanent', label: 'target artifact', filter: (_g, c) => hasType(c, 'Artifact') }],
+          targets: [{ type: 'permanent', label: 'target artifact', filter: (g, c) => hasType(g, c, 'Artifact') }],
           resolve: (g, { targets }) => destroy(g, refCard(g, targets[0])),
         },
       ],
     },
   },
   Reverberate: {
-    targets: [{ type: 'spell', label: 'target instant or sorcery spell', filter: (_g, c) => hasType(c, 'Instant') || hasType(c, 'Sorcery') }],
+    targets: [{ type: 'spell', label: 'target instant or sorcery spell', filter: (g, c) => hasType(g, c, 'Instant') || hasType(g, c, 'Sorcery') }],
     onResolve: (g, { you, targets }) => copySpell(g, targets[0], you),
   },
   Pacifism: {
@@ -186,7 +186,7 @@ registerScripts({
   // Two activated abilities besides equip: one at any time, one as a sorcery (602, 702.6a).
   'Cranial Plating': {
     // "Equipped creature gets +1/+0 for each artifact you control."
-    static: (g, self, c) => (self.attachedTo === c.id ? { power: battlefield(g).filter((x) => x.controller === self.controller && hasType(x, 'Artifact')).length } : null),
+    static: (g, self, c) => (self.attachedTo === c.id ? { power: battlefield(g).filter((x) => x.controller === self.controller && hasType(g, x, 'Artifact')).length } : null),
     activated: [
       {
         // "{B}{B}: Attach this Equipment to target creature you control." No timing limit, unlike equip.
@@ -205,7 +205,7 @@ registerScripts({
       {
         // "{T}: Exile target land card from a graveyard. Add one mana of any color."
         cost: { tap: true },
-        targets: [{ type: 'graveyard card', label: 'target land card from a graveyard', filter: (_g, c) => hasType(c, 'Land') }],
+        targets: [{ type: 'graveyard card', label: 'target land card from a graveyard', filter: (g, c) => hasType(g, c, 'Land') }],
         text: '{T}: Exile target land card from a graveyard. Add one mana of any color.',
         resolve: (g, { you, targets }) => {
           exileFromGraveyard(g, refGraveyard(g, targets[0]));
@@ -215,7 +215,7 @@ registerScripts({
       {
         // "{B}, {T}: Exile target instant or sorcery card from a graveyard. Each opponent loses 2 life."
         cost: { mana: '{B}', tap: true },
-        targets: [{ type: 'graveyard card', label: 'target instant or sorcery card from a graveyard', filter: (_g, c) => hasType(c, 'Instant') || hasType(c, 'Sorcery') }],
+        targets: [{ type: 'graveyard card', label: 'target instant or sorcery card from a graveyard', filter: (g, c) => hasType(g, c, 'Instant') || hasType(g, c, 'Sorcery') }],
         text: '{B}, {T}: Exile target instant or sorcery card from a graveyard. Each opponent loses 2 life.',
         resolve: (g, { you, targets }) => {
           exileFromGraveyard(g, refGraveyard(g, targets[0]));
@@ -225,7 +225,7 @@ registerScripts({
       {
         // "{G}, {T}: Exile target creature card from a graveyard. You gain 2 life."
         cost: { mana: '{G}', tap: true },
-        targets: [{ type: 'graveyard card', label: 'target creature card from a graveyard', filter: (_g, c) => hasType(c, 'Creature') }],
+        targets: [{ type: 'graveyard card', label: 'target creature card from a graveyard', filter: (g, c) => hasType(g, c, 'Creature') }],
         text: '{G}, {T}: Exile target creature card from a graveyard. You gain 2 life.',
         resolve: (g, { you, targets }) => {
           exileFromGraveyard(g, refGraveyard(g, targets[0]));
@@ -335,7 +335,7 @@ registerScripts({
       draw(g, you, 1);
     },
   },
-  'Ruby Medallion': { costModifier: (_g, self, spell, caster) => (caster === self.controller && isColor(spell, 'R') ? -1 : 0) },
+  'Ruby Medallion': { costModifier: (g, self, spell, caster) => (caster === self.controller && isColor(g, spell, 'R') ? -1 : 0) },
 
   // ---------- double-faced, split and adventurer cards (712, 709, 715) ----------
   'Delver of Secrets': {
@@ -344,7 +344,7 @@ registerScripts({
       resolve: (g, { self, you }) => {
         // Look at the top card; revealing an instant or sorcery is free upside, so it always happens.
         const top = g.players[you].library[0];
-        if (!top || !(hasType(top, 'Instant') || hasType(top, 'Sorcery'))) return;
+        if (!top || !(hasType(g, top, 'Instant') || hasType(g, top, 'Sorcery'))) return;
         log(g, `${g.players[you].name} reveals ${label(top)}.`, you, [top]);
         transform(g, permanent(g, self.id));
       },
@@ -388,7 +388,7 @@ registerScripts({
       { text: 'Create a 2/2 white Knight creature token with vigilance.', resolve: (g, { you }) => createToken(g, you, 'Knight 2/2 vigilance') },
       {
         text: 'Knights you control get +2/+1 until end of turn.',
-        resolve: (g, { you }) => creaturesOf(g, you).filter((c) => hasType(c, 'Knight')).forEach((c) => pump(g, c, 2, 1)),
+        resolve: (g, { you }) => creaturesOf(g, you).filter((c) => hasType(g, c, 'Knight')).forEach((c) => pump(g, c, 2, 1)),
       },
     ],
   },
