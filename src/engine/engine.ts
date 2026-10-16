@@ -1727,6 +1727,10 @@ function finishResolving(g: Game) {
       log(g, `${label(c)} is exiled (rebound).`, item.controller, [c]);
       g.delayed.push({ id: `d${g.nextId++}`, controller: item.controller, card: snapshot(c), key: REBOUND, step: 'upkeep', player: item.controller, data: { id: c.id, moves: c.moves } });
     }
+  } else if (item?.kind === 'spell' && scriptFor(item.card).exilesItself) {
+    // "Exile Teferi's Protection." Its own text says where it goes as it finishes (608.2n).
+    log(g, `${label(item.card)} is exiled.`, item.controller, [item.card]);
+    moveCard(g, item.card, 'exile');
   } else if (item?.kind === 'spell') moveCard(g, item.card, 'graveyard');
   else if (item) g.stack = g.stack.filter((x) => x !== item);
   g.passes = 0;
