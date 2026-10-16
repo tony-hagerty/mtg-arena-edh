@@ -1640,7 +1640,10 @@ export function targetSpecs(item: StackItem): TargetSpec[] {
   if (item.kind === 'triggered' && item.hook === 'onEnter' && !item.granted && !Array.isArray(script.onEnter)) return script.targets ?? [];
   if (item.kind === 'triggered') {
     const t = triggerOf(item);
-    return (t && typeof t !== 'function' && t.targets) || [];
+    if (!t || typeof t === 'function') return [];
+    // A modal one: the targets of the modes chosen, in printed order (700.2c).
+    if (t.modes) return (item.modes ?? []).flatMap((i) => t.modes!.modes[i]?.targets ?? []);
+    return t.targets ?? [];
   }
   return spellTargets(item.card, item.card.cast?.modes);
 }
@@ -2142,6 +2145,17 @@ export function triggerOf(item: StackItem): Trigger<object> | undefined {
   if (item.granted) return scriptOf(item.granted.from).grants?.[item.granted.index]?.trigger as Trigger<object> | undefined;
   const raw = scriptFor(item.card)[item.hook!] as Trigger<object> | Trigger<object>[] | undefined;
   return Array.isArray(raw) ? raw[item.trigger ?? 0] : raw;
+}
+
+/**
+ * Which modes of modal triggered ability `item` can be chosen now (603.3c): not one with a
+ * target that has no legal choice (700.2a). Null if it isn't modal.
+ */
+export function triggerModeOptions(g: Game, item: StackItem): { min: number; max: number; legal: number[] } | null {
+  const t = triggerOf(item);
+  if (!t || typeof t === 'function' || !t.modes) return null;
+  const legal = t.modes.modes.map((_, i) => i).filter((i) => (t.modes!.modes[i].targets ?? []).every((spec) => spec.optional || spec.any || legalTargets(g, item.controller, spec, item.card).length > 0));
+  return { min: t.modes.min, max: t.modes.max, legal };
 }
 
 /** The text of a triggered ability that has one (for a card with several for one event), or undefined. */

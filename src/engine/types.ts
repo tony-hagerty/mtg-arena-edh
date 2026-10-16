@@ -541,6 +541,8 @@ export interface StackItem {
   targets: (TargetRef | null)[];
   /** A waiting triggered ability whose controller has already chosen its place in the order (603.3b). */
   ordered?: boolean;
+  /** A modal triggered ability: the modes chosen as it was put on the stack (603.3c), in printed order. */
+  modes?: number[];
   /**
    * A copy of a spell (707.10). It isn't cast, and its card is a token, so it ceases to
    * exist once it leaves the stack (707.10a), or becomes a token permanent.
@@ -757,6 +759,8 @@ export type Decision =
   | { type: 'mulligan' | 'attackers' | 'blockers' | 'discard' }
   | { type: 'orderDamage'; order: OrderDamageChoice }
   | { type: 'targets'; item: StackItem; resume: PlayerId }
+  /** A player chooses the modes of their modal triggered ability as it goes on the stack (603.3c). */
+  | { type: 'triggerModes'; item: StackItem; resume: PlayerId }
   | { type: 'orderTriggers'; resume: PlayerId }
   | { type: 'chooseCards'; choice: CardChoice }
   | { type: 'ask'; choice: AskChoice }
@@ -881,6 +885,8 @@ export type Action =
   | { type: 'name'; name: string }
   /** Answers an `orderDamage` decision: the index of the order chosen. */
   | { type: 'orderDamage'; option: number }
+  /** Answers a `triggerModes` decision: the modes, as indexes in printed order (700.2). */
+  | { type: 'chooseModes'; modes: number[] }
   /** Answers a `number` decision: the number, or null to choose none if it allows that. */
   | { type: 'chooseNumber'; n: number | null }
   /** Answers a `player` decision. */
@@ -941,6 +947,8 @@ export interface Ctx {
    * any other X of its source (107.3k). 0 for one without X. A spell reads `self.cast.x`.
    */
   x?: number;
+  /** A modal triggered ability's chosen modes (603.3c), in printed order. */
+  modes?: number[];
 }
 
 export interface StaticBonus {
@@ -1074,6 +1082,12 @@ export type Trigger<E> =
       resolve: (g: Game, e: Ctx & E) => void;
       targets?: TargetSpec[];
       text?: string;
+      /**
+       * A modal triggered ability, "choose one or more —" (700.2): `min` to `max` modes,
+       * chosen as it goes on the stack (603.3c), each with its own targets. `resolve` reads
+       * `ctx.modes`. `bot`: the modes a bot chooses.
+       */
+      modes?: { min: number; max: number; modes: Mode[]; bot?: (g: Game, pid: PlayerId, self: Card) => number[] };
     };
 
 /**
