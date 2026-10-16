@@ -94,29 +94,29 @@ function amount(word: string, env: Env, clause: string): Amount {
 // ---------- targets (115) ----------
 
 /** The parts of a target phrase the parser knows: "target nonblack creature an opponent controls". */
-const NOUNS: Record<string, { type: TargetSpec['type']; filter?: (c: Card) => boolean }> = {
+const NOUNS: Record<string, { type: TargetSpec['type']; filter?: (g: Game, c: Card) => boolean }> = {
   creature: { type: 'creature' },
   permanent: { type: 'permanent' },
-  artifact: { type: 'permanent', filter: (c) => hasType(c, 'Artifact') },
-  enchantment: { type: 'permanent', filter: (c) => hasType(c, 'Enchantment') },
+  artifact: { type: 'permanent', filter: (g, c) => hasType(g, c, 'Artifact') },
+  enchantment: { type: 'permanent', filter: (g, c) => hasType(g, c, 'Enchantment') },
   land: { type: 'permanent', filter: isLand },
   planeswalker: { type: 'permanent', filter: isPlaneswalker },
-  'artifact or enchantment': { type: 'permanent', filter: (c) => hasType(c, 'Artifact') || hasType(c, 'Enchantment') },
+  'artifact or enchantment': { type: 'permanent', filter: (g, c) => hasType(g, c, 'Artifact') || hasType(g, c, 'Enchantment') },
   'creature or planeswalker': { type: 'creature or planeswalker' },
-  'creature or enchantment': { type: 'permanent', filter: (c) => isCreature(c) || hasType(c, 'Enchantment') },
+  'creature or enchantment': { type: 'permanent', filter: (g, c) => isCreature(g, c) || hasType(g, c, 'Enchantment') },
 };
 
 /** "non[type]", a colour word, "non[colour]", or "basic" / "nonbasic" (205.4a), as a test on a card. */
-function modifier(word: string): ((c: Card) => boolean) | null {
+function modifier(word: string): ((g: Game, c: Card) => boolean) | null {
   const not = word.startsWith('non');
   const base = not ? word.slice(3) : word;
-  let test: ((c: Card) => boolean) | null = null;
-  if (base in COLOR_WORDS) test = (c) => isColor(c, COLOR_WORDS[base]);
-  else if (not && base === 'token') test = (c) => !!c.isToken;
-  else if (base === 'basic') test = (c) => hasType(c, 'Basic');
-  else if (not && ['land', 'artifact', 'creature', 'enchantment'].includes(base)) test = (c) => hasType(c, base[0].toUpperCase() + base.slice(1));
+  let test: ((g: Game, c: Card) => boolean) | null = null;
+  if (base in COLOR_WORDS) test = (g, c) => isColor(g, c, COLOR_WORDS[base]);
+  else if (not && base === 'token') test = (_g, c) => !!c.isToken;
+  else if (base === 'basic') test = (g, c) => hasType(g, c, 'Basic');
+  else if (not && ['land', 'artifact', 'creature', 'enchantment'].includes(base)) test = (g, c) => hasType(g, c, base[0].toUpperCase() + base.slice(1));
   if (!test) return null;
-  return not ? (c) => !test!(c) : test;
+  return not ? (g, c) => !test!(g, c) : test;
 }
 
 /** Reads a target phrase into a target spec, or returns null if it isn't one. */
@@ -135,9 +135,9 @@ function targetSpec(phrase: string): TargetSpec | null {
     if (!noun) continue;
     const mods = words.slice(0, i).map(modifier);
     if (mods.some((x) => !x)) return null;
-    const tests = [noun.filter, ...mods].filter((x): x is (c: Card) => boolean => !!x);
+    const tests = [noun.filter, ...mods].filter((x): x is (g: Game, c: Card) => boolean => !!x);
     const who = m[2] === 'you control' ? 'you' : m[2] ? 'opponent' : undefined;
-    return { type: noun.type, label, ...(who ? { who } : {}), ...(tests.length ? { filter: (_g: Game, c: Card) => tests.every((t) => t(c)) } : {}) };
+    return { type: noun.type, label, ...(who ? { who } : {}), ...(tests.length ? { filter: (g: Game, c: Card) => tests.every((t) => t(g, c)) } : {}) };
   }
   return null;
 }
@@ -447,14 +447,14 @@ function cost(text: string, line: string): { cost: ActivatedAbility['cost']; x: 
     else if (/^discard (a|two|three) cards?$/.test(part) && !out.discard) out.discard = NUMBERS[part.split(' ')[1]];
     else if (/^sacrifice (a|an|another) (creature|artifact|land|permanent)$/.test(part)) {
       const [, article, noun] = /^sacrifice (a|an|another) (\w+)$/.exec(part)!;
-      const tests: ((c: Card, self: Card) => boolean)[] = [];
-      if (noun !== 'creature' && noun !== 'permanent') tests.push((c) => hasType(c, noun[0].toUpperCase() + noun.slice(1)));
-      if (article === 'another') tests.push((c, self) => c.id !== self.id);
+      const tests: ((g: Game, c: Card, self: Card) => boolean)[] = [];
+      if (noun !== 'creature' && noun !== 'permanent') tests.push((g, c) => hasType(g, c, noun[0].toUpperCase() + noun.slice(1)));
+      if (article === 'another') tests.push((_g, c, self) => c.id !== self.id);
       out.sacrificeOne = {
         type: noun === 'creature' ? 'creature' : 'permanent',
         who: 'you',
         label: part.replace('sacrifice ', ''),
-        ...(tests.length ? { filter: (_g, c, self) => tests.every((t) => t(c, self)) } : {}),
+        ...(tests.length ? { filter: (g, c, self) => tests.every((t) => t(g, c, self)) } : {}),
       };
     } else refuse(line, `the cost "${part}"`);
   }
@@ -480,7 +480,7 @@ function manaEffect(text: string): ManaAbility | null {
   m = / activate only if you control an? (\w+) or an? (\w+)\.$/.exec(rest);
   if (m && BASIC_TYPES.includes(m[1]) && BASIC_TYPES.includes(m[2])) {
     const types = [m[1], m[2]].map((t) => t[0].toUpperCase() + t.slice(1));
-    extra.when = (g, self) => g.players[self.controller].battlefield.some((c) => types.some((t) => hasType(c, t)));
+    extra.when = (g, self) => g.players[self.controller].battlefield.some((c) => types.some((t) => hasType(g, c, t)));
     rest = rest.slice(0, m.index);
   }
   const base = baseMana(rest);
@@ -515,7 +515,7 @@ function baseMana(text: string): ManaAbility | null {
 }
 
 /** "[Other] [Soldier] creatures you control get +N/+N [and have K]" / "... have K" (611.3a, 613.4c). */
-function staticLine(line: string): ((self: Card, c: Card) => StaticBonus | null) | null {
+function staticLine(line: string): ((g: Game, self: Card, c: Card) => StaticBonus | null) | null {
   const m = /^(other )?(?:([a-z]+) )?creatures you control (?:get ([+-]\d+)\/([+-]\d+)(?: and have (.+))?|have (.+))\.$/.exec(line);
   if (!m) return null;
   const kwText = m[5] ?? m[6];
@@ -524,7 +524,7 @@ function staticLine(line: string): ((self: Card, c: Card) => StaticBonus | null)
   const type = m[2] ? m[2][0].toUpperCase() + m[2].slice(1) : null;
   const bonus: StaticBonus = { ...(m[3] ? { power: parseInt(m[3], 10), toughness: parseInt(m[4], 10) } : {}), ...(keywords.length ? { keywords } : {}) };
   const other = !!m[1];
-  return (self, c) => ((!other || c.id !== self.id) && c.controller === self.controller && isCreature(c) && (!type || hasType(c, type)) ? bonus : null);
+  return (g, self, c) => ((!other || c.id !== self.id) && c.controller === self.controller && isCreature(g, c) && (!type || hasType(g, c, type)) ? bonus : null);
 }
 
 /** The card's text, one ability per line, lower case, with reminder text gone and "~" for the card itself. */
@@ -547,7 +547,7 @@ const CAST_KEYWORDS = ['delve', 'rebound', 'paradigm'];
 
 const HOOKS: Record<string, 'onEnter' | 'onDies' | 'onAttack'> = { 'when ~ enters': 'onEnter', 'when ~ dies': 'onDies', 'whenever ~ attacks': 'onAttack' };
 
-const landsOf = (g: Game, pid: PlayerId) => g.players[pid].battlefield.filter(isLand);
+const landsOf = (g: Game, pid: PlayerId) => g.players[pid].battlefield.filter((x) => isLand(g, x));
 const capital = (w: string) => w[0].toUpperCase() + w.slice(1);
 
 /**
@@ -557,14 +557,14 @@ const capital = (w: string) => w[0].toUpperCase() + w.slice(1);
  */
 const UNLESS: [RegExp, (m: RegExpExecArray) => (g: Game, c: Card, you: PlayerId) => boolean][] = [
   [/^you control two or more other lands$/, () => (g, c, you) => landsOf(g, you).filter((x) => x.id !== c.id).length >= 2],
-  [/^you control two or more basic lands$/, () => (g, c, you) => landsOf(g, you).filter((x) => x.id !== c.id && hasType(x, 'Basic')).length >= 2],
-  [/^you control a basic land$/, () => (g, c, you) => landsOf(g, you).some((x) => x.id !== c.id && hasType(x, 'Basic'))],
+  [/^you control two or more basic lands$/, () => (g, c, you) => landsOf(g, you).filter((x) => x.id !== c.id && hasType(g, x, 'Basic')).length >= 2],
+  [/^you control a basic land$/, () => (g, c, you) => landsOf(g, you).some((x) => x.id !== c.id && hasType(g, x, 'Basic'))],
   // Players who have left the game aren't opponents any more (800.4a).
   [/^you have two or more opponents$/, () => (g, _c, you) => opponentsOf(g, you).length >= 2],
   [/^your opponents control eight or more lands$/, () => (g, _c, you) => opponentsOf(g, you).reduce((n, o) => n + landsOf(g, o.id).length, 0) >= 8],
   [
     /^you control an? (plains|island|swamp|mountain|forest) or an? (plains|island|swamp|mountain|forest)$/,
-    (m) => (g, c, you) => g.players[you].battlefield.some((x) => x.id !== c.id && [m[1], m[2]].some((t) => hasType(x, capital(t)))),
+    (m) => (g, c, you) => g.players[you].battlefield.some((x) => x.id !== c.id && [m[1], m[2]].some((t) => hasType(g, x, capital(t)))),
   ],
 ];
 
@@ -629,7 +629,7 @@ function cardLine(text: string, original: string, script: CardScript, then: NonN
   if ((m = /^(white|blue|black|red|green) spells you cast cost \{(\d+)\} less to cast\.$/.exec(text))) {
     const color = COLOR_WORDS[m[1]];
     const n = parseInt(m[2], 10);
-    script.costModifier = (_g, self, spell, caster) => (caster === self.controller && isColor(spell, color) ? -n : 0);
+    script.costModifier = (g, self, spell, caster) => (caster === self.controller && isColor(g, spell, color) ? -n : 0);
     return true;
   }
   // "If you control a commander, you may cast this spell without paying its mana cost." An alternative cost (118.9).
@@ -671,7 +671,7 @@ function readCard(d: CardData): CardScript {
   const spell = d.typeLine.includes('Instant') || d.typeLine.includes('Sorcery');
   const script: CardScript = {};
   const then: NonNullable<CardScript['then']> = {};
-  const statics: ((self: Card, c: Card) => StaticBonus | null)[] = [];
+  const statics: ((g: Game, self: Card, c: Card) => StaticBonus | null)[] = [];
   const mana: ManaAbility[] = [];
   const activated: ActivatedAbility[] = [];
   const spellEffects: Effect[] = [];
@@ -723,7 +723,7 @@ function readCard(d: CardData): CardScript {
       const noncreature = !!cast[1];
       const { targets, run } = build(effects(cast[2], { permanent: true, x: false }), `t${n}`, d.name, then);
       script.onCast = {
-        when: (_g, e) => e.caster === e.self.controller && (!noncreature || !isCreature(e.card)),
+        when: (g, e) => e.caster === e.self.controller && (!noncreature || !isCreature(g, e.card)),
         resolve: (g: Game, ctx: Ctx) => run(g, ctx),
         targets,
         text: original,
@@ -766,15 +766,8 @@ function readCard(d: CardData): CardScript {
   const all = [...activated, ...had];
   if (all.length) script.activated = all.length === 1 ? all[0] : all;
   if (statics.length) {
-    script.static = (_g, self, c) => {
-      const all = statics.map((s) => s(self, c)).filter((b): b is StaticBonus => !!b);
-      if (!all.length) return null;
-      return {
-        power: all.reduce((n, b) => n + (b.power ?? 0), 0),
-        toughness: all.reduce((n, b) => n + (b.toughness ?? 0), 0),
-        keywords: all.flatMap((b) => b.keywords ?? []),
-      };
-    };
+    // Each line is its own ability, and its own effect (613.7a: they share the card's timestamp).
+    script.static = (g, self, c) => statics.map((s) => s(g, self, c));
   }
   if (Object.keys(then).length) script.then = then;
   return script;

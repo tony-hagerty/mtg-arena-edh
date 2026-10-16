@@ -5,7 +5,7 @@ import { describe, expect, it } from 'vitest';
 import './fixtures';
 import { useStore } from '../src/ui/store';
 import { activateFromHand, buildView, chooseEscape, chooseGraveyardTarget, clickPermanent, clickPlayer, clickStackItem, exileForMana, pickAbility, pickColor, pickFace, pickMode, playHandCard, setAbilityX, setChoices } from '../src/ui/view';
-import { applyAction, canCast } from '../src/engine';
+import { applyAction, canCast, isCreature } from '../src/engine';
 import type { Game } from '../src/engine';
 import { byName, emptyGame, put } from './helpers';
 
@@ -197,7 +197,7 @@ describe('Auras, Equipment and crew in the UI', () => {
     press(); // Crew: costs no mana, so it goes straight on the stack and resolves
     expect(byName(game(), 0, 'Raging Goblin')!.tapped).toBe(true);
     expect(byName(game(), 0, 'Angelic Wall')!.tapped).toBe(false);
-    expect(byName(game(), 0, 'Untethered Express')!.mods.some((m) => m.creature)).toBe(true);
+    expect(isCreature(game(), byName(game(), 0, 'Untethered Express')!)).toBe(true);
   });
 
   it('casts an Aura on a target, and equips from the attached Equipment', () => {

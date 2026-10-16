@@ -71,7 +71,7 @@ const yourCreature: TargetSpec = { type: 'creature', who: 'you', label: 'target 
 const anyTarget: TargetSpec = { type: 'any', label: 'any target' };
 const anyPlayer: TargetSpec = { type: 'player', label: 'target player' };
 const playerOrPlaneswalker: TargetSpec = { type: 'player or planeswalker', label: 'target player or planeswalker' };
-const isArtifactOrEnchantment = (_g: Game, c: Card) => hasType(c, 'Artifact') || hasType(c, 'Enchantment');
+const isArtifactOrEnchantment = (g: Game, c: Card) => hasType(g, c, 'Artifact') || hasType(g, c, 'Enchantment');
 const artifactOrEnchantment: TargetSpec = {
   type: 'permanent',
   label: 'target artifact or enchantment',
@@ -107,9 +107,9 @@ const drawAndLose = (cards: number, life: number) => (g: Game, { you }: Ctx) => 
   draw(g, you, cards);
   loseLife(g, you, life);
 };
-const isSpell = (c: Card) => hasType(c, 'Instant') || hasType(c, 'Sorcery');
+const isSpell = (g: Game, c: Card) => hasType(g, c, 'Instant') || hasType(g, c, 'Sorcery');
 // Trigger conditions shared by several cards.
-const youCastASpell = (_g: Game, e: { self: Card; card: Card; caster: PlayerId }) => e.caster === e.self.controller && isSpell(e.card);
+const youCastASpell = (g: Game, e: { self: Card; card: Card; caster: PlayerId }) => e.caster === e.self.controller && isSpell(g, e.card);
 const yourLand = (_g: Game, e: { self: Card; land: Card }) => e.land.controller === e.self.controller;
 const teamPump = (g: Game, you: PlayerId, power: number, toughness: number, keywords: string[] = []) => {
   for (const c of creaturesOf(g, you)) pump(g, c, power, toughness, keywords);
@@ -127,14 +127,15 @@ registerScripts({
     onDies: (g, { you }) => draw(g, you),
   },
   'Meteor Golem': {
-    targets: [{ type: 'permanent', who: 'opponent', label: 'target nonland permanent an opponent controls', filter: (_g, c) => !isLand(c) }],
+    targets: [{ type: 'permanent', who: 'opponent', label: 'target nonland permanent an opponent controls', filter: (g, c) => !isLand(g, c) }],
     onEnter: (g, { targets }) => void destroy(g, refCard(g, targets[0])),
   },
 
   // ===== White =====
   'Lyra Dawnbringer': {
-    static: (_g, self, c) =>
-      c.id !== self.id && c.controller === self.controller && hasType(c, 'Angel') ? { power: 1, toughness: 1, keywords: ['lifelink'] } : null,
+    // "Other Angels you control get +1/+1 and have lifelink."
+    static: (g, self, c) =>
+      c.id !== self.id && c.controller === self.controller && hasType(g, c, 'Angel') ? { power: 1, toughness: 1, keywords: ['lifelink'] } : null,
   },
   'Angel of Mercy': { onEnter: (g, { you }) => gainLife(g, you, 3) },
   'Archangel of Thune': {
@@ -154,8 +155,9 @@ registerScripts({
   },
   'Attended Knight': { onEnter: (g, { you }) => createToken(g, you, 'Soldier') },
   'Captain of the Watch': {
-    static: (_g, self, c) =>
-      c.id !== self.id && c.controller === self.controller && hasType(c, 'Soldier') ? { power: 1, toughness: 1, keywords: ['vigilance'] } : null,
+    // "Other Soldier creatures you control get +1/+1 and have vigilance."
+    static: (g, self, c) =>
+      c.id !== self.id && c.controller === self.controller && isCreature(g, c) && hasType(g, c, 'Soldier') ? { power: 1, toughness: 1, keywords: ['vigilance'] } : null,
     onEnter: (g, { you }) => createToken(g, you, 'Soldier', 3),
   },
   'Sunblast Angel': { onEnter: (g) => destroyMany(g, allCreatures(g).filter((c) => c.tapped)) },
@@ -172,7 +174,8 @@ registerScripts({
     },
   },
   'Benalish Marshal': {
-    static: (_g, self, c) => (c.id !== self.id && c.controller === self.controller ? { power: 1, toughness: 1 } : null),
+    // "Other creatures you control get +1/+1."
+    static: (g, self, c) => (c.id !== self.id && c.controller === self.controller && isCreature(g, c) ? { power: 1, toughness: 1 } : null),
   },
   "Victory's Herald": {
     onAttack: (g) => {
@@ -202,7 +205,8 @@ registerScripts({
       searchBasic(g, controller, 'battlefield');
     },
   },
-  'Glorious Anthem': { static: (_g, self, c) => (c.controller === self.controller ? { power: 1, toughness: 1 } : null) },
+  // "Creatures you control get +1/+1."
+  'Glorious Anthem': { static: (g, self, c) => (c.controller === self.controller && isCreature(g, c) ? { power: 1, toughness: 1 } : null) },
   'Raise the Alarm': { onResolve: (g, { you }) => createToken(g, you, 'Soldier', 2) },
   Revitalize: {
     onResolve: (g, { you }) => {
@@ -248,7 +252,7 @@ registerScripts({
     onEnter: (g, { targets }) => void destroy(g, refCard(g, targets[0])),
   },
   Nekrataal: {
-    targets: [creature('target nonartifact, nonblack creature', (_g, c) => !hasType(c, 'Artifact') && !isColor(c, 'B'))],
+    targets: [creature('target nonartifact, nonblack creature', (g, c) => !hasType(g, c, 'Artifact') && !isColor(g, c, 'B'))],
     onEnter: (g, { targets }) => void destroy(g, refCard(g, targets[0])),
   },
   'Nantuko Shade': {
@@ -285,13 +289,13 @@ registerScripts({
   },
   Nightmare: {
     basePT: (g, self) => {
-      const swamps = g.players[self.controller].battlefield.filter((c) => hasType(c, 'Swamp')).length;
+      const swamps = g.players[self.controller].battlefield.filter((c) => hasType(g, c, 'Swamp')).length;
       return { power: swamps, toughness: swamps };
     },
   },
-  'Doom Blade': kill(creature('target nonblack creature', (_g, c) => !isColor(c, 'B'))),
+  'Doom Blade': kill(creature('target nonblack creature', (g, c) => !isColor(g, c, 'B'))),
   Murder: kill(creature()),
-  'Go for the Throat': kill(creature('target nonartifact creature', (_g, c) => !hasType(c, 'Artifact'))),
+  'Go for the Throat': kill(creature('target nonartifact creature', (g, c) => !hasType(g, c, 'Artifact'))),
   "Hero's Downfall": kill({ type: 'creature or planeswalker', label: 'target creature or planeswalker' }),
   'Sign in Blood': {
     targets: [anyPlayer],
@@ -323,14 +327,17 @@ registerScripts({
 
   // ===== Red =====
   'Torbran, Thane of Red Fell': {
-    damageBonus: (_g, self, source, targetOwner) => (isColor(source, 'R') && targetOwner !== self.controller ? 2 : 0),
+    // "If a red source you control would deal damage to an opponent or a permanent an opponent
+    // controls, it deals that much damage plus 2 instead." (614.1a)
+    changesDamage: (g, self, source, to) =>
+      source.controller === self.controller && isColor(g, source, 'R') && (to.player ?? to.card!.controller) !== self.controller ? { plus: 2 } : null,
   },
   'Goblin Chainwhirler': {
     onEnter: (g, { self, you }) =>
       simultaneously(g, () => {
         for (const o of opponentsOf(g, you)) {
           damagePlayer(g, self, o.id, 1);
-          for (const c of o.battlefield.filter((x) => isCreature(x) || isPlaneswalker(x))) damageCard(g, self, c, 1);
+          for (const c of o.battlefield.filter((x) => isCreature(g, x) || isPlaneswalker(g, x))) damageCard(g, self, c, 1);
         }
       }),
   },
@@ -338,14 +345,11 @@ registerScripts({
   'Shivan Dragon': firebreathing,
   'Furnace Whelp': firebreathing,
   'Thundermaw Hellkite': {
+    // "It deals 1 damage to each creature with flying your opponents control. Tap those creatures."
     onEnter: (g, { self, you }) => {
-      for (const o of opponentsOf(g, you)) {
-        for (const c of creaturesOf(g, o.id)) {
-          if (!stats(g, c).keywords.has('flying')) continue;
-          damageCard(g, self, c, 1);
-          tap(g, c);
-        }
-      }
+      const fliers = opponentsOf(g, you).flatMap((o) => creaturesOf(g, o.id).filter((c) => stats(g, c).keywords.has('flying')));
+      simultaneously(g, () => fliers.forEach((c) => void damageCard(g, self, c, 1)));
+      for (const c of fliers) if (c.zone === 'battlefield') tap(g, c);
     },
   },
   'Flametongue Kavu': {
@@ -379,7 +383,7 @@ registerScripts({
       resolve: (g, { self, defender, target }) => {
         const attacked = target ? permanent(g, target) : undefined;
         if (!target) damagePlayer(g, self, defender, 1);
-        else if (attacked && isPlaneswalker(attacked)) dealDamage(g, self, { kind: 'card', id: attacked.id }, 1);
+        else if (attacked && isPlaneswalker(g, attacked)) dealDamage(g, self, { kind: 'card', id: attacked.id }, 1);
       },
     },
   },
@@ -388,9 +392,7 @@ registerScripts({
     onEnter: (g, { self, targets }) => void dealDamage(g, self, targets[0], 2),
   },
   'Balefire Dragon': {
-    onCombatDamageToPlayer: (g, { self, player, amount }) => {
-      for (const c of creaturesOf(g, player)) damageCard(g, self, c, amount);
-    },
+    onCombatDamageToPlayer: (g, { self, player, amount }) => simultaneously(g, () => creaturesOf(g, player).forEach((c) => void damageCard(g, self, c, amount))),
   },
   'Mogg Fanatic': {
     activated: {
@@ -410,18 +412,15 @@ registerScripts({
     },
   },
   Pyroclasm: {
-    onResolve: (g, { self }) => {
-      for (const c of allCreatures(g)) damageCard(g, self, c, 2);
-    },
+    onResolve: (g, { self }) => simultaneously(g, () => allCreatures(g).forEach((c) => void damageCard(g, self, c, 2))),
   },
   'Blasphemous Act': {
     costReduction: (g) => allCreatures(g).length,
-    onResolve: (g, { self }) => {
-      for (const c of allCreatures(g)) damageCard(g, self, c, 13);
-    },
+    onResolve: (g, { self }) => simultaneously(g, () => allCreatures(g).forEach((c) => void damageCard(g, self, c, 13))),
   },
-  Shatter: kill({ type: 'permanent', label: 'target artifact', filter: (_g, c) => hasType(c, 'Artifact') }),
-  Fervor: { static: (_g, self, c) => (c.controller === self.controller ? { keywords: ['haste'] } : null) },
+  Shatter: kill({ type: 'permanent', label: 'target artifact', filter: (g, c) => hasType(g, c, 'Artifact') }),
+  // "Creatures you control have haste."
+  Fervor: { static: (g, self, c) => (c.controller === self.controller && isCreature(g, c) ? { keywords: ['haste'] } : null) },
   'Brute Strength': {
     targets: [creature()],
     onResolve: (g, { targets }) => pump(g, refCard(g, targets[0]), 3, 1, ['trample']),
@@ -443,7 +442,7 @@ registerScripts({
       {
         type: 'permanent',
         label: 'target artifact, enchantment, or land',
-        filter: (g, c) => isArtifactOrEnchantment(g, c) || isLand(c),
+        filter: (g, c) => isArtifactOrEnchantment(g, c) || isLand(g, c),
       },
     ],
     onEnter: (g, { targets }) => void destroy(g, refCard(g, targets[0])),
@@ -467,18 +466,18 @@ registerScripts({
     onDies: (g, { you }) => draw(g, you),
   },
   'Avenger of Zendikar': {
-    onEnter: (g, { you }) => createToken(g, you, 'Plant', g.players[you].battlefield.filter(isLand).length),
+    onEnter: (g, { you }) => createToken(g, you, 'Plant', g.players[you].battlefield.filter((x) => isLand(g, x)).length),
     onLandfall: {
       when: yourLand,
       resolve: (g, { you }) => {
-        for (const c of creaturesOf(g, you)) if (hasType(c, 'Plant')) addCounters(g, c);
+        for (const c of creaturesOf(g, you)) if (hasType(g, c, 'Plant')) addCounters(g, c);
       },
     },
   },
   'Elvish Visionary': { onEnter: (g, { you }) => draw(g, you) },
   'Beast Whisperer': {
     onCast: {
-      when: (_g, { self, card, caster }) => caster === self.controller && isCreature(card),
+      when: (g, { self, card, caster }) => caster === self.controller && isCreature(g, card),
       resolve: (g, { you }) => draw(g, you),
     },
   },
@@ -532,15 +531,15 @@ registerScripts({
 // doesn't read. Each follows its Oracle text clause by clause (docs/card-scripting.md).
 
 const anySpell: TargetSpec = { type: 'spell', label: 'target spell' };
-const controls = (g: Game, pid: PlayerId, type: string) => g.players[pid].battlefield.some((c) => hasType(c, type));
-const landCount = (g: Game, pid: PlayerId) => g.players[pid].battlefield.filter(isLand).length;
+const controls = (g: Game, pid: PlayerId, type: string) => g.players[pid].battlefield.some((c) => hasType(g, c, type));
+const landCount = (g: Game, pid: PlayerId) => g.players[pid].battlefield.filter((x) => isLand(g, x)).length;
 const yourTurnStep = (_g: Game, e: { self: Card; player: PlayerId }) => e.player === e.self.controller;
 const isOpponent = (g: Game, a: PlayerId, b: PlayerId) => a !== b && !g.players[b].lost;
-const graveyardCard = (label: string, filter: (c: Card) => boolean, who?: TargetSpec['who']): TargetSpec => ({
+const graveyardCard = (label: string, filter: (g: Game, c: Card) => boolean, who?: TargetSpec['who']): TargetSpec => ({
   type: 'graveyard card',
   label,
   ...(who ? { who } : {}),
-  filter: (_g, c) => filter(c),
+  filter: (g, c) => filter(g, c),
 });
 
 /** The permanent an ability's source still is, if it hasn't left the battlefield (400.7). */
@@ -564,7 +563,7 @@ const botDraws = { mayDraw: (g: Game, pid: PlayerId) => ({ type: 'answer' as con
 
 /** "Untap up to three lands": any lands on the battlefield, chosen as it resolves. */
 const untapLands = (g: Game, you: PlayerId, n: number) => {
-  const tapped = battlefield(g).filter((c) => isLand(c) && c.tapped);
+  const tapped = battlefield(g).filter((c) => isLand(g, c) && c.tapped);
   if (tapped.length) pickCards(g, you, tapped, { min: 0, max: n, text: `untap up to ${n} lands`, button: 'Untap', then: 'untap' });
 };
 
@@ -608,7 +607,7 @@ registerScripts({
   'Snuff Out': {
     // "If you control a Swamp, you may pay 4 life rather than pay this spell's mana cost." (118.9)
     alternativeCosts: [{ label: 'pay 4 life (you control a Swamp)', mana: '', life: 4, when: (g, self) => controls(g, self.controller, 'Swamp') }],
-    targets: [creature('target nonblack creature', (_g, c) => !isColor(c, 'B'))],
+    targets: [creature('target nonblack creature', (g, c) => !isColor(g, c, 'B'))],
     // "It can't be regenerated": nothing in the game regenerates (701.19), so there is nothing to stop.
     onResolve: (g, { targets }) => void destroy(g, refCard(g, targets[0])),
   },
@@ -662,7 +661,7 @@ registerScripts({
             for (const c of [...p.graveyard]) moveCard(g, c, 'exile');
           },
         },
-        { text: 'Destroy target artifact.', targets: [{ type: 'permanent', label: 'target artifact', filter: (_g, c) => hasType(c, 'Artifact') }], resolve: (g, { targets }) => void destroy(g, refCard(g, targets[0])) },
+        { text: 'Destroy target artifact.', targets: [{ type: 'permanent', label: 'target artifact', filter: (g, c) => hasType(g, c, 'Artifact') }], resolve: (g, { targets }) => void destroy(g, refCard(g, targets[0])) },
         {
           text: 'Each creature deals 1 damage to its controller.',
           resolve: (g) => {
@@ -689,7 +688,7 @@ registerScripts({
     mana: { amount: 1, colors: ['C'] },
     activated: {
       cost: { mana: '{1}{U}', tap: true },
-      targets: [graveyardCard('target artifact card in your graveyard', (c) => hasType(c, 'Artifact'), 'you')],
+      targets: [graveyardCard('target artifact card in your graveyard', (g, c) => hasType(g, c, 'Artifact'), 'you')],
       text: '{1}{U}, {T}: Put target artifact card from your graveyard on top of your library.',
       resolve: (g, { targets }) => {
         const c = refGraveyard(g, targets[0]);
@@ -701,7 +700,7 @@ registerScripts({
     mana: { amount: 1, colors: ['C'] },
     activated: {
       cost: { mana: '{1}{W}', tap: true },
-      targets: [graveyardCard('target enchantment card in your graveyard', (c) => hasType(c, 'Enchantment'), 'you')],
+      targets: [graveyardCard('target enchantment card in your graveyard', (g, c) => hasType(g, c, 'Enchantment'), 'you')],
       text: '{1}{W}, {T}: Put target enchantment card from your graveyard on top of your library.',
       resolve: (g, { targets }) => {
         const c = refGraveyard(g, targets[0]);
@@ -712,7 +711,7 @@ registerScripts({
   'Sharuum the Hegemon': {
     // "When Sharuum enters, you may return target artifact card from your graveyard to the battlefield."
     // The target is chosen as it triggers (603.3d); whether to return it, as it resolves (608.2d).
-    targets: [graveyardCard('target artifact card in your graveyard', (c) => hasType(c, 'Artifact'), 'you')],
+    targets: [graveyardCard('target artifact card in your graveyard', (g, c) => hasType(g, c, 'Artifact'), 'you')],
     onEnter: (g, { you }) => ask(g, you, { text: 'Return the artifact card to the battlefield?', yes: 'Return', no: "Don't Return", then: 'return' }),
     then: {
       return: (g, { you, yes, targets }) => {
@@ -728,12 +727,12 @@ registerScripts({
     activated: {
       cost: { mana: '{3}{B}', discardSelf: true },
       fromHand: true,
-      reduction: (g, self) => creaturesOf(g, self.owner).filter((c) => hasType(c, 'Legendary')).length,
+      reduction: (g, self) => creaturesOf(g, self.owner).filter((c) => hasType(g, c, 'Legendary')).length,
       text: 'Channel — {3}{B}, Discard this card: Mill three cards, then return a creature or planeswalker card from your graveyard to your hand.',
       resolve: (g, { you }) => {
         mill(g, you, 3);
         // "A ... card": not a target, chosen as it resolves, and it must be one if there is one.
-        const options = g.players[you].graveyard.filter((c) => isCreature(c) || isPlaneswalker(c));
+        const options = g.players[you].graveyard.filter((c) => isCreature(g, c) || isPlaneswalker(g, c));
         if (options.length) pickCards(g, you, options, { min: 1, max: 1, text: 'return a creature or planeswalker card to your hand', button: 'Return', then: 'return' });
       },
     },
@@ -770,7 +769,7 @@ registerScripts({
     onResolve: (g, { self, you }) => {
       draw(g, you, 2);
       const discarded = self.cast?.discarded?.[0];
-      if (discarded && !isLand(discarded)) simultaneously(g, () => opponentsOf(g, you).forEach((o) => void damagePlayer(g, self, o.id, 2)));
+      if (discarded && !isLand(g, discarded)) simultaneously(g, () => opponentsOf(g, you).forEach((o) => void damagePlayer(g, self, o.id, 2)));
     },
   },
   Windfall: {
@@ -830,7 +829,7 @@ registerScripts({
     },
     // "Noncreature spells you cast cost {1} less to cast as long as there are three or more Lesson cards in your graveyard."
     costModifier: (g, self, spell, caster) =>
-      caster === self.controller && !isCreature(spell) && g.players[self.controller].graveyard.filter((c) => subtypesOf(c).includes('Lesson')).length >= 3 ? -1 : 0,
+      caster === self.controller && !isCreature(g, spell) && g.players[self.controller].graveyard.filter((c) => subtypesOf(g, c).includes('Lesson')).length >= 3 ? -1 : 0,
   },
 
   // ===== Lands, mana and permanents =====
@@ -850,7 +849,7 @@ registerScripts({
     ai: 'ritual',
     // "Add {R} for each tapped land your opponents control."
     onResolve: (g, { self, you }) => {
-      const n = opponentsOf(g, you).reduce((k, o) => k + o.battlefield.filter((c) => isLand(c) && c.tapped).length, 0);
+      const n = opponentsOf(g, you).reduce((k, o) => k + o.battlefield.filter((c) => isLand(g, c) && c.tapped).length, 0);
       addMana(g, you, Array<ManaSym>(n).fill('R'), self);
     },
   },
@@ -881,7 +880,7 @@ registerScripts({
     onEndStep: {
       when: yourTurnStep,
       resolve: (g, { you }) => {
-        for (const c of g.players[you].battlefield) if (!isLand(c)) c.tapped = false;
+        for (const c of g.players[you].battlefield) if (!isLand(g, c)) c.tapped = false;
       },
     },
   },
@@ -934,7 +933,7 @@ registerScripts({
     // "Whenever you cast a creature spell, exile up to one other target creature you control, then return that card to
     // the battlefield under its owner's control."
     onCast: {
-      when: (_g, { self, card, caster }) => caster === self.controller && isCreature(card),
+      when: (g, { self, card, caster }) => caster === self.controller && isCreature(g, card),
       targets: [{ type: 'creature', who: 'you', optional: true, label: 'up to one other target creature you control', filter: (_g, c, source) => c.id !== source.id }],
       resolve: (g, { targets }) => flicker(g, refCard(g, targets[0])),
       text: 'Whenever you cast a creature spell, exile up to one other target creature you control, then return it.',
@@ -943,7 +942,7 @@ registerScripts({
   'Lyse Hext': {
     onCast: prowess,
     // "Noncreature spells you cast cost {1} less to cast."
-    costModifier: (_g, self, spell, caster) => (caster === self.controller && !isCreature(spell) ? -1 : 0),
+    costModifier: (g, self, spell, caster) => (caster === self.controller && !isCreature(g, spell) ? -1 : 0),
     // "As long as you've cast two or more noncreature spells this turn, Lyse Hext has double strike."
     static: (g, self, c) => (c.id === self.id && g.players[self.controller].noncreatureSpellsCast >= 2 ? { keywords: ['double strike'] } : null),
   },
@@ -951,7 +950,7 @@ registerScripts({
     uncounterable: true,
     noMaxHandSize: true,
     // "Whenever an opponent casts a noncreature spell, draw a card."
-    onCast: { when: (g, { self, card, caster }) => isOpponent(g, self.controller, caster) && !isCreature(card), resolve: (g, { you }) => draw(g, you) },
+    onCast: { when: (g, { self, card, caster }) => isOpponent(g, self.controller, caster) && !isCreature(g, card), resolve: (g, { you }) => draw(g, you) },
     // "Discard three cards: Exile Nezahal. Return it to the battlefield tapped under its owner's control at the beginning of the next end step."
     activated: {
       cost: { discard: 3 },

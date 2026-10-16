@@ -55,8 +55,8 @@ import type { Card, CardScript, Game, PlayerId, TargetSpec } from '../engine/typ
 const anyTarget: TargetSpec = { type: 'any', label: 'any target' };
 const targetPlayer: TargetSpec = { type: 'player', label: 'target player' };
 const targetOpponent: TargetSpec = { type: 'player', who: 'opponent', label: 'target opponent' };
-const nonland = (label: string): TargetSpec => ({ type: 'permanent', label, filter: (_g, c) => !isLand(c) });
-const typed = (label: string, types: string[]): TargetSpec => ({ type: 'permanent', label, filter: (_g, c) => types.some((t) => hasType(c, t)) });
+const nonland = (label: string): TargetSpec => ({ type: 'permanent', label, filter: (g, c) => !isLand(g, c) });
+const typed = (label: string, types: string[]): TargetSpec => ({ type: 'permanent', label, filter: (g, c) => types.some((t) => hasType(g, c, t)) });
 const yourCreature: TargetSpec = { type: 'creature', who: 'you', label: 'a creature to sacrifice' };
 
 // ---------- reusable pieces ----------
@@ -65,10 +65,10 @@ const yourCreature: TargetSpec = { type: 'creature', who: 'you', label: 'a creat
 const ferocious = (g: Game, you: PlayerId) => creaturesOf(g, you).some((c) => stats(g, c).power >= 4);
 
 /** "Whenever a Dragon you control attacks". */
-const dragonOfYoursAttacks = (_g: Game, e: { self: Card; attacker: Card }) => e.attacker.controller === e.self.controller && hasType(e.attacker, 'Dragon');
+const dragonOfYoursAttacks = (g: Game, e: { self: Card; attacker: Card }) => e.attacker.controller === e.self.controller && hasType(g, e.attacker, 'Dragon');
 
 /** Has the creature type Dragon (205.3m), not just "Dragon" somewhere in its type line. */
-const isDragon = (c: Card) => subtypesOf(c).includes('Dragon');
+const isDragon = (g: Game, c: Card) => subtypesOf(g, c).includes('Dragon');
 
 /** The permanent an event remembered, if it is still the same object (400.7). */
 const sameObject = (g: Game, remembered: Card) => {
@@ -76,9 +76,9 @@ const sameObject = (g: Game, remembered: Card) => {
   return sameCard(c, remembered) ? c : undefined;
 };
 
-const nonHumans = (g: Game, you: PlayerId) => creaturesOf(g, you).filter((c) => !hasType(c, 'Human'));
+const nonHumans = (g: Game, you: PlayerId) => creaturesOf(g, you).filter((c) => !hasType(g, c, 'Human'));
 
-const sixLands = (g: Game, pid: PlayerId) => g.players[pid].battlefield.filter(isLand).length >= 6;
+const sixLands = (g: Game, pid: PlayerId) => g.players[pid].battlefield.filter((x) => isLand(g, x)).length >= 6;
 
 /** "Creatures you control gain indestructible until end of turn": those you control now (611.2c). */
 const indestructibleTeam = (g: Game, you: PlayerId) => {
@@ -115,7 +115,7 @@ const painLand = (colors: ('W' | 'U' | 'B' | 'R' | 'G')[]): CardScript => ({
 
 /** "This land enters tapped unless you control a [A] or a [B]." Checked as it enters (614.1c). */
 const checkLand = (colors: ('W' | 'U' | 'B' | 'R' | 'G')[], types: string[]): CardScript => ({
-  entersTapped: (g, _c, controller) => !g.players[controller].battlefield.some((x) => types.some((t) => hasType(x, t))),
+  entersTapped: (g, _c, controller) => !g.players[controller].battlefield.some((x) => types.some((t) => hasType(g, x, t))),
   mana: { amount: 1, colors },
 });
 
@@ -148,7 +148,7 @@ registerScripts({
   },
   'Judith, the Scourge Diva': {
     // "Other creatures you control get +1/+0."
-    static: (_g, self, c) => (c.id !== self.id && c.controller === self.controller ? { power: 1 } : null),
+    static: (g, self, c) => (c.id !== self.id && c.controller === self.controller && isCreature(g, c) ? { power: 1 } : null),
     // "Whenever a nontoken creature you control dies, Judith deals 1 damage to any target." Judith's own death counts (603.10a).
     onCreatureDies: {
       when: (_g, { self, dead }) => dead.controller === self.controller && !dead.isToken,
@@ -214,12 +214,12 @@ registerScripts({
   'Righteous Valkyrie': {
     // "Whenever another Angel or Cleric you control enters, you gain life equal to that creature's toughness."
     onCreatureEnters: {
-      when: (_g, { self, entered }) => entered.id !== self.id && entered.controller === self.controller && (hasType(entered, 'Angel') || hasType(entered, 'Cleric')),
+      when: (g, { self, entered }) => entered.id !== self.id && entered.controller === self.controller && (hasType(g, entered, 'Angel') || hasType(g, entered, 'Cleric')),
       // Its toughness now, or as it last was if it has left (608.2h).
       resolve: (g, { you, entered }) => gainLife(g, you, Math.max(0, stats(g, permanent(g, entered.id) ?? entered).toughness)),
     },
     // "As long as you have at least 7 life more than your starting life total, creatures you control get +2/+2."
-    static: (g, self, c) => (c.controller === self.controller && g.players[self.controller].life >= STARTING_LIFE + 7 ? { power: 2, toughness: 2 } : null),
+    static: (g, self, c) => (c.controller === self.controller && isCreature(g, c) && g.players[self.controller].life >= STARTING_LIFE + 7 ? { power: 2, toughness: 2 } : null),
   },
   'Ministrant of Obligation': {
     // "Afterlife 2" (702.135a): "When this creature dies, create two 1/1 white and black Spirit creature tokens with flying."
@@ -287,7 +287,7 @@ registerScripts({
       resolve: (g, { sacrificed }) => {
         const self = abilitySource(g);
         pump(g, self, 0, 0, ['indestructible']);
-        if (sacrificed?.[0] && hasType(sacrificed[0], 'Human')) addCounters(g, self, 1);
+        if (sacrificed?.[0] && hasType(g, sacrificed[0], 'Human')) addCounters(g, self, 1);
       },
     },
   },
@@ -336,7 +336,7 @@ registerScripts({
       modes: [
         {
           text: 'Return target creature card from your graveyard to your hand',
-          targets: [{ type: 'graveyard card', who: 'you', label: 'target creature card in your graveyard', filter: (_g, c) => isCreature(c) }],
+          targets: [{ type: 'graveyard card', who: 'you', label: 'target creature card in your graveyard', filter: (g, c) => isCreature(g, c) }],
           resolve: (g, { targets }) => {
             const c = refGraveyard(g, targets[0]);
             if (!c) return;
@@ -373,7 +373,7 @@ registerScripts({
       const t = targets[0];
       const walker = refCard(g, t);
       // The planeswalker's controller as the damage is dealt, even if it then dies (608.2h).
-      const pid = t?.kind === 'player' ? t.id : walker && isPlaneswalker(walker) ? walker.controller : undefined;
+      const pid = t?.kind === 'player' ? t.id : walker && isPlaneswalker(g, walker) ? walker.controller : undefined;
       dealDamage(g, self, t, 3);
       if (pid !== undefined && !g.players[pid].lost) chooseToDiscard(g, pid, 2);
     },
@@ -392,7 +392,7 @@ registerScripts({
   },
   'Deadly Dispute': {
     // "As an additional cost to cast this spell, sacrifice an artifact or creature. Draw two cards and create a Treasure token."
-    additionalCost: { sacrifice: { type: 'permanent', who: 'you', label: 'an artifact or creature to sacrifice', filter: (_g, c) => hasType(c, 'Artifact') || isCreature(c) } },
+    additionalCost: { sacrifice: { type: 'permanent', who: 'you', label: 'an artifact or creature to sacrifice', filter: (g, c) => hasType(g, c, 'Artifact') || isCreature(g, c) } },
     onResolve: (g, { you }) => {
       draw(g, you, 2);
       createToken(g, you, 'Treasure');
@@ -434,10 +434,10 @@ registerScripts({
         // the number of Dragons you control." The Dragon deals it, as it last was if it has
         // left; X is counted as the ability resolves (608.2h).
         text: 'The Dragon deals damage equal to your Dragons',
-        when: (_g, { self, entered }) => entered.controller === self.controller && isDragon(entered),
+        when: (g, { self, entered }) => entered.controller === self.controller && isDragon(g, entered),
         targets: [anyTarget],
         resolve: (g, { you, entered, targets }) => {
-          const dragons = battlefield(g).filter((c) => c.controller === you && isDragon(c)).length;
+          const dragons = battlefield(g).filter((c) => c.controller === you && isDragon(g, c)).length;
           dealDamage(g, sameObject(g, entered) ?? entered, targets[0], dragons);
         },
       },
@@ -507,9 +507,7 @@ registerScripts({
   },
   'Raging Swordtooth': {
     // "When this creature enters, it deals 1 damage to each other creature."
-    onEnter: (g, { self }) => {
-      for (const c of allCreatures(g)) if (c.id !== self.id) damageCard(g, self, c, 1);
-    },
+    onEnter: (g, { self }) => simultaneously(g, () => allCreatures(g).forEach((c) => void (c.id !== self.id && damageCard(g, self, c, 1)))),
   },
   'Dragonmaster Outcast': {
     // "At the beginning of your upkeep, if you control six or more lands, create a 5/5 red
@@ -533,7 +531,7 @@ registerScripts({
   },
   "Dragonlord's Servant": {
     // "Dragon spells you cast cost {1} less to cast."
-    costModifier: (_g, self, spell, caster) => (caster === self.controller && hasType(spell, 'Dragon') ? -1 : 0),
+    costModifier: (g, self, spell, caster) => (caster === self.controller && hasType(g, spell, 'Dragon') ? -1 : 0),
   },
   'Utvara Hellkite': {
     // "Whenever a Dragon you control attacks, create a 6/6 red Dragon creature token with flying."
@@ -648,7 +646,7 @@ registerScripts({
   },
   'Collective Blessing': {
     // "Creatures you control get +3/+3."
-    static: (_g, self, c) => (c.controller === self.controller ? { power: 3, toughness: 3 } : null),
+    static: (g, self, c) => (c.controller === self.controller && isCreature(g, c) ? { power: 3, toughness: 3 } : null),
   },
   'Advent of the Wurm': { onResolve: (g, { you }) => void createToken(g, you, 'Wurm 5/5 trample') },
   'Unflinching Courage': {
@@ -658,7 +656,7 @@ registerScripts({
   },
   'Trostani Discordant': {
     // "Other creatures you control get +1/+1."
-    static: (_g, self, c) => (c.id !== self.id && c.controller === self.controller ? { power: 1, toughness: 1 } : null),
+    static: (g, self, c) => (c.id !== self.id && c.controller === self.controller && isCreature(g, c) ? { power: 1, toughness: 1 } : null),
     // "When Trostani enters, create two 1/1 white Soldier creature tokens with lifelink."
     onEnter: (g, { you }) => void createToken(g, you, 'Soldier 1/1 lifelink', 2),
     // "At the beginning of your end step, each player gains control of all creatures they own."

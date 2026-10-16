@@ -47,24 +47,91 @@ export interface CardData {
   faces?: CardData[];
 }
 
-/** Until-end-of-turn modifier. */
-export interface Mod {
+/**
+ * What a continuous effect does to an object's characteristics, by layer (613.1). Each part
+ * applies in its own layer, to the same set of objects (613.6). Parts left out change nothing.
+ * Layer 1 (copy effects) is `Card.copy`, and layer 2 (control) is `Card.controller`; no card
+ * changes text (layer 3) yet.
+ */
+export interface LayerParts {
+  /** Layer 4 (613.1d): card types it adds, "in addition to its other types" (205.1b), like a crewed Vehicle's artifact creature (702.122a). */
+  types?: string[];
+  /**
+   * Layer 4: card types it removes, like a reconfigured Equipment's creature type (702.151b).
+   * A permanent that stops being a creature loses its creature types too.
+   */
+  notTypes?: string[];
+  /** Layer 4: subtypes it adds (205.1b), like Urborg's Swamp. */
+  subtypes?: string[];
+  /**
+   * Layer 6 (613.1f): keyword abilities it adds, in lower case ("flying", "protection from
+   * white"), and restrictions carried the same way (`CANT_ATTACK`).
+   */
+  keywords?: string[];
+  /** Layer 6: a mana ability it adds (Rain of Filth). */
+  mana?: ManaAbility;
+  /** Layer 6: a triggered ability it adds, entry `index` of card `from`'s `grants` (Malakir Rebirth). */
+  grant?: { from: string; index: number };
+  /** Layer 6: the activated abilities of these cards, by name (Agatha's Soul Cauldron). */
+  activatedOf?: string[];
+  /**
+   * Layer 6: abilities its script reads by name instead of the engine, like harnessed
+   * (701.64b) or an ability a Saga's chapter gave it (`hasFlag`).
+   */
+  flags?: string[];
+  /** Layer 7b (613.4b): sets its base power and/or toughness, like Ghost Vacuum's "is a 1/1". */
+  setPower?: number;
+  setToughness?: number;
+  /** Layer 7c (613.4c): adds to its power and/or toughness. */
+  power?: number;
+  toughness?: number;
+  /** Layer 7d (613.4d): switches its power and toughness. */
+  switchPT?: boolean;
+}
+
+/**
+ * A continuous effect from a resolved spell or ability (611.2), kept on the one permanent it
+ * affects: its set of objects was locked in as it began (611.2c). It goes away when the
+ * permanent leaves the battlefield (400.7), or sooner if `until` or `while` says so.
+ */
+export interface ContinuousEffect extends LayerParts {
+  /** Its timestamp (613.7b): applied after effects with earlier ones in the same layer. */
+  ts: number;
+  /**
+   * How long it lasts (611.2a): until end of turn, gone in the cleanup step (514.2); until
+   * that player's next turn begins; or with no duration, for as long as the permanent stays.
+   */
+  until: 'turn' | 'leaves' | { nextTurnOf: PlayerId };
+  /** "For as long as" that object stays on the battlefield (611.2b): the object, which stops being it when it moves (400.7). */
+  while?: { id: string; moves: number };
+}
+
+/**
+ * An object's characteristics after every continuous effect is applied (613), as far as the
+ * layer that was asked for. `keywords` are in lower case. A permanent's power and toughness are
+ * worked out even while it isn't a creature, so they are there if it becomes one.
+ */
+export interface Characteristics {
+  typeLine: string;
+  colors: Color[];
+  keywords: string[];
   power: number;
   toughness: number;
-  keywords: string[];
-  /** Makes the permanent an artifact creature too, e.g. a crewed Vehicle (702.122a). */
-  creature?: boolean;
-  /** A mana ability it gains until end of turn (Rain of Filth). */
-  mana?: ManaAbility;
-  /** A triggered ability it gains until end of turn: entry `index` of card `from`'s `grants` (Malakir Rebirth). */
-  grant?: { from: string; index: number };
+  /** Mana abilities effects gave it (layer 6). */
+  mana: ManaAbility[];
+  /** Triggered abilities effects gave it (layer 6). */
+  grants: { from: string; index: number }[];
+  /** Cards whose activated abilities it has from effects (layer 6). */
+  activatedOf: string[];
+  /** Abilities its script reads by name (`LayerParts.flags`). */
+  flags: string[];
 }
 
 /**
  * A triggered ability one card gives another (613.1f): "Equipped creature has 'Whenever
  * ...'". The ability is the creature's own, so "this creature" means it. `applies` says
  * which permanents a permanent on the battlefield gives it to; one given until end of turn
- * is named by a `Mod.grant` instead.
+ * is named by a `LayerParts.grant` instead.
  */
 export interface GrantedTrigger {
   hook: TriggerHook;
@@ -112,6 +179,8 @@ export interface CastInfo {
   airbent?: boolean;
   /** Cast from exile as a plotted card, without paying its mana cost (702.170d). */
   plotted?: boolean;
+  /** Its offspring cost was paid (702.175a). */
+  offspring?: boolean;
 }
 
 /**
@@ -133,6 +202,8 @@ export interface CastChoices {
   exile?: string[];
   /** A modal spell's modes, as indexes into its script's `modal.modes` (700.2a). */
   modes?: number[];
+  /** Pay the offspring cost (702.175a). */
+  offspring?: boolean;
   /**
    * A battle's protector (310.9a): an opponent for a Siege (310.12a). The rules choose it
    * as the battle enters; here it is announced with the spell. Left out, the engine picks.
@@ -195,7 +266,21 @@ export interface Card {
   once: Record<string, number>;
   /** An adventurer card exiled after its Adventure resolved: its owner may cast it from exile (715.3d). */
   adventure: boolean;
-  mods: Mod[];
+  /** Continuous effects from resolved spells and abilities on this permanent (611.2), oldest first. */
+  continuous: ContinuousEffect[];
+  /**
+   * Its timestamp (613.7): given as it enters a zone (613.7d), and again as an Aura or
+   * Equipment becomes attached (613.7e) and as a double-faced permanent transforms (613.7g).
+   * Effects from its static abilities share it (613.7a).
+   */
+  ts: number;
+  /** The timestamp of each kind of counter on it (613.7c): when the last one of that kind was put on. */
+  counterTs?: Record<string, number>;
+  /**
+   * On a copy that remembers a permanent as it last was on the battlefield (`lastKnown`,
+   * 603.10a, 608.2h): its characteristics then, every effect applied.
+   */
+  lki?: Characteristics;
   /**
    * How this card was cast: the X chosen (107.3) and how many times it was kicked
    * (702.33d). Kept while it is a spell and when it enters the battlefield from the stack,
@@ -236,15 +321,6 @@ export interface Card {
    * spec can name something from it, like "target creature that player controls".
    */
   triggeredBy?: Record<string, unknown>;
-  /** Subtypes effects give this permanent now (`CardScript.grantsSubtypes`), kept by `refreshSubtypes`. */
-  addedSubtypes?: string[];
-  /**
-   * Cards whose activated abilities this permanent has now, by name (Agatha's Soul Cauldron's
-   * "have all activated abilities of all creature cards exiled with" it), kept by `refreshSubtypes`.
-   */
-  borrowed?: string[];
-  /** What effects with no end have done to this permanent, until it leaves the battlefield (611.2a, 400.7). */
-  lasting?: Lasting;
   /** In exile: the turn it became plotted (702.170d). Its owner may cast it free on a later turn. */
   plotted?: number;
   /** In exile: it was airbent, so its owner may cast it for {2} while it stays exiled (701.65a). */
@@ -256,19 +332,6 @@ export interface Card {
 }
 
 /**
- * Lasting changes to one permanent (611.2a): a new base power and toughness (613.4b), extra
- * subtypes and keywords, and markers its script reads, like harnessed (701.64b) or an
- * ability a Saga's chapter gave it.
- */
-export interface Lasting {
-  power?: number;
-  toughness?: number;
-  subtypes?: string[];
-  keywords?: string[];
-  flags?: string[];
-}
-
-/**
  * A copy effect (707): the copiable values of card `name` with face `face` up, plus the
  * exceptions the copy effect adds (707.9b): extra subtypes and keywords.
  */
@@ -277,6 +340,9 @@ export interface CopyInfo {
   face: number;
   subtypes: string[];
   keywords: string[];
+  /** A base power and toughness the copy effect sets (707.9b): offspring's 1/1, Saw in Half's halves. */
+  power?: number;
+  toughness?: number;
 }
 
 export interface Player {
@@ -357,8 +423,24 @@ export type TurnEffect =
   /**
    * The player may cast card `card` (while it is the same object, `moves`) this turn, or
    * also play it if it is a land (`play`). `anyMana`: mana of any type can be spent to cast it.
+   * `until`: it lasts until the end of that player's turn numbered `turn` or later ("until the
+   * end of your next turn"). `lasting`: for as long as the card stays where it is (Flameshape),
+   * and `ifSubtype` only while the player controls a permanent with that subtype ("if you
+   * control a Wizard").
    */
-  | { kind: 'mayCast'; player: PlayerId; card: string; moves: number; play?: boolean; anyMana?: boolean }
+  | {
+      kind: 'mayCast';
+      player: PlayerId;
+      card: string;
+      moves: number;
+      play?: boolean;
+      anyMana?: boolean;
+      until?: { player: PlayerId; turn: number };
+      lasting?: boolean;
+      ifSubtype?: string;
+    }
+  /** Card `card` in a graveyard has flashback this turn, its flashback cost its mana cost (Flashback, Stingcaster Mage). */
+  | { kind: 'flashback'; card: string; moves: number }
   /** The player may cast spells as though they had flash this turn (Borne Upon a Wind). */
   | { kind: 'flash'; player: PlayerId };
 
@@ -678,8 +760,27 @@ export interface Mulligans {
  *                  library, and they choose whether it goes to the command zone (903.9).
  *                  `resume` is the player who gets priority afterwards.
  */
+/** How a replacement effect changes an amount of damage (614.1a): doubled, or plus N. */
+export interface DamageChange {
+  times?: number;
+  plus?: number;
+}
+
+/**
+ * A person chooses the order of replacement effects that change damage they or their
+ * permanent would be dealt (616.1), when the order changes the amount. Each option is an
+ * order and the damage it leads to. The action that was being carried out is done again with
+ * the answer once it is given (`Game.replay`).
+ */
+export interface OrderDamageChoice {
+  player: PlayerId;
+  text: string;
+  options: { order: string[]; amount: number }[];
+}
+
 export type Decision =
   | { type: 'mulligan' | 'attackers' | 'blockers' | 'discard' }
+  | { type: 'orderDamage'; order: OrderDamageChoice }
   | { type: 'targets'; item: StackItem; resume: PlayerId }
   | { type: 'orderTriggers'; resume: PlayerId }
   | { type: 'chooseCards'; choice: CardChoice }
@@ -741,7 +842,20 @@ export interface Game {
    * own replacement effects ask for before any of them enters (614.12a, `enterTogether`).
    * `ready` are the cards whose way of entering is settled; `waiting` are the ids still asked.
    */
-  entering?: { id: string; ready: { id: string; moves: number; opts: object }[]; waiting: string[] }[];
+  /**
+   * An action stopped partway to ask a person to order replacement effects (616.1): it is
+   * applied again from this state with `answers`, plus the new one, once they answer. The
+   * decision and priority it stopped from are restored first.
+   */
+  replay?: { action: Action; autoPass: boolean; stops?: unknown; answers: number[]; decision: Decision | null; priority: PlayerId };
+  entering?: {
+    id: string;
+    ready: { id: string; moves: number; opts: object }[];
+    /** Card ids whose choices are still asked, and `@order<player>` for a player choosing the timestamp order (613.7m). */
+    waiting: string[];
+    /** The players have been asked for the timestamp order already (613.7m). */
+    ordered?: boolean;
+  }[];
   /** Extra turns to take after this one. The last is taken first (500.7). */
   extraTurns: ExtraTurn[];
   /**
@@ -756,6 +870,8 @@ export interface Game {
 export type Action =
   /** `face`: the land face of a modal double-faced card to put onto the battlefield (712.12). */
   | { type: 'playLand'; card: string; face?: number }
+  /** Plot (702.170a): a special action, paying the card's plot cost and exiling it from the hand. */
+  | { type: 'plot'; card: string }
   /** `hold`: keep priority afterwards instead of letting auto-pass pass it (117.3c). */
   | ({ type: 'cast'; card: string; targets?: (TargetRef | null)[]; hold?: boolean } & CastChoices)
   /** `crew`: the creatures tapped to pay a crew cost (702.122a). */
@@ -794,6 +910,8 @@ export type Action =
   | { type: 'answer'; yes: boolean }
   /** Answers a `name` decision with a card name (or a creature type). */
   | { type: 'name'; name: string }
+  /** Answers an `orderDamage` decision: the index of the order chosen. */
+  | { type: 'orderDamage'; option: number }
   /** Answers a `player` decision. */
   | { type: 'choosePlayer'; player: PlayerId }
   /** Answers `commanderZone`: true moves the commander to the command zone, false leaves it where it is. */
@@ -852,11 +970,8 @@ export interface Ctx {
   x?: number;
 }
 
-export interface StaticBonus {
-  power?: number;
-  toughness?: number;
-  keywords?: string[];
-}
+/** What a static ability does to an object it applies to (611.3), by layer. */
+export type StaticBonus = LayerParts;
 
 /**
  * Every triggered-ability hook, with what it is told about the event that set it off.
@@ -885,6 +1000,11 @@ export interface TriggerEvents {
    * `source` is as it was as it dealt the damage. Prevented damage isn't dealt (615).
    */
   onDamage: { source: Card; player: PlayerId | null; card: Card | null; amount: number; combat: boolean };
+  /**
+   * "Whenever a source deals damage": once for each source in each event (Matoc), with every
+   * player and permanent it dealt damage to then and how much. `source` is as it dealt it.
+   */
+  onSourceDamage: { source: Card; dealt: { player: PlayerId | null; card: Card | null; amount: number }[]; combat: boolean };
   /** "Whenever one or more players lose life": once for each event, with everyone who lost life in it. */
   onLifeLossTogether: { losses: { player: PlayerId; amount: number }[] };
   /**
@@ -949,6 +1069,8 @@ export interface TriggerEvents {
   onReflexive: { key: string; data: Record<string, unknown> };
   /** Evoke's "When this permanent enters, if its evoke cost was paid, its controller sacrifices it" (702.74a). */
   onEvoked: object;
+  /** Offspring's "When this permanent enters, if its offspring cost was paid, create a 1/1 token copy of it" (702.175a). */
+  onOffspring: object;
 }
 
 /** What ward costs (702.21a): mana, life, or both. */
@@ -1128,9 +1250,16 @@ export interface CardScript extends Triggers {
   modal?: { min: number; max: number | ((g: Game, self: Card) => number); repeat?: boolean; modes: Mode[] };
   /** Instants and sorceries. */
   onResolve?: (g: Game, ctx: Ctx) => void;
-  /** Continuous effect this permanent grants to creature `c` (may be itself). */
-  static?: (g: Game, self: Card, c: Card) => StaticBonus | null;
-  /** Characteristic-defining power/toughness (e.g. Nightmare). */
+  /**
+   * The continuous effects this permanent's static abilities have on permanent `c` (611.3),
+   * which may be itself: null where they don't apply. A list holds one entry for each
+   * ability, in printed order, each its own effect. They share the permanent's timestamp
+   * (613.7a). The engine asks again in each layer until an effect starts to apply, with `c` as
+   * it is at that point, then keeps the same set of objects for the effect's later layers
+   * (613.6): "creatures you control get +1/+1" checks `isCreature` after layer 4's effects.
+   */
+  static?: (g: Game, self: Card, c: Card) => StaticBonus | (StaticBonus | null)[] | null;
+  /** A characteristic-defining ability that defines power and toughness (604.3, 613.4a), e.g. Nightmare's. */
   basePT?: (g: Game, self: Card) => { power: number; toughness: number };
   /** Generic mana this spell costs less. */
   costReduction?: (g: Game, self: Card) => number;
@@ -1141,6 +1270,11 @@ export interface CardScript extends Triggers {
   costModifier?: (g: Game, self: Card, spell: Card, caster: PlayerId, from: Zone | 'stack') => number;
   /** Kicker (702.33): an optional additional cost. `multi` is multikicker, paid any number of times (702.33c). */
   kicker?: { mana: string; multi?: boolean };
+  /**
+   * Offspring (702.175a): the optional additional cost. If it was paid, when the permanent
+   * enters, its controller creates a 1/1 token copy of it.
+   */
+  offspring?: string;
   /**
    * "As an additional cost to cast this spell, ..." (118.8), paid with the mana cost.
    * `sacrifice`: a permanent that fits the spec; `optional`, the caster may sacrifice one,
@@ -1177,8 +1311,14 @@ export interface CardScript extends Triggers {
     /** Warp (702.185a): only from the hand; the permanent is exiled at the next end step. */
     warp?: boolean;
   }[];
-  /** Extra damage added when `source` (controlled by self's owner) damages `targetOwner` or their permanent. */
-  damageBonus?: (g: Game, self: Card, source: Card, targetOwner: PlayerId) => number;
+  /**
+   * While this permanent is on the battlefield: a replacement effect that changes how much
+   * damage `source` would deal to a player or permanent (614.1a): it deals double (`times: 2`,
+   * Furnace of Rath) or that much plus N (`plus`, Torbran). Null if it doesn't apply. When
+   * several apply, the player being dealt damage, or the permanent's controller, chooses the
+   * order (616.1).
+   */
+  changesDamage?: (g: Game, self: Card, source: Card, to: { player?: PlayerId; card?: Card }, combat: boolean) => DamageChange | null;
   /**
    * An Aura's enchant ability (702.5): what it can be attached to. It is also the Aura
    * spell's target (303.4a). Its `who` is from the Aura's controller's side.
@@ -1206,12 +1346,12 @@ export interface CardScript extends Triggers {
   then?: Record<string, (g: Game, ctx: ThenCtx) => void>;
   /** Reflexive triggered abilities this card creates (603.12), by key: their targets and what they do. */
   reflexive?: Record<string, { targets?: TargetSpec[]; text?: string; resolve: (g: Game, ctx: Ctx & { data: Record<string, unknown> }) => void }>;
+  /** Plot (702.170a): its plot cost. Its owner may pay it and exile the card from their hand, as a sorcery; it becomes plotted. */
+  plot?: string;
   /** Escape (702.138a) printed on the card: cast from its owner's graveyard for `mana` plus exiling `exile` other cards from there. */
   escape?: { mana: string; exile: number };
   /** While this permanent is on the battlefield: does creature spell `spell` cast by `caster` have convoke (702.51a)? */
   grantsConvoke?: (g: Game, self: Card, spell: Card, caster: PlayerId) => boolean;
-  /** While this permanent is on the battlefield: the names of cards whose activated abilities permanent `c` has. */
-  grantsAbilities?: (g: Game, self: Card, c: Card) => string[];
   /** While this permanent is on the battlefield: may `pid` spend mana as though it were mana of any colour to activate an ability of `source` (Agatha's Soul Cauldron)? */
   anyColorFor?: (g: Game, self: Card, pid: PlayerId, source: Card) => boolean;
   /** While this permanent is on the battlefield: does `pid` skip the extra turn they would begin (614.10, Trouble in Pairs)? */
@@ -1260,12 +1400,6 @@ export interface CardScript extends Triggers {
    */
   preventsDamage?: (g: Game, self: Card, source: Card, to: { player?: PlayerId; card?: Card }) => boolean;
   /**
-   * While this permanent is on the battlefield: subtypes it gives permanent `c` (which may
-   * be itself), like Urborg's "Each land is a Swamp" or "This creature is the chosen type".
-   * `c` is given without the subtypes effects add, so effects can't feed each other.
-   */
-  grantsSubtypes?: (g: Game, self: Card, c: Card) => string[];
-  /**
    * While this permanent is on the battlefield: does permanent `c` untap during another
    * player's untap step (502.3)? "Untap all artifacts you control during each other
    * player's untap step." `active` is the player whose untap step it is.
@@ -1312,6 +1446,8 @@ export interface CardScript extends Triggers {
    * end: cast only when the bot could win in that turn.
    */
   ai?: 'alpha' | 'tutor' | 'ritual' | 'extraTurn';
+  /** Abilities that trigger while the card is in its owner's graveyard (Vivi's Persistence, Asgardian Inspiration), by hook. */
+  fromGraveyard?: BroadcastHook[];
   /** Bot hint: should a bot activate this permanent's `activated` ability now? The look-ahead can't see what it is worth. */
   botActivate?: (g: Game, pid: PlayerId, self: Card, activated: number) => boolean;
 }
@@ -1319,5 +1455,5 @@ export interface CardScript extends Triggers {
 /** Hooks that every permanent on the battlefield hears, not only the card the event is about. */
 export type BroadcastHook = Exclude<
   TriggerHook,
-  'onEnter' | 'onDies' | 'onAttack' | 'onCombatDamageToPlayer' | 'onDefeat' | 'onChapter' | 'onLevel' | 'onStorm' | 'onDelayed' | 'onTapped' | 'onWard' | 'onLeave' | 'onCounters' | 'onReflexive' | 'onEvoked'
+  'onEnter' | 'onDies' | 'onAttack' | 'onCombatDamageToPlayer' | 'onDefeat' | 'onChapter' | 'onLevel' | 'onStorm' | 'onDelayed' | 'onTapped' | 'onWard' | 'onLeave' | 'onCounters' | 'onReflexive' | 'onEvoked' | 'onOffspring'
 >;

@@ -88,6 +88,8 @@ export function viewFor(g: Game, viewer: PlayerId | null): Game {
   }
   view.log = view.log.map((l) => logLine(l, viewer));
   view.rng = 0;
+  // The action an order question stopped can name cards a player chose in secret; the server keeps it.
+  delete view.replay;
   // Everywhere but the zones themselves, which hold only stand-ins for hidden cards now.
   if (ids.size) {
     const { players, ...rest } = view;

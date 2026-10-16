@@ -4,6 +4,7 @@
 // on what other players do next.
 import {
   abilityHasX,
+  canPlot,
   activatable,
   autoAssignments,
   applyAction,
@@ -32,6 +33,7 @@ import {
 } from './engine';
 import {
   activatedAt,
+  flashbackCost,
   preferredColor,
   CANT_ATTACK,
   CANT_BLOCK,
@@ -90,7 +92,7 @@ export function threat(g: Game, c: Card): number {
   if (s.keywords.has('double strike')) v += s.power;
   if (c.isCommander) v += 3;
   const script = scriptFor(c);
-  if (script.static || script.onCreatureDies || script.onCast || script.onDraw || script.damageBonus) v += 1.5;
+  if (script.static || script.onCreatureDies || script.onCast || script.onDraw || script.changesDamage) v += 1.5;
   // A creature that can't attack or block (Pacifism) is worth little.
   if (s.keywords.has(CANT_ATTACK) && s.keywords.has(CANT_BLOCK)) v *= 0.25;
   return v;
@@ -102,8 +104,8 @@ export function threat(g: Game, c: Card): number {
  * creatures first, and only if they have less power than the Vehicle brings.
  */
 function crewChoice(g: Game, pid: PlayerId, v: Card, activated = 0): string[] | null {
-  const need = activatedAt(v, activated)?.cost.crew;
-  if (!need || g.active !== pid || g.step !== 'main1' || v.sick || isCreature(v)) return null;
+  const need = activatedAt(g, v, activated)?.cost.crew;
+  if (!need || g.active !== pid || g.step !== 'main1' || v.sick || isCreature(g, v)) return null;
   const pool = crewOptions(g, pid, v).sort((a, b) => Number(b.sick) - Number(a.sick) || threat(g, a) - threat(g, b));
   const picked: Card[] = [];
   for (const c of pool) {
@@ -129,11 +131,11 @@ function boardValue(g: Game, p: Player): number {
   let v = 0;
   let mana = 0;
   for (const c of p.battlefield) {
-    if (isCreature(c)) v += threat(g, c);
-    else if (isPlaneswalker(c)) v += walkerValue(c);
-    else if (isBattle(c)) v += battleValue(c);
+    if (isCreature(g, c)) v += threat(g, c);
+    else if (isPlaneswalker(g, c)) v += walkerValue(c);
+    else if (isBattle(g, c)) v += battleValue(c);
     else if (scriptFor(c).levels) v += 1 + data(c).cmc * 0.5 + (c.level - 1) * 1.5; // a Class is worth more each level
-    else if (!isLand(c)) v += 1 + data(c).cmc * 0.5;
+    else if (!isLand(g, c)) v += 1 + data(c).cmc * 0.5;
     mana += manaOf(g, c)?.amount ?? 0;
   }
   return v + Math.min(mana, 12) * 1.3;
@@ -148,7 +150,7 @@ const handValue = (g: Game, p: Player) => {
   const allowed = g.effects.filter((e) => e.kind === 'mayCast' && e.player === p.id).length;
   // So do their cards in exile they may cast: an Adventure, airbent, plotted or warped.
   const castable = p.exile.filter((c) => c.adventure || c.airbent || c.plotted !== undefined || c.warped !== undefined).length;
-  const n = p.hand.length + castable + allowed + p.graveyard.filter((c) => scriptFor(c).flashback).length * 0.5;
+  const n = p.hand.length + castable + allowed + p.graveyard.filter((c) => flashbackCost(g, c)).length * 0.5;
   return Math.min(n, 5) + Math.max(0, n - 5) * 0.4;
 };
 
@@ -180,7 +182,7 @@ export function evaluate(g: Game, pid: PlayerId): number {
 const PASS: Action = { type: 'pass' };
 
 /** What a permanent is worth, for picking which targets to try. */
-const worth = (g: Game, c: Card) => (isCreature(c) ? threat(g, c) : isPlaneswalker(c) ? walkerValue(c) : 1 + data(c).cmc * 0.5);
+const worth = (g: Game, c: Card) => (isCreature(g, c) ? threat(g, c) : isPlaneswalker(g, c) ? walkerValue(c) : 1 + data(c).cmc * 0.5);
 
 /**
  * The targets worth trying for one target slot, so a wide board stays cheap to look ahead
@@ -228,7 +230,7 @@ function targetChoices(g: Game, pid: PlayerId, specs: TargetSpec[], source: Card
 }
 
 /** What a permanent is worth to sacrifice: less is a better sacrifice. */
-const sacrificeWorth = (g: Game, c: Card) => (isCreature(c) ? threat(g, c) : c.isToken ? 0.5 : 1 + data(c).cmc * 0.5);
+const sacrificeWorth = (g: Game, c: Card) => (isCreature(g, c) ? threat(g, c) : c.isToken ? 0.5 : 1 + data(c).cmc * 0.5);
 
 /**
  * Values of X worth paying in life (Toxic Deluge): each creature's toughness, the three
@@ -300,14 +302,17 @@ function castChoices(g: Game, pid: PlayerId, c: Card): CastChoices[] {
               while (k < (script.kicker.multi ? 10 : 1) && canCast(g, pid, c, { ...base, gift, kicked: k + 1 })) k++;
               if (k) kicks.push(k);
             }
-            for (const kicked of kicks) {
-              const most = maxX(g, pid, c, { ...base, gift, kicked });
-              const xs = lifeX ? lifeXChoices(g, pid, most) : [most, Math.floor(most / 2)];
-              for (const x of new Set(xs)) {
-                const choices: CastChoices = { ...base, x, kicked, ...(gift !== undefined ? { gift } : {}) };
-                if (x >= 0 && canCast(g, pid, c, choices)) out.push(choices);
+            // Offspring (702.175a): with and without paying it, when it can be paid.
+            const offsprings = script.offspring && canCast(g, pid, c, { ...base, gift, offspring: true }) ? [false, true] : [false];
+            for (const kicked of kicks)
+              for (const offspring of offsprings) {
+                const most = maxX(g, pid, c, { ...base, gift, kicked, offspring });
+                const xs = lifeX ? lifeXChoices(g, pid, most) : [most, Math.floor(most / 2)];
+                for (const x of new Set(xs)) {
+                  const choices: CastChoices = { ...base, x, kicked, ...(gift !== undefined ? { gift } : {}), ...(offspring ? { offspring } : {}) };
+                  if (x >= 0 && canCast(g, pid, c, choices)) out.push(choices);
+                }
               }
-            }
           }
         }
       }
@@ -333,6 +338,8 @@ function candidateActions(g: Game, pid: PlayerId): { action: Action; spendsCard:
       }
     }
   }
+  // Plotting a card to cast it free on a later turn (702.170a).
+  for (const c of p.hand) if (canPlot(g, pid, c)) out.push({ action: { type: 'plot', card: c.id }, spendsCard: true });
   // Abilities of permanents, and of cards in the hand that work from there (channel).
   for (const c of [...p.battlefield, ...p.hand]) {
     for (const ref of activatable(g, pid, c)) {
@@ -351,7 +358,7 @@ function candidateActions(g: Game, pid: PlayerId): { action: Action; spendsCard:
  * left out: it pays nothing and does nothing.
  */
 function xChoices(g: Game, pid: PlayerId, c: Card, ref: AbilityRef): (number | undefined)[] {
-  if (!abilityHasX(c, ref)) return [undefined];
+  if (!abilityHasX(g, c, ref)) return [undefined];
   const most = maxAbilityX(g, pid, c, ref);
   if (most <= 6) return Array.from({ length: Math.max(0, most) }, (_, i) => i + 1);
   return [...new Set(Array.from({ length: 6 }, (_, i) => Math.round((most * (i + 1)) / 6)))];
@@ -361,7 +368,7 @@ function xChoices(g: Game, pid: PlayerId, c: Card, ref: AbilityRef): (number | u
 function activations(g: Game, pid: PlayerId, c: Card, ref: AbilityRef): Action[] {
   const { ability, activated } = ref;
   // One of its activated abilities, a loyalty ability, or a Class level bar (which has no targets).
-  const ab = ability === undefined ? activatedAt(c, activated) : undefined;
+  const ab = ability === undefined ? activatedAt(g, c, activated) : undefined;
   const specs = (ab ? ab.targets : scriptFor(c).loyalty?.[ability!].targets) ?? [];
   const crew = ab?.cost.crew ? crewChoice(g, pid, c, activated) : undefined;
   if (crew === null) return [];
@@ -412,7 +419,7 @@ function anyTargets(g: Game): Action {
   // An opponent or something of theirs if there is one: most triggered abilities that target harm.
   const mine = (t: TargetRef) => (t.kind === 'player' ? t.id === g.priority : t.kind === 'card' && findCard(g, t.id)?.controller === g.priority);
   // "Any number of" targets: none, here.
-  const targets = targetSpecs(item).filter((spec) => !spec.any).map((spec) => {
+  const targets = targetSpecs(g, item).filter((spec) => !spec.any).map((spec) => {
     if (spec.optional) return null;
     const legal = legalTargets(g, g.priority, spec, item.card);
     return legal.find((t) => !mine(t)) ?? legal[0] ?? null;
@@ -431,7 +438,7 @@ function bestTargets(g: Game, pid: PlayerId, depth = 0): Action {
   let best = anyTargets(g);
   let bestScore = -Infinity;
   // New targets are legal for the item's controller (115.7d).
-  const options = targetChoices(g, d?.type === 'retarget' ? item.controller : pid, targetSpecs(item), item.card);
+  const options = targetChoices(g, d?.type === 'retarget' ? item.controller : pid, targetSpecs(g, item), item.card);
   if (d?.type === 'retarget') options.push(item.targets);
   for (const targets of options) {
     const action: Action = { type: 'chooseTargets', targets };
@@ -521,7 +528,7 @@ function bestPlay(g: Game, pid: PlayerId): Action | null {
 function attackWorth(g: Game, pid: PlayerId, c: Card, o: AttackOption): number {
   const power = stats(g, c).power;
   const target = o.target ? permanent(g, o.target) : undefined;
-  if (target && isPlaneswalker(target)) {
+  if (target && isPlaneswalker(g, target)) {
     const loyalty = loyaltyOf(target);
     return power >= loyalty ? walkerValue(target) : (power / loyalty) * walkerValue(target) * 0.8;
   }
@@ -646,7 +653,7 @@ function planBlocks(g: Game, pid: PlayerId): Map<string, string> {
     // chump block by a creature that is worth less.
     const stake = !target
       ? 0
-      : isPlaneswalker(target)
+      : isPlaneswalker(g, target)
         ? s.power >= loyaltyOf(target) ? walkerValue(target) : 0
         : s.power >= defenseOf(target) ? 3 : 0;
     if (s.keywords.has('menace')) {
@@ -692,13 +699,13 @@ function bestLand(g: Game, pid: PlayerId, lands: Card[]): Action | null {
   const sources = p.battlefield.map((c) => manaOf(g, c)?.colors ?? []);
   const pips = [...p.hand, ...p.command].flatMap((c) => parseCost(data(c).manaCost).pips);
   const short = (sym: ManaSym) => pips.filter((x) => x === sym).length / (1 + sources.filter((m) => m.includes(sym)).length);
-  const landsOut = p.battlefield.filter(isLand).length;
+  const landsOut = p.battlefield.filter((x) => isLand(g, x)).length;
   // Each land face it could be played as (712.12), looked at as it would be on the battlefield.
-  const options = lands.flatMap((card) => landFaces(card).map((face) => ({ card, face, as: { ...card, zone: 'battlefield' as const, face } })));
+  const options = lands.flatMap((card) => landFaces(g, card).map((face) => ({ card, face, as: { ...card, zone: 'battlefield' as const, face } })));
   const score = ({ card, as }: (typeof options)[number]) => {
     let v = Math.max(0, ...(manaOf(g, as)?.colors ?? []).map(short)) - (entersTappedFor(g, as, pid) ? 0.5 : 0);
     // A modal card whose front is a spell is a land only when nothing else is, and mana is short.
-    if (!isLand(card)) v -= landsOut >= 5 ? 100 : 2;
+    if (!isLand(g, card)) v -= landsOut >= 5 ? 100 : 2;
     return v;
   };
   const best = options.reduce((a, b) => (score(b) > score(a) ? b : a));
@@ -824,8 +831,8 @@ function extraTurnPlay(g: Game, pid: PlayerId): Action | null {
 
 function discardChoice(g: Game, pid: PlayerId): Action {
   const p = g.players[pid];
-  const lands = p.battlefield.filter(isLand).length;
-  const spare = lands >= 5 ? p.hand.find(isLand) : undefined;
+  const lands = p.battlefield.filter((x) => isLand(g, x)).length;
+  const spare = lands >= 5 ? p.hand.find((x) => isLand(g, x)) : undefined;
   const priciest = [...p.hand].sort((a, b) => data(b).cmc - data(a).cmc)[0];
   return { type: 'discard', card: (spare ?? priciest).id };
 }
@@ -835,7 +842,7 @@ function discardChoice(g: Game, pid: PlayerId): Action {
 /** Keep a hand with a workable number of lands, or any hand of five or fewer cards. */
 function mulliganChoice(g: Game, pid: PlayerId): Action {
   const hand = g.players[pid].hand;
-  const lands = hand.filter(isLand).length;
+  const lands = hand.filter((x) => isLand(g, x)).length;
   const keep = hand.length <= 5 || (lands >= 2 && lands <= hand.length - 2) || !canMulligan(g, pid);
   return { type: keep ? 'keep' : 'mulligan' };
 }
@@ -850,8 +857,8 @@ function scriptedChoice(g: Game, pid: PlayerId, choice: Choice): Action | null {
 /** How much a bot wants a card it could search for: what it would most like to draw. */
 export function cardWant(g: Game, pid: PlayerId, c: Card): number {
   const p = g.players[pid];
-  const lands = p.battlefield.filter(isLand).length + p.hand.filter(isLand).length;
-  if (isLand(c)) return lands < 4 ? 6 : 1;
+  const lands = p.battlefield.filter((x) => isLand(g, x)).length + p.hand.filter((x) => isLand(g, x)).length;
+  if (isLand(g, c)) return lands < 4 ? 6 : 1;
   const mv = data(c).cmc;
   // Something it could cast soon, the more expensive the better.
   return 3 + Math.min(mv, lands + 1) - Math.max(0, mv - lands - 1) * 2;
@@ -893,8 +900,8 @@ function cardChoice(g: Game, pid: PlayerId): Action {
   if (choice.kind === 'legend') return { type: 'chooseCards', cards: [choice.cards[0]] };
   if (choice.kind !== 'bottom') return PASS;
   const keepCount = hand.length - choice.count;
-  const lands = hand.filter(isLand);
-  const spells = hand.filter((c) => !isLand(c)).sort((a, b) => data(a).cmc - data(b).cmc);
+  const lands = hand.filter((x) => isLand(g, x));
+  const spells = hand.filter((c) => !isLand(g, c)).sort((a, b) => data(a).cmc - data(b).cmc);
   const landsKept = Math.min(lands.length, Math.max(Math.round((keepCount * 3) / 7), keepCount - spells.length));
   const kept = new Set([...lands.slice(0, landsKept), ...spells.slice(0, keepCount - landsKept)].map((c) => c.id));
   return { type: 'chooseCards', cards: hand.filter((c) => !kept.has(c.id)).map((c) => c.id) };
@@ -986,6 +993,9 @@ export function botAction(g: Game, pid: PlayerId): Action {
       return castNow(g, pid);
     case 'retarget':
       return bestTargets(g, pid);
+    // Only a person is asked; answering for one, take the least damage (the options are sorted).
+    case 'orderDamage':
+      return { type: 'orderDamage', option: 0 };
     case 'assignDamage':
       // Only a human is asked, but a bot answering for one splits it automatically.
       return { type: 'assignDamage', assignments: autoAssignments(g) };
@@ -1012,6 +1022,7 @@ export function applyBotAction(g: Game, a: Action, opts?: ApplyOptions): Game {
   if (next === g && g.decision?.type === 'cast') next = applyAction(g, { type: 'answer', yes: false }, opts);
   if (next === g && g.decision?.type === 'retarget') next = applyAction(g, anyTargets(g), opts);
   if (next === g && g.decision?.type === 'mulligan') next = applyAction(g, { type: 'keep' }, opts);
+  if (next === g && g.decision?.type === 'orderDamage') next = applyAction(g, { type: 'orderDamage', option: 0 }, opts);
   if (next === g && g.decision?.type === 'assignDamage') next = applyAction(g, { type: 'assignDamage', assignments: autoAssignments(g) }, opts);
   return next;
 }
