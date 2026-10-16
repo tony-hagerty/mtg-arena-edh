@@ -188,7 +188,12 @@ are from the Comprehensive Rules in `docs/rules/`.
 ### Mana
 
 - **Multicolour mana:** auto-pay pays the scarcest colour first and backs up to try
-  another source when a choice would leave a later pip unpayable. A multicolour source
+  another source when a choice would leave a later pip unpayable. It pays each pip and
+  the generic part with the source it most wants to keep the least: a basic before a dual,
+  a colour your hand and command zone don't want before one they do, and lands and plain
+  mana rocks before creatures and permanents with another {T} ability. A hybrid symbol is
+  paid with the colour your other cards want less, and floating mana spent on generic is
+  the colour they want least. A multicolour source
   tapped by hand makes the colour your hand needs most. Bots play the land for the colour
   they are shortest of.
 - **Mana abilities (605):** a permanent can have several, and they can cost life (119.4),
