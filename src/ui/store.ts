@@ -225,7 +225,8 @@ interface Store {
   handOrder: string[];
   viewer: { pid: PlayerId; zone: Zone } | null;
   /** A mana ability with a choice of colour that the human is about to use, like Lion's Eye Diamond's. */
-  colorPick: { cardId: string; ability: number; colors: ManaSym[] } | null;
+  /** `creatures`: the creatures that could pay a "Tap an untapped creature you control" cost; `creature` is the one picked. */
+  colorPick: { cardId: string; ability: number; colors: ManaSym[]; creatures?: string[]; creature?: string } | null;
   showLog: boolean;
   /** The "leave this game?" dialog is open. */
   confirmExit: boolean;

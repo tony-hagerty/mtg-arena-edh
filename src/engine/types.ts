@@ -54,6 +54,20 @@ export interface Mod {
   creature?: boolean;
   /** A mana ability it gains until end of turn (Rain of Filth). */
   mana?: ManaAbility;
+  /** A triggered ability it gains until end of turn: entry `index` of card `from`'s `grants` (Malakir Rebirth). */
+  grant?: { from: string; index: number };
+}
+
+/**
+ * A triggered ability one card gives another (613.1f): "Equipped creature has 'Whenever
+ * ...'". The ability is the creature's own, so "this creature" means it. `applies` says
+ * which permanents a permanent on the battlefield gives it to; one given until end of turn
+ * is named by a `Mod.grant` instead.
+ */
+export interface GrantedTrigger {
+  hook: TriggerHook;
+  trigger: Trigger<never>;
+  applies?: (g: Game, self: Card, c: Card) => boolean;
 }
 
 /** What was chosen for a spell as it was cast (601.2b). */
@@ -66,6 +80,12 @@ export interface CastInfo {
   protector?: PlayerId;
   /** Cast for its flashback cost: it is exiled whenever it would leave the stack (702.34a). */
   flashback?: boolean;
+  /** It is exiled whenever it would leave the stack: an aftermath half cast from a graveyard (702.127a). */
+  exileOnLeave?: boolean;
+  /** "If that spell would be put into your graveyard, exile it instead" (Emet-Selch). */
+  graveyardToExile?: boolean;
+  /** Cards exiled from the graveyard for delve (702.66a). */
+  delved?: number;
   /** The zone it was cast from ("if this spell was cast from a graveyard"). */
   from?: Zone;
   /** Which alternative cost was paid, by index into the script's `alternativeCosts` (118.9). */
@@ -119,6 +139,8 @@ export interface CastChoices {
   escape?: string[];
   /** The opponent a gift is promised to (702.174a). Left out, no gift is promised. */
   gift?: PlayerId;
+  /** Delve (702.66a): cards in the caster's graveyard exiled to pay for generic mana, one each. */
+  delve?: string[];
   /**
    * Which face to cast, by index into `CardData.faces`: a split card's half (709.3), an
    * adventurer's Adventure (1, 715.3), or a modal double-faced card's face (712.11b).
@@ -198,6 +220,13 @@ export interface Card {
   chosen: string | null;
   /** Cards an ability of it exiled, for the ability linked to it (607), like Chrome Mox's. */
   linked: { id: string; moves: number }[];
+  /**
+   * On a triggered ability's remembered source only: the event it triggered on, so a target
+   * spec can name something from it, like "target creature that player controls".
+   */
+  triggeredBy?: Record<string, unknown>;
+  /** Subtypes effects give this permanent now (`CardScript.grantsSubtypes`), kept by `refreshSubtypes`. */
+  addedSubtypes?: string[];
 }
 
 /**
@@ -253,6 +282,8 @@ export interface Player {
   noncreatureSpellsCast: number;
   /** Cards this player has drawn this turn (121.1). */
   drawn: number;
+  /** Life this player has lost this turn, from damage (119.2), paying life (119.4) or an effect (119.3). */
+  lifeLost: number;
   /**
    * A setting: this (human) player divides their attackers' combat damage by hand when
    * there is a choice (510.1c, 702.19b). Off, it is split automatically.
@@ -263,7 +294,12 @@ export interface Player {
 /** An effect that lasts until end of turn (514.2) and isn't attached to a permanent. */
 export type TurnEffect =
   /** The player can't cast spells, or only noncreature spells, this turn (Silence). */
-  | { kind: 'cantCast'; player: PlayerId; noncreature?: boolean }
+  /**
+   * `types`: only spells with one of these card types ("Players can't cast creature or
+   * planeswalker spells"). `until`: it lasts until the end of that player's turn numbered
+   * `turn` or later (Single Combat's "until the end of your next turn"), not just this turn.
+   */
+  | { kind: 'cantCast'; player: PlayerId; noncreature?: boolean; types?: string[]; until?: { player: PlayerId; turn: number } }
   /**
    * The player may cast card `card` (while it is the same object, `moves`) this turn, or
    * also play it if it is a land (`play`). `anyMana`: mana of any type can be spent to cast it.
@@ -282,7 +318,10 @@ export interface Delayed {
   /** The spell or ability that made it, as it was then. */
   card: Card;
   key: string;
-  step: 'upkeep' | 'end';
+  /** `main1`: "at the beginning of [your] precombat main phase" (505.1). */
+  step: 'upkeep' | 'main1' | 'end';
+  /** It triggers each time, not once: "at the beginning of each of your precombat main phases for the rest of the game" (paradigm, 702.192a). */
+  repeat?: boolean;
   /** Only in this turn. Left out: the next such step of `player`'s turn, or of anyone's turn without `player`. */
   turn?: number;
   player?: PlayerId;
@@ -409,6 +448,8 @@ export interface StackItem {
    * exist once it leaves the stack (707.10a), or becomes a token permanent.
    */
   copy?: boolean;
+  /** A triggered ability another card gave its source: entry `index` of card `from`'s `grants`. */
+  granted?: { from: string; index: number };
   /** Permanents sacrificed to pay its costs, as they last were on the battlefield, and their power then. */
   sacrificed?: Card[];
   sacrificedPower?: number[];
@@ -422,6 +463,8 @@ export interface StackItem {
 export interface Find {
   basic?: boolean;
   types?: string[];
+  /** Keywords, lower case: a card with one of them is found too, as with "an instant card or a card with flash". */
+  keywords?: string[];
   subtypes?: string[];
   /** Mana value at most this. */
   maxMv?: number;
@@ -467,7 +510,9 @@ export type CardChoice =
       count?: number;
     } & Then)
   | { kind: 'bottom'; player: PlayerId; count: number }
-  | ({ kind: 'pick'; player: PlayerId; source: string; cards: string[]; min: number; max: number; text: string; button: string } & Then)
+  /** `ordered`: the order the cards are picked in matters, as when they go on the bottom of a library (401.4). */
+  /** `pickable`: the cards that can be picked, when the player sees more than that (Silundi Vision's six). Left out, all of them. */
+  | ({ kind: 'pick'; player: PlayerId; source: string; cards: string[]; min: number; max: number; text: string; button: string; ordered?: boolean; pickable?: string[] } & Then)
   /** The legend rule (704.5j): the player keeps one of these legendary permanents. `resume` gets priority afterwards. */
   | { kind: 'legend'; player: PlayerId; cards: string[]; resume: PlayerId };
 
@@ -518,6 +563,8 @@ export interface CastChoice extends Then {
   free: boolean;
   /** "If that spell's mana value is N or less" (Beseech the Mirror). */
   maxMv?: number;
+  /** "If that spell would be put into your graveyard, exile it instead" (Emet-Selch). */
+  graveyardToExile?: boolean;
 }
 
 /** A player may choose new targets for spell or ability `item` (115.7d). Answered by `chooseTargets`. */
@@ -623,6 +670,13 @@ export interface Game {
   delayed: Delayed[];
   /** Extra turns to take after this one. The last is taken first (500.7). */
   extraTurns: ExtraTurn[];
+  /**
+   * "Do this only once each turn" (603.2h): the turn each player last took an ability's
+   * action, keyed by `did` in rules.ts. The ability doesn't trigger again that turn.
+   */
+  did?: Record<string, number>;
+  /** Paradigm spells that have resolved, by player and name: only the first gives the copies (702.192a). */
+  paradigms?: { player: PlayerId; name: string }[];
 }
 
 export type Action =
@@ -642,7 +696,8 @@ export type Action =
    * `ability`: which of its mana abilities (`manaAbilities`). Left out, the one that suits
    * the player best. `color`: the colour to make, for an ability with a choice.
    */
-  | { type: 'tapMana'; card: string; ability?: number; color?: ManaSym }
+  /** `tap`: the creature tapped to pay an ability's "Tap an untapped creature you control" cost (Relic of Legends). */
+  | { type: 'tapMana'; card: string; ability?: number; color?: ManaSym; tap?: string }
   | { type: 'untapMana'; card: string }
   /** `target`: a planeswalker or battle to attack instead of the player; `defender` is then its controller or protector (508.1b). */
   | { type: 'declareAttack'; card: string; defender: PlayerId; target?: string }
@@ -742,6 +797,20 @@ export interface TriggerEvents {
   onCast: { card: Card; caster: PlayerId };
   onDraw: { player: PlayerId };
   onLifeGain: { player: PlayerId; amount: number };
+  /** A player loses life: from damage (119.2), paying it (119.4), or an effect (119.3). */
+  onLifeLoss: { player: PlayerId; amount: number };
+  /**
+   * A source deals damage (120): to a player, or to a permanent (`card`, as it was then).
+   * `source` is as it was as it dealt the damage. Prevented damage isn't dealt (615).
+   */
+  onDamage: { source: Card; player: PlayerId | null; card: Card | null; amount: number; combat: boolean };
+  /** "Whenever one or more players lose life": once for each event, with everyone who lost life in it. */
+  onLifeLossTogether: { losses: { player: PlayerId; amount: number }[] };
+  /**
+   * A card (not a token or a copy of a spell) is put into its owner's graveyard from
+   * anywhere. Not a leaves-the-battlefield ability, so it doesn't look back in time (603.6c).
+   */
+  onCardToGraveyard: { card: Card; player: PlayerId };
   onLandfall: { land: Card };
   onUpkeep: { player: PlayerId };
   onEndStep: { player: PlayerId };
@@ -765,6 +834,8 @@ export interface TriggerEvents {
   onBeginCombat: { player: PlayerId };
   /** "At the beginning of each of your postcombat main phases" (505.1). */
   onPostcombatMain: { player: PlayerId };
+  /** "At the beginning of your precombat main phase" (505.1), also called your first main phase. */
+  onPrecombatMain: { player: PlayerId };
   /** "At the beginning of your draw step", after the draw (504.2). */
   onDrawStep: { player: PlayerId };
   /** "Whenever you discard a card." `card` is the discarded card, now in its owner's graveyard. */
@@ -832,6 +903,11 @@ export interface ManaAbility {
   fromHand?: boolean;
   /** Auto-pay never uses it: the player activates it on purpose. */
   manual?: boolean;
+  /**
+   * "Tap an untapped [legendary] creature you control" is its cost instead of {T} (Relic of
+   * Legends). Summoning sickness doesn't matter: the creature's own {T} isn't used (302.6).
+   */
+  tapCreature?: { legendary?: boolean };
   /** "Discard your hand" is part of the cost (Lion's Eye Diamond). */
   discardHand?: boolean;
   /** "Activate only as an instant": only while its controller has priority. */
@@ -840,6 +916,16 @@ export interface ManaAbility {
   chosenType?: boolean;
   /** "... and that spell can't be countered." */
   uncounterable?: boolean;
+  /**
+   * Mana paid as part of its cost, like a Signet's "{1}, {T}" or a filter land's "{W/B}, {T}"
+   * (605.1a: it is still a mana ability). That mana can't come from this ability itself.
+   */
+  cost?: string;
+  /**
+   * The exact mana it adds, when that isn't `amount` of one colour: one list, or a choice of
+   * lists ("Add {W}{W}, {W}{B}, or {B}{B}"). `amount` and `colors` then describe it for display.
+   */
+  produces?: ManaSym[][];
 }
 
 /** What a continuation (`CardScript.then`) is told: the answer to the choice it waited on. */
@@ -937,7 +1023,7 @@ export interface CardScript extends Triggers {
    * While this permanent is on the battlefield, generic mana that `spell` costs more
    * (positive) or less (negative), e.g. "noncreature spells cost {1} more" (601.2f).
    */
-  costModifier?: (g: Game, self: Card, spell: Card, caster: PlayerId) => number;
+  costModifier?: (g: Game, self: Card, spell: Card, caster: PlayerId, from: Zone | 'stack') => number;
   /** Kicker (702.33): an optional additional cost. `multi` is multikicker, paid any number of times (702.33c). */
   kicker?: { mana: string; multi?: boolean };
   /**
@@ -1031,6 +1117,40 @@ export interface CardScript extends Triggers {
    * that graveyard.
    */
   grantsEscape?: (g: Game, self: Card, c: Card) => boolean;
+  /**
+   * While this permanent is on the battlefield: is damage `source` would deal to this
+   * player or permanent prevented (615)? "Prevent all damage that would be dealt to you."
+   */
+  preventsDamage?: (g: Game, self: Card, source: Card, to: { player?: PlayerId; card?: Card }) => boolean;
+  /**
+   * While this permanent is on the battlefield: subtypes it gives permanent `c` (which may
+   * be itself), like Urborg's "Each land is a Swamp" or "This creature is the chosen type".
+   * `c` is given without the subtypes effects add, so effects can't feed each other.
+   */
+  grantsSubtypes?: (g: Game, self: Card, c: Card) => string[];
+  /**
+   * While this permanent is on the battlefield: does permanent `c` untap during another
+   * player's untap step (502.3)? "Untap all artifacts you control during each other
+   * player's untap step." `active` is the player whose untap step it is.
+   */
+  untapsOthersTurn?: (g: Game, self: Card, c: Card, active: PlayerId) => boolean;
+  /** While this permanent is on the battlefield: does permanent `c` enter tapped (614.1c)? "Artifacts and creatures your opponents control enter tapped." */
+  entersTappedFor?: (g: Game, self: Card, c: Card) => boolean;
+  /** Triggered abilities this card gives other permanents (see `GrantedTrigger`). */
+  grants?: GrantedTrigger[];
+  /**
+   * While this permanent is on the battlefield: is it a Roaming Throne for `source`? "If a
+   * triggered ability of [a permanent] triggers, it triggers an additional time" (603.2d).
+   */
+  doublesTriggers?: (g: Game, self: Card, source: Card) => boolean;
+  /** While this permanent is on the battlefield: does player `pid` have shroud (702.18a)? "You have shroud." */
+  givesShroud?: (g: Game, self: Card, pid: PlayerId) => boolean;
+  /**
+   * While this permanent is on the battlefield: the cost, if any, of `attacker` attacking
+   * `defender` (or the planeswalker or battle `target`), like Propaganda's "{2} for each
+   * creature ... attacking you" (508.1g). Null if it costs nothing.
+   */
+  attackTax?: (g: Game, self: Card, attacker: Card, defender: PlayerId, target: string | null) => string | null;
   /** Ward (702.21). */
   ward?: WardCost;
   /** While this permanent is on the battlefield: the ward it gives permanent `c`, or null. */

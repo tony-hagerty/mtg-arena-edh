@@ -52,6 +52,12 @@ import {
   nextLiving,
   parseCost,
   pay,
+  tapCandidates,
+  manaAbilities,
+  attackCost,
+  canPayAttacks,
+  costText,
+  isFree,
   permanent,
   planPayment,
   rand,
@@ -97,6 +103,12 @@ import {
   trigger,
   turnOrder,
   untapMana,
+  isAftermath,
+  paysFlashback,
+  offerCast,
+  battlefield,
+  simultaneously,
+  itemScript,
   scriptFor,
   withoutLookahead,
 } from './rules';
@@ -226,6 +238,7 @@ export function newGame(opts: NewGameOptions): Game {
       spellsCast: 0,
       noncreatureSpellsCast: 0,
       drawn: 0,
+      lifeLost: 0,
       ...(human && manualDamage ? { manualDamage } : {}),
     };
     // Every commander starts in the command zone, both partners included (903.6, 702.124b).
@@ -337,7 +350,8 @@ export function choiceOptions(g: Game, choice: CardChoice): { cards: Card[]; val
     const cards = choice.cards.map((id) => findCard(g, id)).filter((c): c is Card => !!c);
     // The legend rule keeps exactly one (704.5j).
     if (choice.kind === 'legend') return { cards, valid: new Set(cards.map((c) => c.id)), min: 1, max: 1 };
-    return { cards, valid: new Set(cards.map((c) => c.id)), min: Math.min(choice.min, cards.length), max: choice.max };
+    const valid = new Set(cards.filter((c) => !choice.pickable || choice.pickable.includes(c.id)).map((c) => c.id));
+    return { cards, valid, min: Math.min(choice.min, valid.size), max: choice.max };
   }
   // The whole library is looked at (701.23a). Sorted, so the order of the library stays hidden (401.2).
   const cards = [...p.library].sort((a, b) => label(a).localeCompare(label(b)));
@@ -398,7 +412,7 @@ function runThen(g: Game, choice: Choice, answer: { picked?: Card[]; yes?: boole
   // opening hand (`script`), or else the spell or ability resolving.
   const item = resolvingItem(g);
   const card = choice.script ? findCard(g, choice.script) : item ? (permanent(g, item.card.id) ?? item.card) : undefined;
-  const fn = key.startsWith('@') ? ENGINE_THEN[key] : card && (choice.script ? scriptFor(card, 'battlefield') : scriptFor(item!.card)).then?.[key];
+  const fn = key.startsWith('@') ? ENGINE_THEN[key] : card && (choice.script ? scriptFor(card, 'battlefield') : itemScript(item!)).then?.[key];
   if (!card || !fn) return;
   const waiting = g.choices;
   g.choices = [];
@@ -419,6 +433,13 @@ function runThen(g: Game, choice: Choice, answer: { picked?: Card[]; yes?: boole
 
 /** Continuations the engine itself runs, for keyword actions and abilities (`then` keys starting with "@"). */
 const ENGINE_THEN: Record<string, (g: Game, ctx: ThenCtx) => void> = {
+  // A paradigm copy in exile that isn't cast ceases to exist (704.5d).
+  '@paradigmDone': (g, { yes, data, chooser }) => {
+    if (yes) return;
+    const exile = g.players[chooser].exile;
+    const i = exile.findIndex((x) => x.id === data.id);
+    if (i >= 0) exile.splice(i, 1);
+  },
   // Surveil (701.25a): the cards picked go to the graveyard; the rest stay on top.
   '@surveil': (g, { chooser, picked }) => {
     const p = g.players[chooser];
@@ -429,6 +450,15 @@ const ENGINE_THEN: Record<string, (g: Game, ctx: ThenCtx) => void> = {
   '@sacrifice': (g, { picked }) => {
     const c = picked[0] && permanent(g, picked[0].id);
     if (c) dieMany(g, [c], 'is sacrificed');
+  },
+  // "The rest on the bottom of your library in any order" (401.4): in the order picked, the last at the very bottom.
+  '@bottom': (g, { chooser, picked }) => {
+    const lib = g.players[chooser].library;
+    for (const c of picked) {
+      const i = lib.findIndex((x) => x.id === c.id);
+      if (i >= 0) lib.push(...lib.splice(i, 1));
+    }
+    log(g, `${says(g.players[chooser], 'puts')} ${picked.length} cards on the bottom of ${their(g.players[chooser])} library.`, chooser);
   },
   // Populate (701.36a): copy the creature token the player chose.
   '@populate': (g, { chooser, picked }) => copyToken(g, chooser, picked[0]),
@@ -501,7 +531,8 @@ export function canPlayLand(g: Game, pid: PlayerId, c: Card, face?: number): boo
   if (face !== undefined ? !faces.includes(face) : !faces.length) return false;
   // From a hand, or from exile with an effect that lets them play it (Jeska's Will). Either
   // way it counts as their land for the turn (305.2a).
-  const from = c.zone === 'hand' ? c.owner === pid : c.zone === 'exile' && !!permission(g, pid, c)?.play;
+  // A land with an Adventure can be played from exile once its Adventure has resolved (715.3d).
+  const from = c.zone === 'hand' ? c.owner === pid : c.zone === 'exile' && ((c.adventure && c.owner === pid) || !!permission(g, pid, c)?.play);
   return from && g.players[pid].landsPlayed < 1 && timingOk(g, pid, false);
 }
 
@@ -514,7 +545,7 @@ export function canPlayLand(g: Game, pid: PlayerId, c: Card, face?: number): boo
 function castableFrom(g: Game, pid: PlayerId, c: Card): boolean {
   if (castingNow(g, pid, c)) return true;
   if (c.zone === 'hand' || c.zone === 'command') return c.owner === pid;
-  if (c.zone === 'graveyard') return c.owner === pid && (!!scriptFor(c).flashback || hasEscape(g, c));
+  if (c.zone === 'graveyard') return c.owner === pid && (!!scriptFor(c).flashback || hasEscape(g, c) || facesOf(c).some((f) => isAftermath(c, f)));
   return c.zone === 'exile' && ((c.owner === pid && c.adventure) || !!permission(g, pid, c));
 }
 
@@ -526,6 +557,9 @@ export function castableCards(g: Game, pid: PlayerId): Card[] {
   const p = g.players[pid];
   return [...p.hand, ...p.command, ...p.graveyard, ...g.players.flatMap((o) => o.exile)].filter((c) => castableFrom(g, pid, c));
 }
+
+/** Cards in `pid`'s graveyard that delve could exile to pay for `c` (702.66a): any but `c` itself. */
+export const delveOptions = (g: Game, pid: PlayerId, c: Card): Card[] => g.players[pid].graveyard.filter((x) => x.id !== c.id);
 
 /** Other cards in the graveyard that could pay `c`'s escape cost (702.138a). */
 export const escapeOptions = (g: Game, c: Card): Card[] => g.players[c.owner].graveyard.filter((x) => x.id !== c.id);
@@ -541,6 +575,8 @@ export function castFaces(c: Card): number[] {
   let faces = facesOf(c);
   if (layout === 'transform') faces = [0];
   if (layout === 'adventure' && c.zone === 'exile') faces = [0];
+  // An aftermath half can be cast only from a graveyard (702.127a).
+  if (c.zone !== 'graveyard') faces = faces.filter((f) => !isAftermath(c, f));
   return faces.filter((f) => !isLand(asSpell(c, f)));
 }
 
@@ -549,10 +585,14 @@ export function castFaces(c: Card): number[] {
  * instant or sorcery (702.34a); with escape, as anything but a land, if three other cards
  * can be exiled (702.138a).
  */
-export function graveyardWays(g: Game, c: Card, face: number): { flashback: boolean; escape: boolean } {
+export function graveyardWays(g: Game, c: Card, face: number): { flashback: boolean; escape: boolean; aftermath: boolean; permitted: boolean } {
   return {
-    flashback: !!scriptFor(c).flashback && !isPermanentCard(asSpell(c, face)),
+    flashback: !!scriptFor(c).flashback && !isPermanentCard(asSpell(c, face)) && !isAftermath(c, face),
     escape: hasEscape(g, c) && escapeOptions(g, c).length >= 3,
+    // An aftermath half, from a graveyard (702.127a).
+    aftermath: isAftermath(c, face),
+    // An effect lets the player cast it from there now, paying its mana cost (Emet-Selch, 608.2g).
+    permitted: castingNow(g, c.owner, c),
   };
 }
 
@@ -635,10 +675,18 @@ function choicesOk(g: Game, pid: PlayerId, c: Card, ch: CastChoices): boolean {
   const escape = ch.escape ?? [];
   if (c.zone === 'graveyard') {
     const ways = graveyardWays(g, c, face);
-    if (ch.escape ? !ways.escape : !ways.flashback) return false;
+    if (ch.escape ? !ways.escape : !(ways.flashback || ways.aftermath || ways.permitted)) return false;
     const options = new Set(escapeOptions(g, c).map((x) => x.id));
     if (ch.escape && (escape.length !== 3 || new Set(escape).size !== 3 || escape.some((id) => !options.has(id)))) return false;
   } else if (escape.length) return false;
+  // Delve: different cards from the caster's graveyard, no more than the generic mana it would cost (702.66a).
+  const delve = ch.delve ?? [];
+  if (delve.length) {
+    if (!data(spell).keywords.includes('Delve') || new Set(delve).size !== delve.length) return false;
+    const options = new Set(delveOptions(g, pid, c).map((x) => x.id));
+    if (delve.some((id) => !options.has(id) || escape.includes(id))) return false;
+    if (delve.length > castCost(g, c, { ...ch, delve: [] }, pid).generic) return false;
+  }
   // Modes: a set the spell allows, in printed order (700.2).
   const modes = ch.modes ?? [];
   if (script.modal ? !modeChoices(g, pid, c, face).some((m) => m.join() === modes.join()) : modes.length) return false;
@@ -693,7 +741,7 @@ export function canCastAs(g: Game, pid: PlayerId, c: Card, face: number, choices
   if (script.modal && !modeChoices(g, pid, c, face).length) return false;
   if (c.zone === 'graveyard') {
     const ways = graveyardWays(g, c, face);
-    const routes: CastChoices[] = [...(ways.flashback ? [{ face }] : []), ...(ways.escape ? [{ face, escape: ['', '', ''] }] : [])];
+    const routes: CastChoices[] = [...(ways.flashback || ways.aftermath || ways.permitted ? [{ face }] : []), ...(ways.escape ? [{ face, escape: ['', '', ''] }] : [])];
     return routes.some((r) => planPayment(g, pid, castCost(g, c, r, pid), spell));
   }
   return [undefined, ...altCostsOf(g, c, face, pid)].some((alt) => planPayment(g, pid, castCost(g, c, { alt, face }, pid), spell));
@@ -704,7 +752,7 @@ export function maxX(g: Game, pid: PlayerId, c: Card, choices: CastChoices = {})
   // An alternative cost without X, like flashback or "without paying its mana cost", makes X 0 (107.3b).
   // "Pay X life" (118.8) has its X whatever is paid instead of the mana cost.
   const lifeX = scriptFor(asSpell(c, choices.face ?? 0)).additionalCost?.life === 'x';
-  if (!lifeX && (!parseCost(data(asSpell(c, choices.face ?? 0)).manaCost).x || choices.alt !== undefined || (c.zone === 'graveyard' && !choices.escape) || freeCast(g, c))) return 0;
+  if (!lifeX && (!parseCost(data(asSpell(c, choices.face ?? 0)).manaCost).x || choices.alt !== undefined || paysFlashback(g, c, choices) || freeCast(g, c))) return 0;
   let x = -1;
   const spell = asSpell(c, choices.face ?? 0, pid);
   while (x < 99 && planPayment(g, pid, castCost(g, c, { ...choices, x: x + 1 }, pid), spell)) x++;
@@ -988,6 +1036,7 @@ function beginTurn(g: Game, pid: PlayerId, extra?: ExtraTurn) {
     p.spellsCast = 0;
     p.noncreatureSpellsCast = 0;
     p.drawn = 0;
+    p.lifeLost = 0;
   }
   // Delayed abilities waiting for a turn that has passed never trigger.
   g.delayed = g.delayed.filter((d) => d.turn === undefined || d.turn >= g.turn);
@@ -999,12 +1048,37 @@ function beginTurn(g: Game, pid: PlayerId, extra?: ExtraTurn) {
 
 /** The `Delayed.key` the engine itself resolves: its controller loses the game (104.3e). */
 const LOSE_GAME = 'lose the game';
+/** The `Delayed.key` of rebound (702.88a): its `data` names the exiled card, `id` and `moves`. */
+const REBOUND = '@rebound';
+/** The `Delayed.key` of paradigm (702.192a): its card is the spell that first resolved. */
+const PARADIGM = '@paradigm';
+
+/** Does the spell or card have this keyword ("Rebound", "Paradigm")? */
+const hasKeyword = (c: Card, k: string) => data(c).keywords.includes(k);
+
+/**
+ * Paradigm (702.192a) as the spell finishes resolving: "If this is the first time a spell
+ * you control with this spell's name has resolved this game, at the beginning of each of
+ * your precombat main phases for the rest of the game, create a copy of this object in
+ * exile. You may cast the copy without paying its mana cost," and "Exile this spell."
+ */
+function paradigm(g: Game, item: StackItem) {
+  const c = item.card;
+  const name = label(c);
+  const resolved = (g.paradigms ??= []);
+  if (!resolved.some((x) => x.player === item.controller && x.name === name)) {
+    resolved.push({ player: item.controller, name });
+    g.delayed.push({ id: `d${g.nextId++}`, controller: item.controller, card: snapshot(c), key: PARADIGM, step: 'main1', player: item.controller, repeat: true });
+  }
+  moveCard(g, c, 'exile');
+  if (c.zone === 'exile') log(g, `${label(c)} is exiled (paradigm).`, item.controller, [c]);
+}
 
 
 /** Delayed triggered abilities whose moment has come trigger, once each (603.7b). */
-function fireDelayed(g: Game, step: 'upkeep' | 'end') {
+function fireDelayed(g: Game, step: 'upkeep' | 'main1' | 'end') {
   const due = g.delayed.filter((d) => d.step === step && (d.turn === undefined || d.turn === g.turn) && (d.player === undefined || d.player === g.active));
-  g.delayed = g.delayed.filter((d) => !due.includes(d));
+  g.delayed = g.delayed.filter((d) => !due.includes(d) || d.repeat);
   for (const d of due) {
     if (g.players[d.controller].lost) continue;
     // An intervening "if" is checked as it would trigger, and again as it resolves (603.4).
@@ -1032,6 +1106,11 @@ function beginStep(g: Game, step: Step) {
         if (!scriptFor(c).noUntap) c.tapped = false;
         c.sick = false;
       }
+      // Other players' permanents an effect untaps "during each other player's untap step" (502.3).
+      for (const o of g.players) {
+        if (o.id === pid || o.lost) continue;
+        for (const c of o.battlefield) if (c.tapped && battlefield(g).some((x) => scriptFor(x).untapsOthersTurn?.(g, x, c, pid))) c.tapped = false;
+      }
       // No player gets priority in the untap step (502.4).
       beginStep(g, 'upkeep');
       break;
@@ -1046,6 +1125,8 @@ function beginStep(g: Game, step: Step) {
     case 'main1':
       // The active player puts a lore counter on each of their Sagas (714.3c).
       for (const c of p.battlefield) if (isSaga(c) && scriptFor(c).chapters?.length) addCounters(g, c, 1, 'lore');
+      broadcast(g, 'onPrecombatMain', { player: pid }); // 505.1a
+      fireDelayed(g, 'main1');
       break;
     case 'beginCombat':
       g.combat = { attacks: [], toBlock: [], struckFirst: null, moreDamage: false };
@@ -1129,7 +1210,8 @@ function cleanup(g: Game) {
       c.mods = [];
     }
   }
-  g.effects = [];
+  // "Until end of turn" effects end; one that lasts until the end of a later turn stays (514.2).
+  g.effects = g.effects.filter((e) => e.kind === 'cantCast' && e.until && !(g.active === e.until.player && g.turn >= e.until.turn));
   // An extra turn comes next if there is one, the most recent first (500.7).
   while (g.extraTurns.length) {
     const extra = g.extraTurns.pop()!;
@@ -1161,6 +1243,12 @@ function attackersDeclared(g: Game) {
     names.push(`${label(c)} → ${target ? label(target) : g.players[a.defender].name}`);
     attackers.push(c, ...(target ? [target] : []));
   }
+  // Then the attacks' costs are paid (508.1g-i), with the attackers already tapped.
+  const cost = attackCost(g, combat.attacks);
+  if (!isFree(cost)) {
+    pay(g, g.active, cost);
+    log(g, `${says(g.players[g.active], 'pays')} ${costText(cost)} to attack.`, g.active);
+  }
   log(g, `${says(g.players[g.active], 'attacks')}: ${names.join(', ')}.`, g.active, attackers);
   for (const a of combat.attacks) {
     const c = permanent(g, a.id)!;
@@ -1180,7 +1268,9 @@ function mustAttack(g: Game, pid: PlayerId) {
   if (opponent === undefined) return;
   for (const c of attackCandidates(g, pid)) {
     if (!has(g, c, MUST_ATTACK) || combat.attacks.some((a) => a.id === c.id)) continue;
-    combat.attacks.push({ id: c.id, defender: opponent, target: null, blockers: [], blocked: false });
+    // Nobody has to pay to meet a requirement (508.1d): it attacks an opponent it can attack for free, if any.
+    const free = turnOrder(g, pid).find((o) => o !== pid && isFree(attackCost(g, [{ id: c.id, defender: o, target: null }])));
+    if (free !== undefined) combat.attacks.push({ id: c.id, defender: free, target: null, blockers: [], blocked: false });
   }
 }
 
@@ -1348,11 +1438,14 @@ function dealCombatDamage(g: Game, firstStrike: boolean, struckFirst: Set<string
       hits.push({ src: b, card: atk, n: bs.power });
     }
   }
-  for (const h of hits) {
-    if (h.card && !isCreature(h.card)) dealDamage(g, h.src, { kind: 'card', id: h.card.id }, h.n); // logged: a planeswalker or battle
-    else if (h.card) damageCard(g, h.src, h.card, h.n);
-    else damagePlayer(g, h.src, h.player!, h.n, true);
-  }
+  // Combat damage is dealt all at once, as one event (510.2).
+  simultaneously(g, () => {
+    for (const h of hits) {
+      if (h.card && !isCreature(h.card)) dealDamage(g, h.src, { kind: 'card', id: h.card.id }, h.n, true); // logged: a planeswalker or battle
+      else if (h.card) damageCard(g, h.src, h.card, h.n, true);
+      else damagePlayer(g, h.src, h.player!, h.n, true);
+    }
+  });
 }
 
 // ---------- priority and the stack ----------
@@ -1452,6 +1545,17 @@ function resolveTop(g: Game) {
       if (key === LOSE_GAME) {
         log(g, `${says(g.players[controller], 'loses')} the game (${label(card)}).`, controller, [card]);
         loseGame(g, controller, label(card));
+      } else if (key === REBOUND) {
+        // "You may cast this card from exile without paying its mana cost" (702.88a, 702.88b).
+        const c = g.players[card.owner].exile.find((x) => x.id === extra.id && x.moves === extra.moves);
+        if (c) offerCast(g, controller, c, { free: true, text: `Cast ${label(c)} from exile without paying its mana cost (rebound)?` });
+      } else if (key === PARADIGM) {
+        // A copy of the card in exile, which may be cast without paying its mana cost (702.192a, 707.12).
+        const copy = makeCard(g, card.name, controller, 'exile', { isToken: true, face: 0 });
+        g.players[controller].exile.push(copy);
+        const stored = g.players[controller].exile[g.players[controller].exile.length - 1];
+        log(g, `${says(g.players[controller], 'creates')} a copy of ${label(card)} in exile (paradigm).`, controller, [card]);
+        offerCast(g, controller, stored, { free: true, text: `Cast the copy of ${label(card)} without paying its mana cost (paradigm)?`, then: '@paradigmDone', data: { id: stored.id } });
       } else if (key === RETURN_TO_HAND) {
         // Dash (702.109a): the permanent goes back to its owner's hand, if it is still the same object.
         const c = permanent(g, extra.id as string);
@@ -1543,6 +1647,16 @@ function finishResolving(g: Game) {
     const c = item.card;
     moveCard(g, c, 'exile');
     c.adventure = true;
+  } else if (item?.kind === 'spell' && hasKeyword(item.card, 'Paradigm')) {
+    paradigm(g, item);
+  } else if (item?.kind === 'spell' && hasKeyword(item.card, 'Rebound') && item.card.cast?.from === 'hand' && !item.copy) {
+    // Rebound (702.88a): exiled instead, to be cast again at the beginning of its controller's next upkeep.
+    const c = item.card;
+    moveCard(g, c, 'exile');
+    if (c.zone === 'exile') {
+      log(g, `${label(c)} is exiled (rebound).`, item.controller, [c]);
+      g.delayed.push({ id: `d${g.nextId++}`, controller: item.controller, card: snapshot(c), key: REBOUND, step: 'upkeep', player: item.controller, data: { id: c.id, moves: c.moves } });
+    }
   } else if (item?.kind === 'spell') moveCard(g, item.card, 'graveyard');
   else if (item) g.stack = g.stack.filter((x) => x !== item);
   g.passes = 0;
@@ -1724,6 +1838,7 @@ function act(g: Game, a: Action): boolean {
         face: a.face,
         escape: a.escape,
         gift: a.gift,
+        delve: a.delve,
       };
       if (!c || !['hand', 'command', 'graveyard', 'exile'].includes(c.zone) || !canCast(g, pid, c, choices)) return false;
       const face = choices.face ?? 0;
@@ -1737,7 +1852,9 @@ function act(g: Game, a: Action): boolean {
       const during = g.decision?.type === 'cast' ? g.decision.choice : null;
       const free = freeCast(g, c);
       const escaped = from === 'graveyard' && !!choices.escape;
-      const flashback = from === 'graveyard' && !escaped;
+      const flashback = paysFlashback(g, c, choices);
+      // An aftermath half cast from a graveyard is exiled whenever it would leave the stack (702.127a).
+      const exileOnLeave = from === 'graveyard' && isAftermath(c, face);
       const alt = choices.alt === undefined ? undefined : script.alternativeCosts![choices.alt];
       // X is chosen only if the cost being paid has {X}: an alternative cost without it makes X 0 (107.3b).
       const paying = free ? '' : flashback ? scriptFor(c).flashback! : alt ? alt.mana : data(spell).manaCost;
@@ -1749,6 +1866,7 @@ function act(g: Game, a: Action): boolean {
       const exiled = (choices.exile ?? []).map((id) => p.hand.find((x) => x.id === id)!);
       const discarded = (choices.discard ?? []).map((id) => p.hand.find((x) => x.id === id)!);
       const escapedWith = (choices.escape ?? []).map((id) => g.players[c.owner].graveyard.find((x) => x.id === id)!);
+      const delved = (choices.delve ?? []).map((id) => p.graveyard.find((x) => x.id === id)!);
       if (from === 'command') p.commanderCasts[commanderIndex(g, c)]++; // commander tax (903.8, 702.124d)
       const zone = g.players[c.owner][from as 'hand' | 'command' | 'graveyard' | 'exile'];
       zone.splice(zone.findIndex((x) => x.id === c.id), 1);
@@ -1765,6 +1883,9 @@ function act(g: Game, a: Action): boolean {
         modes: choices.modes ?? [],
         protector: choices.protector,
         flashback,
+        ...(exileOnLeave ? { exileOnLeave } : {}),
+        ...(delved.length ? { delved: delved.length } : {}),
+        ...(during?.card === c.id && during.graveyardToExile ? { graveyardToExile: true } : {}),
         from,
         alt: choices.alt,
         dash: !!alt?.dash,
@@ -1788,6 +1909,8 @@ function act(g: Game, a: Action): boolean {
         hasX && `X = ${info.x}`,
         flashback && 'flashback',
         escaped && 'escape',
+        exileOnLeave && 'aftermath',
+        delved.length && `delving ${delved.length}`,
         from === 'exile' && 'from exile',
         free && 'without paying its mana cost',
         layoutOf(c) === 'adventure' && face === 1 && 'an Adventure',
@@ -1812,9 +1935,10 @@ function act(g: Game, a: Action): boolean {
         moveCard(g, x, 'exile');
       }
       for (const x of discarded) discard(g, x);
-      if (escapedWith.length) {
-        log(g, `${says(p, 'exiles')} ${escapedWith.map(label).join(', ')} from ${their(p)} graveyard to pay for it.`, pid, escapedWith);
-        for (const x of escapedWith) moveCard(g, x, 'exile');
+      for (const exiled of [escapedWith, delved]) {
+        if (!exiled.length) continue;
+        log(g, `${says(p, 'exiles')} ${exiled.map(label).join(', ')} from ${their(p)} graveyard to pay for it.`, pid, exiled);
+        for (const x of exiled) moveCard(g, x, 'exile');
       }
       castDone(g, pid, item);
       checkWard(g, item); // 702.21a: it became the target of a spell
@@ -1887,7 +2011,11 @@ function act(g: Game, a: Action): boolean {
       // A mana ability from a hand, like Simian Spirit Guide's, is used from there.
       const c = [...p.battlefield, ...p.hand].find((x) => x.id === a.card);
       if (!c || (deciding && deciding !== 'cast') || !canTapForMana(g, pid, c, a.ability)) return false;
-      tapForMana(g, pid, c, a.ability, a.color);
+      if (a.tap !== undefined) {
+        const ab = manaAbilities(g, c).find((m) => m.index === (a.ability ?? 0));
+        if (!ab || !tapCandidates(g, pid, ab).some((x) => x.id === a.tap)) return false;
+      }
+      tapForMana(g, pid, c, a.ability, a.color, a.tap);
       return true;
     }
 
@@ -1903,6 +2031,9 @@ function act(g: Game, a: Action): boolean {
       if (deciding !== 'attackers' || !g.combat || !c || !canAttack(g, c)) return false;
       const target = a.target ?? null;
       if (!attackOptions(g, pid).some((o) => o.defender === a.defender && o.target === target)) return false;
+      // Attacks that cost something (Propaganda) can be declared only if they can all be paid for (508.1d, 508.1h).
+      const next = [...g.combat.attacks.filter((x) => x.id !== c.id), { id: c.id, defender: a.defender, target }];
+      if (!canPayAttacks(g, pid, next)) return false;
       const existing = g.combat.attacks.find((x) => x.id === c.id);
       if (existing) Object.assign(existing, { defender: a.defender, target });
       else g.combat.attacks.push({ id: c.id, defender: a.defender, target, blockers: [], blocked: false });
@@ -2111,6 +2242,7 @@ function act(g: Game, a: Action): boolean {
           passPriority(g);
           return true;
         case 'attackers':
+          if (!canPayAttacks(g, pid, g.combat!.attacks)) return false;
           mustAttack(g, pid);
           attackersDeclared(g);
           return true;

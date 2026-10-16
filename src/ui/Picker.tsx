@@ -27,7 +27,7 @@ import type { Action, AskChoice, Card, CardChoice, CastChoice, DamageAssignment,
 import { CardImage, ManaCost } from './TextCard';
 import { useStore } from './store';
 import { cx, hoverProps } from './util';
-import { chooseEscape, chooseGraveyardTarget, playHandCard, useView } from './view';
+import { chooseDelve, chooseEscape, chooseGraveyardTarget, playHandCard, useView } from './view';
 
 const act = (a: Action) => useStore.getState().act(a);
 
@@ -199,10 +199,19 @@ function ChoicePicker({ g, choice }: { g: Game; choice: CardChoice }) {
     return (
       <CardPicker
         title={`${choice.source}: ${choice.text}`}
-        hint={min === max ? `Choose ${plural(max, 'card')}.` : max === 1 ? 'Choose one, or none.' : `Choose up to ${plural(max, 'card')}.`}
+        hint={
+          choice.ordered
+            ? 'They go down in the order you pick them: the last one is the very bottom card.'
+            : min === max
+              ? `Choose ${plural(max, 'card')}.`
+              : max === 1
+                ? 'Choose one, or none.'
+                : `Choose up to ${plural(max, 'card')}.`
+        }
         cards={cards}
-        selectable={() => true}
+        selectable={(c) => valid.has(c.id)}
         max={max}
+        numbered={choice.ordered}
         buttons={(picked) => [
           { label: choice.button, sub: max > 1 ? `${picked.length} of ${max}` : undefined, tone: 'go', disabled: picked.length < min, onClick: () => choose(picked) },
         ]}
@@ -403,6 +412,23 @@ export function EscapePicker() {
       selectable={() => true}
       max={3}
       buttons={(picked) => [{ label: 'Exile Them', sub: `${picked.length} of 3`, tone: 'go', disabled: picked.length !== 3, onClick: () => chooseEscape(picked) }]}
+    />
+  );
+}
+
+/** Delve (702.66a): picks cards in the graveyard to exile, each paying for {1} of the spell's generic mana. */
+export function DelvePicker() {
+  const { delve } = useView();
+  if (!delve) return null;
+  return (
+    <CardPicker
+      key={delve.card.id}
+      title={`${label(delve.card)}: delve`}
+      hint={`You may exile up to ${delve.max} cards from your graveyard. Each pays for {1}.`}
+      cards={delve.options}
+      selectable={() => true}
+      max={delve.max}
+      buttons={(picked) => [{ label: picked.length ? `Exile ${picked.length}` : 'Exile None', tone: 'go', onClick: () => chooseDelve(picked) }]}
     />
   );
 }
