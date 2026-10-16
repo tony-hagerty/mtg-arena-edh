@@ -417,4 +417,16 @@ registerScripts({
       createToken(g, you, 'Food');
     },
   },
+
+  // ---------- auto-pay ----------
+  // A mana rock with another {T} ability: auto-pay taps lands before it.
+  'Mind Stone': {
+    mana: { amount: 1, colors: ['C'] },
+    activated: {
+      // "{1}, {T}, Sacrifice this artifact: Draw a card."
+      cost: { mana: '{1}', tap: true, sacrifice: true },
+      text: '{1}, {T}, Sacrifice this artifact: Draw a card.',
+      resolve: (g, { you }) => draw(g, you, 1),
+    },
+  },
 });
