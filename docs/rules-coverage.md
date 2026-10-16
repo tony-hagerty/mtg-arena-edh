@@ -174,9 +174,13 @@ are from the Comprehensive Rules in `docs/rules/`.
 - **Hybrid** ({R/W}), **monocoloured hybrid** ({2/W}) and **Phyrexian** ({W/P}) symbols.
   Auto-pay tries coloured mana first, then {2}, then 2 life, and backs up if a choice
   leaves the rest unpayable.
-- **Kicker and multikicker** (702.33), "sacrifice a creature" additional costs (118.8)
-  and alternative costs such as "cast without paying its mana cost" (118.9). Commander
-  tax applies to alternative costs too (118.9d).
+- **Kicker and multikicker** (702.33), additional costs (118.8): "sacrifice a creature",
+  "discard a card" (picked after the targets, from your other cards; bots discard the
+  card they want least) and "pay N life" or "pay X life" (X is announced with the spell,
+  starts at 0 and can't be more than your life total, 119.4; bots pick X from the
+  creatures' toughness and never pay all their life), and alternative costs such as
+  "cast without paying its mana cost" (118.9). Commander tax applies to alternative
+  costs too (118.9d).
 - **Pitch costs (118.9):** an alternative cost can exile a card from your hand, like Force
   of Will's blue card. You pick the card after the targets; bots give up the card they
   want least.
@@ -428,20 +432,21 @@ refuses the whole card, naming the clause: it never guesses. Hand scripts always
 
 - **Abilities:** "When this enters", "When this dies", "Whenever this attacks" and
   "Whenever you cast a [noncreature] spell" (603.1) and Prowess (702.108a); activated
-  abilities (602) with `{T}`, mana (with `{X}`, 107.3a), "Pay N life" (119.4),
-  "Sacrifice this" and "Sacrifice a/another [creature, artifact, land, permanent]"
-  costs, and "Activate only as a sorcery"; cycling (702.29a); mana abilities "{T}: Add
-  {G}", "{C}{C}", "{W} or {B}", "{W}, {U}, or {B}", "one mana of any color", "three mana
-  of any one color", with "This deals 1 damage to you" or "Activate only if you control
-  a Plains or a Swamp" (605); "[Other] [Soldier] creatures you control get +N/+N [and
-  have flying]" and "... have haste" (613); instants and sorceries.
+  abilities (602) with `{T}`, mana (with `{X}`, 107.3a), "Pay N life" (119.4), "Discard
+  a card", "Sacrifice this" and "Sacrifice a/another [creature, artifact, land,
+  permanent]" costs, and "Activate only as a sorcery"; cycling (702.29a); mana abilities
+  "{T}: Add {G}", "{C}{C}", "{W} or {B}", "{W}, {U}, or {B}", "one mana of any color",
+  "three mana of any one color", with "This deals 1 damage to you" or "Activate only if
+  you control a Plains or a Swamp" (605); "[Other] [Soldier] creatures you control get
+  +N/+N [and have flying]" and "... have haste" (613); instants and sorceries.
 - **Lines about the card itself:** "This land enters tapped", "... unless you control two
   or more other lands / two or more basic lands / a basic land / an Island or a Swamp",
   "... unless you have two or more opponents", "... unless your opponents control eight
   or more lands" (614.1c); "As this land enters, you may pay 2 life. If you don't, it
   enters tapped" (614.12a); "This spell can't be countered"; "You have no maximum hand
   size" (402.2); "[Colour] spells you cast cost {N} less to cast" (601.2f); "If you
-  control a commander, you may cast this spell without paying its mana cost" (118.9).
+  control a commander, you may cast this spell without paying its mana cost" (118.9);
+  "As an additional cost to cast this spell, discard a card / pay N life" (118.8).
 - **Effects:** draw, gain or lose life, mill, surveil, deal damage, "deals N damage to
   each opponent", destroy, exile, "exile target player's graveyard", return to its
   owner's hand, create a token listed in `decklists.json`, put +1/+1 counters (on a

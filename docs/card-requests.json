@@ -449,14 +449,6 @@
       "last": "2026-10-16T04:09:48.537Z"
     },
     {
-      "name": "Big Score",
-      "oracleText": "As an additional cost to cast this spell, discard a card.\nDraw two cards and create two Treasure tokens. (They're artifacts with \"{T}, Sacrifice this token: Add one mana of any color.\")",
-      "clause": "as an additional cost to cast Big Score, discard a card",
-      "reason": "no template matches",
-      "count": 1,
-      "last": "2026-10-16T04:14:04.330Z"
-    },
-    {
       "name": "Black Market Connections",
       "oracleText": "At the beginning of your first main phase, choose one or more —\n• Sell Contraband — Create a Treasure token. You lose 1 life.\n• Buy Information — Draw a card. You lose 2 life.\n• Hire a Mercenary — Create a 3/2 colorless Shapeshifter creature token with changeling. You lose 3 life. (It is every creature type.)",
       "clause": "At the beginning of your first main phase, choose one or more —",
@@ -647,14 +639,6 @@
       "reason": "no template matches",
       "count": 1,
       "last": "2026-10-16T04:07:04.136Z"
-    },
-    {
-      "name": "Grab the Prize",
-      "oracleText": "As an additional cost to cast this spell, discard a card.\nDraw two cards. If the discarded card wasn't a land card, Grab the Prize deals 2 damage to each opponent.",
-      "clause": "as an additional cost to cast Grab the Prize, discard a card",
-      "reason": "no template matches",
-      "count": 1,
-      "last": "2026-10-16T04:14:04.330Z"
     },
     {
       "name": "Graven Cairns",
@@ -1092,22 +1076,6 @@
       "name": "Tomik, Izzet Sparkmage",
       "oracleText": "Prowess (Whenever you cast a noncreature spell, this creature gets +1/+1 until end of turn.)\nIf a source you control would deal noncombat damage to an opponent or a permanent an opponent controls, it deals that much damage plus 1 instead.",
       "clause": "Prowess",
-      "reason": "no template matches",
-      "count": 1,
-      "last": "2026-10-16T04:14:04.330Z"
-    },
-    {
-      "name": "Toxic Deluge",
-      "oracleText": "As an additional cost to cast this spell, pay X life.\nAll creatures get -X/-X until end of turn.",
-      "clause": "as an additional cost to cast Toxic Deluge, pay x life",
-      "reason": "no template matches",
-      "count": 1,
-      "last": "2026-10-16T04:09:48.537Z"
-    },
-    {
-      "name": "Unexpected Windfall",
-      "oracleText": "As an additional cost to cast this spell, discard a card.\nDraw two cards and create two Treasure tokens. (They're artifacts with \"{T}, Sacrifice this token: Add one mana of any color.\")",
-      "clause": "as an additional cost to cast Unexpected Windfall, discard a card",
       "reason": "no template matches",
       "count": 1,
       "last": "2026-10-16T04:14:04.330Z"

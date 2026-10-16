@@ -349,7 +349,7 @@ export function CastOptions() {
       )}
       {a.maxX !== null && (
         <div className="cast-row">
-          <span className="cast-label">X</span>
+          <span className="cast-label">{a.xLife ? 'X life' : 'X'}</span>
           <button className="chip" disabled={x <= 0} onClick={() => setChoices({ x: x - 1 })} aria-label="Less">
             −
           </button>

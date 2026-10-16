@@ -1,5 +1,73 @@
 {
  "cards": {
+  "Big Score": {
+   "name": "Big Score",
+   "manaCost": "{3}{R}",
+   "cmc": 4,
+   "colors": [
+    "R"
+   ],
+   "colorIdentity": [
+    "R"
+   ],
+   "typeLine": "Instant",
+   "oracleText": "As an additional cost to cast this spell, discard a card.\nDraw two cards and create two Treasure tokens. (They're artifacts with \"{T}, Sacrifice this token: Add one mana of any color.\")",
+   "keywords": [
+    "Treasure"
+   ],
+   "image": "https://cards.scryfall.io/normal/front/3/3/3383a939-4ab3-4546-9995-6c65cd3f4441.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/3/3/3383a939-4ab3-4546-9995-6c65cd3f4441.jpg"
+  },
+  "Unexpected Windfall": {
+   "name": "Unexpected Windfall",
+   "manaCost": "{2}{R}{R}",
+   "cmc": 4,
+   "colors": [
+    "R"
+   ],
+   "colorIdentity": [
+    "R"
+   ],
+   "typeLine": "Instant",
+   "oracleText": "As an additional cost to cast this spell, discard a card.\nDraw two cards and create two Treasure tokens. (They're artifacts with \"{T}, Sacrifice this token: Add one mana of any color.\")",
+   "keywords": [
+    "Treasure"
+   ],
+   "image": "https://cards.scryfall.io/normal/front/b/a/bae6a5fb-39f5-4cf8-85f7-661cb4570507.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/b/a/bae6a5fb-39f5-4cf8-85f7-661cb4570507.jpg"
+  },
+  "Grab the Prize": {
+   "name": "Grab the Prize",
+   "manaCost": "{1}{R}",
+   "cmc": 2,
+   "colors": [
+    "R"
+   ],
+   "colorIdentity": [
+    "R"
+   ],
+   "typeLine": "Sorcery",
+   "oracleText": "As an additional cost to cast this spell, discard a card.\nDraw two cards. If the discarded card wasn't a land card, Grab the Prize deals 2 damage to each opponent.",
+   "keywords": [],
+   "image": "https://cards.scryfall.io/normal/front/5/0/50895202-f1a1-4840-a11a-55b78b8b5929.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/5/0/50895202-f1a1-4840-a11a-55b78b8b5929.jpg"
+  },
+  "Toxic Deluge": {
+   "name": "Toxic Deluge",
+   "manaCost": "{2}{B}",
+   "cmc": 3,
+   "colors": [
+    "B"
+   ],
+   "colorIdentity": [
+    "B"
+   ],
+   "typeLine": "Sorcery",
+   "oracleText": "As an additional cost to cast this spell, pay X life.\nAll creatures get -X/-X until end of turn.",
+   "keywords": [],
+   "image": "https://cards.scryfall.io/normal/front/d/e/de5afccc-8d42-4bd6-b068-b9ea2361655e.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/d/e/de5afccc-8d42-4bd6-b068-b9ea2361655e.jpg"
+  },
   "Render Silent": {
    "name": "Render Silent",
    "manaCost": "{W}{U}{U}",

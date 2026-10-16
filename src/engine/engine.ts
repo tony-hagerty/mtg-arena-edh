@@ -645,8 +645,12 @@ function choicesOk(g: Game, pid: PlayerId, c: Card, ch: CastChoices): boolean {
   if (alt?.exile ? exile.length !== 1 || !exileOptions(g, pid, c, face, ch.alt!).some((x) => x.id === exile[0]) : exile.length) return false;
   // Sacrifices: one for an alternative cost that asks for it, then one for the additional
   // cost, which bargain makes optional (702.166a). Each names a different permanent that fits.
+  // "Discard a card": exactly that many different other cards from the caster's hand (118.8).
+  const discard = ch.discard ?? [];
+  const hand = new Set(discardOptions(g, pid, c).map((x) => x.id));
+  if (discard.length !== (script.additionalCost?.discard ?? 0) || new Set(discard).size !== discard.length || discard.some((id) => !hand.has(id))) return false;
   const sacrifice = ch.sacrifice ?? [];
-  const needs = [...(alt?.sacrifice ? [{ alt: ch.alt, optional: false }] : []), ...(script.additionalCost ? [{ alt: undefined, optional: !!script.additionalCost.optional }] : [])];
+  const needs = [...(alt?.sacrifice ? [{ alt: ch.alt, optional: false }] : []), ...(script.additionalCost?.sacrifice ? [{ alt: undefined, optional: !!script.additionalCost.optional }] : [])];
   if (sacrifice.length > needs.length || new Set(sacrifice).size !== sacrifice.length) return false;
   return needs.every((need, i) => {
     const id = sacrifice[i];
@@ -681,7 +685,8 @@ export function canCastAs(g: Game, pid: PlayerId, c: Card, face: number, choices
   // A permanent being sacrificed for the cost can't also make mana for it.
   if (choices) return choicesOk(g, pid, c, choices) && !!planPayment(g, pid, castCost(g, c, choices, pid), spell, choices.sacrifice);
   const script = scriptFor(spell);
-  if (script.additionalCost && !script.additionalCost.optional && !sacrificeOptions(g, pid, c, face).length) return false;
+  if (script.additionalCost?.sacrifice && !script.additionalCost.optional && !sacrificeOptions(g, pid, c, face).length) return false;
+  if (discardOptions(g, pid, c).length < (script.additionalCost?.discard ?? 0)) return false;
   if (script.modal && !modeChoices(g, pid, c, face).length) return false;
   if (c.zone === 'graveyard') {
     const ways = graveyardWays(g, c, face);
@@ -694,7 +699,9 @@ export function canCastAs(g: Game, pid: PlayerId, c: Card, face: number, choices
 /** The highest X `pid` can pay for `c` with these other choices (107.3a), or -1 if it can't be cast at all. */
 export function maxX(g: Game, pid: PlayerId, c: Card, choices: CastChoices = {}): number {
   // An alternative cost without X, like flashback or "without paying its mana cost", makes X 0 (107.3b).
-  if (!parseCost(data(asSpell(c, choices.face ?? 0)).manaCost).x || choices.alt !== undefined || (c.zone === 'graveyard' && !choices.escape) || freeCast(g, c)) return 0;
+  // "Pay X life" (118.8) has its X whatever is paid instead of the mana cost.
+  const lifeX = scriptFor(asSpell(c, choices.face ?? 0)).additionalCost?.life === 'x';
+  if (!lifeX && (!parseCost(data(asSpell(c, choices.face ?? 0)).manaCost).x || choices.alt !== undefined || (c.zone === 'graveyard' && !choices.escape) || freeCast(g, c))) return 0;
   let x = -1;
   const spell = asSpell(c, choices.face ?? 0, pid);
   while (x < 99 && planPayment(g, pid, castCost(g, c, { ...choices, x: x + 1 }, pid), spell)) x++;
@@ -1687,6 +1694,7 @@ function act(g: Game, a: Action): boolean {
         kicked: a.kicked,
         alt: a.alt,
         sacrifice: a.sacrifice,
+        discard: a.discard,
         exile: a.exile,
         modes: a.modes,
         protector: a.protector,
@@ -1710,12 +1718,13 @@ function act(g: Game, a: Action): boolean {
       const alt = choices.alt === undefined ? undefined : script.alternativeCosts![choices.alt];
       // X is chosen only if the cost being paid has {X}: an alternative cost without it makes X 0 (107.3b).
       const paying = free ? '' : flashback ? scriptFor(c).flashback! : alt ? alt.mana : data(spell).manaCost;
-      const hasX = parseCost(paying).x > 0;
+      const hasX = parseCost(paying).x > 0 || script.additionalCost?.life === 'x';
       const cost = castCost(g, c, choices, pid);
       // Costs are paid (601.2f-h): mana and life, then sacrifices and cards exiled.
       const paid = pay(g, pid, cost, spell, choices.sacrifice)!;
       const sacrificed = (choices.sacrifice ?? []).map((id) => permanent(g, id)!);
       const exiled = (choices.exile ?? []).map((id) => p.hand.find((x) => x.id === id)!);
+      const discarded = (choices.discard ?? []).map((id) => p.hand.find((x) => x.id === id)!);
       const escapedWith = (choices.escape ?? []).map((id) => g.players[c.owner].graveyard.find((x) => x.id === id)!);
       if (from === 'command') p.commanderCasts[commanderIndex(g, c)]++; // commander tax (903.8, 702.124d)
       const zone = g.players[c.owner][from as 'hand' | 'command' | 'graveyard' | 'exile'];
@@ -1739,6 +1748,7 @@ function act(g: Game, a: Action): boolean {
         escaped,
         free,
         bargained: !!script.additionalCost?.optional && sacrificed.length > (alt?.sacrifice ? 1 : 0),
+        ...(discarded.length ? { discarded: discarded.map(snapshot) } : {}),
         gift: choices.gift,
         spent: paid.spent,
         uncounterable: paid.uncounterable,
@@ -1778,6 +1788,7 @@ function act(g: Game, a: Action): boolean {
         log(g, `${says(p, 'exiles')} ${label(x)} to pay for it.`, pid, [x]);
         moveCard(g, x, 'exile');
       }
+      for (const x of discarded) discard(g, x);
       if (escapedWith.length) {
         log(g, `${says(p, 'exiles')} ${escapedWith.map(label).join(', ')} from ${their(p)} graveyard to pay for it.`, pid, escapedWith);
         for (const x of escapedWith) moveCard(g, x, 'exile');
