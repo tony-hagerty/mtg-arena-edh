@@ -23,7 +23,7 @@ import {
   resolvingItem,
   triggerText,
 } from '../engine';
-import type { Action, AskChoice, Card, CardChoice, CastChoice, DamageAssignment, DamageRoom, Game, NameChoice, OrderDamageChoice, PlayerChoice, PlayerId } from '../engine';
+import type { Action, AskChoice, Card, CardChoice, CastChoice, DamageAssignment, DamageRoom, Game, NameChoice, NumberChoice, OrderDamageChoice, PlayerChoice, PlayerId } from '../engine';
 import { CardImage, ManaCost } from './TextCard';
 import { useStore } from './store';
 import { cx, hoverProps } from './util';
@@ -379,6 +379,25 @@ function PlayerPanel({ g, choice }: { g: Game; choice: PlayerChoice }) {
   );
 }
 
+/** Choosing a number (a bid of life, Mages' Contest): − and + from the least allowed, or none if that is allowed. */
+function NumberPanel({ g, choice }: { g: Game; choice: NumberChoice }) {
+  const [n, setN] = useState(choice.min);
+  const source = resolvingItem(g)?.card;
+  return (
+    <CardPicker
+      title={choice.source}
+      hint={choice.text}
+      cards={source ? [source] : []}
+      buttons={() => [
+        ...(choice.decline ? [{ label: choice.decline, tone: 'plain' as const, onClick: () => act({ type: 'chooseNumber', n: null }) }] : []),
+        { label: '−', tone: 'plain' as const, disabled: n <= choice.min, onClick: () => setN(n - 1) },
+        { label: '+', tone: 'plain' as const, disabled: n >= choice.max, onClick: () => setN(n + 1) },
+        { label: String(n), sub: 'Choose', tone: 'go' as const, onClick: () => act({ type: 'chooseNumber', n }) },
+      ]}
+    />
+  );
+}
+
 /**
  * Replacement effects that change damage you or your permanent would be dealt, in an order
  * you choose (616.1): one button for each different amount of damage.
@@ -699,6 +718,8 @@ export function Decisions() {
       return d.choice.of === 'color' ? <ColorPanel g={g} choice={d.choice} /> : <NamePanel key={g.log.length} g={g} choice={d.choice} />;
     case 'player':
       return <PlayerPanel key={g.log.length} g={g} choice={d.choice} />;
+    case 'number':
+      return <NumberPanel key={g.log.length} g={g} choice={d.choice} />;
     case 'cast':
       // Hidden while the human goes through casting it.
       return targeting ? null : <CastNowPanel key={g.log.length} g={g} choice={d.choice} />;

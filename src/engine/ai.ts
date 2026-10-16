@@ -73,6 +73,7 @@ import {
   canPayAttacks,
   isFree,
   escapes,
+  changeOptions,
 } from './rules';
 import type { ApplyOptions, AttackOption } from './engine';
 import { produce } from 'immer';
@@ -450,9 +451,18 @@ const STEP_BY_STEP = { autoPass: false, simulate: true } as const;
  */
 function anyTargets(g: Game): Action {
   if (g.decision?.type === 'chooseCards') return cardChoice(g, g.priority);
-  if (g.decision?.type === 'ask' || g.decision?.type === 'name' || g.decision?.type === 'player') return choiceAnswer(g, g.priority);
+  if (g.decision?.type === 'ask' || g.decision?.type === 'name' || g.decision?.type === 'player' || g.decision?.type === 'number') return choiceAnswer(g, g.priority);
   if (g.decision?.type === 'cast') return castNow(g, g.priority, true);
-  if (g.decision?.type === 'retarget') return { type: 'chooseTargets', targets: g.stack.find((x) => x.id === (g.decision as { choice: { item: string } }).choice.item)?.targets ?? [] };
+  if (g.decision?.type === 'retarget') {
+    const { choice } = g.decision;
+    const item = g.stack.find((x) => x.id === choice.item);
+    // Changing targets (115.7a): the first other legal target for each.
+    if (item && choice.change) {
+      const options = changeOptions(g, item);
+      return { type: 'chooseTargets', targets: item.targets.map((t, i) => (t ? (options[i][0] ?? t) : null)) };
+    }
+    return { type: 'chooseTargets', targets: item?.targets ?? [] };
+  }
   if (g.decision?.type === 'orderTriggers') return defaultOrder(g, g.priority);
   if (g.decision?.type === 'commanderZone') return { type: 'commanderZone', toCommand: true };
   if (g.decision?.type === 'assignDamage') return { type: 'assignDamage', assignments: autoAssignments(g) };
@@ -480,8 +490,18 @@ function bestTargets(g: Game, pid: PlayerId, depth = 0): Action {
   let best = anyTargets(g);
   let bestScore = -Infinity;
   // New targets are legal for the item's controller (115.7d).
-  const options = targetChoices(g, d?.type === 'retarget' ? item.controller : pid, targetSpecs(item), item.card);
-  if (d?.type === 'retarget') options.push(item.targets);
+  let options = targetChoices(g, d?.type === 'retarget' ? item.controller : pid, targetSpecs(item), item.card);
+  if (d?.type === 'retarget') {
+    // Changing targets (115.7a): every target becomes another one. Choosing new ones (115.7d): keeping them is an option.
+    if (d.choice.change) {
+      const change = changeOptions(g, item);
+      options = [
+        ...options.filter((o) => item.targets.every((t, i) => !t || change[i].some((x) => o[i] && x.kind === o[i]!.kind && x.id === o[i]!.id))),
+        // Each other target alone, for a single one, so a wide board can't leave it out.
+        ...(item.targets.length === 1 && item.targets[0] ? change[0].map((x) => [x]) : []),
+      ];
+    } else options.push(item.targets);
+  }
   for (const targets of options) {
     const action: Action = { type: 'chooseTargets', targets };
     const after = applyAction(g, action, STEP_BY_STEP);
@@ -503,7 +523,7 @@ function resolveStack(g: Game, pid: PlayerId, depth = 0): Game {
   for (let i = 0; i < 200 && g.step !== 'gameOver'; i++) {
     let action: Action;
     const deciding = g.decision?.type;
-    if (deciding === 'chooseCards' || deciding === 'orderTriggers' || deciding === 'commanderZone' || deciding === 'assignDamage' || deciding === 'ask' || deciding === 'name' || deciding === 'player' || deciding === 'cast' || deciding === 'retarget') {
+    if (deciding === 'chooseCards' || deciding === 'orderTriggers' || deciding === 'commanderZone' || deciding === 'assignDamage' || deciding === 'ask' || deciding === 'name' || deciding === 'player' || deciding === 'number' || deciding === 'cast' || deciding === 'retarget') {
       action = anyTargets(g);
     } else if (g.decision?.type === 'targets') action = g.priority === pid && depth < 1 ? bestTargets(g, pid, depth) : anyTargets(g);
     else if (g.stack.length && !g.decision) action = PASS;
@@ -957,9 +977,11 @@ function cardChoice(g: Game, pid: PlayerId): Action {
  */
 function choiceAnswer(g: Game, pid: PlayerId): Action {
   const d = g.decision;
-  if (d?.type !== 'ask' && d?.type !== 'name' && d?.type !== 'player') return PASS;
+  if (d?.type !== 'ask' && d?.type !== 'name' && d?.type !== 'player' && d?.type !== 'number') return PASS;
   const scripted = scriptedChoice(g, pid, d.choice);
   if (scripted) return scripted;
+  // A number: none if that is allowed, else the least.
+  if (d.type === 'number') return { type: 'chooseNumber', n: d.choice.decline ? null : d.choice.min };
   // A player: the first one offered.
   if (d.type === 'player') return { type: 'choosePlayer', player: d.choice.options[0] };
   if (d.type === 'name' && d.choice.of === 'creature type') return { type: 'name', name: 'Human' };
@@ -1030,6 +1052,7 @@ export function botAction(g: Game, pid: PlayerId): Action {
     case 'ask':
     case 'name':
     case 'player':
+    case 'number':
       return choiceAnswer(g, pid);
     case 'cast':
       return castNow(g, pid);
@@ -1061,6 +1084,7 @@ export function applyBotAction(g: Game, a: Action, opts?: ApplyOptions): Game {
   if (next === g && g.decision?.type === 'ask') next = applyAction(g, { type: 'answer', yes: false }, opts);
   if (next === g && g.decision?.type === 'name') next = applyAction(g, { type: 'name', name: g.decision.choice.of ? 'Human' : 'Island' }, opts);
   if (next === g && g.decision?.type === 'player') next = applyAction(g, { type: 'choosePlayer', player: g.decision.choice.options[0] }, opts);
+  if (next === g && g.decision?.type === 'number') next = applyAction(g, { type: 'chooseNumber', n: g.decision.choice.decline ? null : g.decision.choice.min }, opts);
   if (next === g && g.decision?.type === 'cast') next = applyAction(g, { type: 'answer', yes: false }, opts);
   if (next === g && g.decision?.type === 'retarget') next = applyAction(g, anyTargets(g), opts);
   if (next === g && g.decision?.type === 'mulligan') next = applyAction(g, { type: 'keep' }, opts);

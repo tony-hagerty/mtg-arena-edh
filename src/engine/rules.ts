@@ -13,6 +13,7 @@ import type {
   WardCost,
   ManaAbility,
   NameChoice,
+  NumberChoice,
   Card,
   CardData,
   CardScript,
@@ -1532,6 +1533,7 @@ export function legalTargets(g: Game, pid: PlayerId, spec: TargetSpec, source: C
       if (spec.type !== 'spell or ability' && (item.kind === 'spell') !== (spec.type === 'spell')) continue;
       if (spec.who && spec.who !== 'any' && (spec.who === 'you') !== (item.controller === pid)) continue;
       if (spec.filter && !spec.filter(g, item.card, source)) continue;
+      if (spec.item && !spec.item(g, item, source)) continue;
       out.push({ kind: 'stack', id: item.id });
     }
     return out;
@@ -1692,8 +1694,18 @@ export function copySpell(g: Game, ref: TargetRef | null | undefined, controller
   if (item?.kind === 'spell') copyItem(g, item, controller);
 }
 
-/** Copies spell `item`, which may already have left the stack: storm copies it as it last was (702.40a). */
+/**
+ * Copies spell or ability `item`, which may already have left the stack: storm copies it as
+ * it last was (702.40a). A copy copies every choice made for it: modes, targets, X, the costs
+ * paid and how its damage is divided (707.10). Its controller may choose new targets (707.10c).
+ */
 export function copyItem(g: Game, item: StackItem, controller: PlayerId) {
+  if (item.kind !== 'spell') {
+    // A copy of an ability has the same source (707.10, 113.7).
+    log(g, `${says(g.players[controller], 'copies')} ${label(item.card)}'s ability.`, controller, [item.card]);
+    g.triggers.push({ ...item, id: `s${g.nextId++}`, controller, targets: [...item.targets], copy: true, ordered: true });
+    return;
+  }
   // A copy is owned by the player who controls it (707.10). It wasn't cast (707.10), so
   // nothing about how it was cast carries over but the choices made (707.2).
   const cast = item.card.cast && { ...item.card.cast, from: undefined, flashback: false, escaped: false, free: false };
@@ -2202,7 +2214,7 @@ function entered(g: Game, c: Card, opts: EnterOpts) {
   const after = opts.after;
   if (after) {
     const then = scriptFor(after.source).then?.[after.key];
-    then?.(g, { self: after.source, you: after.you, targets: [], chooser: after.you, picked: [c], yes: true, name: '', player: null, data: after.data ?? {} });
+    then?.(g, { self: after.source, you: after.you, targets: [], chooser: after.you, picked: [c], yes: true, name: '', player: null, n: 0, data: after.data ?? {} });
   }
 }
 
@@ -3006,6 +3018,11 @@ export function nameCard(g: Game, pid: PlayerId, q: Omit<NameChoice, 'kind' | 'p
   queue(g, { kind: 'name', player: pid, source: q.script ? label(findCard(g, q.script)!) : sourceName(g), ...q });
 }
 
+/** Asks a player to choose a number from `min` to `max`, or none with `decline`; `then` runs with `ctx.n` (`yes` false for none). */
+export function chooseNumber(g: Game, pid: PlayerId, q: Omit<NumberChoice, 'kind' | 'player' | 'source'>) {
+  queue(g, { kind: 'number', player: pid, source: sourceName(g), ...q });
+}
+
 /** Asks a player to choose one of `options` (players); `then` runs with `ctx.player`. */
 export function choosePlayer(g: Game, pid: PlayerId, q: Omit<PlayerChoice, 'kind' | 'player' | 'source'>) {
   if (q.options.length) queue(g, { kind: 'player', player: pid, source: sourceName(g), ...q });
@@ -3024,10 +3041,36 @@ export function offerCast(
   queue(g, { kind: 'cast', player: pid, source: sourceName(g), card: card.id, ...q });
 }
 
-/** Lets a player choose new targets for spell or ability `item` (115.7d). Nothing happens if it has no targets. */
-export function offerRetarget(g: Game, pid: PlayerId, item: StackItem) {
-  if (item.targets.some(Boolean)) queue(g, { kind: 'retarget', player: pid, source: sourceName(g), item: item.id });
+/**
+ * Lets a player choose new targets for spell or ability `item` (115.7d), or with `change`,
+ * change its targets (115.7a). Nothing happens if it has no targets.
+ */
+export function offerRetarget(g: Game, pid: PlayerId, item: StackItem, change = false) {
+  if (item.targets.some(Boolean)) queue(g, { kind: 'retarget', player: pid, source: sourceName(g), item: item.id, ...(change ? { change } : {}) });
 }
+
+/**
+ * For changing the targets of `item` (115.7a): the other legal targets each of its targets
+ * could change to, by index (none for a slot with no target). Legal as its controller would
+ * choose them (115.7e); "any number of" targets stay different from each other (115.3).
+ */
+export function changeOptions(g: Game, item: StackItem): TargetRef[][] {
+  const specs = specsFor(targetSpecs(item), item.targets.length);
+  return specs.map((spec, i) => {
+    const now = item.targets[i];
+    if (!now) return [];
+    const other = spec.distinctFrom === undefined ? null : item.targets[spec.distinctFrom];
+    return legalTargets(g, item.controller, spec, item.card).filter(
+      (t) => !sameRef(t, now) && !(other && sameRef(t, other)) && !(spec.any && item.targets.some((o, k) => k !== i && specs[k].any && o && sameRef(o, t))),
+    );
+  });
+}
+
+/** Can every target of `item` be changed to another legal target (115.7a)? If not, none of them is. */
+export const canChangeTargets = (g: Game, item: StackItem) => {
+  const options = changeOptions(g, item);
+  return item.targets.some(Boolean) && item.targets.every((t, i) => !t || options[i].length > 0);
+};
 
 /** Puts a card on top of its owner's library. */
 export function putOnTop(g: Game, c: Card) {

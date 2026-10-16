@@ -665,15 +665,35 @@ export interface CastChoice extends Then {
   graveyardToExile?: boolean;
 }
 
-/** A player may choose new targets for spell or ability `item` (115.7d). Answered by `chooseTargets`. */
+/**
+ * A player may choose new targets for spell or ability `item` (115.7d). Answered by
+ * `chooseTargets`. With `change`, they change its targets instead (115.7a): each to another
+ * legal target. It is only asked when every target can be changed; otherwise none is.
+ */
 export interface RetargetChoice extends Then {
   kind: 'retarget';
   player: PlayerId;
   source: string;
   item: string;
+  change?: boolean;
 }
 
-export type Choice = CardChoice | AskChoice | NameChoice | PlayerChoice | CastChoice | RetargetChoice;
+/**
+ * A player chooses a whole number from `min` to `max` (a bid of life, Mages' Contest), or
+ * with `decline`, may choose none: that button's label. The continuation reads `n`, and
+ * `yes` is false if they chose none.
+ */
+export interface NumberChoice extends Then {
+  kind: 'number';
+  player: PlayerId;
+  source: string;
+  text: string;
+  min: number;
+  max: number;
+  decline?: string;
+}
+
+export type Choice = CardChoice | AskChoice | NameChoice | PlayerChoice | CastChoice | RetargetChoice | NumberChoice;
 
 /** The mulligan process before the first turn (103.5). `active` is the starting player meanwhile. */
 export interface Mulligans {
@@ -702,6 +722,7 @@ export interface Mulligans {
  *  ask           - a player answers yes or no (see `AskChoice`)
  *  name          - a player names a card (see `NameChoice`)
  *  player        - a player chooses a player (see `PlayerChoice`)
+ *  number        - a player chooses a number (see `NumberChoice`)
  *  cast          - a player may cast a card while a spell resolves (see `CastChoice`)
  *  retarget      - a player may choose new targets for a spell or ability (see `RetargetChoice`)
  *  commanderZone - a player's commander was put into their graveyard, exile, hand or
@@ -735,6 +756,7 @@ export type Decision =
   | { type: 'ask'; choice: AskChoice }
   | { type: 'name'; choice: NameChoice }
   | { type: 'player'; choice: PlayerChoice }
+  | { type: 'number'; choice: NumberChoice }
   | { type: 'cast'; choice: CastChoice }
   | { type: 'retarget'; choice: RetargetChoice }
   | { type: 'commanderZone'; card: string; resume: PlayerId }
@@ -853,6 +875,8 @@ export type Action =
   | { type: 'name'; name: string }
   /** Answers an `orderDamage` decision: the index of the order chosen. */
   | { type: 'orderDamage'; option: number }
+  /** Answers a `number` decision: the number, or null to choose none if it allows that. */
+  | { type: 'chooseNumber'; n: number | null }
   /** Answers a `player` decision. */
   | { type: 'choosePlayer'; player: PlayerId }
   /** Answers `commanderZone`: true moves the commander to the command zone, false leaves it where it is. */
@@ -883,6 +907,8 @@ export interface TargetSpec {
     | 'graveyard card';
   who?: 'you' | 'opponent' | 'any'; // whose permanent / which player
   filter?: (g: Game, c: Card, source: Card) => boolean;
+  /** For a spell or ability on the stack: whether `item` fits, like "with a single target" or "instant spell". */
+  item?: (g: Game, item: StackItem, source: Card) => boolean;
   optional?: boolean; // "you may" / "up to one"
   /** Can't be the same as the target chosen for the spec at this index: "two target players" (115.3). */
   distinctFrom?: number;
@@ -1114,6 +1140,8 @@ export interface ThenCtx extends Ctx {
   name: string;
   /** The player chosen, for a `player` choice. */
   player: PlayerId | null;
+  /** The number chosen, for a `number` choice (0 if none). */
+  n: number;
   data: Record<string, unknown>;
 }
 

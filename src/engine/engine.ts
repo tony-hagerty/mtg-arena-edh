@@ -124,6 +124,7 @@ import {
   NeedsOrder,
   withOrderAnswers,
   tokenCopy,
+  canChangeTargets,
 } from './rules';
 import type { EnterOpts } from './rules';
 import type {
@@ -384,6 +385,13 @@ function nextChoice(g: Game): boolean {
     if (g.players[choice.player].lost) continue;
     // A spell or ability with no targets left to change has nothing to ask (115.7d).
     if (choice.kind === 'retarget' && !g.stack.some((x) => x.id === choice.item && x.targets.some(Boolean))) continue;
+    // Targets that can't all change to other legal targets stay as they are (115.7a).
+    if (choice.kind === 'retarget' && choice.change && !canChangeTargets(g, g.stack.find((x) => x.id === choice.item)!)) {
+      const item = g.stack.find((x) => x.id === choice.item)!;
+      log(g, `The target of ${describeRef(g, { kind: 'stack', id: item.id })} can't be changed.`, choice.player);
+      runThen(g, choice, {});
+      continue;
+    }
     switch (choice.kind) {
       case 'ask':
         g.decision = { type: 'ask', choice };
@@ -393,6 +401,9 @@ function nextChoice(g: Game): boolean {
         break;
       case 'player':
         g.decision = { type: 'player', choice };
+        break;
+      case 'number':
+        g.decision = { type: 'number', choice };
         break;
       case 'cast':
         g.decision = { type: 'cast', choice };
@@ -420,7 +431,7 @@ function afterChoice(g: Game) {
  * Runs the continuation a choice names (`CardScript.then`), with the answer. Choices it
  * asks come before any that were already waiting: they are the next step of the same effect.
  */
-function runThen(g: Game, choice: Choice, answer: { picked?: Card[]; yes?: boolean; name?: string; player?: PlayerId }) {
+function runThen(g: Game, choice: Choice, answer: { picked?: Card[]; yes?: boolean; name?: string; player?: PlayerId; n?: number }) {
   if (!('then' in choice) || !choice.then) return;
   const key = choice.then;
   // The card the continuation belongs to: one entering the battlefield or acting from an
@@ -441,6 +452,7 @@ function runThen(g: Game, choice: Choice, answer: { picked?: Card[]; yes?: boole
     yes: !!answer.yes,
     name: answer.name ?? '',
     player: answer.player ?? null,
+    n: answer.n ?? 0,
     data,
   });
   // A card entering with others whose replacement effect sent it elsewhere (Mox Diamond): the rest needn't wait for it.
@@ -1835,7 +1847,7 @@ function putTriggerOnStack(g: Game): boolean {
  * a cast spell. Copies of spells wait with the triggers but aren't triggered abilities.
  */
 function announceTrigger(g: Game, item: StackItem) {
-  if (item.kind !== 'triggered') return;
+  if (item.kind !== 'triggered' || item.copy) return;
   const text = triggerText(item);
   const chosen = item.targets.filter((t): t is TargetRef => !!t).map((t) => describeRef(g, t));
   log(g, `${whose(g.players[item.controller])} ${label(item.card)} triggers${text ? ` (${text})` : ''}${chosen.length ? ` targeting ${chosen.join(' and ')}` : ''}.`, item.controller, [item.card, ...refCards(g, item.targets)]);
@@ -1874,7 +1886,10 @@ function retarget(g: Game, pid: PlayerId, choice: RetargetChoice, chosen: (Targe
     const same = (a: TargetRef | null, b: TargetRef | null) => (!a && !b) || (!!a && !!b && sameRef(a, b));
     const ok = specs.every((spec, i) => {
       const t = targets[i];
-      if (same(t, item.targets[i])) return true;
+      // Changing the targets: each one changes to another legal target (115.7a).
+      if (choice.change && item.targets[i]) {
+        if (!t || same(t, item.targets[i])) return false;
+      } else if (same(t, item.targets[i])) return true;
       if (!t) return false; // leaving a target out isn't choosing a new one
       const other = spec.distinctFrom === undefined ? null : targets[spec.distinctFrom];
       if (other && sameRef(other, t)) return false;
@@ -1887,7 +1902,7 @@ function retarget(g: Game, pid: PlayerId, choice: RetargetChoice, chosen: (Targe
     item.targets = targets;
     if (changed.length) {
       const names = targets.filter((t): t is TargetRef => !!t).map((t) => describeRef(g, t));
-      log(g, `${says(g.players[pid], 'chooses')} new targets for ${describeRef(g, { kind: 'stack', id: item.id })}: ${names.join(' and ')}.`, pid, refCards(g, targets));
+      log(g, `${says(g.players[pid], choice.change ? 'changes' : 'chooses')} ${choice.change ? 'the targets of' : 'new targets for'} ${describeRef(g, { kind: 'stack', id: item.id })}: ${names.join(' and ')}.`, pid, refCards(g, targets));
       checkWard(g, item, changed);
     }
   }
@@ -2331,6 +2346,17 @@ function act(g: Game, a: Action): boolean {
       const named = choice.of === 'color' ? `{${a.name}}` : a.name;
       log(g, `${says(p, choice.of ? 'chooses' : 'names')} ${named}${choice.of ? ` (${choice.source})` : ''}.`, pid);
       runThen(g, choice, { name: a.name });
+      afterChoice(g);
+      return true;
+    }
+
+    case 'chooseNumber': {
+      if (g.decision?.type !== 'number') return false;
+      const { choice } = g.decision;
+      if (a.n === null ? !choice.decline : !Number.isInteger(a.n) || a.n < choice.min || a.n > choice.max) return false;
+      g.decision = null;
+      log(g, a.n === null ? `${says(p, 'chooses')} none (${choice.source}).` : `${says(p, 'chooses')} ${a.n} (${choice.source}).`, pid);
+      runThen(g, choice, a.n === null ? { yes: false } : { yes: true, n: a.n });
       afterChoice(g);
       return true;
     }
