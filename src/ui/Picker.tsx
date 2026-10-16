@@ -29,7 +29,7 @@ import type { Action, AskChoice, Card, CardChoice, CastChoice, DamageAssignment,
 import { CardImage, ManaCost } from './TextCard';
 import { useStore } from './store';
 import { cx, hoverProps } from './util';
-import { chooseDelve, chooseEscape, chooseGraveyardTarget, playHandCard, useView } from './view';
+import { chooseDelve, chooseEscape, chooseGraveCost, chooseGraveyardTarget, playHandCard, useView } from './view';
 
 const act = (a: Action) => useStore.getState().act(a);
 
@@ -478,6 +478,23 @@ export function EscapePicker() {
       selectable={() => true}
       max={escape.count}
       buttons={(picked) => [{ label: 'Exile Them', sub: `${picked.length} of ${escape.count}`, tone: 'go', disabled: picked.length !== escape.count, onClick: () => chooseEscape(picked) }]}
+    />
+  );
+}
+
+/** An ability's "Exile two cards from your graveyard" cost (Matoc): picks the cards. */
+export function GraveCostPicker() {
+  const { graveCost } = useView();
+  if (!graveCost) return null;
+  return (
+    <CardPicker
+      key={graveCost.card.id}
+      title={`${label(graveCost.card)}: cost`}
+      hint={`Choose ${graveCost.count} cards in your graveyard to exile to pay for it.`}
+      cards={graveCost.options}
+      selectable={() => true}
+      max={graveCost.count}
+      buttons={(picked) => [{ label: 'Exile Them', sub: `${picked.length} of ${graveCost.count}`, tone: 'go', disabled: picked.length !== graveCost.count, onClick: () => chooseGraveCost(picked) }]}
     />
   );
 }

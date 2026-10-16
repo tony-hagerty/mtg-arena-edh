@@ -47,6 +47,8 @@ export interface Targeting {
   sacrificeDone?: boolean;
   /** The creature picked to exile for an ability's "Exile a creature you control" cost. */
   exile?: string[];
+  /** The cards picked from the graveyard for an ability's "Exile two cards from your graveyard" cost (Matoc). */
+  graveyard?: string[];
   /** Done picking "any number of" targets (115.1d): the trailing slot is gone. */
   anyDone?: boolean;
   /** The division of a spell's damage among its targets so far (601.2d), before it is confirmed into `choices.divide`. */

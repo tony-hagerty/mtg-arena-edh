@@ -855,7 +855,8 @@ export type Action =
   /** `discard`: the cards discarded to pay a "Discard a card" cost. `sacrifice`: the permanent for a "Sacrifice a creature" cost. */
   /** `x`: the value of X, for an ability with {X} or −X in its cost (107.3a). */
   /** `exile`: the permanent for an "Exile a creature you control" cost (The Soul Stone). */
-  | { type: 'activate'; card: string; ability?: number; activated?: number; x?: number; targets?: (TargetRef | null)[]; hold?: boolean; crew?: string[]; discard?: string[]; sacrifice?: string[]; exile?: string[] }
+  /** `graveyard`: the cards in its controller's graveyard exiled for an "Exile two cards from your graveyard" cost (Matoc). */
+  | { type: 'activate'; card: string; ability?: number; activated?: number; x?: number; targets?: (TargetRef | null)[]; hold?: boolean; crew?: string[]; discard?: string[]; sacrifice?: string[]; exile?: string[]; graveyard?: string[] }
   /**
    * `ability`: which of its mana abilities (`manaAbilities`). Left out, the one that suits
    * the player best. `color`: the colour to make, for an ability with a choice.
@@ -1210,6 +1211,8 @@ export interface ActivatedAbility {
     exileSelf?: boolean;
     /** "Exile a creature you control:": one permanent its controller controls that fits, chosen as it is activated. */
     exileOne?: TargetSpec;
+    /** "Exile two cards from your graveyard" (Matoc): that many cards from its controller's graveyard, chosen as it is activated. */
+    exileGraveyard?: number;
   };
   sorcery?: boolean;
   /** Activated from its owner's hand rather than the battlefield, like channel. */

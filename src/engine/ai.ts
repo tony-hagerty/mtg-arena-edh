@@ -425,6 +425,9 @@ function activations(g: Game, pid: PlayerId, c: Card, ref: AbilityRef): Action[]
   // "Exile a creature you control": the least valuable one, not the source if there is another.
   const exilable = ab?.cost.exileOne ? [...activationExileOptions(g, pid, c, activated)].sort((a, b) => sacrificeWorth(g, a) - sacrificeWorth(g, b)) : [];
   const exiled = exilable.find((x) => x.id !== c.id) ?? exilable[0];
+  // "Exile two cards from your graveyard": the ones the bot wants least.
+  const k = ab?.cost.exileGraveyard ?? 0;
+  const graveyard = k ? [...g.players[pid].graveyard].sort((a, b) => cardWant(g, pid, a) - cardWant(g, pid, b)).slice(0, k).map((x) => x.id) : undefined;
   const targetSets = targetChoices(g, pid, specs, c);
   return xChoices(g, pid, c, ref).flatMap((x) =>
     targetSets.map((targets): Action => ({
@@ -438,6 +441,7 @@ function activations(g: Game, pid: PlayerId, c: Card, ref: AbilityRef): Action[]
       ...(discard ? { discard } : {}),
       ...(victim ? { sacrifice: [victim.id] } : {}),
       ...(exiled ? { exile: [exiled.id] } : {}),
+      ...(graveyard ? { graveyard } : {}),
     })),
   );
 }

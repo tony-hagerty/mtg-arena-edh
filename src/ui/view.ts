@@ -118,6 +118,8 @@ export interface View {
   abilityX: { card: Card; x: number; max: number } | null;
   /** Escape (702.138a): the other cards in the graveyard the human picks `count` of to exile. */
   escape: { card: Card; options: Card[]; count: number } | null;
+  /** An ability's "Exile two cards from your graveyard" cost (Matoc): the cards to pick `count` of. */
+  graveCost: { card: Card; options: Card[]; count: number } | null;
   /** Delve (702.66a): cards in the graveyard the human may exile, up to `max`, each paying for {1}. */
   delve: { card: Card; options: Card[]; max: number } | null;
   /** Dividing a spell's damage among its targets (601.2d): the total, and each target with its share so far. */
@@ -329,6 +331,13 @@ function isExilingForAbility(t: Targeting): boolean {
   return !!card && !!activatedOf(t, card)?.cost.exileOne;
 }
 
+/** Targets are chosen and an ability's "Exile two cards from your graveyard" cost still needs its cards (Matoc). */
+function isExilingGraveyard(t: Targeting): boolean {
+  if (t.mode !== 'activate' || t.announcing || t.pickingAbility || t.choosingX || t.chosen.length < t.specs.length || t.graveyard) return false;
+  const card = findCard(S().game!, t.cardId);
+  return !!card && !!activatedOf(t, card)?.cost.exileGraveyard;
+}
+
 /** A spell with delve whose cards to exile from the graveyard are still to be picked (702.66a). */
 function isDelving(t: Targeting): boolean {
   if (t.mode !== 'cast' || t.announcing || t.chosen.length < t.specs.length || isSacrificing(t) || isEscaping(t) || t.choices.delve) return false;
@@ -377,6 +386,7 @@ const isPaying = (t: Targeting) =>
   !isSacrificing(t) &&
   !isExiling(t) &&
   !isExilingForAbility(t) &&
+  !isExilingGraveyard(t) &&
   !isEscaping(t) &&
   !isDelving(t) &&
   !isDiscarding(t) &&
@@ -547,6 +557,7 @@ export function buildView(): View {
     abilityX: null,
     escape: null,
     delve: null,
+    graveCost: null,
     divide: null,
     graveTargets: null,
     prompt: null,
@@ -685,6 +696,17 @@ export function buildView(): View {
     view.glow.set(card.id, 'picked');
     view.escape = { card, options: escapeOptions(g, card), count };
     view.prompt = `${label(card)}: choose ${count} other cards in your graveyard to exile.`;
+    view.secondary = { label: 'Cancel', tone: 'cancel', onClick: cancel };
+    return view;
+  }
+
+  // --- choosing the cards in the graveyard to exile for an ability's cost (Matoc) ---
+  if (t && isExilingGraveyard(t)) {
+    const card = findCard(g, t.cardId)!;
+    const count = activatedOf(t, card)!.cost.exileGraveyard!;
+    view.glow.set(card.id, 'picked');
+    view.graveCost = { card, options: [...p.graveyard], count };
+    view.prompt = `${label(card)}: choose ${count} cards in your graveyard to exile.`;
     view.secondary = { label: 'Cancel', tone: 'cancel', onClick: cancel };
     return view;
   }
@@ -1174,7 +1196,7 @@ function pay() {
   const action: Action =
     t.mode === 'cast'
       ? { type: 'cast', card: t.cardId, targets: t.chosen, hold, ...t.choices, ...single, ...(t.discard ? { discard: t.discard } : {}) }
-      : { type: 'activate', card: t.cardId, ability: t.ability, activated: t.activated, x: t.x, targets: t.chosen, hold, crew: t.crew, discard: t.discard, sacrifice: t.choices.sacrifice, exile: t.exile };
+      : { type: 'activate', card: t.cardId, ability: t.ability, activated: t.activated, x: t.x, targets: t.chosen, hold, crew: t.crew, discard: t.discard, sacrifice: t.choices.sacrifice, exile: t.exile, graveyard: t.graveyard };
   if (!S().act(action)) cancel();
 }
 
@@ -1313,6 +1335,16 @@ function confirmDivision() {
   const { game: g, human: me } = S();
   if (!t || !g || me === null || !isDividing(t)) return;
   const next = { ...t, choices: { ...t.choices, divide: draftDivision(t) } };
+  useStore.setState({ targeting: next });
+  if (isPaying(next) && paidUp(g, me, next)) pay();
+}
+
+/** Picks the cards in the graveyard to exile for an ability's cost (Matoc). Paying comes next. */
+export function chooseGraveCost(ids: string[]) {
+  const t = S().targeting;
+  const { game: g, human: me } = S();
+  if (!t || !g || me === null || !isExilingGraveyard(t)) return;
+  const next = { ...t, graveyard: ids };
   useStore.setState({ targeting: next });
   if (isPaying(next) && paidUp(g, me, next)) pay();
 }
