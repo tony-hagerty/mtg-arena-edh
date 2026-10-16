@@ -1,5 +1,570 @@
 {
  "cards": {
+  "Render Silent": {
+   "name": "Render Silent",
+   "manaCost": "{W}{U}{U}",
+   "cmc": 3,
+   "colors": [
+    "U",
+    "W"
+   ],
+   "colorIdentity": [
+    "U",
+    "W"
+   ],
+   "typeLine": "Instant",
+   "oracleText": "Counter target spell. Its controller can't cast spells this turn.",
+   "keywords": [],
+   "image": "https://cards.scryfall.io/normal/front/e/3/e3f3d6e4-0abe-4042-a7f6-0395683e8582.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/e/3/e3f3d6e4-0abe-4042-a7f6-0395683e8582.jpg"
+  },
+  "Spell Swindle": {
+   "name": "Spell Swindle",
+   "manaCost": "{3}{U}{U}",
+   "cmc": 5,
+   "colors": [
+    "U"
+   ],
+   "colorIdentity": [
+    "U"
+   ],
+   "typeLine": "Instant",
+   "oracleText": "Counter target spell. Create X Treasure tokens, where X is that spell's mana value. (They're artifacts with \"{T}, Sacrifice this token: Add one mana of any color.\")",
+   "keywords": [
+    "Treasure"
+   ],
+   "image": "https://cards.scryfall.io/normal/front/0/1/01feef77-ff30-4f77-892f-6bdae3f0d35c.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/0/1/01feef77-ff30-4f77-892f-6bdae3f0d35c.jpg"
+  },
+  "Reprieve": {
+   "name": "Reprieve",
+   "manaCost": "{1}{W}",
+   "cmc": 2,
+   "colors": [
+    "W"
+   ],
+   "colorIdentity": [
+    "W"
+   ],
+   "typeLine": "Instant",
+   "oracleText": "Return target spell to its owner's hand.\nDraw a card.",
+   "keywords": [],
+   "image": "https://cards.scryfall.io/normal/front/1/b/1bd3fa8a-6c50-4f7f-9ae3-0810eec5e3db.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/1/b/1bd3fa8a-6c50-4f7f-9ae3-0810eec5e3db.jpg"
+  },
+  "Snuff Out": {
+   "name": "Snuff Out",
+   "manaCost": "{3}{B}",
+   "cmc": 4,
+   "colors": [
+    "B"
+   ],
+   "colorIdentity": [
+    "B"
+   ],
+   "typeLine": "Instant",
+   "oracleText": "If you control a Swamp, you may pay 4 life rather than pay this spell's mana cost.\nDestroy target nonblack creature. It can't be regenerated.",
+   "keywords": [],
+   "image": "https://cards.scryfall.io/normal/front/7/5/75bbe89f-09af-494e-b58e-271f64bde4b5.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/7/5/75bbe89f-09af-494e-b58e-271f64bde4b5.jpg"
+  },
+  "Baleful Mastery": {
+   "name": "Baleful Mastery",
+   "manaCost": "{3}{B}",
+   "cmc": 4,
+   "colors": [
+    "B"
+   ],
+   "colorIdentity": [
+    "B"
+   ],
+   "typeLine": "Instant",
+   "oracleText": "You may pay {1}{B} rather than pay this spell's mana cost.\nIf the {1}{B} cost was paid, an opponent draws a card.\nExile target creature or planeswalker.",
+   "keywords": [],
+   "image": "https://cards.scryfall.io/normal/front/5/7/579e20e7-1395-4a6c-a836-ae3419fc8808.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/5/7/579e20e7-1395-4a6c-a836-ae3419fc8808.jpg"
+  },
+  "The Battle of Bywater": {
+   "name": "The Battle of Bywater",
+   "manaCost": "{1}{W}{W}",
+   "cmc": 3,
+   "colors": [
+    "W"
+   ],
+   "colorIdentity": [
+    "W"
+   ],
+   "typeLine": "Sorcery",
+   "oracleText": "Destroy all creatures with power 3 or greater. Then create a Food token for each creature you control. (It's an artifact with \"{2}, {T}, Sacrifice this token: You gain 3 life.\")",
+   "keywords": [
+    "Food"
+   ],
+   "image": "https://cards.scryfall.io/normal/front/9/b/9bae7a4d-9117-43c5-a048-80a0ddadc034.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/9/b/9bae7a4d-9117-43c5-a048-80a0ddadc034.jpg"
+  },
+  "Exsanguinate": {
+   "name": "Exsanguinate",
+   "manaCost": "{X}{B}{B}",
+   "cmc": 2,
+   "colors": [
+    "B"
+   ],
+   "colorIdentity": [
+    "B"
+   ],
+   "typeLine": "Sorcery",
+   "oracleText": "Each opponent loses X life. You gain life equal to the life lost this way.",
+   "keywords": [],
+   "image": "https://cards.scryfall.io/normal/front/f/1/f11d7311-4066-4a5d-ba28-9857fa707a0b.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/f/1/f11d7311-4066-4a5d-ba28-9857fa707a0b.jpg"
+  },
+  "Rakdos Charm": {
+   "name": "Rakdos Charm",
+   "manaCost": "{B}{R}",
+   "cmc": 2,
+   "colors": [
+    "B",
+    "R"
+   ],
+   "colorIdentity": [
+    "B",
+    "R"
+   ],
+   "typeLine": "Instant",
+   "oracleText": "Choose one —\n• Exile target player's graveyard.\n• Destroy target artifact.\n• Each creature deals 1 damage to its controller.",
+   "keywords": [],
+   "image": "https://cards.scryfall.io/normal/front/6/4/64b67170-1602-4050-80c0-ade2a6cac211.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/6/4/64b67170-1602-4050-80c0-ade2a6cac211.jpg"
+  },
+  "Reanimate": {
+   "name": "Reanimate",
+   "manaCost": "{B}",
+   "cmc": 1,
+   "colors": [
+    "B"
+   ],
+   "colorIdentity": [
+    "B"
+   ],
+   "typeLine": "Sorcery",
+   "oracleText": "Put target creature card from a graveyard onto the battlefield under your control. You lose life equal to that card's mana value.",
+   "keywords": [],
+   "image": "https://cards.scryfall.io/normal/front/3/6/368b6903-5fc4-43e7-bd44-46b8107c8bb4.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/3/6/368b6903-5fc4-43e7-bd44-46b8107c8bb4.jpg"
+  },
+  "Academy Ruins": {
+   "name": "Academy Ruins",
+   "manaCost": "",
+   "cmc": 0,
+   "colors": [],
+   "colorIdentity": [
+    "U"
+   ],
+   "typeLine": "Legendary Land",
+   "oracleText": "{T}: Add {C}.\n{1}{U}, {T}: Put target artifact card from your graveyard on top of your library.",
+   "keywords": [],
+   "image": "https://cards.scryfall.io/normal/front/a/9/a95b7645-154f-4904-bf71-db7eb24d4df2.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/a/9/a95b7645-154f-4904-bf71-db7eb24d4df2.jpg"
+  },
+  "Hall of Heliod's Generosity": {
+   "name": "Hall of Heliod's Generosity",
+   "manaCost": "",
+   "cmc": 0,
+   "colors": [],
+   "colorIdentity": [
+    "W"
+   ],
+   "typeLine": "Legendary Land",
+   "oracleText": "{T}: Add {C}.\n{1}{W}, {T}: Put target enchantment card from your graveyard on top of your library.",
+   "keywords": [],
+   "image": "https://cards.scryfall.io/normal/front/f/0/f08dfd99-59fa-4a6c-bd69-c647f639de4d.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/f/0/f08dfd99-59fa-4a6c-bd69-c647f639de4d.jpg"
+  },
+  "Sharuum the Hegemon": {
+   "name": "Sharuum the Hegemon",
+   "manaCost": "{3}{W}{U}{B}",
+   "cmc": 6,
+   "colors": [
+    "B",
+    "U",
+    "W"
+   ],
+   "colorIdentity": [
+    "B",
+    "U",
+    "W"
+   ],
+   "typeLine": "Legendary Artifact Creature — Sphinx",
+   "oracleText": "Flying\nWhen Sharuum enters, you may return target artifact card from your graveyard to the battlefield.",
+   "power": "5",
+   "toughness": "5",
+   "keywords": [
+    "Flying"
+   ],
+   "image": "https://cards.scryfall.io/normal/front/a/f/af80ef38-ab95-476f-b0dd-b5ef3e9bceab.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/a/f/af80ef38-ab95-476f-b0dd-b5ef3e9bceab.jpg"
+  },
+  "Takenuma, Abandoned Mire": {
+   "name": "Takenuma, Abandoned Mire",
+   "manaCost": "",
+   "cmc": 0,
+   "colors": [],
+   "colorIdentity": [
+    "B"
+   ],
+   "typeLine": "Legendary Land",
+   "oracleText": "{T}: Add {B}.\nChannel — {3}{B}, Discard this card: Mill three cards, then return a creature or planeswalker card from your graveyard to your hand. This ability costs {1} less to activate for each legendary creature you control.",
+   "keywords": [
+    "Mill",
+    "Channel"
+   ],
+   "image": "https://cards.scryfall.io/normal/front/4/9/499037cc-a577-41cb-8ca2-5e117945634f.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/4/9/499037cc-a577-41cb-8ca2-5e117945634f.jpg"
+  },
+  "Frantic Search": {
+   "name": "Frantic Search",
+   "manaCost": "{2}{U}",
+   "cmc": 3,
+   "colors": [
+    "U"
+   ],
+   "colorIdentity": [
+    "U"
+   ],
+   "typeLine": "Instant",
+   "oracleText": "Draw two cards, then discard two cards. Untap up to three lands.",
+   "keywords": [],
+   "image": "https://cards.scryfall.io/normal/front/d/8/d8c5e52d-57ae-464b-8860-7dd39ebfef64.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/d/8/d8c5e52d-57ae-464b-8860-7dd39ebfef64.jpg"
+  },
+  "Windfall": {
+   "name": "Windfall",
+   "manaCost": "{2}{U}",
+   "cmc": 3,
+   "colors": [
+    "U"
+   ],
+   "colorIdentity": [
+    "U"
+   ],
+   "typeLine": "Sorcery",
+   "oracleText": "Each player discards their hand, then draws cards equal to the greatest number of cards a player discarded this way.",
+   "keywords": [],
+   "image": "https://cards.scryfall.io/normal/front/9/c/9ce7113b-08f7-4584-b65f-a7b5caa90c2f.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/9/c/9ce7113b-08f7-4584-b65f-a7b5caa90c2f.jpg"
+  },
+  "Consecrated Sphinx": {
+   "name": "Consecrated Sphinx",
+   "manaCost": "{4}{U}{U}",
+   "cmc": 6,
+   "colors": [
+    "U"
+   ],
+   "colorIdentity": [
+    "U"
+   ],
+   "typeLine": "Creature — Sphinx",
+   "oracleText": "Flying\nWhenever an opponent draws a card, you may draw two cards.",
+   "power": "4",
+   "toughness": "6",
+   "keywords": [
+    "Flying"
+   ],
+   "image": "https://cards.scryfall.io/normal/front/c/9/c9bd60fc-2777-44bc-b314-a792e8e48360.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/c/9/c9bd60fc-2777-44bc-b314-a792e8e48360.jpg"
+  },
+  "Faerie Mastermind": {
+   "name": "Faerie Mastermind",
+   "manaCost": "{1}{U}",
+   "cmc": 2,
+   "colors": [
+    "U"
+   ],
+   "colorIdentity": [
+    "U"
+   ],
+   "typeLine": "Creature — Faerie Rogue",
+   "oracleText": "Flash\nFlying\nWhenever an opponent draws their second card each turn, you draw a card.\n{3}{U}: Each player draws a card.",
+   "power": "2",
+   "toughness": "1",
+   "keywords": [
+    "Flying",
+    "Flash"
+   ],
+   "image": "https://cards.scryfall.io/normal/front/b/c/bc9a7599-3c7d-4b83-bff3-e3d1f20f1b0f.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/b/c/bc9a7599-3c7d-4b83-bff3-e3d1f20f1b0f.jpg"
+  },
+  "Niv-Mizzet, Ghost Counsel": {
+   "name": "Niv-Mizzet, Ghost Counsel",
+   "manaCost": "{2}{W}{W}{B}{B}",
+   "cmc": 6,
+   "colors": [
+    "B",
+    "W"
+   ],
+   "colorIdentity": [
+    "B",
+    "W"
+   ],
+   "typeLine": "Legendary Creature — Spirit Dragon",
+   "oracleText": "Flying\nWhenever you gain life, you may pay that much life. If you do, draw that many cards.\n{T}: Each opponent loses 1 life and you gain 1 life.",
+   "power": "4",
+   "toughness": "4",
+   "keywords": [
+    "Flying"
+   ],
+   "image": "https://cards.scryfall.io/normal/front/0/a/0ad0e168-ac5c-4e1b-83f2-0488067a58d7.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/0/a/0ad0e168-ac5c-4e1b-83f2-0488067a58d7.jpg"
+  },
+  "Gran-Gran": {
+   "name": "Gran-Gran",
+   "manaCost": "{U}",
+   "cmc": 1,
+   "colors": [
+    "U"
+   ],
+   "colorIdentity": [
+    "U"
+   ],
+   "typeLine": "Legendary Creature — Human Peasant Ally",
+   "oracleText": "Whenever Gran-Gran becomes tapped, draw a card, then discard a card.\nNoncreature spells you cast cost {1} less to cast as long as there are three or more Lesson cards in your graveyard.",
+   "power": "1",
+   "toughness": "2",
+   "keywords": [],
+   "image": "https://cards.scryfall.io/normal/front/f/a/fa434b41-e5f7-4989-865a-95db67b05cb1.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/f/a/fa434b41-e5f7-4989-865a-95db67b05cb1.jpg"
+  },
+  "Land Tax": {
+   "name": "Land Tax",
+   "manaCost": "{W}",
+   "cmc": 1,
+   "colors": [
+    "W"
+   ],
+   "colorIdentity": [
+    "W"
+   ],
+   "typeLine": "Enchantment",
+   "oracleText": "At the beginning of your upkeep, if an opponent controls more lands than you, you may search your library for up to three basic land cards, reveal them, put them into your hand, then shuffle.",
+   "keywords": [],
+   "image": "https://cards.scryfall.io/normal/front/c/7/c70d3706-9d28-49ac-8718-4a516413e727.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/c/7/c70d3706-9d28-49ac-8718-4a516413e727.jpg"
+  },
+  "Mana Geyser": {
+   "name": "Mana Geyser",
+   "manaCost": "{3}{R}{R}",
+   "cmc": 5,
+   "colors": [
+    "R"
+   ],
+   "colorIdentity": [
+    "R"
+   ],
+   "typeLine": "Sorcery",
+   "oracleText": "Add {R} for each tapped land your opponents control.",
+   "keywords": [],
+   "image": "https://cards.scryfall.io/normal/front/d/f/dfbda387-3c7d-4c80-97c3-60c9d4757244.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/d/f/dfbda387-3c7d-4c80-97c3-60c9d4757244.jpg"
+  },
+  "Emergence Zone": {
+   "name": "Emergence Zone",
+   "manaCost": "",
+   "cmc": 0,
+   "colors": [],
+   "colorIdentity": [],
+   "typeLine": "Land",
+   "oracleText": "{T}: Add {C}.\n{1}, {T}, Sacrifice this land: You may cast spells this turn as though they had flash.",
+   "keywords": [],
+   "image": "https://cards.scryfall.io/normal/front/a/b/ab95f6e7-b806-47fe-a071-6c38b3176d94.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/a/b/ab95f6e7-b806-47fe-a071-6c38b3176d94.jpg"
+  },
+  "High Fae Trickster": {
+   "name": "High Fae Trickster",
+   "manaCost": "{3}{U}",
+   "cmc": 4,
+   "colors": [
+    "U"
+   ],
+   "colorIdentity": [
+    "U"
+   ],
+   "typeLine": "Creature — Faerie Wizard",
+   "oracleText": "Flash (You may cast this spell any time you could cast an instant.)\nFlying\nYou may cast spells as though they had flash.",
+   "power": "4",
+   "toughness": "2",
+   "keywords": [
+    "Flying",
+    "Flash"
+   ],
+   "image": "https://cards.scryfall.io/normal/front/7/f/7f1b93ea-1ec1-4010-9343-765742f5088b.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/7/f/7f1b93ea-1ec1-4010-9343-765742f5088b.jpg"
+  },
+  "Leyline of Anticipation": {
+   "name": "Leyline of Anticipation",
+   "manaCost": "{2}{U}{U}",
+   "cmc": 4,
+   "colors": [
+    "U"
+   ],
+   "colorIdentity": [
+    "U"
+   ],
+   "typeLine": "Enchantment",
+   "oracleText": "If this card is in your opening hand, you may begin the game with it on the battlefield.\nYou may cast spells as though they had flash.",
+   "keywords": [],
+   "image": "https://cards.scryfall.io/normal/front/f/5/f57bdaa1-ce8a-4103-8598-fee751e65a53.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/f/5/f57bdaa1-ce8a-4103-8598-fee751e65a53.jpg"
+  },
+  "Unstoppable Plan": {
+   "name": "Unstoppable Plan",
+   "manaCost": "{2}{U}",
+   "cmc": 3,
+   "colors": [
+    "U"
+   ],
+   "colorIdentity": [
+    "U"
+   ],
+   "typeLine": "Enchantment",
+   "oracleText": "At the beginning of your end step, untap all nonland permanents you control.",
+   "keywords": [],
+   "image": "https://cards.scryfall.io/normal/front/a/a/aaeb5981-7e6a-4ffd-bb02-4757b2e92f08.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/a/a/aaeb5981-7e6a-4ffd-bb02-4757b2e92f08.jpg"
+  },
+  "Descent into Avernus": {
+   "name": "Descent into Avernus",
+   "manaCost": "{2}{R}",
+   "cmc": 3,
+   "colors": [
+    "R"
+   ],
+   "colorIdentity": [
+    "R"
+   ],
+   "typeLine": "Enchantment",
+   "oracleText": "At the beginning of your upkeep, put two descent counters on this enchantment. Then each player creates X Treasure tokens and this enchantment deals X damage to each player, where X is the number of descent counters on this enchantment.",
+   "keywords": [
+    "Treasure"
+   ],
+   "image": "https://cards.scryfall.io/normal/front/f/a/faadf72f-b2d5-4271-8d5c-a586acf63453.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/f/a/faadf72f-b2d5-4271-8d5c-a586acf63453.jpg"
+  },
+  "The Vision and Scarlet Witch": {
+   "name": "The Vision and Scarlet Witch",
+   "manaCost": "{2}{R}{R}",
+   "cmc": 4,
+   "colors": [
+    "R"
+   ],
+   "colorIdentity": [
+    "R"
+   ],
+   "typeLine": "Legendary Artifact Creature — Mutant Hero",
+   "oracleText": "Flying\nWhenever you cast a spell, add {R} and put a +1/+1 counter on The Vision and Scarlet Witch.",
+   "power": "3",
+   "toughness": "3",
+   "keywords": [
+    "Flying"
+   ],
+   "image": "https://cards.scryfall.io/normal/front/9/3/930afb5f-54b7-4cca-8c28-3e48938f3a43.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/9/3/930afb5f-54b7-4cca-8c28-3e48938f3a43.jpg"
+  },
+  "Whitemane Lion": {
+   "name": "Whitemane Lion",
+   "manaCost": "{1}{W}",
+   "cmc": 2,
+   "colors": [
+    "W"
+   ],
+   "colorIdentity": [
+    "W"
+   ],
+   "typeLine": "Creature — Cat",
+   "oracleText": "Flash\nWhen this creature enters, return a creature you control to its owner's hand.",
+   "power": "2",
+   "toughness": "2",
+   "keywords": [
+    "Flash"
+   ],
+   "image": "https://cards.scryfall.io/normal/front/a/3/a358def9-65a0-4741-896c-b2a8c8947768.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/a/3/a358def9-65a0-4741-896c-b2a8c8947768.jpg"
+  },
+  "Flickering Hound": {
+   "name": "Flickering Hound",
+   "manaCost": "{3}{W}",
+   "cmc": 4,
+   "colors": [
+    "W"
+   ],
+   "colorIdentity": [
+    "W"
+   ],
+   "typeLine": "Creature — Dog",
+   "oracleText": "Whenever you cast a creature spell, exile up to one other target creature you control, then return that card to the battlefield under its owner's control.",
+   "power": "2",
+   "toughness": "2",
+   "keywords": [],
+   "image": "https://cards.scryfall.io/normal/front/6/8/686f3a25-305d-4f02-8972-eba7b8e9635f.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/6/8/686f3a25-305d-4f02-8972-eba7b8e9635f.jpg"
+  },
+  "Lyse Hext": {
+   "name": "Lyse Hext",
+   "manaCost": "{1}{W}{U}",
+   "cmc": 3,
+   "colors": [
+    "U",
+    "W"
+   ],
+   "colorIdentity": [
+    "U",
+    "W"
+   ],
+   "typeLine": "Legendary Creature — Human Rebel Monk",
+   "oracleText": "Prowess (Whenever you cast a noncreature spell, this creature gets +1/+1 until end of turn.)\nNoncreature spells you cast cost {1} less to cast.\nAs long as you've cast two or more noncreature spells this turn, Lyse Hext has double strike.",
+   "power": "2",
+   "toughness": "2",
+   "keywords": [
+    "Prowess"
+   ],
+   "image": "https://cards.scryfall.io/normal/front/9/7/97845ece-ceef-468c-a4e3-6fde1413c9f0.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/9/7/97845ece-ceef-468c-a4e3-6fde1413c9f0.jpg"
+  },
+  "Nezahal, Primal Tide": {
+   "name": "Nezahal, Primal Tide",
+   "manaCost": "{5}{U}{U}",
+   "cmc": 7,
+   "colors": [
+    "U"
+   ],
+   "colorIdentity": [
+    "U"
+   ],
+   "typeLine": "Legendary Creature — Elder Dinosaur",
+   "oracleText": "This spell can't be countered.\nYou have no maximum hand size.\nWhenever an opponent casts a noncreature spell, draw a card.\nDiscard three cards: Exile Nezahal. Return it to the battlefield tapped under its owner's control at the beginning of the next end step.",
+   "power": "7",
+   "toughness": "7",
+   "keywords": [],
+   "image": "https://cards.scryfall.io/normal/front/a/9/a959b40d-dd8c-49d8-8003-744d0c877b04.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/a/9/a959b40d-dd8c-49d8-8003-744d0c877b04.jpg"
+  },
+  "Recruiter of the Guard": {
+   "name": "Recruiter of the Guard",
+   "manaCost": "{2}{W}",
+   "cmc": 3,
+   "colors": [
+    "W"
+   ],
+   "colorIdentity": [
+    "W"
+   ],
+   "typeLine": "Creature — Human Soldier",
+   "oracleText": "When this creature enters, you may search your library for a creature card with toughness 2 or less, reveal it, put it into your hand, then shuffle.",
+   "power": "1",
+   "toughness": "1",
+   "keywords": [],
+   "image": "https://cards.scryfall.io/normal/front/8/e/8e4c6ba1-1abc-478f-9b7c-97e9e3c92fb0.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/8/e/8e4c6ba1-1abc-478f-9b7c-97e9e3c92fb0.jpg"
+  },
   "Abandoned Air Temple": {
    "name": "Abandoned Air Temple",
    "manaCost": "",

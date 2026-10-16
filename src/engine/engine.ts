@@ -338,7 +338,7 @@ export function choiceOptions(g: Game, choice: CardChoice): { cards: Card[]; val
   }
   // The whole library is looked at (701.23a). Sorted, so the order of the library stays hidden (401.2).
   const cards = [...p.library].sort((a, b) => label(a).localeCompare(label(b)));
-  const valid = new Set(cards.filter((c) => searchable(c, choice.find)).map((c) => c.id));
+  const valid = new Set(cards.filter((c) => searchable(g, c, choice.find)).map((c) => c.id));
   // A search for a card with a stated quality may find nothing, even if there is one
   // (701.23b). A search for just "a card", or "three cards", must find them if it can (701.23d).
   const count = choice.count ?? 1;

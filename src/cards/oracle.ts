@@ -29,6 +29,7 @@ import {
   mill,
   moveCard,
   opponentsOf,
+  prowess,
   pump,
   refCard,
   refPlayer,
@@ -656,6 +657,13 @@ function readCard(d: CardData): CardScript {
   const spellEffects: Effect[] = [];
   lines(d).forEach(({ text, original }, n) => {
     if (isKeywordLine(text)) return;
+    // Prowess (702.108a) is a triggered ability, alone or with other keywords ("Flying, prowess").
+    const parts = text.split(',').map((p) => p.trim());
+    if (parts.includes('prowess') && parts.every((p) => p === 'prowess' || BARE_KEYWORDS.includes(p))) {
+      if (script.onCast) refuse(original, 'two abilities that trigger on the same event');
+      script.onCast = prowess;
+      return;
+    }
     if (cardLine(text, original, script, then)) return;
     if (spell) {
       spellEffects.push(...effects(text, { permanent: false, x: false }));
