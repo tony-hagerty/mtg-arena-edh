@@ -17,6 +17,22 @@ import type { Connection } from './remote';
  * has reached the game. `trigger` is a triggered ability the game is already waiting on
  * for targets (see `targetingOf` in view.ts).
  */
+/**
+ * One of a permanent's mana abilities the human could use by hand: what it costs and does
+ * (`text`), each choice of mana it makes, and the creatures or cards that could pay its cost.
+ */
+export interface ManaOption {
+  ability: number;
+  text: string;
+  mana: ManaSym[][];
+  /** The creatures that could pay a "Tap an untapped creature you control" cost (Relic of Legends). */
+  creatures?: string[];
+  /** The cards in hand that could pay a "Discard a card" cost (Skirge Familiar). */
+  discards?: string[];
+  /** The creatures that could pay a "Sacrifice a creature" cost (Phyrexian Tower). */
+  sacrifices?: string[];
+}
+
 export interface Targeting {
   /** `retarget`: new targets for a spell or ability the game is waiting on (115.7d). */
   mode: 'cast' | 'activate' | 'trigger' | 'retarget';
@@ -232,26 +248,13 @@ interface Store {
   /** Card ids in the order the human arranged their hand. Display only: the engine never sees it. */
   handOrder: string[];
   viewer: { pid: PlayerId; zone: Zone } | null;
-  /** A mana ability with a choice of colour that the human is about to use, like Lion's Eye Diamond's. */
-  /** `creatures`: the creatures that could pay a "Tap an untapped creature you control" cost; `creature` is the one picked. */
-  /** `discards`: the cards in hand that could pay a "Discard a card" cost (Skirge Familiar); `discard` is the one picked. */
   /**
-   * `sacrifices`: the creatures that ability `ability` could sacrifice (Phyrexian Tower), and
-   * `sacrifice` the one picked, or null to use the card's plain ability `plain` (making `plainColors`) instead.
+   * A permanent the human is using for mana by hand, while they pick how: which of its mana
+   * abilities, which mana (Sunken Ruins's {U}{B}), and which creature to tap, card to discard
+   * or creature to sacrifice for it (`creature`, `discard`, `sacrifice`). `group`: identical
+   * permanents to use the same way.
    */
-  colorPick: {
-    cardId: string;
-    ability: number;
-    colors: ManaSym[];
-    creatures?: string[];
-    creature?: string;
-    discards?: string[];
-    discard?: string;
-    sacrifices?: string[];
-    sacrifice?: string | null;
-    plain?: number;
-    plainColors?: ManaSym[];
-  } | null;
+  manaPick: { cardId: string; options: ManaOption[]; group?: string[]; creature?: string; discard?: string; sacrifice?: string } | null;
   showLog: boolean;
   /** The "leave this game?" dialog is open. */
   confirmExit: boolean;
@@ -300,7 +303,7 @@ export const useStore = create<Store>()((set, get) => ({
   hover: null,
   handOrder: [],
   viewer: null,
-  colorPick: null,
+  manaPick: null,
   showLog: true,
   confirmExit: false,
   speed: 1,
@@ -400,7 +403,7 @@ export const useStore = create<Store>()((set, get) => ({
       hover: null,
       handOrder: [],
       viewer: null,
-      colorPick: null,
+      manaPick: null,
       confirmExit: false,
     });
   },
@@ -469,7 +472,7 @@ export const useStore = create<Store>()((set, get) => ({
 }));
 
 /** What a new person at the screen starts with: nothing the last one was doing carries over. */
-const freshSeat = { handoff: null, targeting: null, attackTarget: null, pickedBlockers: [], handOrder: [], viewer: null, colorPick: null, hover: null };
+const freshSeat = { handoff: null, targeting: null, attackTarget: null, pickedBlockers: [], handOrder: [], viewer: null, manaPick: null, hover: null };
 
 /** The connection's moving parts, outside the store's state: they don't change what's drawn. */
 const remote: { gameId: number; seq: Partial<Record<PlayerId, number>>; unwatch: (() => void) | null; leaving: boolean } = {

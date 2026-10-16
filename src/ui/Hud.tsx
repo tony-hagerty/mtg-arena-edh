@@ -11,7 +11,7 @@ import { SoundButton } from './SoundControl';
 import { useStore } from './store';
 import type { Hover } from './store';
 import { type Seat, cx, deckColor, faceUp, hoverProps, seatOf } from './util';
-import { STEP_NAMES, activateFromHand, cancel, clickStackItem, pickAbility, pickColor, pickTapCreature, pickManaDiscard, pickManaSacrifice, pickFace, pickMode, playHandCard, setAbilityX, setChoices, shiftDivision, exileForMana, plotCard, useView } from './view';
+import { STEP_NAMES, activateFromHand, cancel, clickStackItem, pickAbility, pickMana, pickTapCreature, pickManaDiscard, pickManaSacrifice, pickFace, pickMode, playHandCard, setAbilityX, setChoices, shiftDivision, exileForMana, plotCard, useView } from './view';
 import type { AbilityOption, Btn } from './view';
 
 // ---------- phase tracker + buttons (bottom right) ----------
@@ -458,72 +458,62 @@ function AbilityX({ x, max }: { x: number; max: number }) {
   );
 }
 
-/** The colour for a mana ability that makes several mana of one chosen colour, like Lion's Eye Diamond's. */
-export function ColorPicker() {
-  const pick = useStore((s) => s.colorPick);
+/** Text with mana symbols like {U/B} and {T} drawn as symbols. */
+function Symbols({ text }: { text: string }) {
+  return <>{text.split(/((?:\{[^}]+\})+)/).map((part, i) => (part.startsWith('{') ? <ManaCost key={i} cost={part} /> : part))}</>;
+}
+
+/**
+ * Using a permanent for mana by hand, when there is a choice: one row for each of its mana
+ * abilities, with a button for each choice of mana it makes (Sunken Ruins: {C}, or {U}{U},
+ * {U}{B} or {B}{B}), and the creature to tap or card to discard where its cost needs one.
+ */
+export function ManaPicker() {
+  const pick = useStore((s) => s.manaPick);
   const g = useView().g;
   const card = pick && findCard(g, pick.cardId);
   if (!pick || !card) return null;
+  const picker = (title: string, ids: string[], on: string | undefined, choose: (id: string) => void) => (
+    <div className="cast-row">
+      <span className="cast-label">{title}</span>
+      {ids.map((id) => {
+        const c = findCard(g, id);
+        return (
+          c && (
+            <button key={id} className={`chip${on === id ? ' on' : ''}`} onClick={() => choose(id)}>
+              {label(c)}
+            </button>
+          )
+        );
+      })}
+    </div>
+  );
   return (
     <div className="cast-options">
-      {pick.creatures && pick.creatures.length > 1 && (
-        <div className="cast-row">
-          <span className="cast-label">{label(card)}: tap</span>
-          {pick.creatures.map((id) => {
-            const c = findCard(g, id);
-            return (
-              c && (
-                <button key={id} className={`chip${pick.creature === id ? ' on' : ''}`} onClick={() => pickTapCreature(id)}>
-                  {label(c)}
-                </button>
-              )
-            );
-          })}
-        </div>
-      )}
-      {pick.discards && (
-        <div className="cast-row">
-          <span className="cast-label">{label(card)}: discard</span>
-          {pick.discards.map((id) => {
-            const c = findCard(g, id);
-            return (
-              c && (
-                <button key={id} className={`chip${pick.discard === id ? ' on' : ''}`} onClick={() => pickManaDiscard(id)}>
-                  {label(c)}
-                </button>
-              )
-            );
-          })}
-        </div>
-      )}
-      {pick.sacrifices && (
-        <div className="cast-row">
-          <span className="cast-label">{label(card)}: sacrifice</span>
-          {pick.plain !== undefined && (
-            <button className={`chip${pick.sacrifice === null ? ' on' : ''}`} onClick={() => pickManaSacrifice(null)}>
-              None
-            </button>
-          )}
-          {pick.sacrifices.map((id) => {
-            const c = findCard(g, id);
-            return (
-              c && (
-                <button key={id} className={`chip${pick.sacrifice === id ? ' on' : ''}`} onClick={() => pickManaSacrifice(id)}>
-                  {label(c)}
-                </button>
-              )
-            );
-          })}
-        </div>
-      )}
       <div className="cast-row">
-        <span className="cast-label">{label(card)}: choose a colour</span>
-        {(pick.sacrifices && !pick.sacrifice ? (pick.plainColors ?? []) : pick.colors).map((c) => (
-          <button key={c} className="chip" onClick={() => pickColor(c)} aria-label={c}>
-            <ManaCost cost={`{${c}}`} />
-          </button>
-        ))}
-        <button className="chip" onClick={() => pickColor(null)}>
+        <span className="cast-label">
+          {label(card)}
+          {pick.group?.length ? ` ×${pick.group.length + 1}` : ''}: choose the mana
+        </span>
+      </div>
+      {pick.options.map((o) => (
+        <div key={o.ability} className="cast-row">
+          <span className="cast-label">
+            <Symbols text={o.text} />:
+          </span>
+          {o.mana.map((m) => (
+            <button key={m.join('')} className="chip" onClick={() => pickMana(o.ability, m)} aria-label={m.join('')}>
+              <ManaCost cost={m.map((x) => `{${x}}`).join('')} />
+            </button>
+          ))}
+        </div>
+      ))}
+      {pick.options.flatMap((o) => o.creatures ?? []).length > 1 &&
+        picker('Tap', [...new Set(pick.options.flatMap((o) => o.creatures ?? []))], pick.creature, pickTapCreature)}
+      {pick.options.some((o) => o.discards) && picker('Discard', [...new Set(pick.options.flatMap((o) => o.discards ?? []))], pick.discard, pickManaDiscard)}
+      {pick.options.some((o) => o.sacrifices) && picker('Sacrifice', [...new Set(pick.options.flatMap((o) => o.sacrifices ?? []))], pick.sacrifice, pickManaSacrifice)}
+      <div className="cast-row">
+        <button className="chip" onClick={() => pickMana(null)}>
           Cancel
         </button>
       </div>

@@ -16,6 +16,26 @@ export interface Mana {
   types?: string[];
   /** "... and that spell can't be countered" (106.6): the spell it is spent on can't be countered. */
   uncounterable?: boolean;
+  /** Made by a mana ability used by hand that can be taken back: what taking it back undoes (`canUntapMana`). */
+  undo?: ManaUndo;
+  /** Left over from paying the mana cost of this permanent's mana ability by hand: taking that back takes this too. */
+  along?: string;
+}
+/**
+ * How to take back a mana ability a player used by hand. Only one that changed nothing but
+ * which permanents are tapped and what is in the pool gets one.
+ */
+export interface ManaUndo {
+  /** How much mana it made. */
+  made: number;
+  /** Every permanent it tapped: the source, a creature tapped for its cost (Relic of Legends), and sources tapped to pay its mana cost. */
+  tapped: string[];
+  /** Mana spent from the pool to pay its mana cost (a Signet's {1}), to put back. */
+  spent: Mana[];
+  /** How much mana was left over in the pool from paying that cost (marked `along`). */
+  left: number;
+  /** The creature tapped for its cost instead of {T} (Relic of Legends): clicking it takes the mana back. */
+  creature?: string;
 }
 export type PlayerId = number;
 /** A player's own zones. The stack is shared, so it lives on `Game` instead (405). */
@@ -934,12 +954,13 @@ export type Action =
   | { type: 'activate'; card: string; ability?: number; activated?: number; x?: number; targets?: (TargetRef | null)[]; hold?: boolean; crew?: string[]; discard?: string[]; sacrifice?: string[]; exile?: string[]; graveyard?: string[] }
   /**
    * `ability`: which of its mana abilities (`manaAbilities`). Left out, the one that suits
-   * the player best. `color`: the colour to make, for an ability with a choice.
+   * the player best. `color`: the colour to make, for an ability with a choice. `mana`: the
+   * exact mana to make, one of the ability's choices (a filter land's {U}{B}); it wins over `color`.
    */
   /** `tap`: the creature tapped to pay an ability's "Tap an untapped creature you control" cost (Relic of Legends). */
   /** `discard`: the card discarded to pay a "Discard a card" cost (Skirge Familiar). */
   /** `sacrifice`: the creature sacrificed to pay a "Sacrifice a creature" cost (Phyrexian Tower). */
-  | { type: 'tapMana'; card: string; ability?: number; color?: ManaSym; tap?: string; discard?: string; sacrifice?: string }
+  | { type: 'tapMana'; card: string; ability?: number; color?: ManaSym; mana?: ManaSym[]; tap?: string; discard?: string; sacrifice?: string }
   | { type: 'untapMana'; card: string }
   /** `target`: a planeswalker or battle to attack instead of the player; `defender` is then its controller or protector (508.1b). */
   | { type: 'declareAttack'; card: string; defender: PlayerId; target?: string }
