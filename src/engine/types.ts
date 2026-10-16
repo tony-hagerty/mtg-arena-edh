@@ -12,6 +12,8 @@ export interface Mana {
   only?: string;
   /** "Spend this mana only to cast a legendary spell" (106.6, Plaza of Heroes). */
   legendary?: boolean;
+  /** "Spend this mana only to cast instant and sorcery spells" (106.6, Tablet of Discovery): spells with one of these card types. */
+  types?: string[];
   /** "... and that spell can't be countered" (106.6): the spell it is spent on can't be countered. */
   uncounterable?: boolean;
 }
@@ -256,6 +258,8 @@ export interface Card {
   borrowed?: string[];
   /** What effects with no end have done to this permanent, until it leaves the battlefield (611.2a, 400.7). */
   lasting?: Lasting;
+  /** On the battlefield: the turn it entered ("if this land entered this turn", Dark Fortress). */
+  entered?: number;
   /** In exile: the turn it became plotted (702.170d). Its owner may cast it free on a later turn. */
   plotted?: number;
   /** In exile: it was airbent, so its owner may cast it for {2} while it stays exiled (701.65a). */
@@ -389,6 +393,8 @@ export type TurnEffect =
     }
   /** Card `card` in a graveyard has flashback this turn, its flashback cost its mana cost (Flashback, Stingcaster Mage). */
   | { kind: 'flashback'; card: string; moves: number }
+  /** "The next instant or sorcery spell you cast this turn can't be countered" (Overmaster): used up by that spell. */
+  | { kind: 'uncounterableNext'; player: PlayerId }
   /** The player may cast spells as though they had flash this turn (Borne Upon a Wind). */
   | { kind: 'flash'; player: PlayerId };
 
@@ -961,6 +967,8 @@ export interface TriggerEvents {
   onPlaneswalkerDies: { dead: Card };
   onCreatureAttacks: { attacker: Card; defender: PlayerId; target: string | null };
   onCast: { card: Card; caster: PlayerId };
+  /** A spell is copied (707.10): magecraft's "whenever you cast or copy an instant or sorcery spell" (207.2c). `controller` controls the copy. */
+  onCopy: { card: Card; controller: PlayerId };
   onDraw: { player: PlayerId };
   onLifeGain: { player: PlayerId; amount: number };
   /** A player loses life: from damage (119.2), paying it (119.4), or an effect (119.3). */
@@ -1117,6 +1125,8 @@ export interface ManaAbility {
   uncounterable?: boolean;
   /** "Spend this mana only to cast a legendary spell" (Plaza of Heroes). */
   legendary?: boolean;
+  /** "Spend this mana only to cast instant and sorcery spells" (Tablet of Discovery): spells with one of these card types. */
+  types?: string[];
   /** "Discard a card" is its cost (Skirge Familiar). Auto-pay never uses it: it costs a card. */
   discard?: number;
   /**
@@ -1348,6 +1358,8 @@ export interface CardScript extends Triggers {
   exilesItself?: boolean;
   /** While this permanent is on the battlefield: can't `spell`, cast by `caster`, be countered? */
   protectsSpell?: (g: Game, self: Card, spell: Card, caster: PlayerId) => boolean;
+  /** While this permanent is on the battlefield: does `pid` keep mana `m` as steps and phases end (500.5)? "You don't lose unspent red mana" (Electro). */
+  keepsMana?: (g: Game, self: Card, pid: PlayerId, m: Mana) => boolean;
   /** "This doesn't untap during your untap step" (502.3). */
   noUntap?: boolean;
   /** "Skip your draw step" (614.1b, 614.10). */
