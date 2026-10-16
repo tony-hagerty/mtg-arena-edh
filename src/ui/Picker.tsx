@@ -399,7 +399,7 @@ function CastNowPanel({ g, choice }: { g: Game; choice: CastChoice }) {
   );
 }
 
-/** Escape (702.138a): picks three other cards in the graveyard to exile as part of the cost. */
+/** Escape (702.138a): picks the other cards in the graveyard to exile as part of the cost, as many as its escape ability says. */
 export function EscapePicker() {
   const { escape } = useView();
   if (!escape) return null;
@@ -407,11 +407,11 @@ export function EscapePicker() {
     <CardPicker
       key={escape.card.id}
       title={`${label(escape.card)}: escape`}
-      hint="Choose three other cards in your graveyard to exile to pay for it."
+      hint={`Choose ${escape.count} other cards in your graveyard to exile to pay for it.`}
       cards={escape.options}
       selectable={() => true}
-      max={3}
-      buttons={(picked) => [{ label: 'Exile Them', sub: `${picked.length} of 3`, tone: 'go', disabled: picked.length !== 3, onClick: () => chooseEscape(picked) }]}
+      max={escape.count}
+      buttons={(picked) => [{ label: 'Exile Them', sub: `${picked.length} of ${escape.count}`, tone: 'go', disabled: picked.length !== escape.count, onClick: () => chooseEscape(picked) }]}
     />
   );
 }

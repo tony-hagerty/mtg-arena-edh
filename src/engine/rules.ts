@@ -1220,8 +1220,65 @@ export interface Payment {
  * `keep`: permanents already being used to pay another part of the cost, like the one
  * sacrificed for an additional cost: they can't make mana too.
  */
-export const planPayment = (g: Game, pid: PlayerId, cost: Cost, spell?: Card, keep: string[] = []): Payment | null =>
-  planFrom(g, pid, cost, spell, keep, g.players[pid].pool);
+export const planPayment = (g: Game, pid: PlayerId, cost: Cost, spell?: Card, keep: string[] = [], convoke?: string[]): Payment | null =>
+  convoke ? planConvoked(g, pid, cost, spell, keep, convoke) : planFrom(g, pid, cost, spell, keep, g.players[pid].pool);
+
+/** While set, no creature is a convoke source: the creatures that convoke were chosen already. */
+let convokeChosen = false;
+
+/**
+ * A payment that taps exactly the creatures `convoke` for convoke (702.51a), each paying for
+ * {1} or one mana of its colour, and pays the rest as usual without convoking any others.
+ * Null if those creatures can't convoke for this spell, or not all of them can pay a part.
+ */
+function planConvoked(g: Game, pid: PlayerId, cost: Cost, spell: Card | undefined, keep: string[], convoke: string[]): Payment | null {
+  const sources = convokeSources(g, pid, spell);
+  const creatures = convoke.map((id) => sources.find((s) => s.id === id));
+  if (creatures.some((s) => !s) || new Set(convoke).size !== convoke.length || convoke.some((id) => keep.includes(id))) return null;
+  const was = convokeChosen;
+  convokeChosen = true;
+  try {
+    for (const rest of convokeRemainders(cost, creatures.map((s) => s!.colors))) {
+      const plan = planFrom(g, pid, rest, spell, [...keep, ...convoke], g.players[pid].pool);
+      if (plan) {
+        const uses = creatures.map((s): ManaUseRef => ({ id: s!.id, ability: -1, convoke: true, taps: s!.taps }));
+        return { ...plan, tap: [...convoke, ...plan.tap], uses: [...uses, ...plan.uses] };
+      }
+    }
+    return null;
+  } finally {
+    convokeChosen = was;
+  }
+}
+
+/**
+ * What is left of `cost` after each creature with these colours pays one part of it
+ * (702.51a): {1}, or one mana of one of its colours, which can pay a coloured or hybrid
+ * symbol. Every way it could go, without repeats; none if a creature has nothing to pay.
+ */
+function convokeRemainders(cost: Cost, creatures: ManaSym[][]): Cost[] {
+  const key = (c: Cost) => `${c.generic}|${[...c.pips].sort().join()}|${c.hybrid.map((h) => h.join('/')).sort().join()}`;
+  let costs = [cost];
+  for (const colors of creatures) {
+    const next = new Map<string, Cost>();
+    const add = (c: Cost) => next.set(key(c), c);
+    for (const c of costs) {
+      if (c.generic > 0) add({ ...c, generic: c.generic - 1 });
+      for (const sym of new Set(c.pips)) {
+        if (colors.includes(sym)) add({ ...c, pips: c.pips.filter((_, i) => i !== c.pips.indexOf(sym)) });
+      }
+      c.hybrid.forEach((h, i) => {
+        const others = c.hybrid.filter((_, j) => j !== i);
+        // One mana of its colour pays a hybrid or Phyrexian symbol of that colour, or a {any} one.
+        if (h.includes('any') || h.some((x) => colors.includes(x as ManaSym))) add({ ...c, hybrid: others });
+        // {2/W} paid as two generic mana: the creature pays for one of them (107.4e).
+        if (h.includes('2')) add({ ...c, hybrid: others, generic: c.generic + 1 });
+      });
+    }
+    costs = [...next.values()];
+  }
+  return costs;
+}
 
 /**
  * `planPayment` with `inPool` as the mana in the player's pool, for trying a payment out.
@@ -1350,7 +1407,7 @@ export function hasConvoke(g: Game, pid: PlayerId, spell: Card | undefined): boo
  * it isn't a {T} ability (302.6).
  */
 function convokeSources(g: Game, pid: PlayerId, spell: Card | undefined): Source[] {
-  if (!hasConvoke(g, pid, spell)) return [];
+  if (convokeChosen || !hasConvoke(g, pid, spell)) return [];
   return creaturesOf(g, pid)
     .filter((c) => !c.tapped)
     .map((c) => ({ id: c.id, ability: -1, taps: [c.id], amount: 1, colors: data(c).colors as ManaSym[], pain: 0, life: 0, busy: true, convoke: true }));
@@ -1404,8 +1461,9 @@ function bestPayment(g: Game, pid: PlayerId, cost: Cost, spell?: Card, keep: str
  * Pays a cost, tapping and sacrificing what it has to. Returns how it was paid, or null if
  * it can't be. It looks ahead (`bestPayment`) unless a bot is only trying the move out.
  */
-export function pay(g: Game, pid: PlayerId, cost: Cost, spell?: Card, keep: string[] = []): Payment | null {
-  const plan = lookahead ? bestPayment(g, pid, cost, spell, keep) : planPayment(g, pid, cost, spell, keep);
+export function pay(g: Game, pid: PlayerId, cost: Cost, spell?: Card, keep: string[] = [], convoke?: string[]): Payment | null {
+  // The player chose which creatures convoke (702.51a): those are tapped, and the rest paid as usual.
+  const plan = convoke ? planConvoked(g, pid, cost, spell, keep, convoke) : lookahead ? bestPayment(g, pid, cost, spell, keep) : planPayment(g, pid, cost, spell, keep);
   if (!plan) return null;
   g.players[pid].pool = plan.pool;
   // Creatures that convoke are tapped as the cost is paid (702.51a, 601.2h).

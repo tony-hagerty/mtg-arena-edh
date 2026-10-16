@@ -3122,3 +3122,9 @@ button {
     animation: none !important;
   }
 }
+
+/* A phased-out permanent (702.26b): still shown, faded and dashed, but nothing can touch it. */
+.tile.phased-out {
+  outline: 0.12em dashed rgba(180, 200, 255, 0.7);
+  cursor: default;
+}

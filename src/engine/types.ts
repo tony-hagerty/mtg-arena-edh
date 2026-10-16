@@ -148,6 +148,11 @@ export interface CastChoices {
   /** Delve (702.66a): cards in the caster's graveyard exiled to pay for generic mana, one each. */
   delve?: string[];
   /**
+   * Convoke (702.51a): the creatures the caster chose to tap, each paying for {1} or one mana
+   * of its colour. Left out, auto-pay decides which creatures, if any, convoke.
+   */
+  convoke?: string[];
+  /**
    * Which face to cast, by index into `CardData.faces`: a split card's half (709.3), an
    * adventurer's Adventure (1, 715.3), or a modal double-faced card's face (712.11b).
    * Left out, the front face or normal characteristics.
