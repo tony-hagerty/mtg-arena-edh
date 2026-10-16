@@ -225,8 +225,9 @@ are from the Comprehensive Rules in `docs/rules/`.
   filter lands ("{W/B}, {T}: Add {W}{W}, {W}{B}, or {B}{B}"). Auto-pay and bots use them
   only when a payment can't be made without them, and never to pay their own cost.
 - **"Tap an untapped legendary creature you control: Add one mana"** (Relic of Legends):
-  click the Relic once it is tapped, then pick the creature and the colour. A creature
-  that just arrived can pay it (302.6).
+  by hand, click the Relic once it is tapped, then pick the creature and the colour. A
+  creature that just arrived can pay it (302.6). Auto-pay and bots use it like any other
+  source, tapping such a creature only after lands and mana rocks.
 - **Special mana:** restricted mana that makes a spell uncounterable (106.6, Cavern of
   Souls), mana kept until end of turn (Birgi), mana abilities a land gains until end of
   turn (Rain of Filth), and Lion's Eye Diamond (discard your hand, only with priority).
@@ -483,9 +484,8 @@ These are deliberate cuts for a prototype. The biggest ones come first.
 - **Auto-pay's lookahead** checks your other cards at what they cost now, with commander
   tax and cost increases and reductions (601.2f), but with no kicker, X as 0 and no
   alternative cost. It doesn't foresee cost changes the spell being paid for will bring.
-- **Auto-pay** never uses a mana ability that costs a card (Simian Spirit Guide), your
-  hand (Lion's Eye Diamond) or tapping a creature (Relic of Legends): use them by hand.
-  Bots don't use Relic of Legends's second ability.
+- **Auto-pay** never uses a mana ability that costs a card (Simian Spirit Guide) or your
+  hand (Lion's Eye Diamond): use them by hand.
 - **Attack costs** (Propaganda) are paid with auto-pay once attackers are declared: you
   can't pick which lands pay them.
 - **Mana Vault** doesn't ask about paying {4} while it is untapped, and **Tymna** doesn't

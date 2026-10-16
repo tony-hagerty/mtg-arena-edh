@@ -674,6 +674,14 @@ interface Source {
   id: string;
   /** Which mana ability. */
   ability: number;
+  /**
+   * The permanents using it taps or sacrifices: the source itself, and the creature a cost like
+   * Relic of Legends's "Tap an untapped legendary creature you control" taps. Once used, no other
+   * source that needs one of them can be.
+   */
+  taps: string[];
+  /** The creature tapped for that cost, if it has one. */
+  creature?: string;
   amount: number;
   colors: ManaSym[];
   /** Sacrificed to make its mana, like a Treasure: auto-pay uses it last. */
@@ -728,17 +736,26 @@ export function manaSources(g: Game, pid: PlayerId, manual = false): Source[] {
       // One with a mana cost (a Signet) isn't a plain source: auto-pay works it in with
       // `planWithCosted`. By hand it can be used when its cost can be paid without it.
       if (ab.cost && (!manual || !planPayment(g, pid, parseCost(ab.cost), undefined, [c.id]))) continue;
-      out.push({
-        id: c.id,
-        ability: ab.index,
-        amount: ab.amount,
-        colors: ab.colors,
-        sacrifice: ab.sacrifice,
-        pain: (ab.life ?? 0) + (ab.damage ?? 0),
-        life: ab.life ?? 0,
-        busy: !ab.noTap && !ab.fromHand && (isCreature(c) || activatedAbilities(c).some((a) => a.cost.tap)),
-        ...(ab.chosenType ? { only: c.chosen ?? undefined, uncounterable: ab.uncounterable } : {}),
-      });
+      // One that taps a creature as well is a source once for each creature that could pay
+      // (Relic of Legends, Springleaf Drum). The creature can't make mana too once it is tapped.
+      const self = ab.noTap && !ab.fromHand ? [] : [c.id];
+      const creatures: (string | undefined)[] = ab.tapCreature ? tapCandidates(g, pid, ab).map((x) => x.id) : [undefined];
+      for (const creature of creatures) {
+        out.push({
+          id: c.id,
+          ability: ab.index,
+          taps: creature ? [...self, creature] : [c.id],
+          ...(creature ? { creature } : {}),
+          amount: ab.amount,
+          colors: ab.colors,
+          sacrifice: ab.sacrifice,
+          pain: (ab.life ?? 0) + (ab.damage ?? 0),
+          life: ab.life ?? 0,
+          // Tapping a creature for it costs that creature's attack or block.
+          busy: !!creature || (!ab.noTap && !ab.fromHand && (isCreature(c) || activatedAbilities(c).some((a) => a.cost.tap))),
+          ...(ab.chosenType ? { only: c.chosen ?? undefined, uncounterable: ab.uncounterable } : {}),
+        });
+      }
     }
   }
   return out;
@@ -867,7 +884,7 @@ export function untapMana(g: Game, pid: PlayerId, c: Card) {
 export function availableMana(g: Game, pid: PlayerId): number {
   // A permanent with several mana abilities can use only one of them at a time.
   const most = new Map<string, number>();
-  for (const s of manaSources(g, pid)) most.set(s.id, Math.max(most.get(s.id) ?? 0, s.amount));
+  for (const s of manaSources(g, pid)) most.set(s.taps.join(), Math.max(most.get(s.taps.join()) ?? 0, s.amount));
   // A Signet adds one more than its cost takes; a filter land's two for one adds nothing to its own {C}.
   for (const { c, ab } of costedSources(g, pid)) most.set(c.id, Math.max(most.get(c.id) ?? 0, ab.amount - manaCount(parseCost(ab.cost!))));
   return [...most.values()].reduce((n, x) => n + x, 0) + g.players[pid].pool.length;
@@ -903,7 +920,7 @@ interface Plan {
   pool: Mana[];
   sources: Source[];
   /** The mana abilities used, in order. */
-  uses: { id: string; ability: number }[];
+  uses: ManaUseRef[];
   /** Life the mana abilities used cost (119.4). */
   abilityLife: number;
   /** Generic mana still to pay: the cost's own plus any {2/W} paid the generic way. */
@@ -930,8 +947,8 @@ const extraMana = (s: Source, paying: ManaSym | null): Mana[] =>
 const useSource = (plan: Plan, s: Source, paying: ManaSym | null): Plan => ({
   ...plan,
   pool: [...plan.pool, ...extraMana(s, paying)],
-  sources: plan.sources.filter((x) => x.id !== s.id),
-  uses: [...plan.uses, { id: s.id, ability: s.ability }],
+  sources: plan.sources.filter((x) => !x.taps.some((t) => s.taps.includes(t))),
+  uses: [...plan.uses, { id: s.id, ability: s.ability, ...(s.creature ? { creature: s.creature } : {}), taps: s.taps }],
   abilityLife: plan.abilityLife + s.life,
   spent: plan.spent + 1,
   uncounterable: plan.uncounterable || !!s.uncounterable,
@@ -1028,10 +1045,19 @@ function payShards(shards: HybridOption[][], plan: Plan, life: number): Plan | n
  * multi-mana source (e.g. Sol Ring) stays in the pool until the step ends. `life` is
  * what Phyrexian symbols and the cost itself take.
  */
+/** A mana ability used to pay: permanent `id`'s ability `ability`, and the creature it taps for its cost, if any. */
+export interface ManaUseRef {
+  id: string;
+  ability: number;
+  creature?: string;
+  taps: string[];
+}
+
 /** How a cost would be paid (see `planPayment`). */
 export interface Payment {
+  /** The permanents tapped or sacrificed for it. */
   tap: string[];
-  uses: { id: string; ability: number }[];
+  uses: ManaUseRef[];
   pool: Mana[];
   life: number;
   /** How much mana is spent. */
@@ -1059,7 +1085,8 @@ function planFrom(g: Game, pid: PlayerId, cost: Cost, spell: Card | undefined, k
   if (!costed.length) return null;
   // Not enough mana however the costed abilities are used: skip the search.
   const most = new Map<string, number>();
-  for (const s of manaSources(g, pid)) if (!keep.includes(s.id)) most.set(s.id, Math.max(most.get(s.id) ?? 0, s.amount));
+  // Each source counted once for what it taps: an upper bound on what they can make together.
+  for (const s of manaSources(g, pid)) if (!s.taps.some((t) => keep.includes(t))) most.set(s.taps.join(), Math.max(most.get(s.taps.join()) ?? 0, s.amount));
   for (const { c, ab } of costed) most.set(c.id, Math.max(most.get(c.id) ?? 0, ab.amount - manaCount(parseCost(ab.cost!))));
   const total = inPool.length + [...most.values()].reduce((n, x) => n + x, 0);
   if (total < manaCount(cost)) return null;
@@ -1118,7 +1145,7 @@ function planWithCosted(
       if (!rest || act.life + rest.life + (ab.life ?? 0) > life) continue;
       return {
         tap: [...act.tap, c.id, ...rest.tap],
-        uses: [...act.uses, { id: c.id, ability: ab.index }, ...rest.uses],
+        uses: [...act.uses, { id: c.id, ability: ab.index, taps: [c.id] }, ...rest.uses],
         pool: rest.pool,
         life: act.life + rest.life,
         spent: rest.spent,
@@ -1137,7 +1164,7 @@ function planPlain(g: Game, pid: PlayerId, cost: Cost, spell: Card | undefined, 
   // Mana with a restriction can be spent only on what it allows (106.6).
   const wants = colorWants(g, pid, spell?.id);
   const all = manaSources(g, pid)
-    .filter((s) => spendable(s.only, spell) && !keep.includes(s.id))
+    .filter((s) => spendable(s.only, spell) && !s.taps.some((t) => keep.includes(t)))
     .map((s) => ({ ...s, keep: keepValue(s, wants) }));
   const pool = inPool.filter((m) => spendable(m.only, spell));
   const kept = inPool.filter((m) => !spendable(m.only, spell));
@@ -1156,7 +1183,7 @@ function planPlain(g: Game, pid: PlayerId, cost: Cost, spell: Card | undefined, 
   const start: Plan = { pool: ordered, sources: all, uses: [], abilityLife: 0, generic: cost.generic, life: cost.life, spent: 0, uncounterable: false, wants };
   const paid = payShards([...pips, ...hybrid], start, p.life);
   if (!paid || paid.life + paid.abilityLife > p.life) return null;
-  return { tap: paid.uses.map((u) => u.id), uses: paid.uses, pool: [...paid.pool, ...kept], life: paid.life, spent: paid.spent, uncounterable: paid.uncounterable };
+  return { tap: [...new Set(paid.uses.flatMap((u) => u.taps))], uses: paid.uses, pool: [...paid.pool, ...kept], life: paid.life, spent: paid.spent, uncounterable: paid.uncounterable };
 }
 
 /** Whether `pay` looks ahead (`bestPayment`). Off while a bot tries moves out on copies of the game. */
@@ -1212,8 +1239,8 @@ export function pay(g: Game, pid: PlayerId, cost: Cost, spell?: Card, keep: stri
   if (!plan) return null;
   g.players[pid].pool = plan.pool;
   // Every ability is activated before any of them is sacrificed or deals its damage.
-  const used = plan.uses.map((u) => ({ c: permanent(g, u.id)!, ab: manaAbilities(g, permanent(g, u.id)!).find((m) => m.index === u.ability)! }));
-  for (const { c, ab } of used) useManaAbility(g, pid, c, { ...ab, sacrifice: false });
+  const used = plan.uses.map((u) => ({ c: permanent(g, u.id)!, ab: manaAbilities(g, permanent(g, u.id)!).find((m) => m.index === u.ability)!, creature: u.creature }));
+  for (const { c, ab, creature } of used) useManaAbility(g, pid, c, { ...ab, sacrifice: false }, creature);
   const spent = used.filter((u) => u.ab.sacrifice).map((u) => u.c);
   if (spent.length) dieMany(g, spent, 'is sacrificed');
   if (plan.life) {
