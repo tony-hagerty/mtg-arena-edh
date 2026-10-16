@@ -71,6 +71,7 @@ import {
   activationSacrificeOptions,
   divisionOk,
   divisionTotal,
+  changeOptions,
 } from '../engine';
 import type { AbilityRef, Action, AttackOption, Card, CastChoices, Cost, Game, ManaSym, Payment, PlayerId, StackItem, Step, Stops, TargetRef, TargetSpec } from '../engine';
 import { absoluteStops, useStore } from './store';
@@ -512,6 +513,9 @@ function currentTargets(g: Game, me: PlayerId, t: Targeting): TargetRef[] {
   const source = sourceOf(g, t);
   const spec = t.specs[t.chosen.length];
   if (!source || !spec) return [];
+  // Changing targets (115.7a): only to another legal target, and a missing one stays missing.
+  const item = t.mode === 'retarget' ? retargetItem(g) : undefined;
+  if (item && g.decision?.type === 'retarget' && g.decision.choice.change) return changeOptions(g, item)[t.chosen.length] ?? [];
   // "Two target players": the second can't be the first again (115.3).
   const other = spec.distinctFrom === undefined ? null : t.chosen[spec.distinctFrom];
   // New targets are legal for the spell or ability's controller (115.7d).
@@ -567,6 +571,8 @@ export function buildView(): View {
                 ? `${who} is naming ${g.decision?.type === 'name' && g.decision.choice.of ? (g.decision.choice.of === 'color' ? 'a colour' : 'a creature type') : 'a card'}`
                 : deciding === 'player'
                   ? `${who} is choosing a player`
+                  : deciding === 'number'
+                    ? `${who} is choosing a number`
                   : deciding === 'cast'
                     ? `${who} may cast a spell`
                     : deciding === 'retarget'
@@ -794,8 +800,14 @@ export function buildView(): View {
     if (t.mode === 'retarget') {
       // Any target may be left as it is (115.7d).
       const now = retargetItem(g)?.targets[t.chosen.length];
-      view.prompt = `${source ? label(source) : ''}: choose a new target (${spec?.label ?? 'target'}), or keep ${now ? describeRef(g, now) : 'it'}.`;
-      view.primary = { label: 'Keep Target', tone: 'plain', onClick: keepTarget };
+      if (g.decision?.type === 'retarget' && g.decision.choice.change) {
+        // Changing it (115.7a): it must become another legal target.
+        view.prompt = `${source ? label(source) : ''}: change its target${now ? ` from ${describeRef(g, now)}` : ''} to another ${spec?.label ?? 'target'}.`;
+        view.primary = null;
+      } else {
+        view.prompt = `${source ? label(source) : ''}: choose a new target (${spec?.label ?? 'target'}), or keep ${now ? describeRef(g, now) : 'it'}.`;
+        view.primary = { label: 'Keep Target', tone: 'plain', onClick: keepTarget };
+      }
     }
     return view;
   }
