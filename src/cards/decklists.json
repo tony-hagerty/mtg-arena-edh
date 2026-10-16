@@ -544,6 +544,112 @@
         "Wayfarer's Bauble",
         "Windfall"
       ]
+    },
+    {
+      "id": "ketramose",
+      "title": "Necropotence at Home",
+      "blurb": "",
+      "pilot": "",
+      "commanders": [
+        "Ketramose, the New Dawn"
+      ],
+      "basics": {
+        "Plains": 6,
+        "Swamp": 3
+      },
+      "cards": [
+        "Abandoned Air Temple",
+        "Agatha's Soul Cauldron",
+        "Appa, Steadfast Guardian",
+        "Arcane Signet",
+        "Archivist of Oghma",
+        "Argent Dais",
+        "Avatar's Wrath",
+        "Aven Interrupter",
+        "Bleachbone Verge",
+        "Blind Obedience",
+        "Bloodstained Mire",
+        "Boggart Trawler",
+        "Bojuka Bog",
+        "Caves of Koilos",
+        "Cling to Dust",
+        "Command Tower",
+        "Currency Converter",
+        "Deadly Rollick",
+        "Delivery Moogle",
+        "Dust Bowl",
+        "Eclipsed Steppe",
+        "Eerie Interlude",
+        "Eirdu, Carrier of Dawn",
+        "Emperor of Bones",
+        "Ephemerate",
+        "Esper Sentinel",
+        "Exotic Orchard",
+        "Exsanguinate",
+        "Fetid Heath",
+        "Flare of Fortitude",
+        "Flickering Hound",
+        "Flooded Strand",
+        "Ghost Vacuum",
+        "Gleaming Splendor",
+        "Godless Shrine",
+        "Grand Abolisher",
+        "Gray Merchant of Asphodel",
+        "Haliya, Guided by Light",
+        "Insatiable Avarice",
+        "Isolated Chapel",
+        "Land Tax",
+        "Lion Sash",
+        "Lively Dirge",
+        "Lotho, Corrupt Shirriff",
+        "Marsh Flats",
+        "Monk Gyatso",
+        "Niv-Mizzet, Ghost Counsel",
+        "Ondu Inversion",
+        "Orzhov Signet",
+        "Pearl Medallion",
+        "Phelia, Exuberant Shepherd",
+        "Plaza of Heroes",
+        "Polluted Delta",
+        "Recruiter of the Guard",
+        "Relic of Progenitus",
+        "Reprieve",
+        "Shadowy Backstreet",
+        "Shattered Sanctum",
+        "Sheoldred, the Apocalypse",
+        "Silence",
+        "Skirge Familiar",
+        "Skyclave Apparition",
+        "Smothering Tithe",
+        "Sol Ring",
+        "Solitude",
+        "Springleaf Drum",
+        "Summon: Yojimbo",
+        "Sword of Hearth and Home",
+        "Takenuma, Abandoned Mire",
+        "Talisman of Hierarchy",
+        "Talon Gates of Madara",
+        "Tataru Taru",
+        "Teferi's Protection",
+        "The Eternal Wanderer",
+        "The Legend of Yangchen",
+        "The Mind Stone",
+        "The Ooze",
+        "The Queen of Dale",
+        "The Soul Stone",
+        "Trouble in Pairs",
+        "Turbulent Moor",
+        "Urza's Cave",
+        "Urza's Saga",
+        "Vault of Champions",
+        "Voice of Victory",
+        "Whitemane Lion",
+        "Winds of Abandon",
+        "Windswept Heath",
+        "Wishclaw Talisman",
+        "Witch Enchanter"
+      ],
+      "wip": true
     }
   ],
   "tokens": {
@@ -863,6 +969,71 @@
       "oracleText": "Whenever you cast a noncreature spell, this token deals 1 damage to each opponent.",
       "keywords": [],
       "query": "t:token !\"Wizard\" c=b pow=0 tou=1"
+    },
+    "Ally": {
+      "name": "Ally",
+      "power": "1",
+      "toughness": "1",
+      "colors": [
+        "W"
+      ],
+      "typeLine": "Token Creature — Ally",
+      "keywords": [],
+      "query": "t:token !\"Ally\" c=w pow=1 tou=1"
+    },
+    "Samurai 2/2 double strike": {
+      "name": "Samurai",
+      "power": "2",
+      "toughness": "2",
+      "colors": [
+        "W"
+      ],
+      "typeLine": "Token Creature — Samurai",
+      "oracleText": "Double strike",
+      "keywords": [
+        "Double strike"
+      ],
+      "query": "t:token !\"Samurai\" c=w pow=2 tou=2 o:\"double strike\""
+    },
+    "Rogue 2/2": {
+      "name": "Rogue",
+      "power": "2",
+      "toughness": "2",
+      "colors": [
+        "B"
+      ],
+      "typeLine": "Token Creature — Rogue",
+      "keywords": [],
+      "query": "t:token !\"Rogue\" c=b pow=2 tou=2"
+    },
+    "Construct 0/0 artifacts": {
+      "name": "Construct",
+      "power": "0",
+      "toughness": "0",
+      "colors": [],
+      "typeLine": "Token Artifact Creature — Construct",
+      "oracleText": "This token gets +1/+1 for each artifact you control.",
+      "keywords": [],
+      "query": "t:token !\"Construct\" pow=0 tou=0 o:\"for each artifact you control\""
+    },
+    "Mutagen": {
+      "name": "Mutagen",
+      "colors": [],
+      "typeLine": "Token Artifact — Mutagen",
+      "oracleText": "{1}, {T}, Sacrifice this token: Put a +1/+1 counter on target creature. Activate only as a sorcery.",
+      "keywords": [],
+      "query": "t:token !\"Mutagen\""
+    },
+    "Illusion X/X": {
+      "name": "Illusion",
+      "power": "0",
+      "toughness": "0",
+      "colors": [
+        "U"
+      ],
+      "typeLine": "Token Creature — Illusion",
+      "keywords": [],
+      "query": "t:token !\"Illusion\" c=u pow=0 tou=0"
     }
   }
 }

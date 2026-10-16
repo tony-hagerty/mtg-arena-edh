@@ -2771,6 +2771,16 @@ export function search(
 }
 
 /**
+ * A player who searched their library some way other than `search` shuffles it, and
+ * "whenever a player searches their library" triggers (701.23, 701.23h): Delivery Moogle's
+ * search of a library and graveyard together.
+ */
+export function shuffleSearched(g: Game, pid: PlayerId) {
+  shuffle(g, g.players[pid].library);
+  broadcast(g, 'onSearch', { player: pid });
+}
+
+/**
  * The player searches their library for a basic land (optionally of one subtype), puts it
  * onto the battlefield (tapped unless told otherwise) or into their hand, then shuffles.
  */

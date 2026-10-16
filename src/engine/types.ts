@@ -1225,6 +1225,8 @@ export interface CardScript extends Triggers {
   grantsFlash?: (g: Game, self: Card, pid: PlayerId, spell: Card) => boolean;
   /** "This spell can't be countered" (113.6g). */
   uncounterable?: boolean;
+  /** "Exile [this spell]" as the last part of its resolving, instead of going to the graveyard (608.2n): Teferi's Protection. */
+  exilesItself?: boolean;
   /** While this permanent is on the battlefield: can't `spell`, cast by `caster`, be countered? */
   protectsSpell?: (g: Game, self: Card, spell: Card, caster: PlayerId) => boolean;
   /** "This doesn't untap during your untap step" (502.3). */
