@@ -78,6 +78,8 @@ export interface CastInfo {
   free?: boolean;
   /** Bargained (702.166b): the optional sacrifice was paid. */
   bargained?: boolean;
+  /** The cards discarded to cast it, as they last were in the hand ("if the discarded card wasn't a land card"). */
+  discarded?: Card[];
   /** The opponent promised its gift (702.174a, 702.174k), if it was promised. */
   gift?: PlayerId;
   /** How much mana was spent to cast it (Mockingbird). */
@@ -99,6 +101,8 @@ export interface CastChoices {
   alt?: number;
   /** Permanents sacrificed for the script's `additionalCost` (118.8). */
   sacrifice?: string[];
+  /** Cards discarded from the caster's hand for the script's `additionalCost` (118.8). */
+  discard?: string[];
   /** Cards exiled from the caster's hand for an alternative cost that asks for it, like Force of Will's (118.9). */
   exile?: string[];
   /** A modal spell's modes, as indexes into its script's `modal.modes` (700.2a). */
@@ -421,6 +425,8 @@ export interface Find {
   subtypes?: string[];
   /** Mana value at most this. */
   maxMv?: number;
+  /** Toughness at most this, as the card has it in the library (208.2a). */
+  maxToughness?: number;
   /** "a Mountain or Plains card", for the prompt. */
   label: string;
 }
@@ -935,10 +941,13 @@ export interface CardScript extends Triggers {
   /** Kicker (702.33): an optional additional cost. `multi` is multikicker, paid any number of times (702.33c). */
   kicker?: { mana: string; multi?: boolean };
   /**
-   * "As an additional cost to cast this spell, sacrifice a ..." (118.8). The spec says what
-   * can be sacrificed. `optional`: the caster may sacrifice one, as bargain says (702.166a).
+   * "As an additional cost to cast this spell, ..." (118.8), paid with the mana cost.
+   * `sacrifice`: a permanent that fits the spec; `optional`, the caster may sacrifice one,
+   * as bargain says (702.166a). `discard`: that many other cards from the caster's hand.
+   * `life`: that much life (119.4), or `'x'` for "pay X life", X announced as it is cast
+   * (601.2b, 107.3a) and kept in `CastInfo.x`.
    */
-  additionalCost?: { sacrifice: TargetSpec; optional?: boolean };
+  additionalCost?: { sacrifice?: TargetSpec; optional?: boolean; discard?: number; life?: number | 'x' };
   /**
    * Gift (702.174): "Gift a [token]". The caster may promise an opponent a gift as they
    * cast it; that player then creates the token before the spell's other effects

@@ -34,6 +34,7 @@ import {
   CANT_ATTACK,
   CANT_BLOCK,
   COMMANDER_DAMAGE,
+  allCreatures,
   altCostsOf,
   canBlock,
   commanderDamageFrom,
@@ -213,6 +214,16 @@ function targetChoices(g: Game, pid: PlayerId, specs: TargetSpec[], source: Card
 const sacrificeWorth = (g: Game, c: Card) => (isCreature(c) ? threat(g, c) : c.isToken ? 0.5 : 1 + data(c).cmc * 0.5);
 
 /**
+ * Values of X worth paying in life (Toxic Deluge): each creature's toughness, the three
+ * biggest at most, so the look-ahead sees what each X does. Never all of the bot's life.
+ */
+function lifeXChoices(g: Game, pid: PlayerId, most: number): number[] {
+  const cap = Math.min(most, g.players[pid].life - 1);
+  const xs = [...new Set(allCreatures(g).map((c) => stats(g, c).toughness))].filter((x) => x > 0 && x <= cap).sort((a, b) => b - a);
+  return xs.slice(0, 3);
+}
+
+/**
  * A few sensible ways to cast `c` (601.2b), for the look-ahead to compare: every set of
  * modes it allows (700.2), each available cost (mana cost, alternative cost, flashback or
  * escape), X as high as it can pay and about half that, kicked as many times as it can pay
@@ -241,9 +252,13 @@ function castChoices(g: Game, pid: PlayerId, c: Card): CastChoices[] {
       }
     }
     // The additional cost's sacrifice: the least valuable, or none if it is optional (bargain).
-    const extra = script.additionalCost
+    const extra = script.additionalCost?.sacrifice
       ? [...(script.additionalCost.optional ? [undefined] : []), ...cheapest(sacrificeOptions(g, pid, c, face)).slice(0, 1).map((x) => x.id)]
       : [undefined];
+    // "Discard a card": the ones the bot wants least.
+    const n = script.additionalCost?.discard ?? 0;
+    const discard = n ? discardOptions(g, pid, c).sort((a, b) => cardWant(g, pid, a) - cardWant(g, pid, b)).slice(0, n).map((x) => x.id) : undefined;
+    const lifeX = script.additionalCost?.life === 'x';
     const gifts = script.gift ? [undefined, ...opponentsOf(g, pid).map((o) => o.id)] : [undefined];
     const modeSets = script.modal ? modeChoices(g, pid, c, face) : [undefined];
     for (const modes of modeSets) {
@@ -251,7 +266,7 @@ function castChoices(g: Game, pid: PlayerId, c: Card): CastChoices[] {
         for (const add of extra) {
           if (add && way.sacrifice?.includes(add)) continue;
           const sacrifice = [...(way.sacrifice ?? []), ...(add ? [add] : [])];
-          const base: CastChoices = { ...way, sacrifice: sacrifice.length ? sacrifice : undefined, modes, ...(face ? { face } : {}) };
+          const base: CastChoices = { ...way, sacrifice: sacrifice.length ? sacrifice : undefined, ...(discard ? { discard } : {}), modes, ...(face ? { face } : {}) };
           for (const gift of gifts) {
             const kicks = [0];
             if (script.kicker) {
@@ -261,7 +276,8 @@ function castChoices(g: Game, pid: PlayerId, c: Card): CastChoices[] {
             }
             for (const kicked of kicks) {
               const most = maxX(g, pid, c, { ...base, gift, kicked });
-              for (const x of new Set([most, Math.floor(most / 2)])) {
+              const xs = lifeX ? lifeXChoices(g, pid, most) : [most, Math.floor(most / 2)];
+              for (const x of new Set(xs)) {
                 const choices: CastChoices = { ...base, x, kicked, ...(gift !== undefined ? { gift } : {}) };
                 if (x >= 0 && canCast(g, pid, c, choices)) out.push(choices);
               }
