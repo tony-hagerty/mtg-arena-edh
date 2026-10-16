@@ -592,7 +592,18 @@ export const isAftermath = (c: Card, face: number) => !!cardData(c.name).faces?.
  * (Emet-Selch), which pays its mana cost.
  */
 export const paysFlashback = (g: Game, c: Card, choices: CastChoices) =>
-  c.zone === 'graveyard' && !choices.escape && !castingNow(g, c) && !isAftermath(c, choices.face ?? 0) && !!scriptFor(c).flashback;
+  c.zone === 'graveyard' && !choices.escape && !castingNow(g, c) && !permission(g, null, c) && !isAftermath(c, choices.face ?? 0) && !!flashbackCost(g, c);
+
+/**
+ * The flashback cost card `c` in a graveyard has (702.34a): its own, or its mana cost while an
+ * effect gives it flashback this turn (Flashback, Stingcaster Mage).
+ */
+export function flashbackCost(g: Game, c: Card): string | undefined {
+  const own = scriptFor(c).flashback;
+  if (own) return own;
+  if (c.zone === 'graveyard' && g.effects.some((e) => e.kind === 'flashback' && e.card === c.id && e.moves === c.moves)) return data(c).manaCost;
+  return undefined;
+}
 
 /** Is `c` being cast without paying its mana cost while a spell resolves (608.2g, Beseech the Mirror)? */
 export const freeCast = (g: Game, c: Card) => g.decision?.type === 'cast' && g.decision.choice.card === c.id && g.decision.choice.free;
@@ -603,7 +614,10 @@ export const freeCast = (g: Game, c: Card) => g.decision?.type === 'cast' && g.d
  */
 export function permission(g: Game, pid: PlayerId | null, c: Card) {
   for (const e of g.effects) {
-    if (e.kind === 'mayCast' && e.card === c.id && e.moves === c.moves && (pid === null || e.player === pid)) return e;
+    if (e.kind !== 'mayCast' || e.card !== c.id || e.moves !== c.moves || (pid !== null && e.player !== pid)) continue;
+    // "If you control a Wizard" (Flameshape).
+    if (e.ifSubtype && !g.players[e.player].battlefield.some((x) => subtypesOf(x).includes(e.ifSubtype!))) continue;
+    return e;
   }
   return undefined;
 }
@@ -649,7 +663,7 @@ export function castCost(g: Game, c: Card, choices: CastChoices = {}, pid = c.ow
   const alt = choices.alt === undefined ? undefined : script.alternativeCosts?.[choices.alt];
   // Cast from a graveyard, a card pays its flashback cost (702.34a) or, with escape, its
   // mana cost plus exiling three other cards from that graveyard (702.138a).
-  const flashback = paysFlashback(g, c, choices) ? scriptFor(c).flashback : undefined;
+  const flashback = paysFlashback(g, c, choices) ? flashbackCost(g, c) : undefined;
   // "Without paying its mana cost" is an alternative cost of nothing (118.9, 601.2f), and so
   // is casting a plotted card (702.170d). An airbent card costs {2} instead (701.65a). A card
   // with its own escape pays its escape cost (702.138a); escape given by Underworld Breach is
@@ -3316,7 +3330,7 @@ function eliminate(g: Game, p: Player, reason: string) {
   const theirs = (x: StackItem) => x.controller === p.id || x.card.owner === p.id;
   g.stack = g.stack.filter((x) => !theirs(x));
   g.triggers = g.triggers.filter((x) => !theirs(x));
-  g.effects = g.effects.filter((e) => e.player !== p.id);
+  g.effects = g.effects.filter((e) => !('player' in e) || e.player !== p.id);
   for (const o of g.players) {
     if (o.id === p.id) continue;
     // Their cards in other players' zones (their permanents others control) leave the game.

@@ -3,6 +3,7 @@
 import { createContext, useContext } from 'react';
 import {
   activatable,
+  canPlot,
   abilityHasX,
   activatedAbilities,
   activatedAt,
@@ -133,6 +134,8 @@ export interface Announce {
   xLife: boolean;
   /** The kicker cost, and how many times it can be paid (more than once only for multikicker). */
   kicker: { text: string; most: number } | null;
+  /** Plot (702.170a): its plot cost, if the card could be plotted now instead of cast. */
+  plot: string | null;
   /**
    * The mana cost (alt undefined) and each available alternative cost, and whether each can
    * be paid now. From a graveyard: flashback, and each escape ability (`escape`: how many
@@ -413,6 +416,7 @@ function announceOf(g: Game, me: PlayerId, card: Card, choices: CastChoices): An
         ? options.map((o) => ({ face: o.face, name: data(asSpell(card, o.face)).name, land: o.land, ok: o.ok }))
         : null,
     kicker: script.kicker && !land ? { text: costText(parseCost(script.kicker.mana)), most } : null,
+    plot: canPlot(g, me, card) ? scriptFor(card).plot! : null,
     handMana: card.zone === 'hand' && canTapForMana(g, me, card),
     handAbility: handAb ? activatedAt(card, handAb.activated)!.text : null,
     gifts: script.gift && !land ? opponentsOf(g, me).map((o) => ({ id: o.id, name: o.name })) : null,
@@ -925,6 +929,7 @@ function propose(mode: 'cast' | 'activate', card: Card) {
       !!script.gift ||
       handMana ||
       fromHand ||
+      canPlot(g, me, card) ||
       (!!ways && (ways.flashback || ways.aftermath || ways.permitted) && ways.escape) ||
       escapes(g, card).filter((e) => escapeOptions(g, card).length >= e.exile).length > 1 ||
       (siege && opponentsOf(g, me).length > 1));
@@ -1346,7 +1351,17 @@ export function playHandCard(card: Card) {
   if (options.length === 1 && options[0].land && !fromHand) S().act({ type: 'playLand', card: card.id, face: options[0].face });
   else if (options.some((o) => o.ok)) propose('cast', card);
   else if (fromHand) propose('activate', card);
+  // A card that can't be cast now but can be plotted (702.170a).
+  else if (canPlot(g, me, card)) S().act({ type: 'plot', card: card.id });
   else if (!g.decision && canTapForMana(g, me, card)) S().act({ type: 'tapMana', card: card.id });
+}
+
+/** From the cast panel: plot the card instead of casting it (702.170a). */
+export function plotCard() {
+  const t = S().targeting;
+  if (!t || !t.announcing) return;
+  useStore.setState({ targeting: null });
+  S().act({ type: 'plot', card: t.cardId });
 }
 
 /** From the cast panel: use the card's mana ability from the hand instead of casting it. */
