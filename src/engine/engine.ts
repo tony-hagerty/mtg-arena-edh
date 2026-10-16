@@ -120,6 +120,8 @@ import {
   activationCost,
   enterTogether,
   settleEntering,
+  NeedsOrder,
+  withOrderAnswers,
 } from './rules';
 import type { EnterOpts } from './rules';
 import type {
@@ -2311,6 +2313,10 @@ function act(g: Game, a: Action): boolean {
       return true;
     }
 
+    // Handled by `applyAction`, which applies the stopped action again.
+    case 'orderDamage':
+      return false;
+
     case 'assignDamage': {
       // The whole assignment is checked at once; an illegal one is refused, to be made again (510.1e).
       if (g.decision?.type !== 'assignDamage') return false;
@@ -2419,9 +2425,37 @@ export interface ApplyOptions {
 }
 
 export function applyAction(g: Game, a: Action, { autoPass = true, stops, simulate }: ApplyOptions = {}): Game {
+  // A person ordering replacement effects (616.1): the action they stopped is applied again
+  // from where it began, with their answer.
+  if (g.decision?.type === 'orderDamage') {
+    const r = g.replay;
+    if (a.type !== 'orderDamage' || !r || !g.decision.order.options[a.option] || g.priority !== g.decision.order.player) return g;
+    const before = produce(g, (d) => {
+      d.decision = r.decision;
+      d.priority = r.priority;
+      delete d.replay;
+    });
+    return attempt(before, r.action, r.autoPass, r.stops as ApplyOptions['stops'], [...r.answers, a.option], simulate);
+  }
+  if (a.type === 'orderDamage') return g;
+  return attempt(g, a, autoPass, stops, [], simulate);
+}
+
+/** Applies `a`, with these answers to the order questions it asks (`NeedsOrder`); stops to ask the next one. */
+function attempt(g: Game, a: Action, autoPass: boolean, stops: ApplyOptions['stops'], answers: number[], simulate?: boolean): Game {
   const run = () =>
     produce(g, (draft) => {
       if (act(draft, a)) settle(draft, autoPass, stops);
     });
-  return simulate ? withoutLookahead(run) : run();
+  try {
+    // A bot trying a move out can't ask anyone: the order that deals the least damage is taken.
+    return withOrderAnswers(simulate ? null : answers, () => (simulate ? withoutLookahead(run) : run()));
+  } catch (e) {
+    if (!(e instanceof NeedsOrder)) throw e;
+    return produce(g, (d) => {
+      d.replay = { action: a, autoPass, stops, answers, decision: g.decision, priority: g.priority };
+      d.decision = { type: 'orderDamage', order: e.choice };
+      d.priority = e.choice.player;
+    });
+  }
 }

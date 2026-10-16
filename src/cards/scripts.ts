@@ -323,7 +323,10 @@ registerScripts({
 
   // ===== Red =====
   'Torbran, Thane of Red Fell': {
-    damageBonus: (_g, self, source, targetOwner) => (isColor(source, 'R') && targetOwner !== self.controller ? 2 : 0),
+    // "If a red source you control would deal damage to an opponent or a permanent an opponent
+    // controls, it deals that much damage plus 2 instead." (614.1a)
+    changesDamage: (_g, self, source, to) =>
+      source.controller === self.controller && isColor(source, 'R') && (to.player ?? to.card!.controller) !== self.controller ? { plus: 2 } : null,
   },
   'Goblin Chainwhirler': {
     onEnter: (g, { self, you }) =>
@@ -338,14 +341,11 @@ registerScripts({
   'Shivan Dragon': firebreathing,
   'Furnace Whelp': firebreathing,
   'Thundermaw Hellkite': {
+    // "It deals 1 damage to each creature with flying your opponents control. Tap those creatures."
     onEnter: (g, { self, you }) => {
-      for (const o of opponentsOf(g, you)) {
-        for (const c of creaturesOf(g, o.id)) {
-          if (!stats(g, c).keywords.has('flying')) continue;
-          damageCard(g, self, c, 1);
-          tap(g, c);
-        }
-      }
+      const fliers = opponentsOf(g, you).flatMap((o) => creaturesOf(g, o.id).filter((c) => stats(g, c).keywords.has('flying')));
+      simultaneously(g, () => fliers.forEach((c) => void damageCard(g, self, c, 1)));
+      for (const c of fliers) if (c.zone === 'battlefield') tap(g, c);
     },
   },
   'Flametongue Kavu': {
@@ -388,9 +388,7 @@ registerScripts({
     onEnter: (g, { self, targets }) => void dealDamage(g, self, targets[0], 2),
   },
   'Balefire Dragon': {
-    onCombatDamageToPlayer: (g, { self, player, amount }) => {
-      for (const c of creaturesOf(g, player)) damageCard(g, self, c, amount);
-    },
+    onCombatDamageToPlayer: (g, { self, player, amount }) => simultaneously(g, () => creaturesOf(g, player).forEach((c) => void damageCard(g, self, c, amount))),
   },
   'Mogg Fanatic': {
     activated: {
@@ -410,15 +408,11 @@ registerScripts({
     },
   },
   Pyroclasm: {
-    onResolve: (g, { self }) => {
-      for (const c of allCreatures(g)) damageCard(g, self, c, 2);
-    },
+    onResolve: (g, { self }) => simultaneously(g, () => allCreatures(g).forEach((c) => void damageCard(g, self, c, 2))),
   },
   'Blasphemous Act': {
     costReduction: (g) => allCreatures(g).length,
-    onResolve: (g, { self }) => {
-      for (const c of allCreatures(g)) damageCard(g, self, c, 13);
-    },
+    onResolve: (g, { self }) => simultaneously(g, () => allCreatures(g).forEach((c) => void damageCard(g, self, c, 13))),
   },
   Shatter: kill({ type: 'permanent', label: 'target artifact', filter: (_g, c) => hasType(c, 'Artifact') }),
   Fervor: { static: (_g, self, c) => (c.controller === self.controller ? { keywords: ['haste'] } : null) },
