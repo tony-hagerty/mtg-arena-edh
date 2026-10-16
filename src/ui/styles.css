@@ -2070,6 +2070,13 @@ button {
   text-shadow: 0 0.15rem 0.4rem #000, 0 0 0.8rem #000;
 }
 
+/* "Trigger" or "Ability" under a flashed ability's source card. */
+.spell-ability {
+  margin-top: 0.6rem;
+  font: 600 2.3rem var(--serif);
+  text-shadow: 0 0.15rem 0.4rem #000, 0 0 0.8rem #000;
+}
+
 .preview {
   position: fixed;
   z-index: 200;
