@@ -2102,6 +2102,7 @@ function act(g: Game, a: Action): boolean {
         from,
         alt: choices.alt,
         dash: !!alt?.dash,
+        ...(alt?.impending ? { impending: true } : {}),
         escaped,
         free,
         ...(fromExile === 'airbent' ? { airbent: true } : {}),

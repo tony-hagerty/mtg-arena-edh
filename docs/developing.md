@@ -19,6 +19,7 @@ src/cards/      decklists.json        the decks and tokens
                 cache.ts              the browser's cache of fetched cards (IndexedDB)
                 requests.ts           docs/card-requests.json: entries and merging
                 creature-types.json   every creature type (205.3m; npm run fetch-rules)
+                subtypes.json         the other card types' subtypes (205.3g-q; npm run fetch-rules)
                 cards.generated.json  card data from Scryfall (npm run fetch-cards)
                 scripts.ts            what each card does (starter decks)
                 kraum-tymna.ts        what the Kraum and Tymna deck's cards do
@@ -190,6 +191,7 @@ fetched card too, since the card is matched to it by name.
 | Aura | `enchant` and `static: attachedBonus({...})` |
 | Equipment | `attachedBonus` with `activated: equip('{2}')` |
 | Vehicle | `activated: crew(3)` |
+| Impending | spread `...impending(4, '{1}{U}{U}')` into the script: its alternative cost and end-step trigger; the engine adds the time counters and "isn't a creature" |
 | Several activated abilities | list them in printed order (`activated: [ab1, equip('{1}')]`); an `activate` action and its stack item name one by `activated` (its index) |
 | Activated ability options | `fromHand`, `when`, `reduction`; costs `discard`, `discardSelf`, `counters`, or `sacrificeOne` permanent that fits a spec ("Sacrifice a creature:") |
 | Planeswalker | `loyalty` abilities: `{ cost: -2, text, targets, resolve }`, or `cost: '-X'` |
