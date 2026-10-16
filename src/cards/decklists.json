@@ -548,8 +548,8 @@
     {
       "id": "ketramose",
       "title": "Necropotence at Home",
-      "blurb": "",
-      "pilot": "",
+      "blurb": "White-black exile: each time cards leave a graveyard or the battlefield for exile on your turn, Ketramose draws you a card.",
+      "pilot": "Djeru",
       "commanders": [
         "Ketramose, the New Dawn"
       ],
@@ -648,8 +648,7 @@
         "Windswept Heath",
         "Wishclaw Talisman",
         "Witch Enchanter"
-      ],
-      "wip": true
+      ]
     }
   ],
   "tokens": {

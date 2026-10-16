@@ -2118,7 +2118,7 @@ export const canProtect = (g: Game, c: Card, pid: PlayerId) =>
   !g.players[pid]?.lost && (isSiege(c) ? pid !== c.controller : pid === c.controller);
 
 /** Sets up a permanent that was just put onto the battlefield, and triggers "enters" abilities (603.6a). */
-function arrive(g: Game, c: Card, opts: { tapped?: boolean; protector?: PlayerId; counters?: Record<string, number> }) {
+function arrive(g: Game, c: Card, opts: EnterOpts) {
   setUp(g, c, opts);
   entered(g, c, opts);
 }
@@ -2127,7 +2127,7 @@ function arrive(g: Game, c: Card, opts: { tapped?: boolean; protector?: PlayerId
 export const WARP = '@warp';
 
 /** Sets up a permanent that was just put onto the battlefield, before anything triggers on it. */
-function setUp(g: Game, c: Card, opts: { tapped?: boolean; protector?: PlayerId; counters?: Record<string, number> }) {
+function setUp(g: Game, c: Card, opts: EnterOpts) {
   c.sick = true;
   refreshSubtypes(g); // its choice or copy is set by now
   const tapped = scriptFor(c).entersTapped;
@@ -2151,10 +2151,12 @@ function setUp(g: Game, c: Card, opts: { tapped?: boolean; protector?: PlayerId;
     c.protector = opts.protector !== undefined && canProtect(g, c, opts.protector) ? opts.protector : defaultProtector(g, c);
     if (c.protector !== null) log(g, `${g.players[c.protector].name} protects ${label(c)}.`, c.controller, [c]);
   }
+  // What the effect putting it there says it is or has for as long as it stays (611.2a).
+  if (opts.lasting) addLasting(c, opts.lasting);
 }
 
 /** Triggers on a permanent having entered (603.6a): its own "enters" abilities, then everything watching. */
-function entered(g: Game, c: Card, opts: { counters?: Record<string, number> }) {
+function entered(g: Game, c: Card, opts: EnterOpts) {
   // Evoke: "When this permanent enters, if its evoke cost was paid, its controller sacrifices it" (702.74a).
   const alt = c.cast?.alt !== undefined ? scriptFor(c, 'stack', c.face).alternativeCosts?.[c.cast.alt] : undefined;
   if (alt?.evoke) g.triggers.push({ id: `s${g.nextId++}`, kind: 'triggered', controller: c.controller, card: snapshot(c), hook: 'onEvoked', event: {}, targets: [] });
@@ -2164,6 +2166,11 @@ function entered(g: Game, c: Card, opts: { counters?: Record<string, number> }) 
   if (isCreature(c)) broadcast(g, 'onCreatureEnters', { entered: c });
   if (isLand(c)) broadcast(g, 'onLandfall', { land: c });
   broadcast(g, 'onPermanentEnters', { entered: c });
+  const after = opts.after;
+  if (after) {
+    const then = scriptFor(after.source).then?.[after.key];
+    then?.(g, { self: after.source, you: after.you, targets: [], chooser: after.you, picked: [c], yes: true, name: '', player: null, data: after.data ?? {} });
+  }
 }
 
 /** How a card is put onto the battlefield (see `enterBattlefield`). */
@@ -2182,6 +2189,16 @@ export interface EnterOpts {
   chosen?: string;
   /** Its own replacement effect has been applied already. */
   replaced?: boolean;
+  /** What the effect putting it there says it is or has for as long as it stays (611.2a): Ghost Vacuum's 1/1 Spirit, Emperor of Bones's haste. */
+  lasting?: Lasting;
+  /**
+   * What the effect putting it there does once it is there ("It gains haste. Sacrifice it at
+   * the beginning of the next end step."): `source`'s script `then[key]` runs with the card as
+   * `picked[0]`. It waits with the card for its replacement effect's choice (614.12a).
+   */
+  after?: { source: Card; key: string; you: PlayerId; data?: Record<string, unknown> };
+  /** The cards entering together it waits with (`enterTogether`). */
+  group?: string;
 }
 
 /**
@@ -2195,8 +2212,7 @@ export function enterBattlefield(g: Game, c: Card, opts: EnterOpts = {}) {
   const controller = opts.controller ?? c.owner;
   const script = scriptFor(c, 'battlefield', opts.face ?? (c.zone === 'stack' ? c.face : 0));
   if (script.replaceEnter && !opts.replaced && script.replaceEnter(g, c, controller)) {
-    const waiting = g.choices.find((x) => 'script' in x && x.script === c.id);
-    if (waiting && 'data' in waiting) waiting.data = { ...waiting.data, enter: { ...opts, controller } };
+    rememberEnter(g, c, { ...opts, controller });
     return;
   }
   c.controller = controller;
@@ -2208,23 +2224,50 @@ export function enterBattlefield(g: Game, c: Card, opts: EnterOpts = {}) {
   arrive(g, c, opts);
 }
 
+/** Stores how `c` is entering in the choice its replacement effect just asked (614.12a), for `finishEnter`. */
+function rememberEnter(g: Game, c: Card, opts: EnterOpts): boolean {
+  const waiting = g.choices.find((x) => 'script' in x && x.script === c.id);
+  if (!waiting) return false;
+  const choice = waiting as { data?: Record<string, unknown> };
+  choice.data = { ...(choice.data ?? {}), enter: opts };
+  return true;
+}
+
 /**
  * Puts several cards onto the battlefield at the same time (Eerie Interlude, Ghost Vacuum,
  * Winds of Abandon): each is set up first, then "enters" abilities trigger, so every one of
- * them sees the others enter (603.6a). A card whose own replacement effect needs a choice as it
- * enters (614.12a) is put there once that choice is made, after the others.
+ * them sees the others enter (603.6a). A card whose own replacement effect needs a choice as
+ * it enters (614.12a) has it made first, and none of them enters until every such choice is
+ * made: they wait in `Game.entering`.
  */
 export function enterTogether(g: Game, entries: { card: Card; opts?: EnterOpts }[]) {
-  const now: { c: Card; opts: EnterOpts }[] = [];
+  const id = `e${g.nextId++}`;
+  const ready: { id: string; moves: number; opts: EnterOpts }[] = [];
+  const waiting: string[] = [];
   for (const { card: c, opts = {} } of entries) {
     if (c.zone === 'battlefield') continue;
     const controller = opts.controller ?? c.owner;
     const script = scriptFor(c, 'battlefield', opts.face ?? 0);
-    if (script.replaceEnter && !opts.replaced) {
-      enterBattlefield(g, c, opts);
+    if (script.replaceEnter && !opts.replaced && script.replaceEnter(g, c, controller)) {
+      // Asked, it waits for the answer; dealt with at once (Mox Diamond with no land), it doesn't enter.
+      if (rememberEnter(g, c, { ...opts, controller, group: id })) waiting.push(c.id);
       continue;
     }
-    c.controller = controller;
+    ready.push({ id: c.id, moves: c.moves, opts: { ...opts, controller, replaced: true } });
+  }
+  if (waiting.length) (g.entering ??= []).push({ id, ready, waiting });
+  else putTogether(g, ready);
+}
+
+/** The cards of a group whose choices are all made enter, together (603.6a). */
+function putTogether(g: Game, ready: { id: string; moves: number; opts: EnterOpts }[]) {
+  const now: { c: Card; opts: EnterOpts }[] = [];
+  for (const r of ready) {
+    const c = findCard(g, r.id);
+    // A card that has moved meanwhile is a new object (400.7): it isn't put there.
+    if (!c || c.moves !== r.moves || c.zone === 'battlefield') continue;
+    const opts = r.opts;
+    c.controller = opts.controller ?? c.owner;
     moveCard(g, c, 'battlefield');
     if (opts.face !== undefined) c.face = opts.face;
     if (opts.attachTo) c.attachedTo = opts.attachTo;
@@ -2238,12 +2281,29 @@ export function enterTogether(g: Game, entries: { card: Card; opts?: EnterOpts }
 }
 
 /**
+ * A card of an `enterTogether` group has had its replacement effect's choice answered: with
+ * `opts` it enters with the others, without (it went elsewhere instead) it doesn't. Once every
+ * card's choice is made, they all enter.
+ */
+export function settleEntering(g: Game, group: string, c: Card, opts?: EnterOpts) {
+  const pending = g.entering?.find((x) => x.id === group);
+  if (!pending || !pending.waiting.includes(c.id)) return;
+  pending.waiting = pending.waiting.filter((x) => x !== c.id);
+  if (opts) pending.ready.push({ id: c.id, moves: c.moves, opts: { ...opts, group: undefined } });
+  if (pending.waiting.length) return;
+  g.entering = g.entering!.filter((x) => x !== pending);
+  putTogether(g, pending.ready as { id: string; moves: number; opts: EnterOpts }[]);
+}
+
+/**
  * Finishes putting `c` onto the battlefield after its replacement effect's choice (614.12a).
  * `data` is the choice's data, which remembers how it was entering. `extra` is what the
  * choice decided, like a copy or a creature type.
  */
 export function finishEnter(g: Game, c: Card, data: Record<string, unknown>, extra: Partial<EnterOpts> = {}) {
-  enterBattlefield(g, c, { ...((data.enter as EnterOpts) ?? {}), ...extra, replaced: true });
+  const opts: EnterOpts = { ...((data.enter as EnterOpts) ?? {}), ...extra, replaced: true };
+  if (opts.group) settleEntering(g, opts.group, c, opts);
+  else enterBattlefield(g, c, opts);
 }
 
 /** What a copy of `c` copies (707.2), with the exceptions `subtypes` and `keywords` (707.9b). A copy of a copy copies what that copies, exceptions included (707.3). */

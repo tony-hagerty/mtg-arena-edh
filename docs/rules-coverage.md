@@ -196,7 +196,23 @@ are from the Comprehensive Rules in `docs/rules/`.
   attack you can't pay for is refused as you declare it; the cost is paid with auto-pay
   once attackers are declared, after they tap, so an attacker can't tap for it. A creature
   that must attack doesn't have to pay (508.1d). Bots attack through it only when the
-  attack is worth the mana.
+  attack is worth the mana. Summon: Yojimbo's "until your next turn" version works the
+  same way.
+- **Convoke (702.51):** given to creature spells (Eirdu). Auto-pay taps creatures after
+  its other sources. To pick them yourself, click creatures while paying: each one pays
+  for {1} or one mana of its colour, and the rest is paid with mana (`CastChoices.convoke`).
+- **Spree (702.172):** each chosen mode adds its own cost (Insatiable Avarice, Lively
+  Dirge).
+- **Overload (702.96):** "target" becomes "each", so the spell has no targets (Winds of
+  Abandon). **Evoke (702.74):** the creature is sacrificed as it enters (Solitude, whose
+  evoke cost exiles a white card from your hand). **Warp (702.185):** cast from your hand
+  for the warp cost; the permanent is exiled at the next end step and may be cast from
+  exile on a later turn (Haliya).
+- **Other costs:** "exile this" (Relic of Progenitus, Plaza of Heroes), "exile a creature
+  you control" (The Soul Stone), "remove two oil counters" (Argent Dais), "tap an
+  untapped creature you control" (Springleaf Drum, which a creature that just arrived can
+  pay, 302.6) and "discard a card: add {B}" (Skirge Familiar), and "you may sacrifice a
+  nontoken white creature rather than pay this spell's mana cost" (Flare of Fortitude).
 
 ### Mana
 
@@ -289,6 +305,30 @@ are from the Comprehensive Rules in `docs/rules/`.
   Urborg's "Each land is a Swamp", which then taps for {B}, 305.6).
 - **Untapping in other players' untap steps** (502.3, Unwinding Clock, Bender's
   Waterskin).
+- **Entering at the same time (603.6a):** cards an effect puts onto the battlefield
+  together all see each other enter (Eerie Interlude, Ghost Vacuum, Lively Dirge, Winds
+  of Abandon's lands). If one of them has a replacement effect that asks a choice as it
+  enters (614.12a, a shock land's life or Roaming Throne's creature type), every such
+  choice is made first and then they all enter. What the effect says the card is or has
+  ("is a 1/1 Spirit", "gains haste") applies as it enters, and what it does afterwards
+  ("sacrifice it at the beginning of the next end step") waits for the choice too.
+- **Phasing (702.26):** phased-out permanents are drawn faded at the back of their
+  controller's side and treated as though they don't exist; they phase in during that
+  player's next untap step, with Auras and Equipment attached to them (Teferi's
+  Protection, Talon Gates of Madara).
+- **Airbending (701.65):** the permanent or spell is exiled, and its owner may cast it
+  from exile for {2} for as long as it stays there (Appa, Avatar's Wrath, Avatar
+  Yangchen, Monk Gyatso).
+- **Plotted cards (702.170d):** Aven Interrupter's exiled spell may be cast free by its
+  owner on a later turn, at sorcery speed.
+- **Harnessed (701.64)** and abilities a Saga's chapter gives it (Urza's Saga, The Mind
+  Stone, The Soul Stone): they last as long as the permanent stays.
+- **Adapt (701.46), persist (702.79), reconfigure (702.151)** and "whenever one or more
+  +1/+1 counters are put on this" (Emperor of Bones, which also uses finality counters,
+  122.1h).
+- **Abilities from other cards:** creatures with +1/+1 counters have the activated
+  abilities of the creature cards exiled with Agatha's Soul Cauldron (607.2a), and you
+  may spend mana as though it were any colour on them.
   "Enters with counters". Actions from an opening hand (103.6, Gemstone Caverns).
 - **The legend rule (704.5j):** you choose which to keep; bots keep the untapped, ready
   one.
@@ -312,7 +352,8 @@ are from the Comprehensive Rules in `docs/rules/`.
 
 - **Flashback (702.34):** cast from your graveyard for the flashback cost, then exiled
   whenever it leaves the stack (countered too).
-- **Escape (702.138)**, given by Underworld Breach.
+- **Escape (702.138)**, given by Underworld Breach or printed on the card (Cling to Dust,
+  "exile five other cards"); you pick the cards to exile while paying.
 - **"You may cast / play that card this turn"** from any exile (Ragavan, Jeska's Will,
   Harnfel, Mnemonic Betrayal, whose spells take mana of any type). A land played this way
   is the turn's land (305.2a).
@@ -389,12 +430,34 @@ are from the Comprehensive Rules in `docs/rules/`.
 - **Populate (701.36):** you choose which creature token to copy, and a token that is
   itself a copy copies what it copies.
 - **Linked abilities** (607, Chrome Mox), cards exiled face down (406.3), and targets in
-  a graveyard.
+  a graveyard. "Cards exiled with" a permanent (Skyclave Apparition, Ghost Vacuum,
+  Currency Converter, Emperor of Bones) are the ones it exiled while it stayed the same
+  object (400.7).
+- **Exile triggers:** "whenever one or more cards are put into exile from graveyards
+  and/or the battlefield" triggers once for each event (Ketramose: Relic of Progenitus's
+  cost is one event, exiling every graveyard another); "when this leaves the battlefield"
+  and "whenever a creature you control with a +1/+1 counter leaves" look back in time
+  (603.10a, Skyclave Apparition, The Ooze).
+- **Life and protection for a player:** "your life total can't change" (119.7, 119.8;
+  Flare of Fortitude, Teferi's Protection), "you gain protection from everything"
+  (702.16j), life gained this turn (Haliya), and "if an opponent would begin an extra
+  turn, that player skips that turn instead" (614.10, Trouble in Pairs).
+- **Reflexive triggers (603.12):** "When a creature card is exiled this way, ..." (Agatha's
+  Soul Cauldron).
+- **More triggers:** "whenever an opponent searches their library" (once for each search,
+  701.23h, Archivist of Oghma), "whenever two or more creatures attack" (Argent Dais),
+  "becomes the target of a spell or ability" (Monk Gyatso), "draws their second card each
+  turn" (Trouble in Pairs), "whenever you cast a spell from exile" (Appa) and "spells
+  your opponents cast from graveyards or from exile cost {2} more" (Aven Interrupter).
+- **"No more than one creature can attack [this planeswalker] each combat"** (508.1c,
+  The Eternal Wanderer). "Until your next turn, your opponents can't cast spells from
+  anywhere other than their hands" (Avatar's Wrath).
 - **Keywords:** flying, reach, first strike, double strike, deathtouch, lifelink,
   trample, vigilance, haste, defender, hexproof, indestructible, menace, flash, storm,
   cumulative upkeep, mobilize, ward, dash, bargain, gift, afterlife, delve, rebound,
-  aftermath, paradigm, extort (702.101), job select (702.182), and protection from a
-  colour.
+  aftermath, paradigm, extort (702.101), job select (702.182), convoke, escape,
+  overload, evoke, warp, spree, persist, reconfigure, and protection from a colour or from
+  everything.
 
 ### Bots
 
@@ -484,8 +547,8 @@ These are deliberate cuts for a prototype. The biggest ones come first.
 - **Auto-pay's lookahead** checks your other cards at what they cost now, with commander
   tax and cost increases and reductions (601.2f), but with no kicker, X as 0 and no
   alternative cost. It doesn't foresee cost changes the spell being paid for will bring.
-- **Auto-pay** never uses a mana ability that costs a card (Simian Spirit Guide) or your
-  hand (Lion's Eye Diamond): use them by hand.
+- **Auto-pay** never uses a mana ability that costs a card (Simian Spirit Guide, Skirge
+  Familiar) or your hand (Lion's Eye Diamond): use them by hand.
 - **Attack costs** (Propaganda) are paid with auto-pay once attackers are declared: you
   can't pick which lands pay them.
 - **Mana Vault** doesn't ask about paying {4} while it is untapped, and **Tymna** doesn't
