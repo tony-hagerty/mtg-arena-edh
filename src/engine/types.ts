@@ -736,6 +736,12 @@ export interface Game {
   effects: TurnEffect[];
   /** Delayed triggered abilities waiting for their moment (603.7). */
   delayed: Delayed[];
+  /**
+   * Cards an effect puts onto the battlefield at the same time, waiting for the choices their
+   * own replacement effects ask for before any of them enters (614.12a, `enterTogether`).
+   * `ready` are the cards whose way of entering is settled; `waiting` are the ids still asked.
+   */
+  entering?: { id: string; ready: { id: string; moves: number; opts: object }[]; waiting: string[] }[];
   /** Extra turns to take after this one. The last is taken first (500.7). */
   extraTurns: ExtraTurn[];
   /**

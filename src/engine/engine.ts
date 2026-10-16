@@ -119,7 +119,9 @@ import {
   borrowedFrom,
   activationCost,
   enterTogether,
+  settleEntering,
 } from './rules';
+import type { EnterOpts } from './rules';
 import type {
   AbilityRef,
   Action,
@@ -436,6 +438,9 @@ function runThen(g: Game, choice: Choice, answer: { picked?: Card[]; yes?: boole
     player: answer.player ?? null,
     data,
   });
+  // A card entering with others whose replacement effect sent it elsewhere (Mox Diamond): the rest needn't wait for it.
+  const group = (data.enter as EnterOpts | undefined)?.group;
+  if (choice.script && group) settleEntering(g, group, card);
   g.choices = [...g.choices, ...waiting];
 }
 

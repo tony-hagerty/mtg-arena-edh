@@ -56,6 +56,7 @@ import {
   search,
   shuffleSearched,
   simultaneously,
+  snapshot,
   stats,
   their,
   turnOrder,
@@ -367,7 +368,11 @@ registerScripts({
       },
       text: 'Whenever one or more +1/+1 counters are put on this creature, put a creature card exiled with it onto the battlefield.',
     },
-    then: { reanimate: (g, { self, you, picked }) => picked[0] && emperorReturn(g, self, you, picked[0]) },
+    then: {
+      reanimate: (g, { self, you, picked }) => picked[0] && emperorReturn(g, self, you, picked[0]),
+      // "Sacrifice it at the beginning of the next end step": set up once it is there.
+      returned: (g, { self, you, picked }) => picked[0] && delay(g, self, you, { key: 'sacrifice', step: 'end', data: { id: picked[0].id, moves: picked[0].moves } }),
+    },
     delayed: { sacrifice: (g, { you, data: d }) => sacrificeIfYours(g, you, d as { id: string; moves: number }) },
     botChoice: { reanimate: (g, pid, choice) => ({ type: 'chooseCards', cards: [bestBy(g, choice, (c) => cardWant(g, pid, c))] }) },
   },
@@ -422,11 +427,15 @@ registerScripts({
       text: 'Whenever Phelia attacks, exile up to one other target nonland permanent.',
     },
     delayed: {
-      phelia: (g, { you, data: d }) => {
+      phelia: (g, { self, you, data: d }) => {
         const card = inExile(g, d.card as { id: string; moves: number });
-        if (!card) return;
-        enterBattlefield(g, card, { controller: card.owner });
-        if (card.zone === 'battlefield' && card.controller === you) addCounters(g, still(g, d.phelia as { id: string; moves: number }), 1);
+        // The counter is checked once it has entered, after any choice its replacement effect asks (614.12a).
+        if (card) enterBattlefield(g, card, { controller: card.owner, after: { source: snapshot(self), key: 'returned', you, data: { phelia: d.phelia } } });
+      },
+    },
+    then: {
+      returned: (g, { you, picked, data: d }) => {
+        if (picked[0]?.controller === you) addCounters(g, still(g, d.phelia as { id: string; moves: number }), 1);
       },
     },
   },
@@ -634,9 +643,9 @@ registerScripts({
         text: 'Put each creature card exiled with it onto the battlefield as 1/1 Spirits with flying counters',
         resolve: (g, { self, you }) => {
           const cards = linkedCards(g, self).filter((c) => hasType(c, 'Creature'));
-          enterTogether(g, cards.map((card) => ({ card, opts: { controller: you, counters: { flying: 1 } } })));
-          // A new base power and toughness (613.4b) and an extra subtype, for as long as each stays.
-          for (const c of cards) if (c.zone === 'battlefield') addLasting(c, { power: 1, toughness: 1, subtypes: ['Spirit'] });
+          // A new base power and toughness (613.4b) and an extra subtype, for as long as each stays (611.2a).
+          const lasting = { power: 1, toughness: 1, subtypes: ['Spirit'] };
+          enterTogether(g, cards.map((card) => ({ card, opts: { controller: you, counters: { flying: 1 }, lasting } })));
         },
       },
     ],
@@ -1160,11 +1169,8 @@ function abilityPermanent(g: Game): Card | undefined {
 /** Emperor of Bones: the creature card enters under your control with a finality counter, gains haste, and is sacrificed at the next end step. */
 function emperorReturn(g: Game, self: Card, you: PlayerId, card: Card) {
   if (card.zone !== 'exile') return;
-  enterBattlefield(g, card, { controller: you, counters: { finality: 1 } });
-  if (card.zone !== ('battlefield' as Card['zone'])) return;
   // "It gains haste." No duration: for as long as it stays (611.2a).
-  addLasting(card, { keywords: ['haste'] });
-  delay(g, self, you, { key: 'sacrifice', step: 'end', data: { id: card.id, moves: card.moves } });
+  enterBattlefield(g, card, { controller: you, counters: { finality: 1 }, lasting: { keywords: ['haste'] }, after: { source: snapshot(self), key: 'returned', you } });
 }
 
 /** "Sacrifice it": only a permanent you still control can be (701.21a). */
