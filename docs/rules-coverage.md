@@ -193,7 +193,10 @@ are from the Comprehensive Rules in `docs/rules/`.
   a colour your hand and command zone don't want before one they do, and lands and plain
   mana rocks before creatures and permanents with another {T} ability. A hybrid symbol is
   paid with the colour your other cards want less, and floating mana spent on generic is
-  the colour they want least. A multicolour source
+  the colour they want least. When a payment really happens, auto-pay also looks ahead:
+  it picks the way to pay that leaves the most of your other cards castable this turn,
+  counting instants and flash cards double. Bots skip this while they try moves out, and
+  use it for the move they make. A multicolour source
   tapped by hand makes the colour your hand needs most. Bots play the land for the colour
   they are shortest of.
 - **Mana abilities (605):** a permanent can have several, and they can cost life (119.4),
@@ -418,6 +421,9 @@ These are deliberate cuts for a prototype. The biggest ones come first.
   pay life instead. Tapping lands by hand first lets you steer it.
 - **Tapping a Treasure by hand** sacrifices it at once, so Cancel can't take that mana
   back (mana abilities can't be undone).
+- **Auto-pay's lookahead** checks your other cards at what they cost now, with commander
+  tax and cost increases and reductions (601.2f), but with no kicker, X as 0 and no
+  alternative cost. It doesn't foresee cost changes the spell being paid for will bring.
 - **Auto-pay** never uses a mana ability that costs a card (Simian Spirit Guide) or your
   hand (Lion's Eye Diamond): use them by hand.
 - **Mana Vault** doesn't ask about paying {4} while it is untapped, and **Tymna** doesn't
