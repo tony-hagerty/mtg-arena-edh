@@ -2,7 +2,7 @@
 // Immer draft of one; turn structure and action handling live in engine.ts.
 import { cardData } from '../cards/db';
 import { scriptOf } from './registry';
-import { characteristics, settled } from './layers';
+import { characteristics, settled, typesOf } from './layers';
 import type {
   ActivatedAbility,
   BroadcastHook,
@@ -117,10 +117,13 @@ export const SUPPORTED_KEYWORDS = [
   'persist',
   'harness',
   // Offspring (702.175) and spectacle (702.137) by the engine with the card's script;
-  // changeling (702.73) by `subtypesOf`.
+  // changeling (702.73) and devoid (702.114) by the layer system; impending (702.176) by the
+  // engine with the card's script (`impending`).
   'offspring',
   'spectacle',
   'changeling',
+  'devoid',
+  'impending',
 ];
 
 // ---------- card queries ----------
@@ -217,10 +220,17 @@ export const facesOf = (c: Card): number[] => (cardData(c.name).faces ?? [cardDa
 export const layoutOf = (c: Card) => cardData(c.name).layout;
 /** Display name (token keys like "Beast 3/3" differ from the printed name). */
 export const label = (c: Card) => data(c).name;
-/** Does `c` have this card type, supertype or subtype now (205), every effect applied (613.1d)? */
-export const hasType = (g: Game, c: Card, t: string) => characteristics(g, c, '4').typeLine.includes(t);
-/** Its subtypes now (205.3): the words after the dash in its type line. */
-export const subtypesOf = (g: Game, c: Card) => characteristics(g, c, '4').typeLine.split(' — ')[1]?.split(' ') ?? [];
+/**
+ * Does `c` have this card type, supertype or subtype now (205), every effect applied
+ * (613.1d)? A whole type, not part of one: a Pirate isn't a Rat. Several words, like
+ * "Basic Land", ask for each of them, except a two-word creature type like Time Lord.
+ */
+export function hasType(g: Game, c: Card, t: string): boolean {
+  const { all } = typesOf(characteristics(g, c, '4').typeLine);
+  return all.has(t) || (t.includes(' ') && t.split(' ').every((x) => all.has(x)));
+}
+/** Its subtypes now (205.3): the words after the dash in its type line, Time Lord being one (205.3b). */
+export const subtypesOf = (g: Game, c: Card): readonly string[] => typesOf(characteristics(g, c, '4').typeLine).subtypes;
 /**
  * Is it a creature now? Printed as one, or made one by an effect, like a crewed Vehicle
  * (702.122a). An Equipment with reconfigure isn't one while it is attached (702.151b).
@@ -2195,6 +2205,8 @@ function setUp(g: Game, c: Card, opts: EnterOpts) {
   for (const [kind, n] of [...Object.entries(scriptFor(c).entersWith ?? {}), ...Object.entries(opts.counters ?? {})]) c.counters[kind] = (c.counters[kind] ?? 0) + n;
   // Warp: "exile the permanent this spell becomes at the beginning of the next end step" (702.185a).
   const alt = c.cast?.alt !== undefined ? scriptFor(c, 'stack', c.face).alternativeCosts?.[c.cast.alt] : undefined;
+  // Impending: "If you chose to pay this permanent's impending cost, it enters with N time counters on it" (702.176a, 614.1c).
+  if (alt?.impending && c.cast?.impending) c.counters.time = (c.counters.time ?? 0) + alt.impending;
   if (alt?.warp) g.delayed.push({ id: `d${g.nextId++}`, controller: c.controller, card: snapshot(c), key: WARP, step: 'end', data: { id: c.id, moves: c.moves } });
   // Dash: "return the permanent this spell becomes to its owner's hand at the beginning of the next end step" (702.109a).
   if (c.cast?.dash) g.delayed.push({ id: `d${g.nextId++}`, controller: c.controller, card: snapshot(c), key: RETURN_TO_HAND, step: 'end', data: { id: c.id, moves: c.moves } });
@@ -2976,6 +2988,29 @@ export const persist: Trigger<object> = {
   text: 'Persist',
 };
 
+/**
+ * Impending N—[cost] (702.176a): "You may choose to pay [cost] rather than pay this spell's
+ * mana cost", and "At the beginning of your end step, if this permanent's impending cost was
+ * paid and it has a time counter on it, remove a time counter from it." Spread into the card's
+ * script. The engine does the rest: the time counters it enters with (`setUp`), and that it
+ * isn't a creature while it has one (`characteristics`, layer 4).
+ */
+export const impending = (n: number, cost: string): Pick<CardScript, 'alternativeCosts' | 'onEndStep'> => {
+  // The intervening "if" (603.4): checked as the step begins, and again as it resolves.
+  const impends = (c: Card | undefined) => !!c?.cast?.impending && counterCount(c, 'time') > 0;
+  return {
+    alternativeCosts: [{ label: `Impending ${n}—${cost}`, mana: cost, impending: n }],
+    onEndStep: {
+      when: (_g, { self, player }) => player === self.controller && impends(self),
+      resolve: (g, { self }) => {
+        const c = permanent(g, self.id);
+        if (sameCard(c, self) && impends(c)) removeCounters(c!, 1, 'time');
+      },
+      text: 'Impending: remove a time counter',
+    },
+  };
+};
+
 /** "Crew N": tap other creatures with total power N or more, and this becomes an artifact creature until end of turn (702.122a). */
 export const crew = (n: number): ActivatedAbility => ({
   cost: { crew: n },
@@ -3076,7 +3111,8 @@ export function searchable(g: Game, c: Card, find?: Find): boolean {
   const typed = !!find.types?.some((x) => hasType(g, c, x));
   const keyworded = !!find.keywords?.some((k) => d.keywords.some((x) => x.toLowerCase() === k));
   if ((find.types || find.keywords) && !typed && !keyworded) return false;
-  if (find.subtypes && !find.subtypes.some((x) => d.typeLine.split('—')[1]?.split(' ').includes(x))) return false;
+  // Its subtypes as they are in that zone: a changeling card is every creature type there too (702.73a).
+  if (find.subtypes && !find.subtypes.some((x) => subtypesOf(g, c).includes(x))) return false;
   if (find.costs && !find.costs.includes(d.manaCost)) return false;
   return find.maxMv === undefined || d.cmc <= find.maxMv;
 }
