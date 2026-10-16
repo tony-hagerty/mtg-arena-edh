@@ -72,6 +72,7 @@ import {
   divisionOk,
   divisionTotal,
   changeOptions,
+  creaturesOf,
 } from '../engine';
 import type { AbilityRef, Action, AttackOption, Card, CastChoices, Cost, Game, ManaSym, Payment, PlayerId, StackItem, Step, Stops, TargetRef, TargetSpec } from '../engine';
 import { absoluteStops, useStore } from './store';
@@ -1388,6 +1389,22 @@ export function chooseGraveyardTarget(id: string) {
  */
 function pickColorFirst(g: Game, me: PlayerId, card: Card): boolean {
   const usable = manaAbilities(g, card).filter((ab) => canTapForMana(g, me, card, ab.index));
+  // "Sacrifice a creature: Add {B}{B}" (Phyrexian Tower): the human picks a creature, or none to use the plain ability.
+  const sac = usable.find((ab) => ab.sacrificeCreature);
+  if (sac) {
+    const plain = usable.find((ab) => !ab.sacrificeCreature);
+    useStore.setState({
+      colorPick: {
+        cardId: card.id,
+        ability: sac.index,
+        colors: sac.colors,
+        sacrifices: creaturesOf(g, me).map((c) => c.id),
+        sacrifice: plain ? null : (creaturesOf(g, me)[0]?.id ?? null),
+        ...(plain ? { plain: plain.index, plainColors: plain.colors } : {}),
+      },
+    });
+    return true;
+  }
   const ab = usable.length === 1 ? usable[0] : undefined;
   const creatures = ab ? tapCandidates(g, me, ab).map((c) => c.id) : [];
   // "Discard a card" (Skirge Familiar): the card to discard is picked with the colour.
@@ -1417,13 +1434,25 @@ export function pickManaDiscard(id: string) {
   if (colorPick?.discards?.includes(id)) useStore.setState({ colorPick: { ...colorPick, discard: id } });
 }
 
+/** Picks the creature to sacrifice for the mana ability the colour picker is open for, or none for the plain one (Phyrexian Tower). */
+export function pickManaSacrifice(id: string | null) {
+  const { colorPick } = S();
+  if (colorPick?.sacrifices && (id === null ? colorPick.plain !== undefined : colorPick.sacrifices.includes(id))) useStore.setState({ colorPick: { ...colorPick, sacrifice: id } });
+}
+
 /** Uses the mana ability the colour picker is open for, making `color`. While paying, the spell is paid for once the pool covers it. */
 export function pickColor(color: ManaSym | null) {
   const { colorPick, game: g, human: me } = S();
   useStore.setState({ colorPick: null });
   if (!colorPick || !color || !g || me === null) return;
-  const extra = { ...(colorPick.creature ? { tap: colorPick.creature } : {}), ...(colorPick.discard ? { discard: colorPick.discard } : {}) };
-  if (!S().act({ type: 'tapMana', card: colorPick.cardId, ability: colorPick.ability, color, ...extra })) return;
+  // With no creature picked to sacrifice, the plain ability (Phyrexian Tower's {C}).
+  const plain = !!colorPick.sacrifices && !colorPick.sacrifice;
+  const extra = {
+    ...(colorPick.creature ? { tap: colorPick.creature } : {}),
+    ...(colorPick.discard ? { discard: colorPick.discard } : {}),
+    ...(colorPick.sacrifice ? { sacrifice: colorPick.sacrifice } : {}),
+  };
+  if (!S().act({ type: 'tapMana', card: colorPick.cardId, ability: plain ? colorPick.plain : colorPick.ability, color, ...extra })) return;
   const t = targetingOf(S());
   if (t && isPaying(t) && paidUp(S().game!, me, t)) pay();
 }

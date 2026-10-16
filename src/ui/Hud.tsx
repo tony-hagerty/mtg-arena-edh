@@ -11,7 +11,7 @@ import { SoundButton } from './SoundControl';
 import { useStore } from './store';
 import type { Hover } from './store';
 import { type Seat, cx, deckColor, faceUp, hoverProps, seatOf } from './util';
-import { STEP_NAMES, activateFromHand, cancel, clickStackItem, pickAbility, pickColor, pickTapCreature, pickManaDiscard, pickFace, pickMode, playHandCard, setAbilityX, setChoices, shiftDivision, exileForMana, plotCard, useView } from './view';
+import { STEP_NAMES, activateFromHand, cancel, clickStackItem, pickAbility, pickColor, pickTapCreature, pickManaDiscard, pickManaSacrifice, pickFace, pickMode, playHandCard, setAbilityX, setChoices, shiftDivision, exileForMana, plotCard, useView } from './view';
 import type { AbilityOption, Btn } from './view';
 
 // ---------- phase tracker + buttons (bottom right) ----------
@@ -486,9 +486,29 @@ export function ColorPicker() {
           })}
         </div>
       )}
+      {pick.sacrifices && (
+        <div className="cast-row">
+          <span className="cast-label">{label(card)}: sacrifice</span>
+          {pick.plain !== undefined && (
+            <button className={`chip${pick.sacrifice === null ? ' on' : ''}`} onClick={() => pickManaSacrifice(null)}>
+              None
+            </button>
+          )}
+          {pick.sacrifices.map((id) => {
+            const c = findCard(g, id);
+            return (
+              c && (
+                <button key={id} className={`chip${pick.sacrifice === id ? ' on' : ''}`} onClick={() => pickManaSacrifice(id)}>
+                  {label(c)}
+                </button>
+              )
+            );
+          })}
+        </div>
+      )}
       <div className="cast-row">
         <span className="cast-label">{label(card)}: choose a colour</span>
-        {pick.colors.map((c) => (
+        {(pick.sacrifices && !pick.sacrifice ? (pick.plainColors ?? []) : pick.colors).map((c) => (
           <button key={c} className="chip" onClick={() => pickColor(c)} aria-label={c}>
             <ManaCost cost={`{${c}}`} />
           </button>

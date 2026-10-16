@@ -867,6 +867,8 @@ function usable(g: Game, pid: PlayerId, c: Card, ab: ManaUse): boolean {
   if (ab.life && (g.players[pid].life < ab.life || lifeLocked(g, pid))) return false; // 119.4, 119.8
   // "Discard a card" needs a card to discard (Skirge Familiar).
   if (ab.discard && g.players[pid].hand.length < ab.discard) return false;
+  // "Sacrifice a creature" needs a creature to sacrifice (Phyrexian Tower).
+  if (ab.sacrificeCreature && !creaturesOf(g, pid).length) return false;
   // "Activate only as an instant": its controller needs priority, and nothing else may be going on.
   if (ab.instant && (g.priority !== pid || g.decision || g.resolving)) return false;
   // "Spend this mana only to cast a creature spell of the chosen type": no type chosen, no use.
@@ -901,7 +903,8 @@ export function manaSources(g: Game, pid: PlayerId, manual = false): Source[] {
   for (const c of [...p.battlefield, ...(manual ? p.hand : [])]) {
     for (const ab of manaAbilities(g, c)) {
       // Auto-pay never discards a card for mana (Skirge Familiar): it costs a card.
-      if ((ab.manual || ab.fromHand || ab.discard) && !manual) continue;
+      // Nor does it sacrifice a creature for mana (Phyrexian Tower).
+      if ((ab.manual || ab.fromHand || ab.discard || ab.sacrificeCreature) && !manual) continue;
       if (!usable(g, pid, c, ab)) continue;
       // One with a mana cost (a Signet) isn't a plain source: auto-pay works it in with
       // `planWithCosted`. By hand it can be used when its cost can be paid without it.
@@ -966,8 +969,9 @@ function colorNeed(g: Game, pid: PlayerId, sym: ManaSym): number {
  * player needs, or else the cheapest (free before painful, painful before sacrificing).
  */
 function pickManaAbility(g: Game, pid: PlayerId, c: Card): number | undefined {
+  // One that costs a creature is used only when the player picks it (Phyrexian Tower).
   const options = manaSources(g, pid, true)
-    .filter((s) => s.id === c.id)
+    .filter((s) => s.id === c.id && !manaAbilities(g, c).find((m) => m.index === s.ability)?.sacrificeCreature)
     .sort((a, b) => a.pain + (a.sacrifice ? 100 : 0) - (b.pain + (b.sacrifice ? 100 : 0)));
   const wanted = options.find((s) => s.colors.some((x) => x !== 'C' && colorNeed(g, pid, x) > 0));
   return (wanted ?? options[0])?.ability;
@@ -978,8 +982,13 @@ function pickManaAbility(g: Game, pid: PlayerId, c: Card): number | undefined {
  * the mana: tapping, life (119.4), sacrificing or exiling it, the damage it deals, and
  * "whenever this becomes tapped".
  */
-function useManaAbility(g: Game, pid: PlayerId, c: Card, ab: ManaUse, tapId?: string, discardId?: string) {
+function useManaAbility(g: Game, pid: PlayerId, c: Card, ab: ManaUse, tapId?: string, discardId?: string, sacrificeId?: string) {
   const p = g.players[pid];
+  if (ab.sacrificeCreature) {
+    // "Sacrifice a creature" (Phyrexian Tower): the one the player chose.
+    const creature = creaturesOf(g, pid).find((x) => x.id === sacrificeId);
+    if (creature) dieMany(g, [creature], 'is sacrificed');
+  }
   if (ab.discard) {
     // "Discard a card" (Skirge Familiar): the one the player chose, or else the first.
     const card = p.hand.find((x) => x.id === discardId) ?? p.hand[0];
@@ -1012,7 +1021,7 @@ function useManaAbility(g: Game, pid: PlayerId, c: Card, ab: ManaUse, tapId?: st
  * Uses a mana ability by hand. A Treasure is sacrificed too (111.10a): that can't be undone.
  * `color`: the colour to make, if the ability has a choice; left out, one is picked.
  */
-export function tapForMana(g: Game, pid: PlayerId, c: Card, ability = pickManaAbility(g, pid, c), color?: ManaSym, tapId?: string, discardId?: string) {
+export function tapForMana(g: Game, pid: PlayerId, c: Card, ability = pickManaAbility(g, pid, c), color?: ManaSym, tapId?: string, discardId?: string, sacrificeId?: string) {
   const ab = manaAbilities(g, c).find((m) => m.index === ability);
   if (!ab) return;
   if (ab.cost) {
@@ -1034,7 +1043,7 @@ export function tapForMana(g: Game, pid: PlayerId, c: Card, ability = pickManaAb
       ...(ab.legendary ? { legendary: true } : {}),
       ...(ab.types ? { types: ab.types } : {}),
     });
-  useManaAbility(g, pid, c, ab, tapId, discardId);
+  useManaAbility(g, pid, c, ab, tapId, discardId, sacrificeId);
 }
 
 /**
@@ -1055,7 +1064,7 @@ export function canUntapMana(g: Game, pid: PlayerId, c: Card): boolean {
   if (c.controller !== pid || c.zone !== 'battlefield' || !c.tapped) return false;
   const made = g.players[pid].pool.filter((x) => x.source === c.id);
   const ab = made.length ? manaAbilities(g, c).find((m) => m.index === made[0].ability) : undefined;
-  if (!ab || ab.life || ab.damage || ab.sacrifice || ab.noTap || ab.discardHand || ab.discard || ab.cost || scriptFor(c).onTapped) return false;
+  if (!ab || ab.life || ab.damage || ab.sacrifice || ab.noTap || ab.discardHand || ab.discard || ab.sacrificeCreature || ab.cost || scriptFor(c).onTapped) return false;
   return made.length === ab.amount;
 }
 

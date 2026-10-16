@@ -863,7 +863,8 @@ export type Action =
    */
   /** `tap`: the creature tapped to pay an ability's "Tap an untapped creature you control" cost (Relic of Legends). */
   /** `discard`: the card discarded to pay a "Discard a card" cost (Skirge Familiar). */
-  | { type: 'tapMana'; card: string; ability?: number; color?: ManaSym; tap?: string; discard?: string }
+  /** `sacrifice`: the creature sacrificed to pay a "Sacrifice a creature" cost (Phyrexian Tower). */
+  | { type: 'tapMana'; card: string; ability?: number; color?: ManaSym; tap?: string; discard?: string; sacrifice?: string }
   | { type: 'untapMana'; card: string }
   /** `target`: a planeswalker or battle to attack instead of the player; `defender` is then its controller or protector (508.1b). */
   | { type: 'declareAttack'; card: string; defender: PlayerId; target?: string }
@@ -1144,6 +1145,8 @@ export interface ManaAbility {
   types?: string[];
   /** "Discard a card" is its cost (Skirge Familiar). Auto-pay never uses it: it costs a card. */
   discard?: number;
+  /** "Sacrifice a creature" is part of its cost (Phyrexian Tower). Auto-pay never uses it: it costs a creature. */
+  sacrificeCreature?: boolean;
   /**
    * Mana paid as part of its cost, like a Signet's "{1}, {T}" or a filter land's "{W/B}, {T}"
    * (605.1a: it is still a mana ability). That mana can't come from this ability itself.
