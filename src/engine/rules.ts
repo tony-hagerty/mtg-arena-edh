@@ -84,6 +84,14 @@ export const SUPPORTED_KEYWORDS = [
   'gift',
   // Afterlife (702.135) by the card's script.
   'afterlife',
+  // Delve (702.66), rebound (702.88), aftermath (702.127) and paradigm (702.192) by the
+  // engine; extort (702.101) and job select (702.182) by the card's script (`extort`, `jobSelect`).
+  'delve',
+  'rebound',
+  'aftermath',
+  'paradigm',
+  'extort',
+  'job select',
   // Prowess (702.108) is read by the Oracle text parser; a hand script uses `prowess` below.
   'prowess',
 ];
@@ -359,6 +367,37 @@ export function canBlock(g: Game, blocker: Card, attacker: Card): boolean {
     return kw.has('flying') || kw.has('reach');
   }
   return true;
+}
+
+/**
+ * What declaring these attacks costs (508.1g): every "can't attack unless their controller
+ * pays" effect together, like Propaganda's {2} for each creature attacking you.
+ */
+export function attackCost(g: Game, attacks: { id: string; defender: PlayerId; target: string | null }[]): Cost {
+  let cost = NO_COST;
+  for (const a of attacks) {
+    const c = permanent(g, a.id);
+    if (!c) continue;
+    for (const src of battlefield(g)) {
+      const tax = scriptFor(src).attackTax?.(g, src, c, a.defender, a.target);
+      if (tax) cost = addCosts(cost, parseCost(tax));
+    }
+  }
+  return cost;
+}
+
+/** Does a cost ask for nothing at all? */
+export const isFree = (cost: Cost) => cost.generic + cost.pips.length + cost.hybrid.length + cost.x + cost.life === 0;
+
+/**
+ * Can `pid` pay for these attacks (508.1h-i)? The attackers are tapped first (508.1f), so
+ * one without vigilance can't tap for mana to pay.
+ */
+export function canPayAttacks(g: Game, pid: PlayerId, attacks: { id: string; defender: PlayerId; target: string | null }[]): boolean {
+  const cost = attackCost(g, attacks);
+  if (isFree(cost)) return true;
+  const tapped = attacks.map((a) => permanent(g, a.id)).filter((c): c is Card => !!c && !has(g, c, 'vigilance')).map((c) => c.id);
+  return !!planPayment(g, pid, cost, undefined, tapped);
 }
 
 /** Would `a` and `b` kill each other in combat? Used by the bots and for UI hints. */
@@ -664,8 +703,13 @@ function usable(g: Game, pid: PlayerId, c: Card, ab: ManaUse): boolean {
   if (ab.instant && (g.priority !== pid || g.decision || g.resolving)) return false;
   // "Spend this mana only to cast a creature spell of the chosen type": no type chosen, no use.
   if (ab.chosenType && !c.chosen) return false;
+  if (ab.tapCreature && !tapCandidates(g, pid, ab).length) return false;
   return !forbidden(g, pid, 'activate', c);
 }
+
+/** The creatures `pid` could tap for a mana ability's "Tap an untapped [legendary] creature you control" cost. */
+export const tapCandidates = (g: Game, pid: PlayerId, ab: Pick<ManaAbility, 'tapCreature'>): Card[] =>
+  ab.tapCreature ? creaturesOf(g, pid).filter((x) => !x.tapped && (!ab.tapCreature!.legendary || hasType(x, 'Legendary'))) : [];
 
 /** Can mana restricted to creature spells of type `only` be spent on `spell` (106.6)? */
 const spendable = (only: string | undefined, spell?: Card) => !only || (!!spell && isCreature(spell) && subtypesOf(spell).includes(only));
@@ -745,8 +789,16 @@ function pickManaAbility(g: Game, pid: PlayerId, c: Card): number | undefined {
  * the mana: tapping, life (119.4), sacrificing or exiling it, the damage it deals, and
  * "whenever this becomes tapped".
  */
-function useManaAbility(g: Game, pid: PlayerId, c: Card, ab: ManaUse) {
+function useManaAbility(g: Game, pid: PlayerId, c: Card, ab: ManaUse, tapId?: string) {
   const p = g.players[pid];
+  if (ab.tapCreature) {
+    const options = tapCandidates(g, pid, ab);
+    const creature = options.find((x) => x.id === tapId) ?? options[0];
+    if (creature) {
+      tap(g, creature);
+      log(g, `${says(p, 'taps')} ${label(creature)} (${label(c)}).`, pid, [creature, c]);
+    }
+  }
   if (ab.life) {
     subtractLife(g, pid, ab.life);
     log(g, `${says(p, 'pays')} ${ab.life} life (${label(c)}).`, pid, [c]);
@@ -766,7 +818,7 @@ function useManaAbility(g: Game, pid: PlayerId, c: Card, ab: ManaUse) {
  * Uses a mana ability by hand. A Treasure is sacrificed too (111.10a): that can't be undone.
  * `color`: the colour to make, if the ability has a choice; left out, one is picked.
  */
-export function tapForMana(g: Game, pid: PlayerId, c: Card, ability = pickManaAbility(g, pid, c), color?: ManaSym) {
+export function tapForMana(g: Game, pid: PlayerId, c: Card, ability = pickManaAbility(g, pid, c), color?: ManaSym, tapId?: string) {
   const ab = manaAbilities(g, c).find((m) => m.index === ability);
   if (!ab) return;
   if (ab.cost) {
@@ -780,7 +832,7 @@ export function tapForMana(g: Game, pid: PlayerId, c: Card, ability = pickManaAb
   const sym = color && ab.colors.includes(color) ? color : ab.colors.length === 1 ? ab.colors[0] : pickColor(g, pid, ab.colors);
   const only = ab.chosenType ? (c.chosen ?? undefined) : undefined;
   for (let k = 0; k < ab.amount; k++) g.players[pid].pool.push({ sym, source: c.id, ability: ab.index, ...(only ? { only, uncounterable: ab.uncounterable } : {}) });
-  useManaAbility(g, pid, c, ab);
+  useManaAbility(g, pid, c, ab, tapId);
 }
 
 /**
@@ -2061,6 +2113,62 @@ export const prowess: NonNullable<CardScript['onCast']> = {
   text: 'Prowess',
 };
 
+/**
+ * Extort (702.101a): "Whenever you cast a spell, you may pay {W/B}. If you do, each opponent
+ * loses 1 life and you gain life equal to the total life lost this way." Each instance
+ * triggers separately (702.101b). Spread into the card's script; it brings its continuation.
+ */
+export const extort: Pick<CardScript, 'onCast' | 'then' | 'botChoice'> = {
+  onCast: {
+    when: (_g, { self, caster }) => caster === self.controller,
+    resolve: (g, { you, self }) =>
+      ask(g, you, {
+        text: `Extort (${label(self)}): pay {W/B}? Each opponent loses 1 life and you gain that much.`,
+        cost: '{W/B}',
+        yes: 'Pay {W/B}',
+        no: "Don't Pay",
+        then: 'extorted',
+      }),
+    text: 'Extort',
+  },
+  then: {
+    extorted: (g, { you, yes }) => {
+      if (!yes) return;
+      let lost = 0;
+      simultaneously(g, () => {
+        for (const o of opponentsOf(g, you)) lost += loseLife(g, o.id, 1);
+      });
+      gainLife(g, you, lost);
+    },
+  },
+  // A bot pays whenever it can: a mana for a two-life swing at each opponent.
+  botChoice: { extorted: () => ({ type: 'answer', yes: true }) },
+};
+
+/**
+ * Job select (702.182a): "When this Equipment enters, create a 1/1 colorless Hero creature
+ * token, then attach this Equipment to it."
+ */
+export const jobSelect: NonNullable<CardScript['onEnter']> = {
+  resolve: (g, { you, self }) => {
+    const [hero] = createToken(g, you, 'Hero');
+    const eq = permanent(g, self.id);
+    if (sameCard(eq, self)) attach(g, eq, hero);
+  },
+  text: 'Job select',
+};
+
+/**
+ * "Do this only once each turn" (603.2h): has `pid` already taken the action of the ability
+ * named `ability` this turn? The ability triggers only if they haven't, and checks again as
+ * it resolves, in case another of the same was waiting.
+ */
+export const didThisTurn = (g: Game, pid: PlayerId, ability: string) => g.did?.[`${pid}:${ability}`] === g.turn;
+/** Records that `pid` took the action of "do this only once each turn" ability `ability`. */
+export function markDid(g: Game, pid: PlayerId, ability: string) {
+  g.did = { ...(g.did ?? {}), [`${pid}:${ability}`]: g.turn };
+}
+
 /** Puts `n` counters of `kind` on a permanent (122). */
 export function addCounters(g: Game, c: Card | undefined, n = 1, kind = '+1/+1') {
   if (!c || c.zone !== 'battlefield' || n <= 0) return;
@@ -2227,7 +2335,10 @@ export function searchable(g: Game, c: Card, find?: Find): boolean {
   if (find.maxToughness !== undefined && stats(g, c).toughness > find.maxToughness) return false;
   const d = data(c);
   if (find.basic && !hasType(c, 'Basic Land')) return false;
-  if (find.types && !find.types.some((x) => hasType(c, x))) return false;
+  // "An instant card or a card with flash": a card type or a keyword, either will do.
+  const typed = !!find.types?.some((x) => hasType(c, x));
+  const keyworded = !!find.keywords?.some((k) => d.keywords.some((x) => x.toLowerCase() === k));
+  if ((find.types || find.keywords) && !typed && !keyworded) return false;
   if (find.subtypes && !find.subtypes.some((x) => d.typeLine.split('—')[1]?.split(' ').includes(x))) return false;
   return find.maxMv === undefined || d.cmc <= find.maxMv;
 }
@@ -2240,9 +2351,10 @@ export function pickCards(
   g: Game,
   pid: PlayerId,
   cards: Card[],
-  opts: { min?: number; max?: number; text: string; button: string; then: string; data?: Record<string, unknown>; script?: string },
+  opts: { min?: number; max?: number; text: string; button: string; then: string; data?: Record<string, unknown>; script?: string; pickable?: Card[] },
 ) {
   queue(g, {
+    ...(opts.pickable ? { pickable: opts.pickable.map((c) => c.id) } : {}),
     kind: 'pick',
     player: pid,
     source: opts.script ? label(findCard(g, opts.script)!) : sourceName(g),
@@ -2276,7 +2388,12 @@ export function choosePlayer(g: Game, pid: PlayerId, q: Omit<PlayerChoice, 'kind
  * Lets a player cast `card` while the current spell resolves (608.2g), without paying its
  * mana cost if `free`. `then` runs afterwards with `yes` (it was cast) or not.
  */
-export function offerCast(g: Game, pid: PlayerId, card: Card, q: { free: boolean; maxMv?: number; text: string; then?: string; data?: Record<string, unknown> }) {
+export function offerCast(
+  g: Game,
+  pid: PlayerId,
+  card: Card,
+  q: { free: boolean; maxMv?: number; graveyardToExile?: boolean; text: string; then?: string; data?: Record<string, unknown> },
+) {
   queue(g, { kind: 'cast', player: pid, source: sourceName(g), card: card.id, ...q });
 }
 
@@ -2293,6 +2410,29 @@ export function putOnTop(g: Game, c: Card) {
 }
 
 /** Puts cards on the bottom of their owner's library in a random order. */
+/**
+ * Puts cards from `pid`'s library on its bottom "in any order": its owner arranges them
+ * (401.4), so with more than one they pick the order.
+ */
+export function putOnBottomInAnyOrder(g: Game, pid: PlayerId, cards: Card[]) {
+  if (cards.length <= 1) {
+    for (const c of cards) moveCard(g, c, 'library');
+    return;
+  }
+  queue(g, {
+    kind: 'pick',
+    player: pid,
+    source: sourceName(g),
+    cards: cards.map((c) => c.id),
+    min: cards.length,
+    max: cards.length,
+    text: 'put these on the bottom of your library in any order',
+    button: 'Put on Bottom',
+    then: '@bottom',
+    ordered: true,
+  });
+}
+
 export function putOnBottomRandomly(g: Game, cards: Card[]) {
   const order = [...cards];
   shuffle(g, order);

@@ -665,7 +665,7 @@ function adNauseam(g: Game, pid: PlayerId) {
 }
 
 /** The creature type a bot picks: the one most common among the creatures in its deck that it hasn't played yet. */
-function favouriteType(g: Game, pid: PlayerId): string {
+export function favouriteType(g: Game, pid: PlayerId): string {
   const p = g.players[pid];
   const counts = new Map<string, number>();
   for (const c of [...p.library, ...p.hand, ...p.command]) {

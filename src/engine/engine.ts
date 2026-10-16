@@ -52,6 +52,12 @@ import {
   nextLiving,
   parseCost,
   pay,
+  tapCandidates,
+  manaAbilities,
+  attackCost,
+  canPayAttacks,
+  costText,
+  isFree,
   permanent,
   planPayment,
   rand,
@@ -344,7 +350,8 @@ export function choiceOptions(g: Game, choice: CardChoice): { cards: Card[]; val
     const cards = choice.cards.map((id) => findCard(g, id)).filter((c): c is Card => !!c);
     // The legend rule keeps exactly one (704.5j).
     if (choice.kind === 'legend') return { cards, valid: new Set(cards.map((c) => c.id)), min: 1, max: 1 };
-    return { cards, valid: new Set(cards.map((c) => c.id)), min: Math.min(choice.min, cards.length), max: choice.max };
+    const valid = new Set(cards.filter((c) => !choice.pickable || choice.pickable.includes(c.id)).map((c) => c.id));
+    return { cards, valid, min: Math.min(choice.min, valid.size), max: choice.max };
   }
   // The whole library is looked at (701.23a). Sorted, so the order of the library stays hidden (401.2).
   const cards = [...p.library].sort((a, b) => label(a).localeCompare(label(b)));
@@ -444,6 +451,15 @@ const ENGINE_THEN: Record<string, (g: Game, ctx: ThenCtx) => void> = {
     const c = picked[0] && permanent(g, picked[0].id);
     if (c) dieMany(g, [c], 'is sacrificed');
   },
+  // "The rest on the bottom of your library in any order" (401.4): in the order picked, the last at the very bottom.
+  '@bottom': (g, { chooser, picked }) => {
+    const lib = g.players[chooser].library;
+    for (const c of picked) {
+      const i = lib.findIndex((x) => x.id === c.id);
+      if (i >= 0) lib.push(...lib.splice(i, 1));
+    }
+    log(g, `${says(g.players[chooser], 'puts')} ${picked.length} cards on the bottom of ${their(g.players[chooser])} library.`, chooser);
+  },
   // Populate (701.36a): copy the creature token the player chose.
   '@populate': (g, { chooser, picked }) => copyToken(g, chooser, picked[0]),
   // "Discards a card" (701.9a): the player chose which.
@@ -515,7 +531,8 @@ export function canPlayLand(g: Game, pid: PlayerId, c: Card, face?: number): boo
   if (face !== undefined ? !faces.includes(face) : !faces.length) return false;
   // From a hand, or from exile with an effect that lets them play it (Jeska's Will). Either
   // way it counts as their land for the turn (305.2a).
-  const from = c.zone === 'hand' ? c.owner === pid : c.zone === 'exile' && !!permission(g, pid, c)?.play;
+  // A land with an Adventure can be played from exile once its Adventure has resolved (715.3d).
+  const from = c.zone === 'hand' ? c.owner === pid : c.zone === 'exile' && ((c.adventure && c.owner === pid) || !!permission(g, pid, c)?.play);
   return from && g.players[pid].landsPlayed < 1 && timingOk(g, pid, false);
 }
 
@@ -1226,6 +1243,12 @@ function attackersDeclared(g: Game) {
     names.push(`${label(c)} → ${target ? label(target) : g.players[a.defender].name}`);
     attackers.push(c, ...(target ? [target] : []));
   }
+  // Then the attacks' costs are paid (508.1g-i), with the attackers already tapped.
+  const cost = attackCost(g, combat.attacks);
+  if (!isFree(cost)) {
+    pay(g, g.active, cost);
+    log(g, `${says(g.players[g.active], 'pays')} ${costText(cost)} to attack.`, g.active);
+  }
   log(g, `${says(g.players[g.active], 'attacks')}: ${names.join(', ')}.`, g.active, attackers);
   for (const a of combat.attacks) {
     const c = permanent(g, a.id)!;
@@ -1245,7 +1268,9 @@ function mustAttack(g: Game, pid: PlayerId) {
   if (opponent === undefined) return;
   for (const c of attackCandidates(g, pid)) {
     if (!has(g, c, MUST_ATTACK) || combat.attacks.some((a) => a.id === c.id)) continue;
-    combat.attacks.push({ id: c.id, defender: opponent, target: null, blockers: [], blocked: false });
+    // Nobody has to pay to meet a requirement (508.1d): it attacks an opponent it can attack for free, if any.
+    const free = turnOrder(g, pid).find((o) => o !== pid && isFree(attackCost(g, [{ id: c.id, defender: o, target: null }])));
+    if (free !== undefined) combat.attacks.push({ id: c.id, defender: free, target: null, blockers: [], blocked: false });
   }
 }
 
@@ -1860,6 +1885,7 @@ function act(g: Game, a: Action): boolean {
         flashback,
         ...(exileOnLeave ? { exileOnLeave } : {}),
         ...(delved.length ? { delved: delved.length } : {}),
+        ...(during?.card === c.id && during.graveyardToExile ? { graveyardToExile: true } : {}),
         from,
         alt: choices.alt,
         dash: !!alt?.dash,
@@ -1985,7 +2011,11 @@ function act(g: Game, a: Action): boolean {
       // A mana ability from a hand, like Simian Spirit Guide's, is used from there.
       const c = [...p.battlefield, ...p.hand].find((x) => x.id === a.card);
       if (!c || (deciding && deciding !== 'cast') || !canTapForMana(g, pid, c, a.ability)) return false;
-      tapForMana(g, pid, c, a.ability, a.color);
+      if (a.tap !== undefined) {
+        const ab = manaAbilities(g, c).find((m) => m.index === (a.ability ?? 0));
+        if (!ab || !tapCandidates(g, pid, ab).some((x) => x.id === a.tap)) return false;
+      }
+      tapForMana(g, pid, c, a.ability, a.color, a.tap);
       return true;
     }
 
@@ -2001,6 +2031,9 @@ function act(g: Game, a: Action): boolean {
       if (deciding !== 'attackers' || !g.combat || !c || !canAttack(g, c)) return false;
       const target = a.target ?? null;
       if (!attackOptions(g, pid).some((o) => o.defender === a.defender && o.target === target)) return false;
+      // Attacks that cost something (Propaganda) can be declared only if they can all be paid for (508.1d, 508.1h).
+      const next = [...g.combat.attacks.filter((x) => x.id !== c.id), { id: c.id, defender: a.defender, target }];
+      if (!canPayAttacks(g, pid, next)) return false;
       const existing = g.combat.attacks.find((x) => x.id === c.id);
       if (existing) Object.assign(existing, { defender: a.defender, target });
       else g.combat.attacks.push({ id: c.id, defender: a.defender, target, blockers: [], blocked: false });
@@ -2209,6 +2242,7 @@ function act(g: Game, a: Action): boolean {
           passPriority(g);
           return true;
         case 'attackers':
+          if (!canPayAttacks(g, pid, g.combat!.attacks)) return false;
           mustAttack(g, pid);
           attackersDeclared(g);
           return true;
