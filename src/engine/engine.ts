@@ -2233,7 +2233,10 @@ function act(g: Game, a: Action): boolean {
       }
       // "Discard a card: Add {B}" (Skirge Familiar): the card named must be in their hand.
       if (a.discard !== undefined && !p.hand.some((x) => x.id === a.discard && x.id !== c.id)) return false;
-      tapForMana(g, pid, c, a.ability, a.color, a.tap, a.discard);
+      // "Sacrifice a creature: Add {B}{B}" (Phyrexian Tower): a creature they control, named.
+      const used = manaAbilities(g, c).find((m) => m.index === (a.ability ?? -1));
+      if (used?.sacrificeCreature ? !p.battlefield.some((x) => x.id === a.sacrifice && isCreature(x)) : a.sacrifice !== undefined) return false;
+      tapForMana(g, pid, c, a.ability, a.color, a.tap, a.discard, a.sacrifice);
       return true;
     }
 

@@ -235,7 +235,23 @@ interface Store {
   /** A mana ability with a choice of colour that the human is about to use, like Lion's Eye Diamond's. */
   /** `creatures`: the creatures that could pay a "Tap an untapped creature you control" cost; `creature` is the one picked. */
   /** `discards`: the cards in hand that could pay a "Discard a card" cost (Skirge Familiar); `discard` is the one picked. */
-  colorPick: { cardId: string; ability: number; colors: ManaSym[]; creatures?: string[]; creature?: string; discards?: string[]; discard?: string } | null;
+  /**
+   * `sacrifices`: the creatures that ability `ability` could sacrifice (Phyrexian Tower), and
+   * `sacrifice` the one picked, or null to use the card's plain ability `plain` (making `plainColors`) instead.
+   */
+  colorPick: {
+    cardId: string;
+    ability: number;
+    colors: ManaSym[];
+    creatures?: string[];
+    creature?: string;
+    discards?: string[];
+    discard?: string;
+    sacrifices?: string[];
+    sacrifice?: string | null;
+    plain?: number;
+    plainColors?: ManaSym[];
+  } | null;
   showLog: boolean;
   /** The "leave this game?" dialog is open. */
   confirmExit: boolean;
