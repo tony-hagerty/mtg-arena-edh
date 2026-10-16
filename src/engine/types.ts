@@ -114,6 +114,8 @@ export interface CastInfo {
   plotted?: boolean;
   /** Its offspring cost was paid (702.175a). */
   offspring?: boolean;
+  /** How its damage is divided among its targets, by target index (601.2d). */
+  divide?: number[];
 }
 
 /**
@@ -137,6 +139,11 @@ export interface CastChoices {
   modes?: number[];
   /** Pay the offspring cost (702.175a). */
   offspring?: boolean;
+  /**
+   * How a spell that divides damage among its targets divides it (601.2d): so much to each
+   * target, by index into the targets. Each target gets at least 1, and it adds up to the total.
+   */
+  divide?: number[];
   /**
    * A battle's protector (310.9a): an opponent for a Siege (310.12a). The rules choose it
    * as the battle enters; here it is announced with the spell. Left out, the engine picks.
@@ -1205,6 +1212,12 @@ export interface CardScript extends Triggers {
    * enters, its controller creates a 1/1 token copy of it.
    */
   offspring?: string;
+  /**
+   * "Deals [N] damage divided as you choose among [targets]" (601.2d): the amount divided, a
+   * number or X. The division is announced as it is cast (`CastChoices.divide`); the script
+   * reads `self.cast.divide`.
+   */
+  divide?: number | 'x';
   /**
    * "As an additional cost to cast this spell, ..." (118.8), paid with the mana cost.
    * `sacrifice`: a permanent that fits the spec; `optional`, the caster may sacrifice one,
