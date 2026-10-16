@@ -2,7 +2,7 @@
 // Immer draft of one; turn structure and action handling live in engine.ts.
 import { cardData } from '../cards/db';
 import { scriptOf } from './registry';
-import { characteristics } from './layers';
+import { characteristics, settled } from './layers';
 import type {
   ActivatedAbility,
   BroadcastHook,
@@ -821,6 +821,10 @@ const spendable = (g: Game, m: { only?: string; legendary?: boolean }, spell?: C
  * auto-pay leaves alone: those marked `manual`, and those used from a hand.
  */
 export function manaSources(g: Game, pid: PlayerId, manual = false): Source[] {
+  return settled(g, () => findManaSources(g, pid, manual));
+}
+
+function findManaSources(g: Game, pid: PlayerId, manual: boolean): Source[] {
   const out: Source[] = [];
   const p = g.players[pid];
   for (const c of [...p.battlefield, ...(manual ? p.hand : [])]) {
@@ -1461,6 +1465,10 @@ export function devotion(g: Game, pid: PlayerId, color: Color): number {
 // ---------- targeting ----------
 
 export function legalTargets(g: Game, pid: PlayerId, spec: TargetSpec, source: Card): TargetRef[] {
+  return settled(g, () => findTargets(g, pid, spec, source));
+}
+
+function findTargets(g: Game, pid: PlayerId, spec: TargetSpec, source: Card): TargetRef[] {
   const out: TargetRef[] = [];
   if (spec.type === 'spell' || spec.type === 'ability' || spec.type === 'spell or ability') {
     // A spell or ability on the stack. One can't target itself (115.5).
@@ -2067,8 +2075,11 @@ export function triggerText(item: StackItem): string | undefined {
 
 /** Offers an event to every permanent on the battlefield, and to cards with abilities that work from a graveyard. */
 export function broadcast<H extends BroadcastHook>(g: Game, hook: H, event: TriggerEvents[H]) {
-  for (const c of battlefield(g)) trigger(g, c, hook, event);
-  for (const p of g.players) for (const c of p.graveyard) if (scriptFor(c).fromGraveyard?.includes(hook)) trigger(g, c, hook, event);
+  // Triggering only puts abilities in `Game.triggers`, which no characteristic depends on.
+  settled(g, () => {
+    for (const c of battlefield(g)) trigger(g, c, hook, event);
+    for (const p of g.players) for (const c of p.graveyard) if (scriptFor(c).fromGraveyard?.includes(hook)) trigger(g, c, hook, event);
+  });
 }
 
 /** Damage `source` dealt: grouped with the rest it deals in the same event (`onSourceDamage`). */
@@ -3428,6 +3439,22 @@ function eliminate(g: Game, p: Player, reason: string) {
  * and sets the winner. Each pass does everything that applies at once, and passes repeat
  * until nothing changes (704.3).
  */
+/** What kind of permanent each one is, for the state-based actions (704.5). */
+function permanentKinds(g: Game) {
+  return settled(g, () =>
+    battlefield(g).map((c) => ({
+      c,
+      creature: isCreature(g, c),
+      walker: isPlaneswalker(g, c),
+      battle: isBattle(g, c),
+      siege: isSiege(g, c),
+      saga: isSaga(g, c),
+      aura: isAura(g, c),
+      legendary: hasType(g, c, 'Legendary'),
+    })),
+  );
+}
+
 export function checkState(g: Game) {
   for (let guard = 0; guard < 50; guard++) {
     let changed = false;
@@ -3447,21 +3474,27 @@ export function checkState(g: Game) {
         changed = true;
       }
     }
+    // What each permanent is, worked out once while nothing changes, and again after a change.
+    let kinds = permanentKinds(g);
     // Toughness 0 or less (704.5f) ignores indestructible; lethal and deathtouch damage (704.5g-h) destroy.
-    const dying: Card[] = [];
-    for (const c of allCreatures(g)) {
-      const s = stats(g, c);
-      const lethal = c.damage >= s.toughness || (c.deathtouched && c.damage > 0);
-      if (s.toughness <= 0 || (lethal && !s.keywords.has('indestructible'))) dying.push(c);
-    }
+    const dying = settled(g, () =>
+      kinds
+        .filter((k) => k.creature)
+        .map((k) => k.c)
+        .filter((c) => {
+          const s = stats(g, c);
+          const lethal = c.damage >= s.toughness || (c.deathtouched && c.damage > 0);
+          return s.toughness <= 0 || (lethal && !s.keywords.has('indestructible'));
+        }),
+    );
     // A planeswalker with no loyalty (704.5i) and a battle with no defense (704.5v-w) go to
     // the graveyard, except a Siege whose defeat ability hasn't resolved yet. So does a
     // battle with nobody left who can protect it (310.11).
     const spent: Card[] = [];
-    for (const c of battlefield(g)) {
-      if (isPlaneswalker(g, c) && loyaltyOf(c) <= 0) spent.push(c);
-      else if (isBattle(g, c) && defenseOf(c) <= 0 && !(isSiege(g, c) && defeatPending(g, c))) spent.push(c);
-      else if (isBattle(g, c) && (c.protector === null || !canProtect(g, c, c.protector))) {
+    for (const { c, walker, battle, siege } of kinds) {
+      if (walker && loyaltyOf(c) <= 0) spent.push(c);
+      else if (battle && defenseOf(c) <= 0 && !(siege && defeatPending(g, c))) spent.push(c);
+      else if (battle && (c.protector === null || !canProtect(g, c, c.protector))) {
         c.protector = defaultProtector(g, c);
         if (c.protector === null) spent.push(c);
         else log(g, `${g.players[c.protector].name} protects ${label(c)}.`, c.controller, [c]);
@@ -3472,30 +3505,38 @@ export function checkState(g: Game) {
       dieMany(g, spent, "is put into its owner's graveyard");
       changed = true;
     }
+    if (changed) kinds = permanentKinds(g);
     // A Saga past its final chapter is sacrificed once that chapter's ability has left the stack (714.4).
-    const done = battlefield(g).filter((c) => {
-      const chapters = scriptFor(c).chapters?.length ?? 0;
-      return isSaga(g, c) && chapters > 0 && counterCount(c, 'lore') >= chapters && !chapterPending(g, c);
-    });
+    const done = kinds
+      .filter((k) => k.saga)
+      .map((k) => k.c)
+      .filter((c) => {
+        const chapters = scriptFor(c).chapters?.length ?? 0;
+        return chapters > 0 && counterCount(c, 'lore') >= chapters && !chapterPending(g, c);
+      });
     if (done.length) {
       dieMany(g, done, 'is sacrificed');
       changed = true;
+      kinds = permanentKinds(g);
     }
     // An Aura on something it can't enchant, or on nothing, goes to the graveyard (704.5m).
     // Equipment on something it can't equip falls off and stays (704.5n).
     const loose: Card[] = [];
-    for (const c of battlefield(g)) {
-      if (isAura(g, c) && !canEnchant(g, c, c.attachedTo ? permanent(g, c.attachedTo) : undefined)) loose.push(c);
-      else if (c.attachedTo && !isAura(g, c) && !canEquip(g, c, permanent(g, c.attachedTo))) {
+    let fell = false;
+    for (const { c, aura } of kinds) {
+      if (aura && !canEnchant(g, c, c.attachedTo ? permanent(g, c.attachedTo) : undefined)) loose.push(c);
+      else if (c.attachedTo && !aura && !canEquip(g, c, permanent(g, c.attachedTo))) {
         c.attachedTo = null;
-        changed = true;
+        changed = fell = true;
       }
     }
+    if (fell) kinds = permanentKinds(g);
     // The legend rule (704.5j): a player with two or more legendary permanents with the same
     // name keeps one of them. A bot keeps the one that is ready to use; a human chooses, unless
     // the game is already waiting on a decision, and then is asked at the next check.
+    const legendary = new Set(kinds.filter((k) => k.legendary).map((k) => k.c));
     for (const p of living(g)) {
-      const legends = p.battlefield.filter((c) => hasType(g, c, 'Legendary'));
+      const legends = p.battlefield.filter((c) => legendary.has(c));
       if (legends.length < 2) continue;
       const byName = new Map<string, Card[]>();
       for (const c of legends) byName.set(label(c), [...(byName.get(label(c)) ?? []), c]);
