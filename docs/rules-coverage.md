@@ -421,8 +421,9 @@ These are deliberate cuts for a prototype. The biggest ones come first.
   pay life instead. Tapping lands by hand first lets you steer it.
 - **Tapping a Treasure by hand** sacrifices it at once, so Cancel can't take that mana
   back (mana abilities can't be undone).
-- **Auto-pay's lookahead** checks your other cards against their printed mana cost plus
-  commander tax. It ignores cost increases and reductions (601.2f), kicker, and X.
+- **Auto-pay's lookahead** checks your other cards at what they cost now, with commander
+  tax and cost increases and reductions (601.2f), but with no kicker, X as 0 and no
+  alternative cost. It doesn't foresee cost changes the spell being paid for will bring.
 - **Auto-pay** never uses a mana ability that costs a card (Simian Spirit Guide) or your
   hand (Lion's Eye Diamond): use them by hand.
 - **Mana Vault** doesn't ask about paying {4} while it is untapped, and **Tymna** doesn't
