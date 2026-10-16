@@ -27,6 +27,7 @@ import {
   maxX,
   modeChoices,
   sacrificeOptions,
+  delveOptions,
 } from './engine';
 import {
   activatedAt,
@@ -64,6 +65,7 @@ import {
   findCard,
   manaAbilities as manaAbilitiesOf,
   opponentsOf,
+  itemScript,
 } from './rules';
 import type { ApplyOptions, AttackOption } from './engine';
 import { produce } from 'immer';
@@ -267,6 +269,15 @@ function castChoices(g: Game, pid: PlayerId, c: Card): CastChoices[] {
           if (add && way.sacrifice?.includes(add)) continue;
           const sacrifice = [...(way.sacrifice ?? []), ...(add ? [add] : [])];
           const base: CastChoices = { ...way, sacrifice: sacrifice.length ? sacrifice : undefined, ...(discard ? { discard } : {}), modes, ...(face ? { face } : {}) };
+          // Delve (702.66a): exiles the cards the bot wants least, as many as the generic mana they can pay for.
+          if (data(asSpell(c, face)).keywords.includes('Delve')) {
+            const generic = castCost(g, c, base, pid).generic;
+            const fodder = delveOptions(g, pid, c)
+              .filter((x) => !way.escape?.includes(x.id))
+              .sort((a, b) => cardWant(g, pid, a) - cardWant(g, pid, b))
+              .slice(0, generic);
+            if (fodder.length) base.delve = fodder.map((x) => x.id);
+          }
           for (const gift of gifts) {
             const kicks = [0];
             if (script.kicker) {
@@ -781,7 +792,7 @@ function mulliganChoice(g: Game, pid: PlayerId): Action {
 /** The card's own rule for answering a choice it asked (`CardScript.botChoice`), if it has one. */
 function scriptedChoice(g: Game, pid: PlayerId, choice: Choice): Action | null {
   const item = resolvingItem(g);
-  const fn = item && 'then' in choice && choice.then ? scriptFor(item.card).botChoice?.[choice.then] : undefined;
+  const fn = item && 'then' in choice && choice.then ? itemScript(item).botChoice?.[choice.then] : undefined;
   return fn ? fn(g, pid, choice) : null;
 }
 

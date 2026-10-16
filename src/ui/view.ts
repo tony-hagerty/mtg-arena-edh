@@ -54,6 +54,8 @@ import {
   discardOptions,
   escapeOptions,
   graveyardWays,
+  paysFlashback,
+  delveOptions,
   has,
   manaAbilities,
   maxModes,
@@ -104,6 +106,8 @@ export interface View {
   abilityX: { card: Card; x: number; max: number } | null;
   /** Escape (702.138a): the other cards in the graveyard the human picks three of to exile. */
   escape: { card: Card; options: Card[] } | null;
+  /** Delve (702.66a): cards in the graveyard the human may exile, up to `max`, each paying for {1}. */
+  delve: { card: Card; options: Card[]; max: number } | null;
   /** Cards in a graveyard the human can target now (Sevinne's Reclamation), for a picker. */
   graveTargets: { card: Card; spec: TargetSpec; options: Card[] } | null;
   prompt: string | null;
@@ -253,6 +257,15 @@ function isEscaping(t: Targeting): boolean {
   return !!t.choices.escape && t.choices.escape.length < 3;
 }
 
+/** A spell with delve whose cards to exile from the graveyard are still to be picked (702.66a). */
+function isDelving(t: Targeting): boolean {
+  if (t.mode !== 'cast' || t.announcing || t.chosen.length < t.specs.length || isSacrificing(t) || isEscaping(t) || t.choices.delve) return false;
+  const { game: g, human: me } = S();
+  const card = g && findCard(g, t.cardId);
+  if (!card || me === null || !data(asSpell(card, t.choices.face ?? 0)).keywords.includes('Delve')) return false;
+  return delveOptions(g!, me, card).some((x) => !t.choices.escape?.includes(x.id)) && castCost(g!, card, t.choices, me).generic > 0;
+}
+
 /** The targets are chosen and an ability's or a spell's "Discard a card" cost still needs its cards (118.8). */
 function isDiscarding(t: Targeting): boolean {
   if (t.chosen.length < t.specs.length || t.announcing || isSacrificing(t)) return false;
@@ -291,6 +304,7 @@ const isPaying = (t: Targeting) =>
   !isSacrificing(t) &&
   !isExiling(t) &&
   !isEscaping(t) &&
+  !isDelving(t) &&
   !isDiscarding(t) &&
   !crewNeeded(t);
 
@@ -316,7 +330,7 @@ function announceOf(g: Game, me: PlayerId, card: Card, choices: CastChoices): An
   const spell = asSpell(card, face);
   const script = scriptFor(spell);
   const land = landFaces(card).includes(face) && !castFaces(card).includes(face);
-  const hasX = !land && (script.additionalCost?.life === 'x' || ((card.zone !== 'graveyard' || !!choices.escape) && parseCost(choices.alt === undefined ? data(spell).manaCost : script.alternativeCosts![choices.alt].mana).x > 0));
+  const hasX = !land && (script.additionalCost?.life === 'x' || (!paysFlashback(g, card, choices) && parseCost(choices.alt === undefined ? data(spell).manaCost : script.alternativeCosts![choices.alt].mana).x > 0));
   const payable = (ch: CastChoices) => !!planPayment(g, me, castCost(g, card, ch, me), asSpell(card, face, me));
   let most = 0;
   if (script.kicker) while (most < (script.kicker.multi ? 20 : 1) && payable({ ...choices, x: 0, kicked: most + 1 })) most++;
@@ -352,6 +366,10 @@ function announceOf(g: Game, me: PlayerId, card: Card, choices: CastChoices): An
     costs: ways
       ? [
           ...(ways.flashback ? [{ alt: undefined, label: `Flashback ${scriptFor(card).flashback}`, payable: payable({ ...choices, escape: undefined, x: 0 }) }] : []),
+          // An aftermath half (702.127a), or a card an effect lets the player cast from there: its mana cost.
+          ...(ways.aftermath || ways.permitted
+            ? [{ alt: undefined, label: costText(castCost(g, card, { ...choices, escape: undefined, x: 0 }, me)), payable: payable({ ...choices, escape: undefined, x: 0 }) }]
+            : []),
           ...(ways.escape
             ? [{ alt: undefined, escape: true, label: `Escape: ${costText(parseCost(data(spell).manaCost))} + exile 3`, payable: payable({ ...choices, escape: [], x: 0 }) }]
             : []),
@@ -420,6 +438,7 @@ export function buildView(): View {
     announce: null,
     abilityX: null,
     escape: null,
+    delve: null,
     graveTargets: null,
     prompt: null,
     primary: null,
@@ -536,6 +555,16 @@ export function buildView(): View {
     view.glow.set(card.id, 'picked');
     view.escape = { card, options: escapeOptions(g, card) };
     view.prompt = `${label(card)}: choose three other cards in your graveyard to exile.`;
+    view.secondary = { label: 'Cancel', tone: 'cancel', onClick: cancel };
+    return view;
+  }
+
+  // --- choosing the cards to exile for delve (702.66a) ---
+  if (t && isDelving(t)) {
+    const card = findCard(g, t.cardId)!;
+    view.glow.set(card.id, 'picked');
+    view.delve = { card, options: delveOptions(g, me, card).filter((x) => !t.choices.escape?.includes(x.id)), max: castCost(g, card, t.choices, me).generic };
+    view.prompt = `${label(card)}: you may exile cards from your graveyard to pay for it (delve).`;
     view.secondary = { label: 'Cancel', tone: 'cancel', onClick: cancel };
     return view;
   }
@@ -787,7 +816,7 @@ function propose(mode: 'cast' | 'activate', card: Card) {
   const only = refs[0]?.activated;
   const specs = mode === 'cast' ? castTargets(card, undefined, face) : (activatedAt(card, only)?.targets ?? []);
   const script = scriptFor(asSpell(card, face));
-  const hasX = mode === 'cast' && (script.additionalCost?.life === 'x' || ((card.zone !== 'graveyard' || !!choices.escape) && parseCost(data(asSpell(card, face)).manaCost).x > 0));
+  const hasX = mode === 'cast' && (script.additionalCost?.life === 'x' || (!paysFlashback(g, card, choices) && parseCost(data(asSpell(card, face)).manaCost).x > 0));
   const siege = mode === 'cast' && isSiege(asSpell(card, face));
   const handMana = mode === 'cast' && card.zone === 'hand' && canTapForMana(g, me, card);
   const fromHand = mode === 'cast' && !!handAbility(g, me, card);
@@ -802,7 +831,7 @@ function propose(mode: 'cast' | 'activate', card: Card) {
       !!script.gift ||
       handMana ||
       fromHand ||
-      (!!ways && ways.flashback && ways.escape) ||
+      (!!ways && (ways.flashback || ways.aftermath || ways.permitted) && ways.escape) ||
       (siege && opponentsOf(g, me).length > 1));
   const start: Targeting = { mode, cardId: card.id, specs, chosen: [], tapped: [], choices, announcing, ...(only ? { activated: only } : {}) };
   if (mode === 'activate' && refs[0] && abilityHasX(card, refs[0])) chooseX(start);
@@ -841,12 +870,12 @@ function confirmAbilityX() {
 function defaultChoices(g: Game, me: PlayerId, card: Card, face: number): CastChoices {
   // From a graveyard: flashback if it can, else escape (702.34a, 702.138a).
   const ways = card.zone === 'graveyard' ? graveyardWays(g, card, face) : null;
-  const escape = ways && ways.escape && !ways.flashback ? [] : undefined;
+  const escape = ways && ways.escape && !ways.flashback && !ways.aftermath && !ways.permitted ? [] : undefined;
   const spell = asSpell(card, face, me);
   const alts = ways ? [] : altCostsOf(g, card, face, me);
   const alt = planPayment(g, me, castCost(g, card, { face, escape }, me), spell) ? undefined : alts.find((i) => planPayment(g, me, castCost(g, card, { alt: i, face }, me), spell));
   // An X paid in life ("pay X life", Toxic Deluge) starts at 0, not at all the player's life.
-  const hasX = (card.zone !== 'graveyard' || !!escape) && parseCost(data(asSpell(card, face)).manaCost).x > 0;
+  const hasX = !paysFlashback(g, card, { face, escape }) && parseCost(data(asSpell(card, face)).manaCost).x > 0;
   const choices: CastChoices = { alt, x: hasX && alt === undefined ? Math.max(0, maxX(g, me, card, { alt, face, escape })) : 0, kicked: 0, ...(escape ? { escape } : {}) };
   if (face) choices.face = face;
   if (isSiege(spell)) choices.protector = defaultProtector(g, spell) ?? undefined;
@@ -1045,6 +1074,16 @@ export function chooseEscape(ids: string[]) {
   if (planPayment(g, me, costOf(g, next).cost)?.tap.length === 0) pay();
 }
 
+/** Picks the cards to exile for delve, maybe none (702.66a). Paying comes next. */
+export function chooseDelve(ids: string[]) {
+  const t = S().targeting;
+  const { game: g, human: me } = S();
+  if (!t || !g || me === null || !isDelving(t)) return;
+  const next = { ...t, choices: { ...t.choices, delve: ids } };
+  useStore.setState({ targeting: next });
+  if (planPayment(g, me, costOf(g, next).cost)?.tap.length === 0) pay();
+}
+
 /** Picks a card in the hand to discard for an ability's cost. Paying comes next. */
 function chooseDiscard(g: Game, me: PlayerId, t: Targeting, card: Card) {
   const source = findCard(g, t.cardId)!;
@@ -1094,7 +1133,7 @@ function chooseTarget(ref: TargetRef | null) {
   const s = S();
   const { game: g, human: me } = s;
   const t = targetingOf(s);
-  if (!g || me === null || !t || t.announcing || isSacrificing(t) || isExiling(t) || isEscaping(t) || isDiscarding(t) || crewNeeded(t)) return;
+  if (!g || me === null || !t || t.announcing || isSacrificing(t) || isExiling(t) || isEscaping(t) || isDelving(t) || isDiscarding(t) || crewNeeded(t)) return;
   if (ref && !currentTargets(g, me, t).some((x) => x.kind === ref.kind && x.id === ref.id)) return;
   advance({ ...t, chosen: [...t.chosen, ref] });
 }
