@@ -300,11 +300,11 @@ are from the Comprehensive Rules in `docs/rules/`.
 ### Other mechanics
 
 - **Searching a library (701.23):** the player looks at every card and picks a valid one,
-  or may find nothing (701.23b). The spell stays on the stack until the choice is made. A
-  search can be for any card, which must find one if it can (701.23d), or for a type,
-  subtype or mana value, and puts the card into a hand, on top after shuffling, or onto
-  the battlefield (tutors, fetch lands). A bot's card that isn't revealed isn't named in
-  the log (701.23e).
+  or may find nothing (701.23b). The spell stays on the stack until the choice is made.
+  A search can be for any card, which must find one if it can (701.23d), or for a type,
+  subtype, mana value or toughness (a characteristic-defining "*" counts, 208.2a), and
+  puts the card into a hand, on top after shuffling, or onto the battlefield (tutors,
+  fetch lands). A bot's card that isn't revealed isn't named in the log (701.23e).
 - **Per-turn counts:** spells cast (and noncreature spells) by each player, cards drawn,
   and players dealt combat damage. Storm (702.40) copies a spell for each spell cast
   before it this turn; "second spell each turn" and "first noncreature spell each turn"
@@ -427,14 +427,14 @@ templates and builds the script from the helpers in `rules.ts`. One clause it ca
 refuses the whole card, naming the clause: it never guesses. Hand scripts always win.
 
 - **Abilities:** "When this enters", "When this dies", "Whenever this attacks" and
-  "Whenever you cast a [noncreature] spell" (603.1); activated abilities (602) with `{T}`,
-  mana (with `{X}`, 107.3a), "Pay N life" (119.4), "Sacrifice this" and "Sacrifice
-  a/another [creature, artifact, land, permanent]" costs, and "Activate only as a
-  sorcery"; cycling (702.29a); mana abilities "{T}: Add {G}", "{C}{C}", "{W} or {B}",
-  "{W}, {U}, or {B}", "one mana of any color", "three mana of any one color", with "This
-  deals 1 damage to you" or "Activate only if you control a Plains or a Swamp" (605);
-  "[Other] [Soldier] creatures you control get +N/+N [and have flying]" and "... have
-  haste" (613); instants and sorceries.
+  "Whenever you cast a [noncreature] spell" (603.1) and Prowess (702.108a); activated
+  abilities (602) with `{T}`, mana (with `{X}`, 107.3a), "Pay N life" (119.4),
+  "Sacrifice this" and "Sacrifice a/another [creature, artifact, land, permanent]"
+  costs, and "Activate only as a sorcery"; cycling (702.29a); mana abilities "{T}: Add
+  {G}", "{C}{C}", "{W} or {B}", "{W}, {U}, or {B}", "one mana of any color", "three mana
+  of any one color", with "This deals 1 damage to you" or "Activate only if you control
+  a Plains or a Swamp" (605); "[Other] [Soldier] creatures you control get +N/+N [and
+  have flying]" and "... have haste" (613); instants and sorceries.
 - **Lines about the card itself:** "This land enters tapped", "... unless you control two
   or more other lands / two or more basic lands / a basic land / an Island or a Swamp",
   "... unless you have two or more opponents", "... unless your opponents control eight

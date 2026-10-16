@@ -297,6 +297,19 @@ describe('more effects and static lines from Oracle text', () => {
     expect(cast('Llanowar Elves')).toEqual([40, 40, 40, 40]);
   });
 
+  it('reads Prowess, alone or with other keywords (702.108a)', () => {
+    teach('Test Monk', 'Creature — Human Monk', 'Flying, prowess', { keywords: ['Flying', 'Prowess'], power: '1', toughness: '1' });
+    let g = emptyGame((d) => {
+      put(d, 0, 'Test Monk');
+      put(d, 0, 'Shock', 'hand');
+      put(d, 0, 'Mountain');
+    });
+    g = run(g, { type: 'cast', card: byName(g, 0, 'Shock', 'hand')!.id, targets: [{ kind: 'player', id: 1 }] });
+    for (let i = 0; i < 20 && (g.decision || g.stack.length); i++) g = g.decision ? applyBotAction(g, botAction(g, g.priority)) : applyAction(g, { type: 'pass' });
+    expect(stats(g, byName(g, 0, 'Test Monk')!)).toMatchObject({ power: 2, toughness: 2 });
+    expect(parseCard(fake('Test Monk 2', 'Creature', 'Prowess\nWhenever you cast a noncreature spell, draw a card.'))).toMatchObject({ ok: false, reason: 'two abilities that trigger on the same event' });
+  });
+
   it("exiles a target player's graveyard and puts a counter on each of your creatures", () => {
     teach('Test Bog', 'Land', 'This land enters tapped.\nWhen this land enters, exile target player\'s graveyard.\n{T}: Add {B}.');
     let g = emptyGame((d) => {

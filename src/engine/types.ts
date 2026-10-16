@@ -421,6 +421,8 @@ export interface Find {
   subtypes?: string[];
   /** Mana value at most this. */
   maxMv?: number;
+  /** Toughness at most this, as the card has it in the library (208.2a). */
+  maxToughness?: number;
   /** "a Mountain or Plains card", for the prompt. */
   label: string;
 }
