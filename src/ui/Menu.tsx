@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import type { CSSProperties } from 'react';
 import { DECKS, cardData, deckColors } from '../cards/db';
 import type { DeckDef } from '../cards/db';
 import { checkList, norm, savedDeckIssues } from '../cards/decklist';
@@ -7,7 +8,7 @@ import { downloadRequests, keptRequests, reportRequests, writesFile } from './ca
 import { type SeatPlayer, useStore } from './store';
 import { HostTable, JoinTable, SavedGames, TableEnded, WaitingRoom } from './LobbyScreen';
 import { SoundControl } from './SoundControl';
-import { CardImage } from './TextCard';
+import { useArtLoads } from './TextCard';
 import { cx, deckColor } from './util';
 
 type MenuScreen = 'decks' | 'paste' | 'host' | 'join' | 'saves';
@@ -43,13 +44,11 @@ function DeckMenu({ go }: { go: (screen: MenuScreen) => void }) {
       <SoundControl />
       <h1>Commander Table</h1>
       <p className="menu-sub">An Arena-style Commander prototype for two to four players. Pick a deck; the seats below say who plays the others.</p>
-      <div className="deck-list">
-        {DECKS.map((deck) => (
-          <DeckTile key={deck.id} deck={deck} issues={[]} play={() => start(deck)} />
-        ))}
-        {saved.map((deck) => (
-          <DeckTile key={deck.id} deck={deck} issues={savedDeckIssues(deck)} play={() => start(deck)} pasted />
-        ))}
+      <div className="deck-shelf">
+        <DeckSection title="Starter decks" decks={DECKS.map((deck) => ({ deck, issues: [] }))} play={start} />
+        {saved.length > 0 && (
+          <DeckSection title="Your decks" decks={saved.map((deck) => ({ deck, issues: savedDeckIssues(deck) }))} play={start} pasted />
+        )}
       </div>
       <Opponents />
       {lobby && table?.role === 'none' && <TableEnded table={table} />}
@@ -80,24 +79,44 @@ function DeckMenu({ go }: { go: (screen: MenuScreen) => void }) {
   );
 }
 
+/** A labelled grid of decks. It wraps onto new rows; the shelf around it scrolls once they don't fit. */
+function DeckSection({ title, decks, play, pasted }: { title: string; decks: { deck: DeckDef; issues: string[] }[]; play: (deck: DeckDef) => void; pasted?: boolean }) {
+  return (
+    <section className="deck-section">
+      <h2>{title}</h2>
+      <div className="deck-list">
+        {decks.map(({ deck, issues }) => (
+          <DeckTile key={deck.id} deck={deck} issues={issues} play={() => play(deck)} pasted={pasted} />
+        ))}
+      </div>
+    </section>
+  );
+}
+
 /** A deck on the menu. A pasted deck can be deleted, and is greyed out if a newer card pool can't play it. */
 function DeckTile({ deck, issues, play, pasted }: { deck: DeckDef; issues: string[]; play: () => void; pasted?: boolean }) {
   const remove = useStore((s) => s.deleteDeck);
   const broken = issues.length > 0;
   // A deck's colours are its commanders' colour identity (903.4, 702.124c).
   const colors = broken ? [] : deckColors(deck);
+  const color = broken ? '#4a5366' : deckColor(colors);
   return (
     <div className="deck-slot">
-      <button className={cx('deck', broken && 'broken')} onClick={play} disabled={broken} style={{ borderColor: broken ? undefined : deckColor(colors) }}>
-        {/* Partners show side by side. */}
-        <div className="deck-art">
-          {deck.commanders.map((name) => (broken ? <div key={name} className="deck-art-missing" /> : <CardImage key={name} d={cardData(name)} alt={name} draggable={false} />))}
+      <button className={cx('deck', broken && 'broken')} onClick={play} disabled={broken} style={{ '--deck': color } as CSSProperties} title={deck.commanders.join(' & ')}>
+        {/* Each commander's art crop; partners split the banner. */}
+        <div className="deck-banner">
+          {deck.commanders.map((name) => (
+            <DeckArt key={name} url={broken ? '' : cardData(name).art} />
+          ))}
+          <div className="deck-pips">
+            {!broken && (colors.length ? colors.map((c) => <i key={c} className={`ms ms-cost ms-shadow ms-${c.toLowerCase()}`} />) : <i className="ms ms-cost ms-shadow ms-c" />)}
+          </div>
         </div>
-        <div className="deck-title">
-          {!broken && (colors.length ? colors.map((c) => <i key={c} className={`ms ms-cost ms-${c.toLowerCase()}`} />) : <i className="ms ms-cost ms-c" />)} {deck.title}
+        <div className="deck-info">
+          <div className="deck-title">{deck.title}</div>
+          <div className="deck-commander">{deck.commanders.join(' & ')}</div>
+          <div className="deck-blurb">{broken ? `Can't be played: ${issues[0]}` : deck.blurb}</div>
         </div>
-        <div className="deck-commander">{deck.commanders.join(' & ')}</div>
-        <div className="deck-blurb">{broken ? `Can't be played: ${issues[0]}` : deck.blurb}</div>
       </button>
       {pasted && (
         <button
@@ -111,6 +130,12 @@ function DeckTile({ deck, issues, play, pasted }: { deck: DeckDef; issues: strin
       )}
     </div>
   );
+}
+
+/** A commander's art crop, or just the deck's colour if it doesn't load. */
+function DeckArt({ url }: { url: string }) {
+  const ok = useArtLoads(url);
+  return <div className="deck-art" style={ok ? { backgroundImage: `url(${url})` } : undefined} />;
 }
 
 const SEAT_LABELS: Record<SeatPlayer, string> = { bot: 'Bot', person: 'Person here', empty: 'Empty seat' };
