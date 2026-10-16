@@ -47,7 +47,8 @@ export interface Targeting {
   sacrificeDone?: boolean;
 }
 
-const STOPS_KEY = 'arena-edh.stops';
+// Renamed when the defaults change, so everyone starts again from the new ones once.
+const STOPS_KEY = 'arena-edh.stops.v2';
 
 /**
  * The human's stops from the last session, or the defaults. Storage can be missing or blocked.

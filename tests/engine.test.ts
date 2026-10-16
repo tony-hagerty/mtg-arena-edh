@@ -1196,7 +1196,9 @@ describe('combat', () => {
     const [a, b] = g.players[0].battlefield;
     g = run(g, pass, { type: 'declareAttack', card: a.id, defender: 1 }, { type: 'declareAttack', card: b.id, defender: 3 }, pass);
     expect(g.players.map((p) => p.life)).toEqual([40, 37, 40, 36]);
-    // Nothing is left for player 0 to do, so the turn runs out and player 1's begins.
+    // Player 0 always stops in main 2; passing that, the turn runs out and player 1's begins.
+    expect(g.step).toBe('main2');
+    g = run(g, pass);
     expect([g.active, g.step]).toEqual([1, 'main1']);
   });
 
@@ -1286,8 +1288,8 @@ describe('card scripts', () => {
     let g = emptyGame((d) => {
       put(d, 0, 'Sheoldred, the Apocalypse');
     });
-    // To combat, declare no attackers: the turn ends and player 1 draws in their draw step.
-    g = run(g, pass, pass);
+    // To combat, declare no attackers, pass main 2: the turn ends and player 1 draws in their draw step.
+    g = run(g, pass, pass, pass);
     expect(g.active).toBe(1);
     expect(g.players[1].life).toBe(38);
   });
@@ -1410,7 +1412,8 @@ describe('turn structure', () => {
       put(d, 1, 'Forest').tapped = true;
       put(d, 1, 'Kalonian Tusker').sick = true;
     });
-    g = run(g, pass);
+    // Past player 0's stops in main 1 and main 2.
+    g = run(g, pass, pass);
     expect([g.active, g.step]).toEqual([1, 'main1']);
     expect(g.players[1].hand.length).toBe(1);
     expect(g.players[1].battlefield.some((c) => c.tapped || c.sick)).toBe(false);
@@ -1606,7 +1609,7 @@ describe('eliminations', () => {
       put(d, 0, 'Mountain', 'battlefield', 1);
       put(d, 0, 'Shock', 'hand');
     });
-    g = run(g, { type: 'cast', card: byName(g, 0, 'Shock', 'hand')!.id, targets: [{ kind: 'player', id: 1 }] }, pass);
+    g = run(g, { type: 'cast', card: byName(g, 0, 'Shock', 'hand')!.id, targets: [{ kind: 'player', id: 1 }] }, pass, pass);
     expect(g.players[1].lost).toBe(true);
     expect(g.active).toBe(2);
   });
@@ -1642,7 +1645,8 @@ describe('stops', () => {
   it('skips an "ifAble" stop when the player can only pass', () => {
     let g = emptyGame();
     const turn = g.turn;
-    g = runWith(stopsFor1({ beginCombat: 'ifAble' }), g, pass);
+    // Past player 0's stops in main 1 and main 2.
+    g = runWith(stopsFor1({ beginCombat: 'ifAble' }), g, pass, pass);
     // Player 1 has no stops on their own turn either, so it goes by; player 2 stops in main 1 by default.
     expect([g.turn, g.active, g.step, g.priority]).toEqual([turn + 2, 2, 'main1', 2]);
   });
@@ -1686,8 +1690,8 @@ describe('stops', () => {
   });
 
   it('matches the defaults when no stops are given', () => {
-    expect(defaultStops(0)[0]).toEqual({ main1: 'always', main2: 'ifAble', blockers: 'ifAble' });
-    expect(defaultStops(0)[1]).toEqual({ attackers: 'ifAble', blockers: 'ifAble', end: 'ifAble' });
+    expect(defaultStops(0)[0]).toEqual({ main1: 'always', beginCombat: 'ifAble', blockers: 'ifAble', main2: 'always' });
+    expect(defaultStops(0)[1]).toEqual({ upkeep: 'ifAble', attackers: 'ifAble', blockers: 'ifAble', end: 'ifAble' });
   });
 });
 
