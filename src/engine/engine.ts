@@ -126,6 +126,7 @@ import {
   tokenCopy,
   canChangeTargets,
   hasType,
+  triggerModeOptions,
 } from './rules';
 import type { EnterOpts } from './rules';
 import type {
@@ -1624,7 +1625,7 @@ function resolveTop(g: Game) {
     }
   } else if (!fizzled) {
     // An ability uses its source as it is now, or as it last was if it has gone (113.7a).
-    const ctx = { self: permanent(g, card.id) ?? card, you: controller, targets, sacrificed: item.sacrificed, sacrificedPower: item.sacrificedPower, x: item.x ?? 0 };
+    const ctx = { self: permanent(g, card.id) ?? card, you: controller, targets, sacrificed: item.sacrificed, sacrificedPower: item.sacrificedPower, x: item.x ?? 0, ...(item.modes ? { modes: item.modes } : {}) };
     if (item.kind === 'activated' && item.ability !== undefined && script.levels) {
       // The Class gains the level, and "when this Class becomes level N" triggers (716.2a).
       const cls = permanent(g, card.id);
@@ -1825,6 +1826,22 @@ function putTriggerOnStack(g: Game): boolean {
     return true;
   }
   const [item] = g.triggers.splice(next, 1);
+  // A modal triggered ability: its controller chooses the modes as it goes on the stack (603.3c).
+  const modal = item.modes ? null : triggerModeOptions(g, item);
+  if (modal) {
+    // With too few modes that can be chosen, it is removed from the stack (603.3c).
+    if (modal.legal.length < modal.min) return true;
+    const t = triggerOf(item) as { modes: { bot?: (g: Game, pid: PlayerId, self: Card) => number[] } };
+    if (g.players[pid].isBot) {
+      const wanted = t.modes.bot?.(g, pid, item.card) ?? [];
+      item.modes = wanted.filter((i) => modal.legal.includes(i)).slice(0, modal.max);
+      if (item.modes.length < modal.min) item.modes = modal.legal.slice(0, modal.min);
+    } else {
+      g.decision = { type: 'triggerModes', item, resume: g.priority };
+      g.priority = pid;
+      return true;
+    }
+  }
   const specs = targetSpecs(item);
   const options = specs.map((spec) => legalTargets(g, item.controller, spec, item.card));
   if (specs.some((spec, i) => !spec.optional && !spec.any && options[i].length === 0)) {
@@ -1854,7 +1871,9 @@ function putTriggerOnStack(g: Game): boolean {
  */
 function announceTrigger(g: Game, item: StackItem) {
   if (item.kind !== 'triggered' || item.copy) return;
-  const text = triggerText(item);
+  const t = triggerOf(item);
+  const modes = item.modes && t && typeof t !== 'function' && t.modes ? item.modes.map((i) => `“${t.modes!.modes[i].text}”`).join(', ') : '';
+  const text = [triggerText(item), modes].filter(Boolean).join(': ');
   const chosen = item.targets.filter((t): t is TargetRef => !!t).map((t) => describeRef(g, t));
   log(g, `${whose(g.players[item.controller])} ${label(item.card)} triggers${text ? ` (${text})` : ''}${chosen.length ? ` targeting ${chosen.join(' and ')}` : ''}.`, item.controller, [item.card, ...refCards(g, item.targets)]);
   flash(g, item.card, item.controller, 'triggered');
@@ -2265,6 +2284,21 @@ function act(g: Game, a: Action): boolean {
         g.decision = null;
         cleanup(g);
       }
+      return true;
+    }
+
+    case 'chooseModes': {
+      if (g.decision?.type !== 'triggerModes') return false;
+      const { item, resume } = g.decision;
+      const modal = triggerModeOptions(g, item);
+      const modes = a.modes;
+      if (!modal || modes.length < modal.min || modes.length > modal.max) return false;
+      if (modes.some((m, i) => !modal.legal.includes(m) || (i > 0 && m <= modes[i - 1]))) return false;
+      item.modes = [...modes];
+      // It goes back to wait first in line, and on to its targets.
+      g.triggers.unshift(item);
+      g.decision = null;
+      g.priority = resume;
       return true;
     }
 

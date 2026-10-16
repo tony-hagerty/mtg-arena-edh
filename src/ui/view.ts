@@ -573,6 +573,8 @@ export function buildView(): View {
                   ? `${who} is choosing a player`
                   : deciding === 'number'
                     ? `${who} is choosing a number`
+                    : deciding === 'triggerModes'
+                      ? `${who} is choosing modes`
                   : deciding === 'cast'
                     ? `${who} may cast a spell`
                     : deciding === 'retarget'

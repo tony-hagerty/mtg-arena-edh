@@ -74,11 +74,13 @@ import {
   isFree,
   escapes,
   changeOptions,
+  triggerModeOptions,
+  triggerOf,
 } from './rules';
 import type { ApplyOptions, AttackOption } from './engine';
 import { produce } from 'immer';
 import { cardData } from '../cards/db';
-import type { AbilityRef, Action, Card, CastChoices, Choice, Game, ManaSym, Player, PlayerId, TargetRef, TargetSpec } from './types';
+import type { AbilityRef, Action, Card, CastChoices, Choice, Game, ManaSym, Player, PlayerId, StackItem, TargetRef, TargetSpec } from './types';
 
 // ---------- position evaluation ----------
 
@@ -449,6 +451,16 @@ const STEP_BY_STEP = { autoPass: false, simulate: true } as const;
  * A quick answer to a decision that comes up while the stack resolves: the first legal
  * targets, a bot's card choice, the order triggers went on in, or a commander sent home.
  */
+/** The modes a bot chooses for a modal triggered ability (603.3c): its card's own rule, else the first it can. */
+function modesFor(g: Game, item: StackItem): Action {
+  const modal = triggerModeOptions(g, item);
+  if (!modal) return PASS;
+  const t = triggerOf(item);
+  const wanted = (t && typeof t !== 'function' && t.modes?.bot?.(g, item.controller, item.card)) || [];
+  const modes = wanted.filter((i) => modal.legal.includes(i)).slice(0, modal.max);
+  return { type: 'chooseModes', modes: modes.length >= modal.min ? modes : modal.legal.slice(0, modal.min) };
+}
+
 function anyTargets(g: Game): Action {
   if (g.decision?.type === 'chooseCards') return cardChoice(g, g.priority);
   if (g.decision?.type === 'ask' || g.decision?.type === 'name' || g.decision?.type === 'player' || g.decision?.type === 'number') return choiceAnswer(g, g.priority);
@@ -464,6 +476,7 @@ function anyTargets(g: Game): Action {
     return { type: 'chooseTargets', targets: item?.targets ?? [] };
   }
   if (g.decision?.type === 'orderTriggers') return defaultOrder(g, g.priority);
+  if (g.decision?.type === 'triggerModes') return modesFor(g, g.decision.item);
   if (g.decision?.type === 'commanderZone') return { type: 'commanderZone', toCommand: true };
   if (g.decision?.type === 'assignDamage') return { type: 'assignDamage', assignments: autoAssignments(g) };
   if (g.decision?.type !== 'targets') return PASS;
@@ -523,7 +536,7 @@ function resolveStack(g: Game, pid: PlayerId, depth = 0): Game {
   for (let i = 0; i < 200 && g.step !== 'gameOver'; i++) {
     let action: Action;
     const deciding = g.decision?.type;
-    if (deciding === 'chooseCards' || deciding === 'orderTriggers' || deciding === 'commanderZone' || deciding === 'assignDamage' || deciding === 'ask' || deciding === 'name' || deciding === 'player' || deciding === 'number' || deciding === 'cast' || deciding === 'retarget') {
+    if (deciding === 'chooseCards' || deciding === 'triggerModes' || deciding === 'orderTriggers' || deciding === 'commanderZone' || deciding === 'assignDamage' || deciding === 'ask' || deciding === 'name' || deciding === 'player' || deciding === 'number' || deciding === 'cast' || deciding === 'retarget') {
       action = anyTargets(g);
     } else if (g.decision?.type === 'targets') action = g.priority === pid && depth < 1 ? bestTargets(g, pid, depth) : anyTargets(g);
     else if (g.stack.length && !g.decision) action = PASS;
@@ -1041,6 +1054,8 @@ export function botAction(g: Game, pid: PlayerId): Action {
       return cardChoice(g, pid);
     case 'orderTriggers':
       return defaultOrder(g, pid);
+    case 'triggerModes':
+      return modesFor(g, g.decision.item);
     case 'attackers':
       return attackAction(g, pid);
     case 'blockers':
@@ -1080,6 +1095,7 @@ export function applyBotAction(g: Game, a: Action, opts?: ApplyOptions): Game {
   if (next === g && a.type !== 'pass') next = applyAction(g, PASS, opts);
   if (next === g && g.decision?.type === 'discard') next = applyAction(g, discardChoice(g, g.priority), opts);
   if (next === g && g.decision?.type === 'targets') next = applyAction(g, anyTargets(g), opts);
+  if (next === g && g.decision?.type === 'triggerModes') next = applyAction(g, modesFor(g, g.decision.item), opts);
   if (next === g && g.decision?.type === 'chooseCards') next = applyAction(g, cardChoice(g, g.priority), opts);
   if (next === g && g.decision?.type === 'ask') next = applyAction(g, { type: 'answer', yes: false }, opts);
   if (next === g && g.decision?.type === 'name') next = applyAction(g, { type: 'name', name: g.decision.choice.of ? 'Human' : 'Island' }, opts);
