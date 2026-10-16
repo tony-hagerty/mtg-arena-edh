@@ -605,10 +605,16 @@ function cardAt(game: Game | null, at: Element | null) {
   return el && card ? { name: card.name, el } : null;
 }
 
-/** Big readable copy of whatever card the pointer is over, placed beside it. */
+/**
+ * Big readable copy of whatever card the pointer is over, placed beside it. Right-click a card
+ * (one in the hand too) to keep a bigger copy up, over a darkened table, until a left click
+ * anywhere off it.
+ */
 export function Preview() {
   const hover = useStore((s) => s.hover);
   const game = useStore((s) => s.game);
+  /** The card kept up by a right-click. */
+  const [pinned, setPinned] = useState<string | null>(null);
   const pointer = useRef({ x: -1, y: -1 });
   const shown = useRef<{ left: number; top: number; width: number } | null>(null);
 
@@ -624,6 +630,17 @@ export function Preview() {
     return () => window.removeEventListener('mousemove', onMove);
   }, []);
 
+  // Right-click pins the card under the pointer, instead of opening the browser's menu.
+  useEffect(() => {
+    const onMenu = (e: MouseEvent) => {
+      const hover = useStore.getState().hover;
+      if (hover) setPinned(hover.name);
+      if (hover || (e.target as Element).closest('.preview-backdrop, .preview')) e.preventDefault();
+    };
+    window.addEventListener('contextmenu', onMenu);
+    return () => window.removeEventListener('contextmenu', onMenu);
+  }, []);
+
   // The hovered card can be redrawn as a new element, or leave play, with no mouse event at
   // all. Move the preview to whatever card is under the pointer now.
   useEffect(() => {
@@ -631,30 +648,42 @@ export function Preview() {
     useStore.setState({ hover: cardAt(game, document.elementFromPoint(pointer.current.x, pointer.current.y)) });
   }, [game, hover]);
 
-  if (!hover) return null;
-  // For the one render where the old element is gone, stay where the preview last was, so it doesn't blink.
-  if (hover.el.isConnected) {
-    const rem = parseFloat(getComputedStyle(document.documentElement).fontSize);
+  // A hand card zooms itself, so it only gets the pinned preview.
+  const name = pinned ?? (hover && !hover.hand ? hover.name : null);
+  const rem = parseFloat(getComputedStyle(document.documentElement).fontSize);
+  const gap = 1.5 * rem;
+  if (pinned) {
+    // Half the screen's height, raised a little, centred on the fifth of six columns across
+    // the screen (75% of the way along); a narrow window shrinks it to stay on screen.
+    const height = Math.min(window.innerHeight * 0.5, (window.innerWidth / 2 - 2 * gap) * 1.395);
+    const width = height / 1.395;
+    shown.current = { left: window.innerWidth * 0.75 - width / 2, top: window.innerHeight * 0.42 - height / 2, width };
+  } else if (hover?.el.isConnected) {
+    // For the one render where the old element is gone, stay where the preview last was, so it doesn't blink.
     const r = hover.el.getBoundingClientRect();
     const width = 27 * rem;
     const height = width * 1.395;
-    const gap = 1.5 * rem;
     const left = r.right + gap + width > window.innerWidth - gap ? r.left - gap - width : r.right + gap;
     const top = Math.max(gap, Math.min(r.top + r.height / 2 - height / 2, window.innerHeight - height - gap));
     shown.current = { left, top, width };
   }
-  if (!shown.current) return null;
   // A name that isn't a card or token key (a copied token's own name) has nothing to show.
-  let d: ReturnType<typeof cardData>;
+  let d: ReturnType<typeof cardData> | null = null;
   try {
-    d = cardData(hover.name);
+    if (name && shown.current) d = cardData(name);
   } catch {
-    return null;
+    d = null;
   }
   return (
-    <div className="preview" key={hover.name} style={shown.current}>
-      <CardImage d={d} alt={d.name} />
-    </div>
+    <>
+      {/* Always there, so the table fades back in when the preview closes too. */}
+      <div className={cx('preview-backdrop', pinned && d && 'on')} onClick={() => setPinned(null)} />
+      {d && (
+        <div className={cx('preview', pinned && 'pinned')} key={`${name}-${!!pinned}`} style={shown.current!}>
+          <CardImage d={d} alt={d.name} />
+        </div>
+      )}
+    </>
   );
 }
 

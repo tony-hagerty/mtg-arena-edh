@@ -149,6 +149,7 @@ The full guide to the game's screens and controls. For a quick start, see the
 | `Esc` | cancel |
 | `Ctrl+Space` | hold priority (see [Turns, priority and the stack](rules-coverage.md#turns-priority-and-the-stack)) |
 | Hover a card | full-size view |
+| Right-click a card (in your hand too) | bigger view that stays up; left-click off it to close |
 | Click a graveyard or exile pile | look through it |
 | Hover a card name in the log (dashed underline) | see the card |
 
