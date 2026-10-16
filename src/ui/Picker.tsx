@@ -199,10 +199,19 @@ function ChoicePicker({ g, choice }: { g: Game; choice: CardChoice }) {
     return (
       <CardPicker
         title={`${choice.source}: ${choice.text}`}
-        hint={min === max ? `Choose ${plural(max, 'card')}.` : max === 1 ? 'Choose one, or none.' : `Choose up to ${plural(max, 'card')}.`}
+        hint={
+          choice.ordered
+            ? 'They go down in the order you pick them: the last one is the very bottom card.'
+            : min === max
+              ? `Choose ${plural(max, 'card')}.`
+              : max === 1
+                ? 'Choose one, or none.'
+                : `Choose up to ${plural(max, 'card')}.`
+        }
         cards={cards}
-        selectable={() => true}
+        selectable={(c) => valid.has(c.id)}
         max={max}
+        numbered={choice.ordered}
         buttons={(picked) => [
           { label: choice.button, sub: max > 1 ? `${picked.length} of ${max}` : undefined, tone: 'go', disabled: picked.length < min, onClick: () => choose(picked) },
         ]}

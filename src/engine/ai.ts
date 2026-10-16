@@ -66,6 +66,9 @@ import {
   manaAbilities as manaAbilitiesOf,
   opponentsOf,
   itemScript,
+  attackCost,
+  canPayAttacks,
+  isFree,
 } from './rules';
 import type { ApplyOptions, AttackOption } from './engine';
 import { produce } from 'immer';
@@ -515,6 +518,7 @@ const sameAttack = (a: AttackOption | undefined, b: AttackOption) => !!a && a.de
 
 function planAttacks(g: Game, pid: PlayerId): Map<string, AttackOption> {
   const plan = new Map<string, AttackOption>();
+  const worth = new Map<string, number>();
   const mine = attackCandidates(g, pid);
   const bias = (o: Player) =>
     // Mild preference for the strongest opponent, rotated so bots don't all pile on one seat.
@@ -548,7 +552,10 @@ function planAttacks(g: Game, pid: PlayerId): Map<string, AttackOption> {
         best = option;
       }
     }
-    if (best !== null) plan.set(c.id, best);
+    if (best !== null) {
+      plan.set(c.id, best);
+      worth.set(c.id, bestScore);
+    }
   }
 
   // Swarm: if we have clearly more attackers than someone has blockers, send everyone.
@@ -558,7 +565,26 @@ function planAttacks(g: Game, pid: PlayerId): Map<string, AttackOption> {
     const victim = players.sort((a, b) => b.bias - a.bias).find(({ blockers }) => idle.length >= blockers.length + 2);
     if (victim) for (const c of idle) plan.set(c.id, victim.option);
   }
-  return plan;
+  return affordable(g, pid, plan, worth);
+}
+
+/**
+ * The planned attacks the bot can pay for (Propaganda, 508.1g), the most valuable first.
+ * An attack that costs mana goes ahead only if it is worth about what the mana is.
+ */
+function affordable(g: Game, pid: PlayerId, plan: Map<string, AttackOption>, worth: Map<string, number>): Map<string, AttackOption> {
+  const attack = (id: string, o: AttackOption) => ({ id, defender: o.defender, target: o.target });
+  if ([...plan].every(([id, o]) => isFree(attackCost(g, [attack(id, o)])))) return plan;
+  const out = new Map<string, AttackOption>();
+  const ordered = [...plan].sort(([a], [b]) => (worth.get(b) ?? 0.3) - (worth.get(a) ?? 0.3));
+  for (const [id, o] of ordered) {
+    const tax = attackCost(g, [attack(id, o)]);
+    const mana = tax.generic + tax.pips.length + tax.hybrid.length;
+    if (mana && (worth.get(id) ?? 0.3) < mana * 0.4) continue;
+    const next = [...[...out].map(([i, x]) => attack(i, x)), attack(id, o)];
+    if (canPayAttacks(g, pid, next)) out.set(id, o);
+  }
+  return out;
 }
 
 function attackAction(g: Game, pid: PlayerId): Action {

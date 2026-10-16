@@ -21,6 +21,9 @@ import {
   castCost,
   castTargets,
   costText,
+  attackCost,
+  isFree,
+  tapCandidates,
   crewOptions,
   crewPower,
   data,
@@ -459,7 +462,7 @@ export function buildView(): View {
             : deciding === 'ask'
               ? `${who} is deciding`
               : deciding === 'name'
-                ? `${who} is naming ${g.decision?.type === 'name' && g.decision.choice.of ? 'a creature type' : 'a card'}`
+                ? `${who} is naming ${g.decision?.type === 'name' && g.decision.choice.of ? (g.decision.choice.of === 'color' ? 'a colour' : 'a creature type') : 'a card'}`
                 : deciding === 'player'
                   ? `${who} is choosing a player`
                   : deciding === 'cast'
@@ -687,8 +690,11 @@ export function buildView(): View {
       view.prompt =
         `Choose attackers — sending them at ${target ? attackName(g, target) : '?'}. Click an opponent${walkers ? ', planeswalker or battle' : ''} to switch.` +
         (must.length ? ` ${must.map(label).join(' and ')} must attack.` : '');
+      // Attacks that cost mana, like those at a player with Propaganda (508.1g).
+      const cost = attackCost(g, attacks);
+      if (!isFree(cost)) view.prompt += ` Attacking costs ${costText(cost)}.`;
       if (attacks.length) {
-        view.primary = { label: plural(attacks.length, 'Attacker'), sub: 'Attack', tone: 'attack', onClick: pass };
+        view.primary = { label: plural(attacks.length, 'Attacker'), sub: isFree(cost) ? 'Attack' : `Pay ${costText(cost)} and attack`, tone: 'attack', onClick: pass };
         view.secondary = {
           label: 'Cancel Attacks',
           tone: 'plain',
@@ -1114,9 +1120,16 @@ export function chooseGraveyardTarget(id: string) {
 function pickColorFirst(g: Game, me: PlayerId, card: Card): boolean {
   const usable = manaAbilities(g, card).filter((ab) => canTapForMana(g, me, card, ab.index));
   const ab = usable.length === 1 ? usable[0] : undefined;
-  if (!ab || !ab.manual || ab.colors.length < 2) return false;
-  useStore.setState({ colorPick: { cardId: card.id, ability: ab.index, colors: ab.colors } });
+  const creatures = ab ? tapCandidates(g, me, ab).map((c) => c.id) : [];
+  if (!ab || !ab.manual || (ab.colors.length < 2 && creatures.length < 2)) return false;
+  useStore.setState({ colorPick: { cardId: card.id, ability: ab.index, colors: ab.colors, ...(creatures.length ? { creatures, creature: creatures[0] } : {}) } });
   return true;
+}
+
+/** Picks the creature to tap for the mana ability the colour picker is open for (Relic of Legends). */
+export function pickTapCreature(id: string) {
+  const { colorPick } = S();
+  if (colorPick?.creatures?.includes(id)) useStore.setState({ colorPick: { ...colorPick, creature: id } });
 }
 
 /** Uses the mana ability the colour picker is open for, making `color`. While paying, the spell is paid for once the pool covers it. */
@@ -1124,7 +1137,7 @@ export function pickColor(color: ManaSym | null) {
   const { colorPick, game: g, human: me } = S();
   useStore.setState({ colorPick: null });
   if (!colorPick || !color || !g || me === null) return;
-  if (!S().act({ type: 'tapMana', card: colorPick.cardId, ability: colorPick.ability, color })) return;
+  if (!S().act({ type: 'tapMana', card: colorPick.cardId, ability: colorPick.ability, color, ...(colorPick.creature ? { tap: colorPick.creature } : {}) })) return;
   const t = targetingOf(S());
   if (t && isPaying(t) && planPayment(S().game!, me, costOf(S().game!, t).cost)?.tap.length === 0) pay();
 }

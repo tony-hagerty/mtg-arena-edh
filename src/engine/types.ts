@@ -463,6 +463,8 @@ export interface StackItem {
 export interface Find {
   basic?: boolean;
   types?: string[];
+  /** Keywords, lower case: a card with one of them is found too, as with "an instant card or a card with flash". */
+  keywords?: string[];
   subtypes?: string[];
   /** Mana value at most this. */
   maxMv?: number;
@@ -508,7 +510,9 @@ export type CardChoice =
       count?: number;
     } & Then)
   | { kind: 'bottom'; player: PlayerId; count: number }
-  | ({ kind: 'pick'; player: PlayerId; source: string; cards: string[]; min: number; max: number; text: string; button: string } & Then)
+  /** `ordered`: the order the cards are picked in matters, as when they go on the bottom of a library (401.4). */
+  /** `pickable`: the cards that can be picked, when the player sees more than that (Silundi Vision's six). Left out, all of them. */
+  | ({ kind: 'pick'; player: PlayerId; source: string; cards: string[]; min: number; max: number; text: string; button: string; ordered?: boolean; pickable?: string[] } & Then)
   /** The legend rule (704.5j): the player keeps one of these legendary permanents. `resume` gets priority afterwards. */
   | { kind: 'legend'; player: PlayerId; cards: string[]; resume: PlayerId };
 
@@ -559,6 +563,8 @@ export interface CastChoice extends Then {
   free: boolean;
   /** "If that spell's mana value is N or less" (Beseech the Mirror). */
   maxMv?: number;
+  /** "If that spell would be put into your graveyard, exile it instead" (Emet-Selch). */
+  graveyardToExile?: boolean;
 }
 
 /** A player may choose new targets for spell or ability `item` (115.7d). Answered by `chooseTargets`. */
@@ -664,6 +670,11 @@ export interface Game {
   delayed: Delayed[];
   /** Extra turns to take after this one. The last is taken first (500.7). */
   extraTurns: ExtraTurn[];
+  /**
+   * "Do this only once each turn" (603.2h): the turn each player last took an ability's
+   * action, keyed by `did` in rules.ts. The ability doesn't trigger again that turn.
+   */
+  did?: Record<string, number>;
   /** Paradigm spells that have resolved, by player and name: only the first gives the copies (702.192a). */
   paradigms?: { player: PlayerId; name: string }[];
 }
@@ -685,7 +696,8 @@ export type Action =
    * `ability`: which of its mana abilities (`manaAbilities`). Left out, the one that suits
    * the player best. `color`: the colour to make, for an ability with a choice.
    */
-  | { type: 'tapMana'; card: string; ability?: number; color?: ManaSym }
+  /** `tap`: the creature tapped to pay an ability's "Tap an untapped creature you control" cost (Relic of Legends). */
+  | { type: 'tapMana'; card: string; ability?: number; color?: ManaSym; tap?: string }
   | { type: 'untapMana'; card: string }
   /** `target`: a planeswalker or battle to attack instead of the player; `defender` is then its controller or protector (508.1b). */
   | { type: 'declareAttack'; card: string; defender: PlayerId; target?: string }
@@ -891,6 +903,11 @@ export interface ManaAbility {
   fromHand?: boolean;
   /** Auto-pay never uses it: the player activates it on purpose. */
   manual?: boolean;
+  /**
+   * "Tap an untapped [legendary] creature you control" is its cost instead of {T} (Relic of
+   * Legends). Summoning sickness doesn't matter: the creature's own {T} isn't used (302.6).
+   */
+  tapCreature?: { legendary?: boolean };
   /** "Discard your hand" is part of the cost (Lion's Eye Diamond). */
   discardHand?: boolean;
   /** "Activate only as an instant": only while its controller has priority. */
@@ -1128,6 +1145,12 @@ export interface CardScript extends Triggers {
   doublesTriggers?: (g: Game, self: Card, source: Card) => boolean;
   /** While this permanent is on the battlefield: does player `pid` have shroud (702.18a)? "You have shroud." */
   givesShroud?: (g: Game, self: Card, pid: PlayerId) => boolean;
+  /**
+   * While this permanent is on the battlefield: the cost, if any, of `attacker` attacking
+   * `defender` (or the planeswalker or battle `target`), like Propaganda's "{2} for each
+   * creature ... attacking you" (508.1g). Null if it costs nothing.
+   */
+  attackTax?: (g: Game, self: Card, attacker: Card, defender: PlayerId, target: string | null) => string | null;
   /** Ward (702.21). */
   ward?: WardCost;
   /** While this permanent is on the battlefield: the ward it gives permanent `c`, or null. */

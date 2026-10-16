@@ -30,6 +30,8 @@ import {
   moveCard,
   opponentsOf,
   prowess,
+  extort,
+  jobSelect,
   pump,
   refCard,
   refPlayer,
@@ -540,6 +542,9 @@ function lines(d: CardData): { text: string; original: string }[] {
 
 const isKeywordLine = (line: string) => line.split(',').every((part) => BARE_KEYWORDS.includes(part.trim()));
 
+/** Keywords that change how a spell is cast or where it goes, which the engine applies from the card's keywords. */
+const CAST_KEYWORDS = ['delve', 'rebound', 'paradigm'];
+
 const HOOKS: Record<string, 'onEnter' | 'onDies' | 'onAttack'> = { 'when ~ enters': 'onEnter', 'when ~ dies': 'onDies', 'whenever ~ attacks': 'onAttack' };
 
 const landsOf = (g: Game, pid: PlayerId) => g.players[pid].battlefield.filter(isLand);
@@ -677,6 +682,21 @@ function readCard(d: CardData): CardScript {
     if (parts.includes('prowess') && parts.every((p) => p === 'prowess' || BARE_KEYWORDS.includes(p))) {
       if (script.onCast) refuse(original, 'two abilities that trigger on the same event');
       script.onCast = prowess;
+      return;
+    }
+    // Casting rules the engine applies itself: delve (702.66), rebound (702.88), paradigm (702.192).
+    if (CAST_KEYWORDS.includes(text)) return;
+    // Extort (702.101a) and job select (702.182a) are triggered abilities.
+    if (text === 'extort') {
+      if (script.onCast) refuse(original, 'two abilities that trigger on the same event');
+      script.onCast = extort.onCast;
+      Object.assign(then, extort.then);
+      script.botChoice = { ...script.botChoice, ...extort.botChoice };
+      return;
+    }
+    if (text === 'job select') {
+      if (script.onEnter) refuse(original, 'two abilities that trigger on the same event');
+      script.onEnter = jobSelect;
       return;
     }
     if (cardLine(text, original, script, then)) return;
