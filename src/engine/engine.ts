@@ -61,7 +61,9 @@ import {
   sameRef,
   says,
   their,
+  triggerText,
   verbFor,
+  whose,
   searchable,
   shuffle,
   snapshot,
@@ -1579,7 +1581,25 @@ function putTriggerOnStack(g: Game): boolean {
   }
   item.targets = specs.map(() => null);
   g.stack.push(item);
+  announceTrigger(g, item);
   return true;
+}
+
+/**
+ * Logs a triggered ability as it is put on the stack (603.3) and flashes its source, like
+ * a cast spell. Copies of spells wait with the triggers but aren't triggered abilities.
+ */
+function announceTrigger(g: Game, item: StackItem) {
+  if (item.kind !== 'triggered') return;
+  const text = triggerText(item);
+  const chosen = item.targets.filter((t): t is TargetRef => !!t).map((t) => describeRef(g, t));
+  log(g, `${whose(g.players[item.controller])} ${label(item.card)} triggers${text ? ` (${text})` : ''}${chosen.length ? ` targeting ${chosen.join(' and ')}` : ''}.`, item.controller, [item.card, ...refCards(g, item.targets)]);
+  flash(g, item.card, item.controller, 'triggered');
+}
+
+/** Shows a spell or ability's source card for a moment as it goes on the stack (`Game.lastSpell`). */
+function flash(g: Game, c: Card, pid: PlayerId, ability?: 'triggered' | 'activated') {
+  g.lastSpell = { seq: (g.lastSpell?.seq ?? 0) + 1, name: data(c).name, caster: pid, ...(ability && { ability }) };
 }
 
 // ---------- actions ----------
@@ -1590,6 +1610,7 @@ function activateLevel(g: Game, pid: PlayerId, c: Card, i: number, a: Extract<Ac
   pay(g, pid, parseCost(scriptFor(c).levels![i].cost));
   g.stack.push({ id: `s${g.nextId++}`, kind: 'activated', controller: pid, card: snapshot(c), targets: [], ability: i });
   log(g, `${says(g.players[pid], 'activates')} ${label(c)}: Level ${i + 2}.`, pid, [c]);
+  flash(g, c, pid, 'activated');
   g.passes = 0;
   g.holding = a.hold ? pid : null;
   return true;
@@ -1649,6 +1670,7 @@ function activateLoyalty(g: Game, pid: PlayerId, c: Card, i: number, a: Extract<
   const chosen = targets.filter((t): t is TargetRef => !!t).map((t) => describeRef(g, t));
   const cost = ab.cost === '-X' ? `−X (X = ${x})` : ab.cost > 0 ? `+${ab.cost}` : ab.cost === 0 ? '0' : `−${-ab.cost}`;
   log(g, `${says(g.players[pid], 'activates')} ${label(c)}'s ${cost}${chosen.length ? ` targeting ${chosen.join(' and ')}` : ''}.`, pid, [c, ...refCards(g, targets)]);
+  flash(g, c, pid, 'activated');
   g.stack.push(item);
   checkWard(g, item);
   g.passes = 0;
@@ -1773,7 +1795,7 @@ function act(g: Game, a: Action): boolean {
       ].filter(Boolean);
       const details = (how.length ? ` (${how.join(', ')})` : '') + (chosen.length ? ` targeting ${chosen.join(' and ')}` : '');
       log(g, `${says(p, 'casts')} ${label(c)}${details}.`, pid, [c, ...refCards(g, targets)]);
-      g.lastSpell = { seq: (g.lastSpell?.seq ?? 0) + 1, name: data(c).name, caster: pid };
+      flash(g, c, pid);
       if (sacrificed.length) dieMany(g, sacrificed, 'is sacrificed'); // an additional cost, paid with the rest (601.2h)
       for (const x of exiled) {
         log(g, `${says(p, 'exiles')} ${label(x)} to pay for it.`, pid, [x]);
@@ -1835,6 +1857,7 @@ function act(g: Game, a: Action): boolean {
       if (crewing.length) log(g, `${crewing.map((x) => label(x!)).join(' and ')} crew${crewing.length === 1 ? 's' : ''} ${label(c)}.`, pid, [...(crewing as Card[]), c]);
       const chosen = targets.filter((t): t is TargetRef => !!t).map((t) => describeRef(g, t));
       log(g, `${says(p, 'activates')} ${label(c)}${several ? ` (${ab.text})` : ''}${hasX ? ` (X = ${x})` : ''}${chosen.length ? ` targeting ${chosen.join(' and ')}` : ''}.`, pid, [c, ...refCards(g, targets)]);
+      flash(g, c, pid, 'activated');
       for (const x of discarding) discard(g, x!);
       if (ab.cost.discardSelf) discard(g, c);
       if (ab.cost.sacrifice) dieMany(g, [c], 'is sacrificed');
@@ -1919,9 +1942,10 @@ function act(g: Game, a: Action): boolean {
       const targets = specs.map((_, i) => a.targets?.[i] ?? null);
       if (!targetsOk(g, pid, item.card, specs, targets)) return false;
       const chosen = targets.filter((t): t is TargetRef => !!t).map((t) => describeRef(g, t));
-      if (chosen.length) log(g, `${label(item.card)} targets ${chosen.join(' and ')}.`, pid, [item.card, ...refCards(g, targets)]);
+      if (chosen.length && item.kind !== 'triggered') log(g, `${label(item.card)} targets ${chosen.join(' and ')}.`, pid, [item.card, ...refCards(g, targets)]);
       item.targets = targets;
       g.stack.push(item);
+      announceTrigger(g, item);
       checkWard(g, item);
       g.decision = null;
       g.priority = resume;
