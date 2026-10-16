@@ -2237,6 +2237,28 @@
    "keywords": [],
    "image": "https://cards.scryfall.io/normal/front/b/3/b30a8f92-ce42-4b27-a893-bcf97fde228d.jpg",
    "art": "https://cards.scryfall.io/art_crop/front/b/3/b30a8f92-ce42-4b27-a893-bcf97fde228d.jpg"
+  },
+  "Likeness Looter": {
+   "name": "Likeness Looter",
+   "manaCost": "{U}{B}",
+   "cmc": 2,
+   "colors": [
+    "B",
+    "U"
+   ],
+   "colorIdentity": [
+    "B",
+    "U"
+   ],
+   "typeLine": "Creature — Faerie Shapeshifter",
+   "oracleText": "Flying\n{T}: Draw a card, then discard a card.\n{X}: This creature becomes a copy of target creature card in your graveyard with mana value X, except it has flying and this ability. Activate only as a sorcery.",
+   "power": "1",
+   "toughness": "1",
+   "keywords": [
+    "Flying"
+   ],
+   "image": "https://cards.scryfall.io/normal/front/2/9/2957472a-825e-4904-b7e8-62bef1cb432d.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/2/9/2957472a-825e-4904-b7e8-62bef1cb432d.jpg"
   }
  }
 }

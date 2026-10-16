@@ -209,11 +209,13 @@ function entries(g: Game, c: Card, temporary: boolean): Entry[] {
     else if (SUPPORTED_KEYWORDS.includes(kind)) out.push({ ts, seq: seq++, parts: { keywords: [kind] } });
   }
   for (const e of c.continuous) if ((temporary || e.until === 'leaves') && lasts(g, e)) out.push({ ts: e.ts, seq: seq++, parts: e });
-  // Static abilities of permanents on the battlefield (611.3), with their source's timestamp (613.7a).
+  // Static abilities of permanents on the battlefield (611.3), with their source's timestamp,
+  // or that of the copy effect that gave them, whichever is later (613.7a).
   for (const { src, fn } of staticSources(g)) {
     const source: Source = { ask: () => fn(g, src, c), version: -1, answer: [] };
     answerOf(source, 0, 0);
-    source.answer.forEach((_, i) => out.push({ ts: src.ts, seq: seq++, source, i }));
+    const ts = Math.max(src.ts, src.copyTs ?? -Infinity);
+    source.answer.forEach((_, i) => out.push({ ts, seq: seq++, source, i }));
   }
   return out.sort((a, b) => (a.cda === b.cda ? 0 : a.cda ? -1 : 1) || a.ts - b.ts || a.seq - b.seq);
 }

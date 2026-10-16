@@ -536,7 +536,9 @@ function currentTargets(g: Game, me: PlayerId, t: Targeting): TargetRef[] {
   const who = t.mode === 'retarget' ? (retargetItem(g)?.controller ?? me) : me;
   // "Any number of" targets are each a different one (115.3).
   const taken = spec.any ? t.chosen.filter((x, i): x is TargetRef => !!x && !!t.specs[i]?.any) : [];
-  return legalTargets(g, who, spec, source).filter(
+  // An ability's X, announced before its targets, may decide which fit (107.3a, 601.2b-c via 602.2b).
+  const x = g.decision?.type === 'targets' ? g.decision.item.x : t.mode === 'retarget' ? retargetItem(g)?.x : t.mode === 'activate' ? t.x : undefined;
+  return legalTargets(g, who, spec, source, x).filter(
     (x) => (!other || x.kind !== other.kind || x.id !== other.id) && !taken.some((y) => y.kind === x.kind && y.id === x.id),
   );
 }

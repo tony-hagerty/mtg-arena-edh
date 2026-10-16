@@ -328,7 +328,14 @@ are from the Comprehensive Rules in `docs/rules/`.
   control they gained ends and what they still control is exiled (800.4a).
 - **Copies of permanents (707):** Mockingbird enters as a copy of a creature, with the
   copy effect's exceptions (707.9b); the copy has the copied card's abilities, enters
-  abilities included, and mana cost.
+  abilities included, and mana cost. A permanent can also become a copy while it stays on
+  the battlefield (707.4, Likeness Looter): nothing triggers as if it entered, its counters,
+  status and other effects stay, and the latest copy effect replaces the earlier one. The
+  copy effect has its own timestamp, which static abilities it gives take (613.7a). Abilities
+  a copy effect adds as an exception, like "and this ability", are copied along (707.9a).
+- **X before targets (601.2b-c via 602.2b):** an activated ability's X is announced before
+  its targets, so a target can depend on it ("with mana value X"). The X shown first is the
+  highest that has a target.
 - **Replacement effects as a permanent enters** (614.1c, 614.12a), with a choice: Mox
   Diamond's discard, Cavern of Souls's and Roaming Throne's creature type (all of 205.3m),
   Mockingbird's copy. "Artifacts and creatures your opponents control enter tapped"
@@ -582,8 +589,8 @@ These are deliberate cuts for a prototype. The biggest ones come first.
   (700.2b) aren't supported. A copy's controller must pick legal new targets or keep all
   the old ones (707.10c allows keeping some). Copying abilities isn't supported yet.
 - **Layers (613) not built yet:** dependency between effects (613.8), effects that
-  remove abilities (layer 6), effects that set or change colour (layer 5), and copy
-  effects on a permanent already on the battlefield (layer 1).
+  remove abilities (layer 6), and effects that set or change colour (layer 5). No card
+  has a copy effect with a duration ("until end of turn") yet.
 - **Counters:** proliferate, shield, stun and other counters with their own rules
   (122.1c-j) do nothing special yet.
 - **Auras** can only enchant permanents, not players (702.5d).
