@@ -11,7 +11,7 @@ import { SoundButton } from './SoundControl';
 import { useStore } from './store';
 import type { Hover } from './store';
 import { type Seat, cx, deckColor, faceUp, hoverProps, seatOf } from './util';
-import { STEP_NAMES, activateFromHand, cancel, clickStackItem, pickAbility, pickColor, pickTapCreature, pickFace, pickMode, playHandCard, setAbilityX, setChoices, exileForMana, useView } from './view';
+import { STEP_NAMES, activateFromHand, cancel, clickStackItem, pickAbility, pickColor, pickTapCreature, pickManaDiscard, pickFace, pickMode, playHandCard, setAbilityX, setChoices, exileForMana, useView } from './view';
 import type { AbilityOption, Btn } from './view';
 
 // ---------- phase tracker + buttons (bottom right) ----------
@@ -314,10 +314,10 @@ export function CastOptions() {
           <span className="cast-label">Cost</span>
           {a.costs.map((c) => (
             <button
-              key={c.escape ? 'escape' : (c.alt ?? 'mana')}
-              className={cx('chip', choices.alt === c.alt && !!choices.escape === !!c.escape && 'on')}
+              key={c.escape ? `escape${c.escape}` : (c.alt ?? 'mana')}
+              className={cx('chip', choices.alt === c.alt && (choices.escape?.length ?? 0) === (c.escape ?? 0) && 'on')}
               disabled={!c.payable}
-              onClick={() => setChoices({ alt: c.alt, escape: c.escape ? [] : undefined })}
+              onClick={() => setChoices({ alt: c.alt, escape: c.escape ? Array.from({ length: c.escape }, () => '') : undefined })}
             >
               {c.label.startsWith('{') ? <ManaCost cost={c.label} /> : c.label}
             </button>
@@ -425,6 +425,21 @@ export function ColorPicker() {
             return (
               c && (
                 <button key={id} className={`chip${pick.creature === id ? ' on' : ''}`} onClick={() => pickTapCreature(id)}>
+                  {label(c)}
+                </button>
+              )
+            );
+          })}
+        </div>
+      )}
+      {pick.discards && (
+        <div className="cast-row">
+          <span className="cast-label">{label(card)}: discard</span>
+          {pick.discards.map((id) => {
+            const c = findCard(g, id);
+            return (
+              c && (
+                <button key={id} className={`chip${pick.discard === id ? ' on' : ''}`} onClick={() => pickManaDiscard(id)}>
                   {label(c)}
                 </button>
               )

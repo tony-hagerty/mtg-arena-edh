@@ -15,6 +15,7 @@ import {
   discardOptions,
   escapeOptions,
   activationSacrificeOptions,
+  activationExileOptions,
   canMulligan,
   canSayYes,
   canPlayLand,
@@ -69,6 +70,7 @@ import {
   attackCost,
   canPayAttacks,
   isFree,
+  escapes,
 } from './rules';
 import type { ApplyOptions, AttackOption } from './engine';
 import { produce } from 'immer';
@@ -144,7 +146,9 @@ function boardValue(g: Game, p: Player): number {
 const handValue = (g: Game, p: Player) => {
   // Cards in any exile that an effect lets them cast this turn count too (Ragavan, Jeska's Will).
   const allowed = g.effects.filter((e) => e.kind === 'mayCast' && e.player === p.id).length;
-  const n = p.hand.length + p.exile.filter((c) => c.adventure).length + allowed + p.graveyard.filter((c) => scriptFor(c).flashback).length * 0.5;
+  // So do their cards in exile they may cast: an Adventure, airbent, plotted or warped.
+  const castable = p.exile.filter((c) => c.adventure || c.airbent || c.plotted !== undefined || c.warped !== undefined).length;
+  const n = p.hand.length + castable + allowed + p.graveyard.filter((c) => scriptFor(c).flashback).length * 0.5;
   return Math.min(n, 5) + Math.max(0, n - 5) * 0.4;
 };
 
@@ -202,6 +206,14 @@ function shortlist(g: Game, pid: PlayerId, legal: TargetRef[], limit = Infinity)
 function targetChoices(g: Game, pid: PlayerId, specs: TargetSpec[], source: Card): (TargetRef | null)[][] {
   let combos: (TargetRef | null)[][] = [[]];
   for (const spec of specs) {
+    // "Any number of" targets (115.1d): none, each one alone, or all of them.
+    if (spec.any) {
+      const legal = shortlist(g, pid, legalTargets(g, pid, spec, source), 4);
+      const all = legalTargets(g, pid, spec, source);
+      const sets = [[], ...legal.map((t) => [t]), ...(all.length > 1 ? [all] : [])];
+      combos = combos.flatMap((c) => sets.map((set) => [...c, ...set])).slice(0, 40);
+      continue;
+    }
     // With several targets to choose, fewer options each, so the combinations stay few.
     const legal: (TargetRef | null)[] = shortlist(g, pid, legalTargets(g, pid, spec, source), specs.length > 1 ? 4 : 6);
     if (spec.optional || legal.length === 0) legal.push(null);
@@ -245,9 +257,9 @@ function castChoices(g: Game, pid: PlayerId, c: Card): CastChoices[] {
     const ways: CastChoices[] = [];
     if (c.zone === 'graveyard') {
       ways.push({}); // flashback
-      // Escape exiles the three other cards the bot wants least (702.138a).
+      // Escape exiles the other cards the bot wants least, as many as each escape ability asks (702.138a).
       const others = escapeOptions(g, c).sort((a, b) => cardWant(g, pid, a) - cardWant(g, pid, b));
-      if (others.length >= 3) ways.push({ escape: others.slice(0, 3).map((x) => x.id) });
+      for (const e of escapes(g, c)) if (others.length >= e.exile) ways.push({ escape: others.slice(0, e.exile).map((x) => x.id) });
     } else {
       for (const alt of [undefined, ...altCostsOf(g, c, face, pid)]) {
         // An alternative cost that exiles a card from the hand gives up the one the bot wants least.
@@ -316,7 +328,7 @@ function candidateActions(g: Game, pid: PlayerId): { action: Action; spendsCard:
     const ways = castChoices(g, pid, c);
     const each = Math.max(4, Math.floor(36 / Math.max(1, ways.length)));
     for (const choices of ways) {
-      for (const targets of targetChoices(g, pid, castTargets(c, choices.modes, choices.face, choices.gift), c).slice(0, each)) {
+      for (const targets of targetChoices(g, pid, castTargets(c, choices.modes, choices.face, choices.gift, choices.alt), c).slice(0, each)) {
         out.push({ action: { type: 'cast', card: c.id, targets, ...choices }, spendsCard: c.zone === 'hand' || c.zone === 'command' });
       }
     }
@@ -358,6 +370,9 @@ function activations(g: Game, pid: PlayerId, c: Card, ref: AbilityRef): Action[]
   // "Sacrifice a creature": the least valuable one, and not the source itself if there is another.
   const fodder = ab?.cost.sacrificeOne ? [...activationSacrificeOptions(g, pid, c, activated)].sort((a, b) => sacrificeWorth(g, a) - sacrificeWorth(g, b)) : [];
   const victim = fodder.find((x) => x.id !== c.id) ?? fodder[0];
+  // "Exile a creature you control": the least valuable one, not the source if there is another.
+  const exilable = ab?.cost.exileOne ? [...activationExileOptions(g, pid, c, activated)].sort((a, b) => sacrificeWorth(g, a) - sacrificeWorth(g, b)) : [];
+  const exiled = exilable.find((x) => x.id !== c.id) ?? exilable[0];
   const targetSets = targetChoices(g, pid, specs, c);
   return xChoices(g, pid, c, ref).flatMap((x) =>
     targetSets.map((targets): Action => ({
@@ -370,6 +385,7 @@ function activations(g: Game, pid: PlayerId, c: Card, ref: AbilityRef): Action[]
       crew,
       ...(discard ? { discard } : {}),
       ...(victim ? { sacrifice: [victim.id] } : {}),
+      ...(exiled ? { exile: [exiled.id] } : {}),
     })),
   );
 }
@@ -395,7 +411,8 @@ function anyTargets(g: Game): Action {
   const { item } = g.decision;
   // An opponent or something of theirs if there is one: most triggered abilities that target harm.
   const mine = (t: TargetRef) => (t.kind === 'player' ? t.id === g.priority : t.kind === 'card' && findCard(g, t.id)?.controller === g.priority);
-  const targets = targetSpecs(item).map((spec) => {
+  // "Any number of" targets: none, here.
+  const targets = targetSpecs(item).filter((spec) => !spec.any).map((spec) => {
     if (spec.optional) return null;
     const legal = legalTargets(g, g.priority, spec, item.card);
     return legal.find((t) => !mine(t)) ?? legal[0] ?? null;
@@ -564,6 +581,14 @@ function planAttacks(g: Game, pid: PlayerId): Map<string, AttackOption> {
     const players = opps.filter((o) => o.option.target === null);
     const victim = players.sort((a, b) => b.bias - a.bias).find(({ blockers }) => idle.length >= blockers.length + 2);
     if (victim) for (const c of idle) plan.set(c.id, victim.option);
+  }
+  // "No more than one creature can attack [this planeswalker] each combat" (508.1c): only the best ones.
+  for (const { option } of opps) {
+    const attacked = option.target ? permanent(g, option.target) : undefined;
+    const most = attacked && scriptFor(attacked).maxAttackers;
+    if (most === undefined) continue;
+    const at = [...plan].filter(([, o]) => sameAttack(o, option)).sort(([a], [b]) => (worth.get(b) ?? 0) - (worth.get(a) ?? 0));
+    for (const [id] of at.slice(most)) plan.delete(id);
   }
   return affordable(g, pid, plan, worth);
 }
@@ -767,7 +792,7 @@ function enablerPlay(g: Game, pid: PlayerId): Action | null {
   for (const c of p.hand) {
     if (scriptFor(c).ai === 'ritual' && canCast(g, pid, c)) {
       const choices = castChoices(g, pid, c)[0];
-      if (choices) tries.push({ type: 'cast', card: c.id, targets: targetChoices(g, pid, castTargets(c, choices.modes, choices.face), c)[0], ...choices });
+      if (choices) tries.push({ type: 'cast', card: c.id, targets: targetChoices(g, pid, castTargets(c, choices.modes, choices.face, choices.gift, choices.alt), c)[0], ...choices });
     }
   }
   for (const s of [...p.hand, ...p.battlefield]) {
@@ -915,7 +940,7 @@ function castNow(g: Game, pid: PlayerId, quick = false): Action {
   const decline: Action = { type: 'answer', yes: false };
   if (!c || !canCast(g, pid, c)) return decline;
   const options = castChoices(g, pid, c).flatMap((choices) =>
-    targetChoices(g, pid, castTargets(c, choices.modes, choices.face, choices.gift), c).map((targets): Action => ({ type: 'cast', card: c.id, targets, ...choices })),
+    targetChoices(g, pid, castTargets(c, choices.modes, choices.face, choices.gift, choices.alt), c).map((targets): Action => ({ type: 'cast', card: c.id, targets, ...choices })),
   );
   if (quick) return options[0] ?? decline;
   let best: Action = decline;

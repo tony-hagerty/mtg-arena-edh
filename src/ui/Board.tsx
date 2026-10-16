@@ -75,6 +75,8 @@ function BackRow({ player, width, max, className, split }: { player: Player; wid
   const lands = player.battlefield.filter(isLand);
   // Auras and Equipment attached to something are drawn under it instead (see `Permanent`).
   const others = player.battlefield.filter((c) => !isLand(c) && !isCreature(c) && !(c.attachedTo && permanent(g, c.attachedTo)));
+  // Phased-out permanents are treated as though they don't exist (702.26b), but stay in view, faded.
+  const phased = player.phasedOut ?? [];
   const stacks = new Map<string, Card[]>();
   const order = (c: Card) => Number(floating(player, c)) * 2 + Number(c.tapped);
   for (const c of [...lands].sort((a, b) => a.name.localeCompare(b.name) || order(b) - order(a))) {
@@ -84,7 +86,7 @@ function BackRow({ player, width, max, className, split }: { player: Player; wid
   const landUnits = [...stacks.values()].reduce((n, s) => n + 1 + 0.14 * (s.length - 1), 0);
   const tw = split
     ? Math.min(fit(landUnits, width, max, 1.2), fit(others.length, width, max, 1.2))
-    : fit(landUnits + others.length, width, max, 1.2);
+    : fit(landUnits + others.length + phased.length, width, max, 1.2);
   return (
     <div className={cx('row back', className)} style={vars({ '--tw': `${tw}rem` })}>
       <div className="lands">
@@ -100,6 +102,9 @@ function BackRow({ player, width, max, className, split }: { player: Player; wid
         <AnimatePresence>
           {others.map((c) => (
             <Permanent key={c.id} card={c} />
+          ))}
+          {phased.map((c) => (
+            <Permanent key={c.id} card={c} phased />
           ))}
         </AnimatePresence>
       </div>
