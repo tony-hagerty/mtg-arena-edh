@@ -50,6 +50,11 @@ export interface UpnpOptions {
   timeoutMs?: number;
   /** The default gateway, so its answer is tried first when several devices answer. */
   gateway?: string | null;
+  /**
+   * This computer's address on the router's network. The search goes out that card: left
+   * to itself, Windows can send multicast somewhere the router never hears it.
+   */
+  localAddress?: string | null;
   /** Where the search is sent; only tests change these. */
   ssdpAddress?: string;
   ssdpPort?: number;
@@ -106,6 +111,13 @@ export function ssdpSearch(opts: UpnpOptions = {}): Promise<string[]> {
     });
     socket.on('error', finish);
     socket.bind(0, () => {
+      if (opts.localAddress) {
+        try {
+          socket.setMulticastInterface(opts.localAddress);
+        } catch {
+          // Not an address of this computer any more: the system's choice will have to do.
+        }
+      }
       // UDP can drop a packet, so each search goes out twice.
       for (const target of [...SEARCH_TARGETS, ...SEARCH_TARGETS]) {
         socket.send(searchMessage(target), opts.ssdpPort ?? SSDP_PORT, opts.ssdpAddress ?? SSDP_ADDRESS, () => {});
