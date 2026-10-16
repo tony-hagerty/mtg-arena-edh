@@ -113,6 +113,11 @@ export const SUPPORTED_KEYWORDS = [
   'reconfigure',
   'persist',
   'harness',
+  // Offspring (702.175) and spectacle (702.137) by the engine with the card's script;
+  // changeling (702.73) by `subtypesOf`.
+  'offspring',
+  'spectacle',
+  'changeling',
 ];
 
 // ---------- card queries ----------
@@ -369,7 +374,8 @@ export function stats(g: Game, c: Card, opts: { base?: boolean } = {}): Stats {
   let toughness = num(d.toughness);
   const keywords = new Set(d.keywords.map((k) => k.toLowerCase()));
   const basePT = scriptFor(c).basePT;
-  if (basePT) ({ power, toughness } = basePT(g, c));
+  // A copy effect that sets power and toughness doesn't copy an ability that defines them (707.9d).
+  if (basePT && c.copy?.power === undefined && c.copy?.toughness === undefined) ({ power, toughness } = basePT(g, c));
   if (c.zone !== 'battlefield') return { power, toughness, keywords };
   // An effect that sets its base power and toughness for good, like Ghost Vacuum's "is a 1/1" (613.4b).
   if (c.lasting?.power !== undefined) power = c.lasting.power;
@@ -3053,9 +3059,10 @@ export function pickCards(
   g: Game,
   pid: PlayerId,
   cards: Card[],
-  opts: { min?: number; max?: number; text: string; button: string; then: string; data?: Record<string, unknown>; script?: string; pickable?: Card[] },
+  opts: { min?: number; max?: number; text: string; button: string; then: string; data?: Record<string, unknown>; script?: string; pickable?: Card[]; ordered?: boolean },
 ) {
   queue(g, {
+    ...(opts.ordered ? { ordered: true } : {}),
     ...(opts.pickable ? { pickable: opts.pickable.map((c) => c.id) } : {}),
     kind: 'pick',
     player: pid,
