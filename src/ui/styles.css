@@ -1255,13 +1255,15 @@ button {
     0 0 2.6rem 0.9rem var(--cyan);
 }
 
-/* The mana cost, enlarged and riding on the card's top edge like Arena shows it. */
+/* The mana cost, enlarged and riding on the card's top-right corner like Arena shows it.
+   It stays on that corner even when the next card in the fan covers it. */
 .hand-cost {
   position: absolute;
-  top: -0.95rem;
+  /* A bit above centered on the top edge (the symbols are about 2.25rem tall). */
+  top: -1.35rem;
+  right: 0.5rem;
   font-size: 1.8rem;
   filter: drop-shadow(0 0 0.15rem #000) drop-shadow(0 0.2rem 0.3rem rgba(0, 0, 0, 0.8));
-  transition: right 0.15s;
 }
 
 .hand-cost .mana-cost {
