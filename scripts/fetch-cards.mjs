@@ -24,12 +24,14 @@ for (const d of lists.decks) {
   d.cards.forEach((n) => names.add(n));
 }
 
-async function fetchTokenArt(query) {
+async function fetchTokenArt(query, name) {
   const url = `https://api.scryfall.com/cards/search?include_extras=true&unique=art&order=released&q=${encodeURIComponent(query)}`;
   const res = await fetch(url, { headers: HEADERS });
   if (!res.ok) return null;
   const j = await res.json();
-  const hit = j.data?.find((c) => c.image_uris?.art_crop);
+  // Some tokens are only printed as one face of a double-faced token (Role tokens): use that face.
+  const faces = (j.data ?? []).flatMap((c) => (c.image_uris ? [c] : (c.card_faces ?? []).filter((f) => f.name === name)));
+  const hit = faces.find((c) => c.image_uris?.art_crop);
   return hit ? { art: hit.image_uris.art_crop.split('?')[0], image: hit.image_uris.normal.split('?')[0] } : null;
 }
 
@@ -65,7 +67,7 @@ const cards = await fetchCards([...names], { legalOnly: true });
 
 const tokens = {};
 for (const [key, t] of Object.entries(lists.tokens)) {
-  const img = await fetchTokenArt(t.query);
+  const img = await fetchTokenArt(t.query, t.name);
   if (!img) console.warn(`no token art for ${key}`);
   tokens[key] = img ?? { art: '', image: '' };
   // Scryfall rate-limits searches more tightly than card lookups; faster than this, they fail.

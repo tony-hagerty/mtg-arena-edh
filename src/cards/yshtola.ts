@@ -64,33 +64,33 @@ import { favouriteType } from './kraum-tymna';
 
 // ---------- conditions and pieces ----------
 
-const isOpponent = (g: Game, a: PlayerId, b: PlayerId | null) => b !== null && a !== b && !g.players[b].lost;
+export const isOpponent = (g: Game, a: PlayerId, b: PlayerId | null) => b !== null && a !== b && !g.players[b].lost;
 
 /** "Whenever you cast a noncreature spell" (the permanent's controller casts it). */
-const youCastNoncreature = (_g: Game, e: { self: Card; card: Card; caster: PlayerId }) => e.caster === e.self.controller && !isCreature(e.card);
+export const youCastNoncreature = (_g: Game, e: { self: Card; card: Card; caster: PlayerId }) => e.caster === e.self.controller && !isCreature(e.card);
 
 /** `source` deals `n` damage to each opponent of `you`, all at once (120.3, 510.2's "at the same time"). */
-const damageEachOpponent = (g: Game, source: Card, you: PlayerId, n: number) =>
+export const damageEachOpponent = (g: Game, source: Card, you: PlayerId, n: number) =>
   simultaneously(g, () => {
     for (const o of opponentsOf(g, you)) damagePlayer(g, source, o.id, n);
   });
 
 /** "Whenever you cast a noncreature spell, this [creature] deals 1 damage to each opponent." The Wizard tokens' and Black Mage's Rod's. */
-const wizardPing: Trigger<TriggerEvents['onCast']> = {
+export const wizardPing: Trigger<TriggerEvents['onCast']> = {
   when: youCastNoncreature,
   resolve: (g, { self, you }) => damageEachOpponent(g, self, you, 1),
   text: 'Whenever you cast a noncreature spell, this creature deals 1 damage to each opponent.',
 };
 
 /** A triggered ability one card gives another (613.1f), typed by its hook. */
-const granted = <H extends TriggerHook>(hook: H, trigger: Trigger<TriggerEvents[H]>, applies?: GrantedTrigger['applies']): GrantedTrigger => ({
+export const granted = <H extends TriggerHook>(hook: H, trigger: Trigger<TriggerEvents[H]>, applies?: GrantedTrigger['applies']): GrantedTrigger => ({
   hook,
   trigger: trigger as Trigger<never>,
   ...(applies ? { applies } : {}),
 });
 
 /** "Enchant creature" (702.5a): the Aura spell targets the creature it will enchant (303.4a). */
-const enchantCreature: TargetSpec = { type: 'creature', label: 'target creature' };
+export const enchantCreature: TargetSpec = { type: 'creature', label: 'target creature' };
 
 /** "Whenever enchanted creature deals damage to an opponent, you may draw a card." (Curiosity, Ophidian Eye) */
 const curiosity: Pick<CardScript, 'enchant' | 'onDamage' | 'then' | 'botChoice'> = {
@@ -155,11 +155,11 @@ function protectionColor(g: Game, pid: PlayerId): Action {
 }
 
 /** Is an opponent's spell or ability on the stack aimed at a creature `pid` controls? A bot protects it then. */
-const underFire = (g: Game, pid: PlayerId) =>
+export const underFire = (g: Game, pid: PlayerId) =>
   g.stack.some((x) => x.controller !== pid && x.targets.some((t) => t?.kind === 'card' && permanent(g, t.id)?.controller === pid));
 
 /** The modal double-faced cards' land faces: "This land enters tapped. {T}: Add {C}." */
-const tappedLand = (colors: Color[]): CardScript => ({ entersTapped: true, mana: { amount: 1, colors } });
+export const tappedLand = (colors: Color[]): CardScript => ({ entersTapped: true, mana: { amount: 1, colors } });
 
 /**
  * "Each player chooses ..., then sacrifices the rest" and "each opponent ... sacrifices a

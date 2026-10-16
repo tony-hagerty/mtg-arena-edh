@@ -194,6 +194,10 @@ export interface Card {
   counters: Record<string, number>;
   /** The permanent this Aura or Equipment is attached to (303.4b, 301.5a), or null. */
   attachedTo: string | null;
+  /** When it last became attached (613.7e), as an ever-growing number: the Role rule keeps the most recent (303.7a). */
+  attachedAt?: number;
+  /** How many times it has transformed since it became this object (701.27f). */
+  transformed?: number;
   /** The turn one of its loyalty abilities was last activated, or 0 (606.3). */
   loyaltyTurn: number;
   /** A battle's protector (310.9), or null for anything else. */
