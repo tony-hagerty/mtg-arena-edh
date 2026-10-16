@@ -13,6 +13,7 @@ import {
   canBlock,
   canTapForMana,
   canUntapMana,
+  canProduce,
   altCostsOf,
   castCost,
   checkState,
@@ -2276,7 +2277,9 @@ function act(g: Game, a: Action): boolean {
       // "Sacrifice a creature: Add {B}{B}" (Phyrexian Tower): a creature they control, named.
       const used = manaAbilities(g, c).find((m) => m.index === (a.ability ?? -1));
       if (used?.sacrificeCreature ? !p.battlefield.some((x) => x.id === a.sacrifice && isCreature(g, x)) : a.sacrifice !== undefined) return false;
-      tapForMana(g, pid, c, a.ability, a.color, a.tap, a.discard, a.sacrifice);
+      // The exact mana asked for must be one of the ability's choices.
+      if (a.mana && (!used || !canProduce(used, a.mana))) return false;
+      tapForMana(g, pid, c, a.ability, a.color, a.tap, a.discard, a.sacrifice, a.mana);
       return true;
     }
 

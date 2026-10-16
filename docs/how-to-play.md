@@ -48,10 +48,12 @@ The full guide to the game's screens and controls. For a quick start, see the
   untaps any lands you tapped while paying, so you are back exactly where you were.
 - **Paying by hand:** click your lands and mana rocks to tap them. The mana shows in a
   pill beside your avatar. Costs spend that mana first and auto-tap only for the rest.
-  Click a tapped source again to take its mana back, as long as none of it has been spent.
+  A source with a choice (a dual land, a Talisman, Sunken Ruins) asks which ability and
+  which mana you want. Click a tapped source again to take its mana back, as long as none
+  of it has been spent and using it did nothing else, like dealing you damage.
 - **Piles:** identical lands, and identical creature tokens, pile up with a count (`x7`)
   on top. Click the count to use the whole pile: lands tap for mana together (while
-  paying, only as many as the cost needs), or untap together to take the mana back, and
+  paying, only as many as the cost needs; a pile of dual lands asks once which mana), or untap together to take the mana back, and
   tokens attack or block together. Clicking a card in the pile still uses just that one,
   and it moves out to its own pile.
 - **Sorting your hand:** drag a card sideways to rearrange it. The order is only for you:

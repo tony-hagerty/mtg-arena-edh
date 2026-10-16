@@ -1,7 +1,7 @@
 import { useEffect, useMemo } from 'react';
 import { botAction, botPause } from '../engine';
 import { OpponentPanel, PlayerField } from './Board';
-import { ActionBar, ArrowLayer, CastOptions, ColorPicker, ExitConfirm, GameOver, LogPanel, Preview, Prompt, SpellFlash, StackPanel, ZoneViewer } from './Hud';
+import { ActionBar, ArrowLayer, CastOptions, ManaPicker, ExitConfirm, GameOver, LogPanel, Preview, Prompt, SpellFlash, StackPanel, ZoneViewer } from './Hud';
 import { GameVotes, PausedOverlay } from './LobbyScreen';
 import { Decisions, DelvePicker, EscapePicker, GraveCostPicker, GraveyardTargets } from './Picker';
 import { useStore } from './store';
@@ -62,7 +62,7 @@ export function GameScreen() {
         <PlayerField player={bottom} />
         <Prompt />
         <CastOptions />
-        <ColorPicker />
+        <ManaPicker />
         <LogPanel />
         <ActionBar />
         <StackPanel />

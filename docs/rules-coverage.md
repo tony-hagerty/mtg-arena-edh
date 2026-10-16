@@ -256,8 +256,9 @@ are from the Comprehensive Rules in `docs/rules/`.
   the colour they want least. When a payment really happens, auto-pay also looks ahead:
   it picks the way to pay that leaves the most of your other cards castable this turn,
   counting instants and flash cards double. Bots skip this while they try moves out, and
-  use it for the move they make. A multicolour source
-  tapped by hand makes the colour your hand needs most. Bots play the land for the colour
+  use it for the move they make. Tapping a source by hand with a choice (a dual or tri
+  land, a Talisman, a filter land, Command Tower) opens a picker: you pick the ability and
+  the mana. Auto-pay still picks for you. Bots play the land for the colour
   they are shortest of.
 - **Mana abilities (605):** a permanent can have several, and they can cost life (119.4),
   deal damage, need a condition ("activate only if"), make colours worked out as they are
@@ -270,9 +271,11 @@ are from the Comprehensive Rules in `docs/rules/`.
   any colour; auto-pay spends lands first and Treasures last.
 - **Mana abilities with a mana cost (605.1a):** Signets ("{1}, {T}: Add {W}{U}") and
   filter lands ("{W/B}, {T}: Add {W}{W}, {W}{B}, or {B}{B}"). Auto-pay and bots use them
-  only when a payment can't be made without them, and never to pay their own cost.
+  only when a payment can't be made without them, and never to pay their own cost. By
+  hand, the cost is paid from your pool first, and auto-pay taps the rest.
 - **"Tap an untapped legendary creature you control: Add one mana"** (Relic of Legends):
-  by hand, click the Relic once it is tapped, then pick the creature and the colour. A
+  by hand, click the Relic and pick that ability, the creature and the colour. Click the
+  creature to take the mana back. A
   creature that just arrived can pay it (302.6). Auto-pay and bots use it like any other
   source, tapping such a creature only after lands and mana rocks.
 - **Special mana:** restricted mana that makes a spell uncounterable (106.6, Cavern of
@@ -624,8 +627,14 @@ These are deliberate cuts for a prototype. The biggest ones come first.
 - **Snow mana** {S} isn't supported.
 - **Phyrexian mana** is always paid with mana when the mana is there; you can't choose to
   pay life instead. Tapping lands by hand first lets you steer it.
-- **Tapping a Treasure by hand** sacrifices it at once, so Cancel can't take that mana
-  back (mana abilities can't be undone).
+- **Taking mana back:** a source tapped by hand can be clicked again to take its mana
+  back while all of that mana is unspent. This is a convenience, not a rule: mana
+  abilities can't be undone in paper Magic. It works only when using the ability changed
+  nothing but which permanents are tapped and what is in your pool. A Signet or filter
+  land can be taken back, and the mana or lands that paid its cost come back too. Not
+  when it paid life, dealt damage (painlands, a Talisman's coloured mana), sacrificed or
+  exiled something (a Treasure), discarded a card, or triggered an ability: those have
+  happened, and other players have seen them.
 - **Auto-pay's lookahead** checks your other cards at what they cost now, with commander
   tax and cost increases and reductions (601.2f), but with no kicker, X as 0 and no
   alternative cost. It doesn't foresee cost changes the spell being paid for will bring.
