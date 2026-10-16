@@ -918,7 +918,11 @@ export interface Payment {
  * `keep`: permanents already being used to pay another part of the cost, like the one
  * sacrificed for an additional cost: they can't make mana too.
  */
-export function planPayment(g: Game, pid: PlayerId, cost: Cost, spell?: Card, keep: string[] = []): Payment | null {
+export const planPayment = (g: Game, pid: PlayerId, cost: Cost, spell?: Card, keep: string[] = []): Payment | null =>
+  planFrom(g, pid, cost, spell, keep, g.players[pid].pool);
+
+/** `planPayment` with `inPool` as the mana in the player's pool, for trying a payment out. */
+function planFrom(g: Game, pid: PlayerId, cost: Cost, spell: Card | undefined, keep: string[], inPool: Mana[]): Payment | null {
   const p = g.players[pid];
   // A player can pay life only if their life total is at least that much (119.4).
   if (cost.life > p.life) return null;
@@ -927,8 +931,8 @@ export function planPayment(g: Game, pid: PlayerId, cost: Cost, spell?: Card, ke
   const all = manaSources(g, pid)
     .filter((s) => spendable(s.only, spell) && !keep.includes(s.id))
     .map((s) => ({ ...s, keep: keepValue(s, wants) }));
-  const pool = p.pool.filter((m) => spendable(m.only, spell));
-  const kept = p.pool.filter((m) => !spendable(m.only, spell));
+  const pool = inPool.filter((m) => spendable(m.only, spell));
+  const kept = inPool.filter((m) => !spendable(m.only, spell));
   // Not enough mana in total, however it's spent: skip the search.
   const most = pool.length + all.reduce((n, s) => n + s.amount, 0);
   if (most < cost.generic + cost.pips.length + cost.hybrid.filter((h) => !h.includes('life')).length) return null;
@@ -947,9 +951,59 @@ export function planPayment(g: Game, pid: PlayerId, cost: Cost, spell?: Card, ke
   return { tap: paid.uses.map((u) => u.id), uses: paid.uses, pool: [...paid.pool, ...kept], life: paid.life, spent: paid.spent, uncounterable: paid.uncounterable };
 }
 
-/** Pays a cost, tapping and sacrificing what it has to. Returns how it was paid, or null if it can't be. */
+/** Whether `pay` looks ahead (`bestPayment`). Off while a bot tries moves out on copies of the game. */
+let lookahead = true;
+
+/** Runs `fn` with auto-pay's lookahead off, so a bot trying out moves stays fast. */
+export function withoutLookahead<T>(fn: () => T): T {
+  const was = lookahead;
+  lookahead = false;
+  try {
+    return fn();
+  } finally {
+    lookahead = was;
+  }
+}
+
+/**
+ * The way to pay `cost` that leaves the most of the player's other cards in hand and
+ * command zone castable afterwards, this turn. Instants and cards with flash count double.
+ * Each card is checked against its printed mana cost (plus commander tax), not cost
+ * changes. The candidates are the usual plan and, for each card castable now, a plan that
+ * leaves alone the sources that card would use. Ties go to the usual plan.
+ */
+function bestPayment(g: Game, pid: PlayerId, cost: Cost, spell?: Card, keep: string[] = []): Payment | null {
+  const usual = planPayment(g, pid, cost, spell, keep);
+  if (!usual) return null;
+  const p = g.players[pid];
+  const costOf = (c: Card): Cost => {
+    const printed = parseCost(data(c).manaCost);
+    return c.zone === 'command' ? { ...printed, generic: printed.generic + commanderTax(g, c) } : printed;
+  };
+  const others = [...p.hand, ...p.command]
+    .filter((c) => c.id !== spell?.id && !isLand(c) && data(c).manaCost)
+    .map((c) => ({ c, cost: costOf(c), weight: isInstantSpeed(c) ? 2 : 1 }))
+    .map((o) => ({ ...o, plan: planPayment(g, pid, o.cost, o.c) }))
+    .filter((o) => o.plan);
+  const most = others.reduce((n, o) => n + o.weight, 0);
+  const score = (paid: Payment) => others.reduce((n, o) => n + (planFrom(g, pid, o.cost, o.c, [...keep, ...paid.tap], paid.pool) ? o.weight : 0), 0);
+  let best = usual;
+  let bestScore = score(usual);
+  for (const o of others) {
+    if (bestScore === most) break;
+    const alt = planPayment(g, pid, cost, spell, [...keep, ...o.plan!.tap]);
+    const s = alt ? score(alt) : -1;
+    if (alt && s > bestScore) [best, bestScore] = [alt, s];
+  }
+  return best;
+}
+
+/**
+ * Pays a cost, tapping and sacrificing what it has to. Returns how it was paid, or null if
+ * it can't be. It looks ahead (`bestPayment`) unless a bot is only trying the move out.
+ */
 export function pay(g: Game, pid: PlayerId, cost: Cost, spell?: Card, keep: string[] = []): Payment | null {
-  const plan = planPayment(g, pid, cost, spell, keep);
+  const plan = lookahead ? bestPayment(g, pid, cost, spell, keep) : planPayment(g, pid, cost, spell, keep);
   if (!plan) return null;
   g.players[pid].pool = plan.pool;
   // Every ability is activated before any of them is sacrificed or deals its damage.
