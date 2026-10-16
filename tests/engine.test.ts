@@ -296,6 +296,88 @@ describe('two commanders (702.124) and multicolour decks', () => {
   });
 });
 
+describe('auto-pay: which sources it taps', () => {
+  // No commander in the command zone, so only the hand says which colours are wanted.
+  const game = (setup: (g: Game) => void) =>
+    emptyGame((d) => {
+      d.players[0].command = [];
+      setup(d);
+    });
+  const tapped = (g: Game, cost: string) => planPayment(g, 0, parseCost(cost))!.tap.map((id) => findCard(g, id)!.name);
+
+  it('pays generic with a colour nothing in hand wants', () => {
+    const g = game((d) => {
+      put(d, 0, 'Mountain');
+      put(d, 0, 'Plains');
+      put(d, 0, 'Lightning Bolt', 'hand');
+    });
+    expect(tapped(g, '{1}')).toEqual(['Plains']);
+  });
+
+  it('pays generic with a basic before a dual', () => {
+    const g = game((d) => {
+      put(d, 0, 'Plateau');
+      put(d, 0, 'Plains');
+    });
+    expect(tapped(g, '{1}')).toEqual(['Plains']);
+  });
+
+  it('taps a land before a mana creature, for coloured and generic mana', () => {
+    const g = game((d) => {
+      put(d, 0, 'Llanowar Elves');
+      put(d, 0, 'Forest');
+    });
+    expect(tapped(g, '{G}')).toEqual(['Forest']);
+    expect(tapped(g, '{1}')).toEqual(['Forest']);
+    expect(tapped(g, '{1}{G}').sort()).toEqual(['Forest', 'Llanowar Elves']);
+  });
+
+  it('taps a land before a mana rock with another {T} ability', () => {
+    const g = game((d) => {
+      put(d, 0, 'Mind Stone');
+      put(d, 0, 'Plains');
+    });
+    expect(tapped(g, '{1}')).toEqual(['Plains']);
+  });
+
+  it('pays a hybrid symbol with the colour the hand needs less (107.4e)', () => {
+    const g = game((d) => {
+      put(d, 0, 'Mountain');
+      put(d, 0, 'Plains');
+      put(d, 0, 'Lightning Bolt', 'hand');
+    });
+    expect(tapped(g, '{R/W}')).toEqual(['Plains']);
+    // With only a Mountain it still pays.
+    const one = game((d) => {
+      put(d, 0, 'Mountain');
+      put(d, 0, 'Lightning Bolt', 'hand');
+    });
+    expect(tapped(one, '{R/W}')).toEqual(['Mountain']);
+  });
+
+  it('pays generic from the pool with the colour the hand needs less', () => {
+    const g = game((d) => {
+      const bolt = put(d, 0, 'Lightning Bolt', 'hand');
+      d.players[0].pool = [
+        { sym: 'R', source: bolt.id },
+        { sym: 'W', source: bolt.id },
+      ];
+    });
+    expect(planPayment(g, 0, parseCost('{1}'))!.pool.map((m) => m.sym)).toEqual(['R']);
+  });
+
+  it("doesn't count the spell being paid for as wanting its own colours", () => {
+    // Lyra ({3}{W}{W}) in the command zone wants white; the Bolt being cast wants nothing more.
+    const g = emptyGame((d) => {
+      put(d, 0, 'Plains');
+      put(d, 0, 'Mountain');
+      put(d, 0, 'Lightning Bolt', 'hand');
+    });
+    const bolt = byName(g, 0, 'Lightning Bolt', 'hand')!;
+    expect(planPayment(g, 0, parseCost('{1}'), bolt)!.tap.map((id) => findCard(g, id)!.name)).toEqual(['Mountain']);
+  });
+});
+
 describe('costs (107.3, 107.4, 118, 601.2f)', () => {
   const opp = { kind: 'player', id: 1 } as const;
   const cast = (g: Game, name: string, extra: object = {}) => ({ type: 'cast', card: byName(g, 0, name, 'hand')!.id, ...extra }) as const;
