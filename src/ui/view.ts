@@ -134,6 +134,8 @@ export interface Announce {
   xLife: boolean;
   /** The kicker cost, and how many times it can be paid (more than once only for multikicker). */
   kicker: { text: string; most: number } | null;
+  /** The offspring cost (702.175a), and whether it can be paid on top of the rest. */
+  offspring: { text: string; payable: boolean } | null;
   /** Plot (702.170a): its plot cost, if the card could be plotted now instead of cast. */
   plot: string | null;
   /**
@@ -416,6 +418,7 @@ function announceOf(g: Game, me: PlayerId, card: Card, choices: CastChoices): An
         ? options.map((o) => ({ face: o.face, name: data(asSpell(card, o.face)).name, land: o.land, ok: o.ok }))
         : null,
     kicker: script.kicker && !land ? { text: costText(parseCost(script.kicker.mana)), most } : null,
+    offspring: script.offspring && !land ? { text: costText(parseCost(script.offspring)), payable: payable({ ...choices, offspring: true }) } : null,
     plot: canPlot(g, me, card) ? scriptFor(card).plot! : null,
     handMana: card.zone === 'hand' && canTapForMana(g, me, card),
     handAbility: handAb ? activatedAt(card, handAb.activated)!.text : null,
@@ -924,6 +927,7 @@ function propose(mode: 'cast' | 'activate', card: Card) {
     (options.length > 1 ||
       hasX ||
       !!script.kicker ||
+      !!script.offspring ||
       altCostsOf(g, card, face, me).length > 0 ||
       !!script.modal ||
       !!script.gift ||

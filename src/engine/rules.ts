@@ -187,6 +187,8 @@ function copyData(copy: CopyInfo): CardData {
       ...base,
       typeLine: subtypes.length ? `${types} — ${subtypes.join(' ')}` : types,
       keywords: [...base.keywords, ...copy.keywords.filter((k) => !base.keywords.includes(k))],
+      ...(copy.power !== undefined ? { power: String(copy.power) } : {}),
+      ...(copy.toughness !== undefined ? { toughness: String(copy.toughness) } : {}),
     };
     copies.set(key, d);
   }
@@ -683,6 +685,8 @@ export function castCost(g: Game, c: Card, choices: CastChoices = {}, pid = c.ow
   cost.generic += cost.x * (choices.x ?? 0);
   cost.x = 0;
   for (let k = 0; k < (choices.kicked ?? 0) && script.kicker; k++) cost = addCosts(cost, parseCost(script.kicker.mana));
+  // Offspring is an optional additional cost (702.175a).
+  if (choices.offspring && script.offspring) cost = addCosts(cost, parseCost(script.offspring));
   // Spree: each chosen mode's cost is an additional cost (702.172a).
   for (const i of choices.modes ?? []) {
     const extra = script.modal?.modes[i]?.cost;
@@ -1609,7 +1613,7 @@ export function targetSpecs(item: StackItem): TargetSpec[] {
   if (item.kind === 'activated') return (item.ability === undefined ? activatedAt(item.card, item.activated) : script.loyalty?.[item.ability])?.targets ?? [];
   if (item.kind === 'triggered' && item.hook === 'onChapter') return script.chapters?.[(item.event as { chapter: number }).chapter - 1]?.targets ?? [];
   if (item.kind === 'triggered' && item.hook === 'onReflexive') return itemScript(item).reflexive?.[(item.event as { key: string }).key]?.targets ?? [];
-  if (item.kind === 'triggered' && item.hook === 'onEvoked') return [];
+  if (item.kind === 'triggered' && (item.hook === 'onEvoked' || item.hook === 'onOffspring')) return [];
   // A lone "enters" ability uses the card's `targets`; one in a list names its own.
   if (item.kind === 'triggered' && item.hook === 'onEnter' && !item.granted && !Array.isArray(script.onEnter)) return script.targets ?? [];
   if (item.kind === 'triggered') {
@@ -2187,6 +2191,8 @@ function entered(g: Game, c: Card, opts: EnterOpts) {
   // Evoke: "When this permanent enters, if its evoke cost was paid, its controller sacrifices it" (702.74a).
   const alt = c.cast?.alt !== undefined ? scriptFor(c, 'stack', c.face).alternativeCosts?.[c.cast.alt] : undefined;
   if (alt?.evoke) g.triggers.push({ id: `s${g.nextId++}`, kind: 'triggered', controller: c.controller, card: snapshot(c), hook: 'onEvoked', event: {}, targets: [] });
+  // Offspring: "When this permanent enters, if its offspring cost was paid, create a token that's a copy of it, except it's 1/1" (702.175a).
+  if (c.cast?.offspring) g.triggers.push({ id: `s${g.nextId++}`, kind: 'triggered', controller: c.controller, card: snapshot(c), hook: 'onOffspring', event: {}, targets: [] });
   trigger(g, c, 'onEnter', {});
   // Entering with counters is having them put on it (122.6).
   for (const [kind, n] of [...Object.entries(scriptFor(c).entersWith ?? {}), ...Object.entries(opts.counters ?? {})]) if (n > 0) trigger(g, c, 'onCounters', { kind, n });
@@ -2333,10 +2339,28 @@ export function finishEnter(g: Game, c: Card, data: Record<string, unknown>, ext
   else enterBattlefield(g, c, opts);
 }
 
-/** What a copy of `c` copies (707.2), with the exceptions `subtypes` and `keywords` (707.9b). A copy of a copy copies what that copies, exceptions included (707.3). */
-export function copyOf(c: Card, extra: { subtypes?: string[]; keywords?: string[] } = {}): CopyInfo {
+/**
+ * What a copy of `c` copies (707.2), with the exceptions `subtypes`, `keywords` and a base
+ * power and toughness (707.9b). A copy of a copy copies what that copies, exceptions
+ * included (707.3).
+ */
+export function copyOf(c: Card, extra: { subtypes?: string[]; keywords?: string[]; power?: number; toughness?: number } = {}): CopyInfo {
   const base = c.copy ?? { name: c.name, face: c.zone === 'battlefield' ? c.face : 0, subtypes: [], keywords: [] };
-  return { ...base, subtypes: [...base.subtypes, ...(extra.subtypes ?? [])], keywords: [...base.keywords, ...(extra.keywords ?? [])] };
+  return {
+    ...base,
+    subtypes: [...base.subtypes, ...(extra.subtypes ?? [])],
+    keywords: [...base.keywords, ...(extra.keywords ?? [])],
+    ...(extra.power !== undefined ? { power: extra.power } : {}),
+    ...(extra.toughness !== undefined ? { toughness: extra.toughness } : {}),
+  };
+}
+
+/** Creates a token that's a copy of permanent `c` (707.2), with these exceptions (707.9b). Returns it. */
+export function tokenCopy(g: Game, pid: PlayerId, c: Card, extra: Parameters<typeof copyOf>[1] = {}): Card | undefined {
+  if (g.players[pid].lost) return undefined;
+  const [made] = createToken(g, pid, c.copy?.name ?? c.name, 1, { copy: copyOf(c, extra) });
+  if (made) log(g, `${says(g.players[pid], 'creates')} a token copy of ${label(c)}.`, pid, [made]);
+  return made;
 }
 
 /**

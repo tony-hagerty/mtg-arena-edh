@@ -302,14 +302,17 @@ function castChoices(g: Game, pid: PlayerId, c: Card): CastChoices[] {
               while (k < (script.kicker.multi ? 10 : 1) && canCast(g, pid, c, { ...base, gift, kicked: k + 1 })) k++;
               if (k) kicks.push(k);
             }
-            for (const kicked of kicks) {
-              const most = maxX(g, pid, c, { ...base, gift, kicked });
-              const xs = lifeX ? lifeXChoices(g, pid, most) : [most, Math.floor(most / 2)];
-              for (const x of new Set(xs)) {
-                const choices: CastChoices = { ...base, x, kicked, ...(gift !== undefined ? { gift } : {}) };
-                if (x >= 0 && canCast(g, pid, c, choices)) out.push(choices);
+            // Offspring (702.175a): with and without paying it, when it can be paid.
+            const offsprings = script.offspring && canCast(g, pid, c, { ...base, gift, offspring: true }) ? [false, true] : [false];
+            for (const kicked of kicks)
+              for (const offspring of offsprings) {
+                const most = maxX(g, pid, c, { ...base, gift, kicked, offspring });
+                const xs = lifeX ? lifeXChoices(g, pid, most) : [most, Math.floor(most / 2)];
+                for (const x of new Set(xs)) {
+                  const choices: CastChoices = { ...base, x, kicked, ...(gift !== undefined ? { gift } : {}), ...(offspring ? { offspring } : {}) };
+                  if (x >= 0 && canCast(g, pid, c, choices)) out.push(choices);
+                }
               }
-            }
           }
         }
       }
