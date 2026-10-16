@@ -96,6 +96,7 @@ import {
   turnOrder,
   untapMana,
   scriptFor,
+  withoutLookahead,
 } from './rules';
 import type {
   AbilityRef,
@@ -2129,10 +2130,14 @@ export interface ApplyOptions {
   autoPass?: boolean;
   /** Players' own stops, by player id. Anyone left out gets `defaultStops`. */
   stops?: Partial<Record<PlayerId, Stops>>;
+  /** A bot is only trying the move out: auto-pay skips its lookahead to stay fast (see `pay`). */
+  simulate?: boolean;
 }
 
-export function applyAction(g: Game, a: Action, { autoPass = true, stops }: ApplyOptions = {}): Game {
-  return produce(g, (draft) => {
-    if (act(draft, a)) settle(draft, autoPass, stops);
-  });
+export function applyAction(g: Game, a: Action, { autoPass = true, stops, simulate }: ApplyOptions = {}): Game {
+  const run = () =>
+    produce(g, (draft) => {
+      if (act(draft, a)) settle(draft, autoPass, stops);
+    });
+  return simulate ? withoutLookahead(run) : run();
 }
