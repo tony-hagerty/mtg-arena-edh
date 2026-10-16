@@ -888,6 +888,8 @@ button {
 .tile-counters {
   display: flex;
   flex-direction: column;
+  /* Above .tile-tapmark, like the P/T box, so a tapped card's counters stay readable. */
+  z-index: 1;
 }
 
 /* -1/-1 counters (122.1a) */
@@ -955,6 +957,11 @@ button {
   transform: rotate(45deg);
   background: #ffd76a;
   box-shadow: 0 0 0.4em #000;
+}
+
+/* Turning a card pushes its counters and P/T toward the next card: keep them on top of it. */
+.tile.tapped {
+  z-index: 1;
 }
 
 .tile-tapmark {

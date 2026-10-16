@@ -29,6 +29,7 @@ import {
   createToken,
   draw,
   maxHandSize,
+  nextStop,
   canBlock,
   canTapForMana,
   forbidden,
@@ -1687,6 +1688,32 @@ describe('stops', () => {
     // but player 1 keeps the default stop in their own main 1.
     g = runWith({ stops: { 0: [{}, {}, {}, {}] } }, g, pass);
     expect([g.active, g.step, g.priority]).toEqual([1, 'main1', 1]);
+  });
+
+  it('forecasts where passing goes next: the next stop this turn, or declaring attackers', () => {
+    const g = emptyGame();
+    expect([g.active, g.step]).toEqual([0, 'main1']);
+    // Main 2 is an "always" stop: the game stops there even with nothing to do.
+    expect(nextStop(g, 0)).toBe('main2');
+    expect(nextStop(g, 0, [{ main2: 'ifAble' }, {}, {}, {}])).toBe(null);
+    const shock = emptyGame((d) => {
+      put(d, 0, 'Mountain');
+      put(d, 0, 'Shock', 'hand');
+    });
+    expect(nextStop(shock, 0)).toBe('beginCombat');
+    const attacker = emptyGame((d) => {
+      put(d, 0, 'Elite Vanguard').sick = false;
+    });
+    expect(canAttack(attacker, attacker.players[0].battlefield[0])).toBe(true);
+    expect(nextStop(attacker, 0)).toBe('attackers');
+    // Player 1 on player 0's turn: nothing attacks them, so the end step if they can act.
+    expect(nextStop(g, 1)).toBe(null);
+    const theirs = emptyGame((d) => {
+      put(d, 1, 'Mountain');
+      put(d, 1, 'Shock', 'hand');
+    });
+    expect(nextStop(theirs, 1)).toBe('end');
+    expect(nextStop(theirs, 1, [{ draw: 'always' }, {}, {}, {}])).toBe(null);
   });
 
   it('matches the defaults when no stops are given', () => {

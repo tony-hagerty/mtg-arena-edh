@@ -102,10 +102,10 @@ The full guide to the game's screens and controls. For a quick start, see the
 
 ## Combat
 
-- **Attacking:** press Next → To Combat, click an opponent's portrait to choose who to
-  attack, then click your creatures. Different creatures can attack different players.
-  Planeswalkers and battles you can attack glow yellow: click one to send your next
-  attackers at it instead.
+- **Attacking:** press Next until you reach declare attackers (the button says where it
+  goes), click an opponent's portrait to choose who to attack, then click your creatures.
+  Different creatures can attack different players. Planeswalkers and battles you can
+  attack glow yellow: click one to send your next attackers at it instead.
 - **Blocking:** when you are attacked, click your creature. If it could block more than
   one attacker, click the attacker next.
 - **Dividing damage:** with **Damage: By hand** on (in the log bar), a window opens in
