@@ -47,6 +47,10 @@ src/ui/         store.ts              Zustand store (game + what the player is s
                 Picker.tsx            card picker: search, mulligan, bottom, trigger order,
                                       yes/no questions, naming, players, legend rule,
                                       escape, casting while a spell resolves
+                sound.ts              plays the interface sounds: clicks, hand cards, game moves
+                synth.ts              how each sound is made (Web Audio, no sound files)
+                game-sounds.ts        which sound a change of game state makes (gameSound)
+                SoundControl.tsx      the menu's volume slider and the in-game Sound button
                 styles.css            all styling
 tests/                                Vitest: card coverage, rules, the UI casting flow,
                                       bot-vs-bot games

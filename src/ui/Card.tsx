@@ -4,6 +4,7 @@ import { motion } from 'motion/react';
 import { activatedAbilities, attachmentsOf, data, defenseOf, isBattle, isCreature, isPlaneswalker, loyaltyOf, scriptFor, stats } from '../engine';
 import type { Card } from '../engine';
 import { useRem } from './rem';
+import { play } from './sound';
 import { useStore } from './store';
 import { CardImage, frameOf, ManaCost, useArtLoads } from './TextCard';
 import { cx, hoverProps, seatOf } from './util';
@@ -325,13 +326,18 @@ export function HandCard({
         if (!armed && to !== index) onMove(to);
       }}
       onDragEnd={(_, info) => {
-        if (info.offset.y < -PLAY_PULL * rem) playHandCard(card);
+        if (info.offset.y < -PLAY_PULL * rem) {
+          // A card that can't be played now goes back with a buzz.
+          play(glow ? 'release' : 'error');
+          playHandCard(card);
+        }
         setHeld(null);
         setHot(false);
       }}
       onMouseEnter={(e) => {
         setHot(true);
         useStore.setState({ hover: { name: d.name, d, el: e.currentTarget, hand: true } });
+        if (!fly.flying && !held) play('hover');
       }}
       onMouseLeave={() => {
         setHot(false);

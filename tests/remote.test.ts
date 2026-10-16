@@ -67,7 +67,7 @@ describe('a window playing through the game server', () => {
   it('starts the game on the server and shows its own seat’s view', async () => {
     const host = new GameHost(() => () => {});
     const link = connect(host);
-    useStore.setState({ settings: { manualDamage: false, opponents: [null, null, null], players: ['bot', 'empty', 'empty'] } });
+    useStore.setState({ settings: { manualDamage: false, opponents: [null, null, null], players: ['bot', 'empty', 'empty'], volume: 0.5, muted: false } });
     S().start(DECKS[0]);
     expect(S().game).toBe(null);
     await settle();
