@@ -324,8 +324,19 @@ export interface Card {
   gained: PlayerId[];
   /** How many times it has changed zones. Each zone change makes a new object (400.7). */
   moves: number;
-  /** What this permanent entered as a copy of (707), or null. */
+  /**
+   * What this permanent is a copy of (707), or null: the copy effect it entered with (707.5),
+   * or the one it became a copy with on the battlefield (707.4). Each copy effect overwrites
+   * every copiable value (707.2), and none has a duration, so the latest is all of layer 1
+   * (613.2a): an earlier one can't apply again.
+   */
   copy: CopyInfo | null;
+  /**
+   * The timestamp of the copy effect it became a copy with on the battlefield (613.7b, 707.4).
+   * Static abilities it has from that effect take this one if it is later than its own
+   * (613.7a). Unset for a permanent that entered as a copy: that effect began as it entered.
+   */
+  copyTs?: number;
   /** Exiled face down (406.3): nobody may look at it but the players in `known`. */
   faceDown: boolean;
   /** Players who may look at it while it is face down in exile (406.3). */
@@ -353,13 +364,20 @@ export interface Card {
 
 /**
  * A copy effect (707): the copiable values of card `name` with face `face` up, plus the
- * exceptions the copy effect adds (707.9b): extra subtypes and keywords.
+ * exceptions the copy effect adds, which become copiable values too (707.9a-b): extra
+ * subtypes, keywords and activated abilities.
  */
 export interface CopyInfo {
   name: string;
   face: number;
   subtypes: string[];
   keywords: string[];
+  /**
+   * Activated abilities the copy has besides the copied card's (707.9a): ability `index` of
+   * card `from`'s script, in that order after its own. Likeness Looter's "except it has ...
+   * this ability".
+   */
+  activated?: { from: string; index: number }[];
   /** A base power and toughness the copy effect sets (707.9b): offspring's 1/1, Saw in Half's halves. */
   power?: number;
   toughness?: number;
@@ -995,7 +1013,12 @@ export interface TargetSpec {
     /** A card in a graveyard (Sevinne's Reclamation). */
     | 'graveyard card';
   who?: 'you' | 'opponent' | 'any'; // whose permanent / which player
-  filter?: (g: Game, c: Card, source: Card) => boolean;
+  /**
+   * `x`: the X announced for the activated ability choosing the target (107.3a, 601.2b-c via
+   * 602.2b), 0 for one without X, as in "target creature card with mana value X". A spell's
+   * X is `source.cast.x`.
+   */
+  filter?: (g: Game, c: Card, source: Card, x: number) => boolean;
   /** For a spell or ability on the stack: whether `item` fits, like "with a single target" or "instant spell". */
   item?: (g: Game, item: StackItem, source: Card) => boolean;
   optional?: boolean; // "you may" / "up to one"

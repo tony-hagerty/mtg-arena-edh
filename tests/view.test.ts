@@ -606,6 +606,27 @@ describe('X in ability costs in the UI (107.3a)', () => {
     expect(game().players.map((p) => p.life)).toEqual([39, 39, 39, 39]);
   });
 
+  it('X comes before the targets it decides: "target creature card ... with mana value X" (601.2b-c)', () => {
+    play((d) => {
+      put(d, 0, 'Likeness Looter');
+      put(d, 0, 'Island', 'battlefield', 6);
+      put(d, 0, 'Elite Vanguard', 'graveyard');
+      put(d, 0, 'Shivan Dragon', 'graveyard');
+    });
+    clickPermanent(byName(game(), 0, 'Likeness Looter')!);
+    pickAbility({ activated: 1 });
+    expect(buildView().abilityX).toMatchObject({ x: 6, max: 6 });
+    setAbilityX(3); // no creature card with mana value 3
+    expect(buildView().primary?.disabled).toBe(true);
+    setAbilityX(1);
+    press(); // Continue
+    const v = buildView();
+    expect(v.graveTargets?.options.map((c) => c.name)).toEqual(['Elite Vanguard']);
+    chooseGraveyardTarget(v.graveTargets!.options[0].id);
+    press(); // Pay {1}; the bots pass and it resolves
+    expect(game().players[0].battlefield.find((c) => c.name === 'Likeness Looter')?.copy?.name).toBe('Elite Vanguard');
+  });
+
   it('announces X for a −X loyalty ability, then its target', () => {
     play((d) => {
       put(d, 0, 'Chandra Nalaar').counters.loyalty = 6;

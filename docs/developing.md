@@ -262,6 +262,7 @@ own timestamp (613.7b): `untilEndOfTurn(g, c, parts)` ("gets +2/+2 until end of 
 | `mill`, `discard`, `surveil` | as named |
 | `gainControl` | changes control |
 | `copyOf` | copies a permanent |
+| `becomeCopy(g, card, copyOf(x))` | a permanent becomes a copy while it stays (707.4) |
 | `populate(g, pid)` | copies a creature token the player chooses |
 | `tap(g, card)` | taps a permanent and triggers `onTapped` |
 | `abilitySource` | the source, if it is still the same object |
