@@ -45,6 +45,10 @@ export interface Targeting {
   discard?: string[];
   /** The human chose not to pay an optional sacrifice, like bargain (702.166a). */
   sacrificeDone?: boolean;
+  /** The creature picked to exile for an ability's "Exile a creature you control" cost. */
+  exile?: string[];
+  /** Done picking "any number of" targets (115.1d): the trailing slot is gone. */
+  anyDone?: boolean;
 }
 
 // Renamed when the defaults change, so everyone starts again from the new ones once.
@@ -226,7 +230,8 @@ interface Store {
   viewer: { pid: PlayerId; zone: Zone } | null;
   /** A mana ability with a choice of colour that the human is about to use, like Lion's Eye Diamond's. */
   /** `creatures`: the creatures that could pay a "Tap an untapped creature you control" cost; `creature` is the one picked. */
-  colorPick: { cardId: string; ability: number; colors: ManaSym[]; creatures?: string[]; creature?: string } | null;
+  /** `discards`: the cards in hand that could pay a "Discard a card" cost (Skirge Familiar); `discard` is the one picked. */
+  colorPick: { cardId: string; ability: number; colors: ManaSym[]; creatures?: string[]; creature?: string; discards?: string[]; discard?: string } | null;
   showLog: boolean;
   /** The "leave this game?" dialog is open. */
   confirmExit: boolean;

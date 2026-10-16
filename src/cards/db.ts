@@ -70,8 +70,21 @@ function indexFaces(all: Record<string, CardData>) {
 }
 indexFaces(cards);
 
+/**
+ * A token whose power and toughness are set as it is made, like "an X/X blue Illusion": the
+ * key "Illusion 3/3" is the "Illusion X/X" token with X = 3. Made once per size and kept.
+ */
+const sizedTokens = new Map<string, CardData>();
+function sizedToken(name: string): CardData | undefined {
+  const m = /^(.*) (\d+)\/(\d+)$/.exec(name);
+  const base = m ? tokens[`${m[1]} X/X`] : undefined;
+  if (!m || !base) return undefined;
+  if (!sizedTokens.has(name)) sizedTokens.set(name, { ...base, power: m[2], toughness: m[3] });
+  return sizedTokens.get(name);
+}
+
 export function cardData(name: string): CardData {
-  const d = cards[name] ?? tokens[name] ?? faceNames.get(name);
+  const d = cards[name] ?? tokens[name] ?? faceNames.get(name) ?? sizedToken(name);
   if (!d) throw new Error(`Unknown card: ${name}`);
   return d;
 }

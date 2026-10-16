@@ -394,10 +394,10 @@ registerScripts({
   'Relic of Legends': {
     // "{T}: Add one mana of any color." "Tap an untapped legendary creature you control: Add
     // one mana of any color." The second isn't a {T} ability of the creature, so a creature
-    // that just arrived can pay it (302.6). It is used by hand only.
+    // that just arrived can pay it (302.6).
     mana: [
       { amount: 1, colors: 'any' },
-      { amount: 1, colors: 'any', noTap: true, manual: true, tapCreature: { legendary: true } },
+      { amount: 1, colors: 'any', noTap: true, tapCreature: { legendary: true } },
     ],
   },
   'Unwinding Clock': {

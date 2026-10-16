@@ -151,7 +151,8 @@ const abilityText = (card: Card) => {
   return [...activatedAbilities(card).map((ab) => ab.text), ...(script.loyalty ?? []).map((ab) => `${loyaltyCost(ab.cost)}: ${ab.text}`)].filter(Boolean).join('\n');
 };
 
-export function Permanent({ card, badge }: { card: Card; badge?: Card[] }) {
+/** `phased`: the permanent is phased out (702.26b): drawn faded, and treated as though it doesn't exist, so clicks do nothing. */
+export function Permanent({ card, badge, phased }: { card: Card; badge?: Card[]; phased?: boolean }) {
   const v = useView();
   const g = v.g;
   const d = data(card);
@@ -189,12 +190,14 @@ export function Permanent({ card, badge }: { card: Card; badge?: Card[] }) {
         card.isCommander && 'commander',
         v.mana.has(card.id) && 'mana-source',
         glow && `glow-${glow}`,
+        phased && 'phased-out',
       )}
+      title={phased ? 'Phased out until its controller\'s next untap step' : undefined}
       initial={{ opacity: 0, scale: 0.6 }}
-      animate={{ opacity: 1, scale: 1, rotate: card.tapped ? 8 : 0, x: dx * lift, y: dy * lift }}
+      animate={{ opacity: phased ? 0.35 : 1, scale: 1, rotate: card.tapped ? 8 : 0, x: dx * lift, y: dy * lift }}
       exit={{ opacity: 0, scale: 0.4, transition: { duration: 0.3 } }}
       transition={SPRING}
-      onClick={() => clickPermanent(card)}
+      onClick={() => !phased && clickPermanent(card)}
       {...hoverProps(d)}
     >
       {attached.length > 0 && <Attachments cards={attached} />}

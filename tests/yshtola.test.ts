@@ -200,6 +200,20 @@ describe('Relic of Legends: tap an untapped legendary creature you control', () 
     // With no untapped legendary creature left, it can't be used.
     expect(applyAction(g, { type: 'tapMana', card: relic.id, ability: 1, color: 'U' })).toBe(g);
   });
+
+  it('is used by auto-pay: the Relic and the legendary creature each make a mana, lands first', () => {
+    let g = emptyGame((d) => {
+      put(d, 0, 'Relic of Legends');
+      put(d, 0, "Y'shtola, Night's Blessed").sick = true;
+      put(d, 0, 'Island');
+      put(d, 0, 'Stock Up', 'hand');
+    });
+    // Stock Up costs {2}{U}: the Island, the Relic, and the Relic again by tapping Y'shtola.
+    g = run(g, cast(g, 'Stock Up'));
+    expect(g.stack.map((x) => x.card.name)).toEqual(['Stock Up']);
+    expect(byName(g, 0, "Y'shtola, Night's Blessed")!.tapped).toBe(true);
+    expect(byName(g, 0, 'Relic of Legends')!.tapped).toBe(true);
+  });
 });
 
 /** Passes until player 0's next precombat main phase, bots acting as they like. */
