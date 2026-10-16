@@ -1,3 +1,1140 @@
 {
-  "cards": []
+  "cards": [
+    {
+      "name": "Blind Obedience",
+      "oracleText": "Extort (Whenever you cast a spell, you may pay {W/B}. If you do, each opponent loses 1 life and you gain that much life.)\nArtifacts and creatures your opponents control enter tapped.",
+      "clause": "Extort",
+      "reason": "no template matches",
+      "count": 3,
+      "last": "2026-10-16T04:13:48.303Z"
+    },
+    {
+      "name": "Fetid Heath",
+      "oracleText": "{T}: Add {C}.\n{W/B}, {T}: Add {W}{W}, {W}{B}, or {B}{B}.",
+      "clause": "{W/B}, {T}: Add {W}{W}, {W}{B}, or {B}{B}.",
+      "reason": "the cost \"{w/b}\"",
+      "count": 3,
+      "last": "2026-10-16T04:13:48.303Z"
+    },
+    {
+      "name": "Orzhov Signet",
+      "oracleText": "{1}, {T}: Add {W}{B}.",
+      "clause": "add {w}{b}",
+      "reason": "no template matches",
+      "count": 3,
+      "last": "2026-10-16T04:13:48.303Z"
+    },
+    {
+      "name": "Springleaf Drum",
+      "oracleText": "{T}, Tap an untapped creature you control: Add one mana of any color.",
+      "clause": "{T}, Tap an untapped creature you control: Add one mana of any color.",
+      "reason": "a mana ability with a cost other than {T}",
+      "count": 3,
+      "last": "2026-10-16T04:13:48.303Z"
+    },
+    {
+      "name": "Agatha's Soul Cauldron",
+      "oracleText": "You may spend mana as though it were mana of any color to activate abilities of creatures you control.\nCreatures you control with +1/+1 counters on them have all activated abilities of all creature cards exiled with Agatha's Soul Cauldron.\n{T}: Exile target card from a graveyard. When a creature card is exiled this way, put a +1/+1 counter on target creature you control.",
+      "clause": "You may spend mana as though it were mana of any color to activate abilities of creatures you control.",
+      "reason": "no template matches",
+      "count": 2,
+      "last": "2026-10-16T04:13:48.303Z"
+    },
+    {
+      "name": "Appa, Steadfast Guardian",
+      "oracleText": "Flash\nFlying\nWhen Appa enters, airbend any number of other target nonland permanents you control. (Exile them. While each one is exiled, its owner may cast it for {2} rather than its mana cost.)\nWhenever you cast a spell from exile, create a 1/1 white Ally creature token.",
+      "clause": "airbend any number of other target nonland permanents you control",
+      "reason": "no template matches",
+      "count": 2,
+      "last": "2026-10-16T04:13:48.303Z"
+    },
+    {
+      "name": "Archivist of Oghma",
+      "oracleText": "Flash\nWhenever an opponent searches their library, you gain 1 life and draw a card.",
+      "clause": "Whenever an opponent searches their library, you gain 1 life and draw a card.",
+      "reason": "no template matches",
+      "count": 2,
+      "last": "2026-10-16T04:13:48.303Z"
+    },
+    {
+      "name": "Argent Dais",
+      "oracleText": "This artifact enters with two oil counters on it.\nWhenever two or more creatures attack, put an oil counter on this artifact.\n{2}, {T}, Remove two oil counters from this artifact: Exile another target nonland permanent. Its controller draws two cards.",
+      "clause": "Argent Dais enters with two oil counters on it.",
+      "reason": "no template matches",
+      "count": 2,
+      "last": "2026-10-16T04:13:48.303Z"
+    },
+    {
+      "name": "Avatar's Wrath",
+      "oracleText": "Choose up to one target creature, then airbend all other creatures. (Exile them. While each one is exiled, its owner may cast it for {2} rather than its mana cost.)\nUntil your next turn, your opponents can't cast spells from anywhere other than their hands.\nExile Avatar's Wrath.",
+      "clause": "choose up to one target creature, then airbend all other creatures",
+      "reason": "no template matches",
+      "count": 2,
+      "last": "2026-10-16T04:13:48.303Z"
+    },
+    {
+      "name": "Aven Interrupter",
+      "oracleText": "Flash\nFlying\nWhen this creature enters, exile target spell. It becomes plotted. (Its owner may cast it as a sorcery on a later turn without paying its mana cost.)\nSpells your opponents cast from graveyards or from exile cost {2} more to cast.",
+      "clause": "exile target spell",
+      "reason": "\"target spell\" isn't a target the parser knows",
+      "count": 2,
+      "last": "2026-10-16T04:13:48.303Z"
+    },
+    {
+      "name": "Bender's Waterskin",
+      "oracleText": "Untap this artifact during each other player's untap step.\n{T}: Add one mana of any color.",
+      "clause": "Untap Bender's Waterskin during each other player's untap step.",
+      "reason": "no template matches",
+      "count": 2,
+      "last": "2026-10-16T04:14:02.495Z"
+    },
+    {
+      "name": "Black Mage's Rod",
+      "oracleText": "Job select (When this Equipment enters, create a 1/1 colorless Hero creature token, then attach this to it.)\nEquipped creature gets +1/+0, has \"Whenever you cast a noncreature spell, this creature deals 1 damage to each opponent,\" and is a Wizard in addition to its other types.\nEquip {3}",
+      "clause": "Job select",
+      "reason": "no template matches",
+      "count": 2,
+      "last": "2026-10-16T04:14:02.495Z"
+    },
+    {
+      "name": "Boggart Trawler // Boggart Bog",
+      "oracleText": "When this creature enters, exile target player's graveyard.",
+      "clause": "Boggart Trawler has rules text but no script; Boggart Bog has rules text but no script",
+      "reason": "not supported",
+      "count": 2,
+      "last": "2026-10-16T04:13:48.303Z"
+    },
+    {
+      "name": "Circle of Power",
+      "oracleText": "You draw two cards and you lose 2 life. Create a 0/1 black Wizard creature token with \"Whenever you cast a noncreature spell, this token deals 1 damage to each opponent.\"\nWizards you control get +1/+0 and gain lifelink until end of turn.",
+      "clause": "create a 0/1 black wizard creature token with \"whenever you cast a noncreature spell, this token deals 1 damage to each opponent.\"",
+      "reason": "no listed token is \"0/1 black wizard creature with \"whenever you cast a noncreature spell, this token deals 1 damage to each opponent.\"\"",
+      "count": 2,
+      "last": "2026-10-16T04:14:02.495Z"
+    },
+    {
+      "name": "Cling to Dust",
+      "oracleText": "Exile target card from a graveyard. If it was a creature card, you gain 3 life. Otherwise, you draw a card.\nEscape—{3}{B}, Exile five other cards from your graveyard. (You may cast this card from your graveyard for its escape cost.)",
+      "clause": "exile target card from a graveyard",
+      "reason": "\"target card from a graveyard\" isn't a target the parser knows",
+      "count": 2,
+      "last": "2026-10-16T04:13:48.303Z"
+    },
+    {
+      "name": "Currency Converter",
+      "oracleText": "Whenever you discard a card, you may exile that card from your graveyard.\n{2}, {T}: Draw a card, then discard a card.\n{T}: Put a card exiled with this artifact into its owner's graveyard. If it's a land card, create a Treasure token. If it's a nonland card, create a 2/2 black Rogue creature token.",
+      "clause": "Whenever you discard a card, you may exile that card from your graveyard.",
+      "reason": "no template matches",
+      "count": 2,
+      "last": "2026-10-16T04:13:48.303Z"
+    },
+    {
+      "name": "Decorum Dissertation",
+      "oracleText": "Target player draws two cards and loses 2 life.\nParadigm (Then exile this spell. After you first resolve a spell with this name, you may cast a copy of it from exile without paying its mana cost at the beginning of each of your first main phases.)",
+      "clause": "paradigm",
+      "reason": "no template matches",
+      "count": 2,
+      "last": "2026-10-16T04:14:02.495Z"
+    },
+    {
+      "name": "Delivery Moogle",
+      "oracleText": "Flying\nWhen this creature enters, search your library and/or graveyard for an artifact card with mana value 2 or less, reveal it, and put it into your hand. If you search your library this way, shuffle.",
+      "clause": "search your library and/or graveyard for an artifact card with mana value 2 or less, reveal it,",
+      "reason": "no template matches",
+      "count": 2,
+      "last": "2026-10-16T04:13:48.303Z"
+    },
+    {
+      "name": "Eerie Interlude",
+      "oracleText": "Exile any number of target creatures you control. Return those cards to the battlefield under their owner's control at the beginning of the next end step.",
+      "clause": "exile any number of target creatures you control",
+      "reason": "\"any number of target creatures you control\" isn't a target the parser knows",
+      "count": 2,
+      "last": "2026-10-16T04:13:48.303Z"
+    },
+    {
+      "name": "Eirdu, Carrier of Dawn // Isilu, Carrier of Twilight",
+      "oracleText": "Flying, lifelink\nCreature spells you cast have convoke. (Your creatures can help cast those spells. Each creature you tap while casting a creature spell pays for {1} or one mana of that creature's color.)\nAt the beginning of your first main phase, you may pay {B}. If you do, transform Eirdu.",
+      "clause": "Eirdu, Carrier of Dawn has rules text but no script; Isilu, Carrier of Twilight has rules text but no script",
+      "reason": "not supported",
+      "count": 2,
+      "last": "2026-10-16T04:13:48.303Z"
+    },
+    {
+      "name": "Emperor of Bones",
+      "oracleText": "At the beginning of combat on your turn, exile up to one target card from a graveyard.\n{1}{B}: Adapt 2.\nWhenever one or more +1/+1 counters are put on this creature, put a creature card exiled with this creature onto the battlefield under your control with a finality counter on it. It gains haste. Sacrifice it at the beginning of the next end step.",
+      "clause": "At the beginning of combat on your turn, exile up to one target card from a graveyard.",
+      "reason": "no template matches",
+      "count": 2,
+      "last": "2026-10-16T04:13:48.303Z"
+    },
+    {
+      "name": "Ephemerate",
+      "oracleText": "Exile target creature you control, then return it to the battlefield under its owner's control.\nRebound (If you cast this spell from your hand, exile it as it resolves. At the beginning of your next upkeep, you may cast this card from exile without paying its mana cost.)",
+      "clause": "exile target creature you control, then return it to the battlefield under its owner's control",
+      "reason": "\"target creature you control, then return it to the battlefield under its owner's control\" isn't a target the parser knows",
+      "count": 2,
+      "last": "2026-10-16T04:13:48.303Z"
+    },
+    {
+      "name": "Flare of Fortitude",
+      "oracleText": "You may sacrifice a nontoken white creature rather than pay this spell's mana cost.\nUntil end of turn, your life total can't change, and permanents you control gain hexproof and indestructible.",
+      "clause": "sacrifice a nontoken white creature rather than pay Flare of Fortitude's mana cost",
+      "reason": "no template matches",
+      "count": 2,
+      "last": "2026-10-16T04:13:48.303Z"
+    },
+    {
+      "name": "Ghost Vacuum",
+      "oracleText": "{T}: Exile target card from a graveyard.\n{6}, {T}, Sacrifice this artifact: Put each creature card exiled with this artifact onto the battlefield under your control with a flying counter on it. Each of them is a 1/1 Spirit in addition to its other types. Activate only as a sorcery.",
+      "clause": "exile target card from a graveyard",
+      "reason": "\"target card from a graveyard\" isn't a target the parser knows",
+      "count": 2,
+      "last": "2026-10-16T04:13:48.303Z"
+    },
+    {
+      "name": "Haliya, Guided by Light",
+      "oracleText": "Whenever Haliya or another creature or artifact you control enters, you gain 1 life.\nAt the beginning of your end step, draw a card if you've gained 3 or more life this turn.\nWarp {W} (You may cast this card from your hand for its warp cost. Exile this creature at the beginning of the next end step, then you may cast it from exile on a later turn.)",
+      "clause": "Whenever Haliya, Guided by Light or another creature or artifact you control enters, you gain 1 life.",
+      "reason": "no template matches",
+      "count": 2,
+      "last": "2026-10-16T04:13:48.303Z"
+    },
+    {
+      "name": "Insatiable Avarice",
+      "oracleText": "Spree (Choose one or more additional costs.)\n+ {2} — Search your library for a card, then shuffle and put that card on top.\n+ {B}{B} — Target player draws three cards and loses 3 life.",
+      "clause": "spree",
+      "reason": "no template matches",
+      "count": 2,
+      "last": "2026-10-16T04:13:48.303Z"
+    },
+    {
+      "name": "Ketramose, the New Dawn",
+      "oracleText": "Menace, lifelink, indestructible\nKetramose can't attack or block unless there are seven or more cards in exile.\nWhenever one or more cards are put into exile from graveyards and/or the battlefield during your turn, you draw a card and lose 1 life.",
+      "clause": "Ketramose, the New Dawn can't attack or block unless there are seven or more cards in exile.",
+      "reason": "no template matches",
+      "count": 2,
+      "last": "2026-10-16T04:13:48.303Z"
+    },
+    {
+      "name": "Lion Sash",
+      "oracleText": "{W}: Exile target card from a graveyard. If it was a permanent card, put a +1/+1 counter on this permanent.\nEquipped creature gets +1/+1 for each +1/+1 counter on this Equipment.\nReconfigure {2} ({2}: Attach to target creature you control; or unattach from a creature. Reconfigure only as a sorcery. While attached, this isn't a creature.)",
+      "clause": "exile target card from a graveyard",
+      "reason": "\"target card from a graveyard\" isn't a target the parser knows",
+      "count": 2,
+      "last": "2026-10-16T04:13:48.303Z"
+    },
+    {
+      "name": "Lively Dirge",
+      "oracleText": "Spree (Choose one or more additional costs.)\n+ {1} — Search your library for a card, put it into your graveyard, then shuffle.\n+ {2} — Return up to two creature cards with total mana value 4 or less from your graveyard to the battlefield.",
+      "clause": "spree",
+      "reason": "no template matches",
+      "count": 2,
+      "last": "2026-10-16T04:13:48.303Z"
+    },
+    {
+      "name": "Malakir Rebirth // Malakir Mire",
+      "oracleText": "Choose target creature. You lose 2 life. Until end of turn, that creature gains \"When this creature dies, return it to the battlefield tapped under its owner's control.\"",
+      "clause": "Malakir Rebirth has rules text but no script; Malakir Mire has rules text but no script",
+      "reason": "not supported",
+      "count": 2,
+      "last": "2026-10-16T04:14:02.495Z"
+    },
+    {
+      "name": "Monk Gyatso",
+      "oracleText": "Whenever another creature you control becomes the target of a spell or ability, you may airbend that creature. (Exile it. While it's exiled, its owner may cast it for {2} rather than its mana cost.)",
+      "clause": "Whenever another creature you control becomes the target of a spell or ability, you may airbend that creature.",
+      "reason": "no template matches",
+      "count": 2,
+      "last": "2026-10-16T04:13:48.303Z"
+    },
+    {
+      "name": "Ondu Inversion // Ondu Skyruins",
+      "oracleText": "Destroy all nonland permanents.",
+      "clause": "Ondu Inversion has rules text but no script; Ondu Skyruins has rules text but no script",
+      "reason": "not supported",
+      "count": 2,
+      "last": "2026-10-16T04:13:48.303Z"
+    },
+    {
+      "name": "Phelia, Exuberant Shepherd",
+      "oracleText": "Flash\nWhenever Phelia attacks, exile up to one other target nonland permanent. At the beginning of the next end step, return that card to the battlefield under its owner's control. If it entered under your control, put a +1/+1 counter on Phelia.",
+      "clause": "exile up to one other target nonland permanent",
+      "reason": "\"up to one other target nonland permanent\" isn't a target the parser knows",
+      "count": 2,
+      "last": "2026-10-16T04:13:48.303Z"
+    },
+    {
+      "name": "Plaza of Heroes",
+      "oracleText": "{T}: Add {C}.\n{T}: Add one mana of any color. Spend this mana only to cast a legendary spell.\n{T}: Add one mana of any color among legendary permanents you control.\n{3}, {T}, Exile this land: Target legendary creature gains hexproof and indestructible until end of turn.",
+      "clause": "add one mana of any color",
+      "reason": "no template matches",
+      "count": 2,
+      "last": "2026-10-16T04:13:48.303Z"
+    },
+    {
+      "name": "Relic of Progenitus",
+      "oracleText": "{T}: Target player exiles a card from their graveyard.\n{1}, Exile this artifact: Exile all graveyards. Draw a card.",
+      "clause": "target player exiles a card from their graveyard",
+      "reason": "no template for what target player does",
+      "count": 2,
+      "last": "2026-10-16T04:13:48.303Z"
+    },
+    {
+      "name": "Roaming Throne",
+      "oracleText": "Ward {2}\nAs this creature enters, choose a creature type.\nThis creature is the chosen type in addition to its other types.\nIf a triggered ability of another creature you control of the chosen type triggers, it triggers an additional time.",
+      "clause": "Ward {2}",
+      "reason": "no template matches",
+      "count": 2,
+      "last": "2026-10-16T04:14:02.495Z"
+    },
+    {
+      "name": "Skirge Familiar",
+      "oracleText": "Flying\nDiscard a card: Add {B}.",
+      "clause": "Discard a card: Add {B}.",
+      "reason": "a mana ability with a cost other than {T}",
+      "count": 2,
+      "last": "2026-10-16T04:13:48.303Z"
+    },
+    {
+      "name": "Skyclave Apparition",
+      "oracleText": "When this creature enters, exile up to one target nonland, nontoken permanent you don't control with mana value 4 or less.\nWhen this creature leaves the battlefield, the exiled card's owner creates an X/X blue Illusion creature token, where X is the mana value of the exiled card.",
+      "clause": "exile up to one target nonland, nontoken permanent you don't control with mana value 4 or less",
+      "reason": "\"up to one target nonland, nontoken permanent you don't control with mana value 4 or less\" isn't a target the parser knows",
+      "count": 2,
+      "last": "2026-10-16T04:13:48.303Z"
+    },
+    {
+      "name": "Solitude",
+      "oracleText": "Flash\nLifelink\nWhen this creature enters, exile up to one other target creature. That creature's controller gains life equal to its power.\nEvoke—Exile a white card from your hand.",
+      "clause": "exile up to one other target creature",
+      "reason": "\"up to one other target creature\" isn't a target the parser knows",
+      "count": 2,
+      "last": "2026-10-16T04:13:48.303Z"
+    },
+    {
+      "name": "Summon: Yojimbo",
+      "oracleText": "(As this Saga enters and after your draw step, add a lore counter. Sacrifice after IV.)\nI — Exile target artifact, enchantment, or tapped creature an opponent controls.\nII, III — Until your next turn, creatures can't attack you unless their controller pays {2} for each of those creatures.\nIV — Create X Treasure tokens, where X is the number of opponents who control a creature with power 4 or greater.\nVigilance",
+      "clause": "I — Exile target artifact, enchantment, or tapped creature an opponent controls.",
+      "reason": "no template matches",
+      "count": 2,
+      "last": "2026-10-16T04:13:48.303Z"
+    },
+    {
+      "name": "Sword of Hearth and Home",
+      "oracleText": "Equipped creature gets +2/+2 and has protection from green and from white.\nWhenever equipped creature deals combat damage to a player, exile up to one target creature you own, then search your library for a basic land card. Put both cards onto the battlefield under your control, then shuffle.\nEquip {2}",
+      "clause": "Equipped creature gets +2/+2 and has protection from green and from white.",
+      "reason": "no template matches",
+      "count": 2,
+      "last": "2026-10-16T04:13:48.303Z"
+    },
+    {
+      "name": "Talon Gates of Madara",
+      "oracleText": "When this land enters, up to one target creature phases out.\n{T}: Add {C}.\n{1}, {T}: Add one mana of any color.\n{4}: Put this card from your hand onto the battlefield.",
+      "clause": "up to one target creature phases out",
+      "reason": "no template matches",
+      "count": 2,
+      "last": "2026-10-16T04:13:48.303Z"
+    },
+    {
+      "name": "The Eternal Wanderer",
+      "oracleText": "No more than one creature can attack The Eternal Wanderer each combat.\n+1: Exile up to one target artifact or creature. Return that card to the battlefield under its owner's control at the beginning of that player's next end step.\n0: Create a 2/2 white Samurai creature token with double strike.\n−4: For each player, choose a creature that player controls. Each player sacrifices all creatures they control not chosen this way.",
+      "clause": "No more than one creature can attack The Eternal Wanderer each combat.",
+      "reason": "no template matches",
+      "count": 2,
+      "last": "2026-10-16T04:13:48.303Z"
+    },
+    {
+      "name": "The Legend of Yangchen // Avatar Yangchen",
+      "oracleText": "(As this Saga enters and after your draw step, add a lore counter.)\nI — Starting with you, each player chooses up to one permanent with mana value 3 or greater from among permanents your opponents control. Exile those permanents.\nII — You may have target opponent draw three cards. If you do, draw three cards.\nIII — Exile this Saga, then return it to the battlefield transformed under your control.",
+      "clause": "unsupported keyword \"airbend\"; The Legend of Yangchen has rules text but no script; Avatar Yangchen has rules text but no script",
+      "reason": "not supported",
+      "count": 2,
+      "last": "2026-10-16T04:13:48.303Z"
+    },
+    {
+      "name": "The Mind Stone",
+      "oracleText": "Indestructible\n{T}: Add {W}.\n{5}{W}, {T}: Harness The Mind Stone. (Once harnessed, its ∞ ability is active.)\n∞ — At the beginning of your end step, exile up to one other target nonland permanent you control, then return that card to the battlefield under its owner's control.",
+      "clause": "harness The Mind Stone",
+      "reason": "no template matches",
+      "count": 2,
+      "last": "2026-10-16T04:13:48.303Z"
+    },
+    {
+      "name": "The Ooze",
+      "oracleText": "Whenever a creature you control with a +1/+1 counter on it leaves the battlefield, create a Mutagen token for each +1/+1 counter on it. (A Mutagen token is an artifact with \"{1}, {T}, Sacrifice this token: Put a +1/+1 counter on target creature. Activate only as a sorcery.\")\n{T}: Exile target card from a graveyard. Create a Mutagen token.",
+      "clause": "Whenever a creature you control with a +1/+1 counter on it leaves the battlefield, create a Mutagen token for each +1/+1 counter on it.",
+      "reason": "no template matches",
+      "count": 2,
+      "last": "2026-10-16T04:13:48.303Z"
+    },
+    {
+      "name": "Transpose",
+      "oracleText": "Draw a card, then discard a card. You lose 1 life. If this spell was cast from your hand, create a 0/1 black Wizard creature token with \"Whenever you cast a noncreature spell, this token deals 1 damage to each opponent.\"\nRebound (If you cast this spell from your hand, exile it as it resolves. At the beginning of your next upkeep, you may cast this card from exile without paying its mana cost.)",
+      "clause": "draw a card, then discard a card",
+      "reason": "no template matches",
+      "count": 2,
+      "last": "2026-10-16T04:14:02.495Z"
+    },
+    {
+      "name": "Trouble in Pairs",
+      "oracleText": "If an opponent would begin an extra turn, that player skips that turn instead.\nWhenever an opponent attacks you with two or more creatures, draws their second card each turn, or casts their second spell each turn, you draw a card.",
+      "clause": "If an opponent would begin an extra turn, that player skips that turn instead.",
+      "reason": "no template matches",
+      "count": 2,
+      "last": "2026-10-16T04:13:48.303Z"
+    },
+    {
+      "name": "Urborg, Tomb of Yawgmoth",
+      "oracleText": "Each land is a Swamp in addition to its other land types.",
+      "clause": "Each land is a Swamp in addition to its other land types.",
+      "reason": "no template matches",
+      "count": 2,
+      "last": "2026-10-16T04:14:02.495Z"
+    },
+    {
+      "name": "Urza's Saga",
+      "oracleText": "(As this Saga enters and after your draw step, add a lore counter. Sacrifice after III.)\nI — This Saga gains \"{T}: Add {C}.\"\nII — This Saga gains \"{2}, {T}: Create a 0/0 colorless Construct artifact creature token with 'This token gets +1/+1 for each artifact you control.'\"\nIII — Search your library for an artifact card with mana cost {0} or {1}, put it onto the battlefield, then shuffle.",
+      "clause": "I — This Saga gains \"{T}: Add {C}.\"",
+      "reason": "the cost \"i — this saga gains \"{t}\"",
+      "count": 2,
+      "last": "2026-10-16T04:13:48.303Z"
+    },
+    {
+      "name": "Winds of Abandon",
+      "oracleText": "Exile target creature you don't control. For each creature exiled this way, its controller searches their library for a basic land card. Those players put those cards onto the battlefield tapped, then shuffle.\nOverload {4}{W}{W} (You may cast this spell for its overload cost. If you do, change \"target\" in its text to \"each.\")",
+      "clause": "for each creature exiled this way, its controller searches their library for a basic land card",
+      "reason": "no template matches",
+      "count": 2,
+      "last": "2026-10-16T04:13:48.303Z"
+    },
+    {
+      "name": "Witch Enchanter // Witch-Blessed Meadow",
+      "oracleText": "When this creature enters, destroy target artifact or enchantment an opponent controls.",
+      "clause": "Witch Enchanter has rules text but no script; Witch-Blessed Meadow has rules text but no script",
+      "reason": "not supported",
+      "count": 2,
+      "last": "2026-10-16T04:13:48.303Z"
+    },
+    {
+      "name": "Aphotic Wisps",
+      "oracleText": "Target creature becomes black and gains fear until end of turn. (It can't be blocked except by artifact creatures and/or black creatures.)\nDraw a card.",
+      "clause": "target creature becomes black",
+      "reason": "no template matches",
+      "count": 1,
+      "last": "2026-10-16T04:14:04.330Z"
+    },
+    {
+      "name": "Asgardian Inspiration",
+      "oracleText": "Exile the top card of your library. You may play it this turn.\nWhenever a source you control deals noncombat damage to an opponent, you may pay {2}. If you do, return this card from your graveyard to your hand.",
+      "clause": "exile the top card of your library",
+      "reason": "\"the top card of your library\" isn't a target the parser knows",
+      "count": 1,
+      "last": "2026-10-16T04:14:04.330Z"
+    },
+    {
+      "name": "Astral Dragon",
+      "oracleText": "Flying\nProject Image — When this creature enters, create two tokens that are copies of target noncreature permanent, except they're 3/3 Dragon creatures in addition to their other types, and they have flying.",
+      "clause": "Project Image — When Astral Dragon enters, create two tokens that are copies of target noncreature permanent, except they're 3/3 Dragon creatures in addition to their other types, and they have flying.",
+      "reason": "no template matches",
+      "count": 1,
+      "last": "2026-10-16T04:07:04.136Z"
+    },
+    {
+      "name": "Azorius Signet",
+      "oracleText": "{1}, {T}: Add {W}{U}.",
+      "clause": "add {w}{u}",
+      "reason": "no template matches",
+      "count": 1,
+      "last": "2026-10-16T04:09:48.537Z"
+    },
+    {
+      "name": "Black Market Connections",
+      "oracleText": "At the beginning of your first main phase, choose one or more —\n• Sell Contraband — Create a Treasure token. You lose 1 life.\n• Buy Information — Draw a card. You lose 2 life.\n• Hire a Mercenary — Create a 3/2 colorless Shapeshifter creature token with changeling. You lose 3 life. (It is every creature type.)",
+      "clause": "At the beginning of your first main phase, choose one or more —",
+      "reason": "no template matches",
+      "count": 1,
+      "last": "2026-10-16T04:14:04.330Z"
+    },
+    {
+      "name": "Bloodchief Ascension",
+      "oracleText": "At the beginning of each end step, if an opponent lost 2 or more life this turn, you may put a quest counter on this enchantment. (Damage causes loss of life.)\nWhenever a card is put into an opponent's graveyard from anywhere, if this enchantment has three or more quest counters on it, you may have that player lose 2 life. If you do, you gain 2 life.",
+      "clause": "At the beginning of each end step, if an opponent lost 2 or more life this turn, you may put a quest counter on Bloodchief Ascension.",
+      "reason": "no template matches",
+      "count": 1,
+      "last": "2026-10-16T04:09:48.537Z"
+    },
+    {
+      "name": "Bloodsoaked Insight // Sanguine Morass",
+      "oracleText": "This spell costs {1} less to cast for each 1 life your opponents have lost this turn.\nTarget opponent exiles the top three cards of their library. Until the end of your next turn, you may play those cards. If you cast a spell this way, mana of any type can be spent to cast it.",
+      "clause": "Bloodsoaked Insight has rules text but no script; Sanguine Morass has rules text but no script",
+      "reason": "not supported",
+      "count": 1,
+      "last": "2026-10-16T04:14:04.330Z"
+    },
+    {
+      "name": "Clever Impersonator",
+      "oracleText": "You may have this creature enter as a copy of any nonland permanent on the battlefield.",
+      "clause": "You may have Clever Impersonator enter as a copy of any nonland permanent on the battlefield.",
+      "reason": "no template matches",
+      "count": 1,
+      "last": "2026-10-16T04:07:04.136Z"
+    },
+    {
+      "name": "Coalition Relic",
+      "oracleText": "{T}: Add one mana of any color.\n{T}: Put a charge counter on this artifact.\nAt the beginning of your first main phase, remove all charge counters from this artifact. Add one mana of any color for each charge counter removed this way.",
+      "clause": "put a charge counter on Coalition Relic",
+      "reason": "no template matches",
+      "count": 1,
+      "last": "2026-10-16T04:09:48.537Z"
+    },
+    {
+      "name": "Collective Inferno",
+      "oracleText": "Convoke (Your creatures can help cast this spell. Each creature you tap while casting this spell pays for {1} or one mana of that creature's color.)\nAs this enchantment enters, choose a creature type.\nDouble all damage that sources you control of the chosen type would deal.",
+      "clause": "Convoke",
+      "reason": "no template matches",
+      "count": 1,
+      "last": "2026-10-16T04:14:04.330Z"
+    },
+    {
+      "name": "Commandeer",
+      "oracleText": "You may exile two blue cards from your hand rather than pay this spell's mana cost.\nGain control of target noncreature spell. You may choose new targets for it. (If that spell is an artifact, enchantment, or planeswalker, the permanent enters under your control.)",
+      "clause": "exile two blue cards from your hand rather than pay Commandeer's mana cost",
+      "reason": "\"two blue cards from your hand rather than pay Commandeer's mana cost\" isn't a target the parser knows",
+      "count": 1,
+      "last": "2026-10-16T04:07:04.136Z"
+    },
+    {
+      "name": "Coruscation Mage",
+      "oracleText": "Offspring {2} (You may pay an additional {2} as you cast this spell. If you do, when this creature enters, create a 1/1 token copy of it.)\nWhenever you cast a noncreature spell, this creature deals 1 damage to each opponent.",
+      "clause": "Offspring {2}",
+      "reason": "no template matches",
+      "count": 1,
+      "last": "2026-10-16T04:14:04.330Z"
+    },
+    {
+      "name": "Curiosity",
+      "oracleText": "Enchant creature\nWhenever enchanted creature deals damage to an opponent, you may draw a card.",
+      "clause": "Enchant creature",
+      "reason": "no template matches",
+      "count": 1,
+      "last": "2026-10-16T04:09:48.537Z"
+    },
+    {
+      "name": "Cyclonic Rift",
+      "oracleText": "Return target nonland permanent you don't control to its owner's hand.\nOverload {6}{U} (You may cast this spell for its overload cost. If you do, change \"target\" in its text to \"each.\")",
+      "clause": "overload {6}{u}",
+      "reason": "no template matches",
+      "count": 1,
+      "last": "2026-10-16T04:07:04.136Z"
+    },
+    {
+      "name": "Dance with Calamity",
+      "oracleText": "Shuffle your library. As many times as you choose, you may exile the top card of your library. If the total mana value of the cards exiled this way is 13 or less, you may cast any number of spells from among those cards without paying their mana costs.",
+      "clause": "shuffle your library",
+      "reason": "no template matches",
+      "count": 1,
+      "last": "2026-10-16T04:14:04.330Z"
+    },
+    {
+      "name": "Dark Fortress",
+      "oracleText": "{T}: Add {C}.\n{T}: Add {B} or {R}. Activate only if this land entered this turn or if you control a basic land.",
+      "clause": "add {b} or {r}",
+      "reason": "no template matches",
+      "count": 1,
+      "last": "2026-10-16T04:14:04.330Z"
+    },
+    {
+      "name": "Dig Through Time",
+      "oracleText": "Delve (Each card you exile from your graveyard while casting this spell pays for {1}.)\nLook at the top seven cards of your library. Put two of them into your hand and the rest on the bottom of your library in any order.",
+      "clause": "delve",
+      "reason": "no template matches",
+      "count": 1,
+      "last": "2026-10-16T04:09:48.537Z"
+    },
+    {
+      "name": "Dimir Signet",
+      "oracleText": "{1}, {T}: Add {U}{B}.",
+      "clause": "add {u}{b}",
+      "reason": "no template matches",
+      "count": 1,
+      "last": "2026-10-16T04:09:48.537Z"
+    },
+    {
+      "name": "Disrupting Shoal",
+      "oracleText": "You may exile a blue card with mana value X from your hand rather than pay this spell's mana cost.\nCounter target spell if its mana value is X.",
+      "clause": "exile a blue card with mana value x from your hand rather than pay Disrupting Shoal's mana cost",
+      "reason": "\"a blue card with mana value x from your hand rather than pay Disrupting Shoal's mana cost\" isn't a target the parser knows",
+      "count": 1,
+      "last": "2026-10-16T04:07:04.136Z"
+    },
+    {
+      "name": "Emet-Selch of the Third Seat",
+      "oracleText": "Spells you cast from your graveyard cost {2} less to cast.\nWhenever one or more opponents lose life, you may cast target instant or sorcery card from your graveyard. If that spell would be put into your graveyard, exile it instead. Do this only once each turn.",
+      "clause": "Spells you cast from your graveyard cost {2} less to cast.",
+      "reason": "no template matches",
+      "count": 1,
+      "last": "2026-10-16T04:09:48.537Z"
+    },
+    {
+      "name": "Ensnared by the Mara",
+      "oracleText": "Each opponent faces a villainous choice — They exile cards from the top of their library until they exile a nonland card, then you may cast that card without paying its mana cost, or that player exiles the top four cards of their library and Ensnared by the Mara deals damage equal to the total mana value of those exiled cards to that player.",
+      "clause": "each opponent faces a villainous choice — they exile cards from the top of their library until they exile a nonland card, then you may cast that card without paying its mana cost, or that player exiles the top four cards of their library and Ensnared by the Mara deals damage equal to the total mana value of those exiled cards to that player",
+      "reason": "no template for what each opponent does",
+      "count": 1,
+      "last": "2026-10-16T04:14:04.330Z"
+    },
+    {
+      "name": "Fire Covenant",
+      "oracleText": "As an additional cost to cast this spell, pay X life.\nFire Covenant deals X damage divided as you choose among any number of target creatures.",
+      "clause": "as an additional cost to cast Fire Covenant, pay x life",
+      "reason": "no template matches",
+      "count": 1,
+      "last": "2026-10-16T04:14:04.330Z"
+    },
+    {
+      "name": "Flash Photography",
+      "oracleText": "You may cast this spell as though it had flash if it targets a permanent you control.\nCreate a token that's a copy of target permanent.\nFlashback {4}{U}{U}",
+      "clause": "cast Flash Photography as though it had flash if it targets a permanent you control",
+      "reason": "no template matches",
+      "count": 1,
+      "last": "2026-10-16T04:07:04.136Z"
+    },
+    {
+      "name": "Flashback",
+      "oracleText": "Target instant or sorcery card in your graveyard gains flashback until end of turn. The flashback cost is equal to its mana cost. (You may cast that card from your graveyard for its flashback cost. Then exile it.)",
+      "clause": "target instant or sorcery card in your graveyard gains flashback until end of turn",
+      "reason": "no template matches",
+      "count": 1,
+      "last": "2026-10-16T04:14:04.330Z"
+    },
+    {
+      "name": "Furnace of Rath",
+      "oracleText": "If a source would deal damage to a permanent or player, it deals double that damage to that permanent or player instead.",
+      "clause": "If a source would deal damage to a permanent or player, it deals double that damage to that permanent or player instead.",
+      "reason": "no template matches",
+      "count": 1,
+      "last": "2026-10-16T04:14:04.330Z"
+    },
+    {
+      "name": "G'raha Tia, Scion Reborn",
+      "oracleText": "Lifelink\nThrow Wide the Gates — Whenever you cast a noncreature spell, you may pay X life, where X is that spell's mana value. If you do, create a 1/1 colorless Hero creature token and put X +1/+1 counters on it. Do this only once each turn.",
+      "clause": "Throw Wide the Gates — Whenever you cast a noncreature spell, you may pay X life, where X is that spell's mana value. If you do, create a 1/1 colorless Hero creature token and put X +1/+1 counters on it. Do this only once each turn.",
+      "reason": "no template matches",
+      "count": 1,
+      "last": "2026-10-16T04:09:48.537Z"
+    },
+    {
+      "name": "Gandalf, Goblins' Bane // Flameshape",
+      "oracleText": "Whenever you cast a noncreature spell, Gandalf gets +1/+1 until end of turn and deals 1 damage to each opponent.",
+      "clause": "Gandalf, Goblins' Bane has rules text but no script; Flameshape has rules text but no script",
+      "reason": "not supported",
+      "count": 1,
+      "last": "2026-10-16T04:14:04.330Z"
+    },
+    {
+      "name": "Ghostly Pilferer",
+      "oracleText": "Whenever this creature becomes untapped, you may pay {2}. If you do, draw a card.\nWhenever an opponent casts a spell from anywhere other than their hand, draw a card.\nDiscard a card: This creature can't be blocked this turn.",
+      "clause": "Whenever Ghostly Pilferer becomes untapped, you may pay {2}. If you do, draw a card.",
+      "reason": "no template matches",
+      "count": 1,
+      "last": "2026-10-16T04:07:04.136Z"
+    },
+    {
+      "name": "Graven Cairns",
+      "oracleText": "{T}: Add {C}.\n{B/R}, {T}: Add {B}{B}, {B}{R}, or {R}{R}.",
+      "clause": "{B/R}, {T}: Add {B}{B}, {B}{R}, or {R}{R}.",
+      "reason": "the cost \"{b/r}\"",
+      "count": 1,
+      "last": "2026-10-16T04:14:04.330Z"
+    },
+    {
+      "name": "Harmonic Prodigy",
+      "oracleText": "Prowess (Whenever you cast a noncreature spell, this creature gets +1/+1 until end of turn.)\nIf a triggered ability of a Shaman or another Wizard you control triggers, that ability triggers an additional time.",
+      "clause": "Prowess",
+      "reason": "no template matches",
+      "count": 1,
+      "last": "2026-10-16T04:14:04.330Z"
+    },
+    {
+      "name": "Hashaton, Scarab's Fist",
+      "oracleText": "Whenever you discard a creature card, you may pay {2}{U}. If you do, create a tapped token that's a copy of that card, except it's a 4/4 black Zombie.",
+      "clause": "Whenever you discard a creature card, you may pay {2}{U}. If you do, create a tapped token that's a copy of that card, except it's a 4/4 black Zombie.",
+      "reason": "no template matches",
+      "count": 1,
+      "last": "2026-10-16T04:07:04.137Z"
+    },
+    {
+      "name": "Helm of the Ghastlord",
+      "oracleText": "Enchant creature\nAs long as enchanted creature is blue, it gets +1/+1 and has \"Whenever this creature deals damage to an opponent, draw a card.\"\nAs long as enchanted creature is black, it gets +1/+1 and has \"Whenever this creature deals damage to an opponent, that player discards a card.\"",
+      "clause": "Enchant creature",
+      "reason": "no template matches",
+      "count": 1,
+      "last": "2026-10-16T04:09:48.537Z"
+    },
+    {
+      "name": "Hex Magic",
+      "oracleText": "Exile all the cards from your hand, then draw that many cards. Until the end of your next turn, you may play cards exiled this way.",
+      "clause": "exile all the cards from your hand, then draw that many cards",
+      "reason": "\"all the cards from your hand, then draw that many cards\" isn't a target the parser knows",
+      "count": 1,
+      "last": "2026-10-16T04:14:04.330Z"
+    },
+    {
+      "name": "Highway Robbery",
+      "oracleText": "You may discard a card or sacrifice a land. If you do, draw two cards.\nPlot {1}{R} (You may pay {1}{R} and exile this card from your hand. Cast it as a sorcery on a later turn without paying its mana cost. Plot only as a sorcery.)",
+      "clause": "discard a card or sacrifice a land",
+      "reason": "no template matches",
+      "count": 1,
+      "last": "2026-10-16T04:14:04.330Z"
+    },
+    {
+      "name": "Hullbreaker Horror",
+      "oracleText": "Flash\nThis spell can't be countered.\nWhenever you cast a spell, choose up to one —\n• Return target spell you don't control to its owner's hand.\n• Return target nonland permanent to its owner's hand.",
+      "clause": "Hullbreaker Horror can't be countered.",
+      "reason": "no template matches",
+      "count": 1,
+      "last": "2026-10-16T04:07:04.136Z"
+    },
+    {
+      "name": "Ishgard, the Holy See // Faith & Grief",
+      "oracleText": "This land enters tapped.\n{T}: Add {W}.",
+      "clause": "Ishgard, the Holy See has rules text but no script; Faith & Grief has rules text but no script",
+      "reason": "not supported",
+      "count": 1,
+      "last": "2026-10-16T04:09:48.537Z"
+    },
+    {
+      "name": "Kaya's Ghostform",
+      "oracleText": "Enchant creature or planeswalker you control\nWhen enchanted permanent dies or is put into exile, return that card to the battlefield under your control.",
+      "clause": "Enchant creature or planeswalker you control",
+      "reason": "no template matches",
+      "count": 1,
+      "last": "2026-10-16T04:14:04.330Z"
+    },
+    {
+      "name": "King T'Challa // Black Panther, Hope Enduring",
+      "oracleText": "Flash\nWhenever a player draws their second card each turn, you draw a card.\n{4}{W}{U}: Transform King T'Challa. Activate only as a sorcery.",
+      "clause": "King T'Challa has rules text but no script; Black Panther, Hope Enduring has rules text but no script",
+      "reason": "not supported",
+      "count": 1,
+      "last": "2026-10-16T04:07:04.136Z"
+    },
+    {
+      "name": "Kuja, Genome Sorcerer // Trance Kuja, Fate Defied",
+      "oracleText": "At the beginning of your end step, create a tapped 0/1 black Wizard creature token with \"Whenever you cast a noncreature spell, this token deals 1 damage to each opponent.\" Then if you control four or more Wizards, transform Kuja.",
+      "clause": "unsupported keyword \"flare star\"; unsupported keyword \"double\"; Kuja, Genome Sorcerer has rules text but no script; Trance Kuja, Fate Defied has rules text but no script",
+      "reason": "not supported",
+      "count": 1,
+      "last": "2026-10-16T04:14:31.449Z"
+    },
+    {
+      "name": "Light Up the Stage",
+      "oracleText": "Spectacle {R} (You may cast this spell for its spectacle cost rather than its mana cost if an opponent lost life this turn.)\nExile the top two cards of your library. Until the end of your next turn, you may play those cards.",
+      "clause": "spectacle {r}",
+      "reason": "no template matches",
+      "count": 1,
+      "last": "2026-10-16T04:14:04.330Z"
+    },
+    {
+      "name": "Lightning Greaves",
+      "oracleText": "Equipped creature has haste and shroud. (It can't be the target of spells or abilities.)\nEquip {0}",
+      "clause": "Equipped creature has haste and shroud.",
+      "reason": "no template matches",
+      "count": 1,
+      "last": "2026-10-16T04:14:04.330Z"
+    },
+    {
+      "name": "Lindblum, Industrial Regency // Mage Siege",
+      "oracleText": "This land enters tapped.\n{T}: Add {R}.",
+      "clause": "Lindblum, Industrial Regency has rules text but no script; Mage Siege has rules text but no script",
+      "reason": "not supported",
+      "count": 1,
+      "last": "2026-10-16T04:14:04.330Z"
+    },
+    {
+      "name": "Mages' Contest",
+      "oracleText": "You and target spell's controller bid life. You start the bidding with a bid of 1. In turn order, each player may top the high bid. The bidding ends if the high bid stands. The high bidder loses life equal to the high bid. If you win the bidding, counter that spell.",
+      "clause": "you",
+      "reason": "no template matches",
+      "count": 1,
+      "last": "2026-10-16T04:14:04.330Z"
+    },
+    {
+      "name": "Midgar, City of Mako // Reactor Raid",
+      "oracleText": "This land enters tapped.\n{T}: Add {B}.",
+      "clause": "Midgar, City of Mako has rules text but no script; Reactor Raid has rules text but no script",
+      "reason": "not supported",
+      "count": 1,
+      "last": "2026-10-16T04:14:04.330Z"
+    },
+    {
+      "name": "Mindbreak Trap",
+      "oracleText": "If an opponent cast three or more spells this turn, you may pay {0} rather than pay this spell's mana cost.\nExile any number of target spells.",
+      "clause": "if an opponent cast three or more spells this turn, you may pay {0} rather than pay Mindbreak Trap's mana cost",
+      "reason": "no template matches",
+      "count": 1,
+      "last": "2026-10-16T04:07:04.136Z"
+    },
+    {
+      "name": "Misdirection",
+      "oracleText": "You may exile a blue card from your hand rather than pay this spell's mana cost.\nChange the target of target spell with a single target.",
+      "clause": "exile a blue card from your hand rather than pay Misdirection's mana cost",
+      "reason": "\"a blue card from your hand rather than pay Misdirection's mana cost\" isn't a target the parser knows",
+      "count": 1,
+      "last": "2026-10-16T04:07:04.136Z"
+    },
+    {
+      "name": "Mizzix's Mastery",
+      "oracleText": "Exile target card that's an instant or sorcery from your graveyard. For each card exiled this way, copy it, and you may cast the copy without paying its mana cost. Exile Mizzix's Mastery.\nOverload {5}{R}{R}{R} (You may cast this spell for its overload cost. If you do, change \"target\" in its text to \"each.\")",
+      "clause": "exile target card that's an instant or sorcery from your graveyard",
+      "reason": "\"target card that's an instant or sorcery from your graveyard\" isn't a target the parser knows",
+      "count": 1,
+      "last": "2026-10-16T04:14:04.330Z"
+    },
+    {
+      "name": "Mother of Runes",
+      "oracleText": "{T}: Target creature you control gains protection from the color of your choice until end of turn.",
+      "clause": "target creature you control gains protection from the color of your choice until end of turn",
+      "reason": "no template matches",
+      "count": 1,
+      "last": "2026-10-16T04:09:48.537Z"
+    },
+    {
+      "name": "Mystic Gate",
+      "oracleText": "{T}: Add {C}.\n{W/U}, {T}: Add {W}{W}, {W}{U}, or {U}{U}.",
+      "clause": "{W/U}, {T}: Add {W}{W}, {W}{U}, or {U}{U}.",
+      "reason": "the cost \"{w/u}\"",
+      "count": 1,
+      "last": "2026-10-16T04:09:48.537Z"
+    },
+    {
+      "name": "Not Dead After All",
+      "oracleText": "Until end of turn, target creature you control gains \"When this creature dies, return it to the battlefield tapped under its owner's control, then create a Wicked Role token attached to it.\" (Enchanted creature gets +1/+1. When this token is put into a graveyard, each opponent loses 1 life.)",
+      "clause": "until end of turn, target creature you control gains \"when Not Dead After All dies, return it to the battlefield tapped under its owner's control, then create a wicked role token attached to it.\"",
+      "reason": "no template matches",
+      "count": 1,
+      "last": "2026-10-16T04:14:04.330Z"
+    },
+    {
+      "name": "Ophidian Eye",
+      "oracleText": "Flash (You may cast this spell any time you could cast an instant.)\nEnchant creature\nWhenever enchanted creature deals damage to an opponent, you may draw a card.",
+      "clause": "Enchant creature",
+      "reason": "no template matches",
+      "count": 1,
+      "last": "2026-10-16T04:09:48.537Z"
+    },
+    {
+      "name": "Opposition Agent",
+      "oracleText": "Flash\nYou control your opponents while they're searching their libraries.\nWhile an opponent is searching their library, they exile each card they find. You may play those cards for as long as they remain exiled, and you may spend mana as though it were mana of any color to cast them.",
+      "clause": "You control your opponents while they're searching their libraries.",
+      "reason": "no template matches",
+      "count": 1,
+      "last": "2026-10-16T04:07:04.136Z"
+    },
+    {
+      "name": "Orcish Bowmasters",
+      "oracleText": "Flash\nWhen this creature enters and whenever an opponent draws a card except the first one they draw in each of their draw steps, this creature deals 1 damage to any target. Then amass Orcs 1.",
+      "clause": "When Orcish Bowmasters enters and whenever an opponent draws a card except the first one they draw in each of their draw steps, Orcish Bowmasters deals 1 damage to any target. Then amass Orcs 1.",
+      "reason": "no template matches",
+      "count": 1,
+      "last": "2026-10-16T04:07:04.136Z"
+    },
+    {
+      "name": "Overmaster",
+      "oracleText": "The next instant or sorcery spell you cast this turn can't be countered.\nDraw a card.",
+      "clause": "the next instant or sorcery spell you cast this turn can't be countered",
+      "reason": "no template matches",
+      "count": 1,
+      "last": "2026-10-16T04:14:04.330Z"
+    },
+    {
+      "name": "Papalymo Totolymo",
+      "oracleText": "Whenever you cast a noncreature spell, Papalymo Totolymo deals 1 damage to each opponent and you gain 1 life.\n{4}, {T}, Sacrifice Papalymo Totolymo: Each opponent who lost life this turn sacrifices a creature with the greatest power among creatures they control.",
+      "clause": "Whenever you cast a noncreature spell, Papalymo Totolymo deals 1 damage to each opponent and you gain 1 life.",
+      "reason": "no template matches",
+      "count": 1,
+      "last": "2026-10-16T04:09:48.537Z"
+    },
+    {
+      "name": "Phyrexian Tower",
+      "oracleText": "{T}: Add {C}.\n{T}, Sacrifice a creature: Add {B}{B}.",
+      "clause": "{T}, Sacrifice a creature: Add {B}{B}.",
+      "reason": "a mana ability with a cost other than {T}",
+      "count": 1,
+      "last": "2026-10-16T04:14:04.330Z"
+    },
+    {
+      "name": "Pollywog Prodigy",
+      "oracleText": "Evolve (Whenever a creature you control enters, if that creature has greater power or toughness than this creature, put a +1/+1 counter on this creature.)\nWhenever an opponent casts a noncreature spell with mana value less than this creature's power, draw a card.",
+      "clause": "Evolve",
+      "reason": "no template matches",
+      "count": 1,
+      "last": "2026-10-16T04:07:04.136Z"
+    },
+    {
+      "name": "Propaganda",
+      "oracleText": "Creatures can't attack you unless their controller pays {2} for each creature they control that's attacking you.",
+      "clause": "Creatures can't attack you unless their controller pays {2} for each creature they control that's attacking you.",
+      "reason": "no template matches",
+      "count": 1,
+      "last": "2026-10-16T04:09:48.537Z"
+    },
+    {
+      "name": "Psychic Frog",
+      "oracleText": "Whenever this creature deals combat damage to a player or planeswalker, draw a card.\nDiscard a card: Put a +1/+1 counter on this creature.\nExile three cards from your graveyard: This creature gains flying until end of turn.",
+      "clause": "Whenever Psychic Frog deals combat damage to a player or planeswalker, draw a card.",
+      "reason": "no template matches",
+      "count": 1,
+      "last": "2026-10-16T04:07:04.136Z"
+    },
+    {
+      "name": "Redirect Lightning",
+      "oracleText": "As an additional cost to cast this spell, pay 5 life or pay {2}.\nChange the target of target spell or ability with a single target.",
+      "clause": "as an additional cost to cast Redirect Lightning, pay 5 life or pay {2}",
+      "reason": "no template matches",
+      "count": 1,
+      "last": "2026-10-16T04:14:04.330Z"
+    },
+    {
+      "name": "Relic of Legends",
+      "oracleText": "{T}: Add one mana of any color.\nTap an untapped legendary creature you control: Add one mana of any color.",
+      "clause": "Tap an untapped legendary creature you control: Add one mana of any color.",
+      "reason": "a mana ability with a cost other than {T}",
+      "count": 1,
+      "last": "2026-10-16T04:09:48.537Z"
+    },
+    {
+      "name": "Return the Favor",
+      "oracleText": "Spree (Choose one or more additional costs.)\n+ {1} — Copy target instant spell, sorcery spell, activated ability, or triggered ability. You may choose new targets for the copy.\n+ {1} — Change the target of target spell or ability with a single target.",
+      "clause": "spree",
+      "reason": "no template matches",
+      "count": 1,
+      "last": "2026-10-16T04:14:04.330Z"
+    },
+    {
+      "name": "Samut, Tyrant of Naktamun",
+      "oracleText": "Instant and sorcery spells you control have split second. (As long as a spell with split second is on the stack, players can't cast spells or activate abilities that aren't mana abilities.)",
+      "clause": "Instant and sorcery spells you control have split second.",
+      "reason": "no template matches",
+      "count": 1,
+      "last": "2026-10-16T04:07:04.137Z"
+    },
+    {
+      "name": "Saw in Half",
+      "oracleText": "Destroy target creature. If that creature dies this way, its controller creates two tokens that are copies of that creature, except their power is half that creature's power and their toughness is half that creature's toughness. Round up each time.",
+      "clause": "if that creature dies this way, its controller creates two tokens that are copies of that creature, except their power is half that creature's power and their toughness is half that creature's toughness",
+      "reason": "no template matches",
+      "count": 1,
+      "last": "2026-10-16T04:14:04.330Z"
+    },
+    {
+      "name": "Sejiri Shelter // Sejiri Glacier",
+      "oracleText": "Target creature you control gains protection from the color of your choice until end of turn.",
+      "clause": "Sejiri Shelter has rules text but no script; Sejiri Glacier has rules text but no script",
+      "reason": "not supported",
+      "count": 1,
+      "last": "2026-10-16T04:09:48.537Z"
+    },
+    {
+      "name": "Sigil of Sleep",
+      "oracleText": "Enchant creature\nWhenever enchanted creature deals damage to a player, return target creature that player controls to its owner's hand.",
+      "clause": "Enchant creature",
+      "reason": "no template matches",
+      "count": 1,
+      "last": "2026-10-16T04:09:48.537Z"
+    },
+    {
+      "name": "Silundi Vision // Silundi Isle",
+      "oracleText": "Look at the top six cards of your library. You may reveal an instant or sorcery card from among them and put it into your hand. Put the rest on the bottom of your library in a random order.",
+      "clause": "Silundi Vision has rules text but no script; Silundi Isle has rules text but no script",
+      "reason": "not supported",
+      "count": 1,
+      "last": "2026-10-16T04:09:48.537Z"
+    },
+    {
+      "name": "Single Combat",
+      "oracleText": "Each player chooses a creature or planeswalker they control, then sacrifices the rest. Players can't cast creature or planeswalker spells until the end of your next turn.",
+      "clause": "each player chooses a creature or planeswalker they control, then sacrifices the rest",
+      "reason": "no template matches",
+      "count": 1,
+      "last": "2026-10-16T04:09:48.537Z"
+    },
+    {
+      "name": "Sink into Stupor // Soporific Springs",
+      "oracleText": "Return target spell or nonland permanent an opponent controls to its owner's hand.",
+      "clause": "Sink into Stupor has rules text but no script; Soporific Springs has rules text but no script",
+      "reason": "not supported",
+      "count": 1,
+      "last": "2026-10-16T04:07:04.137Z"
+    },
+    {
+      "name": "Slickshot Show-Off",
+      "oracleText": "Flying, haste\nWhenever you cast a noncreature spell, this creature gets +2/+0 until end of turn.\nPlot {1}{R} (You may pay {1}{R} and exile this card from your hand. Cast it as a sorcery on a later turn without paying its mana cost. Plot only as a sorcery.)",
+      "clause": "Whenever you cast a noncreature spell, Slickshot Show-Off gets +2/+0 until end of turn.",
+      "reason": "no template matches",
+      "count": 1,
+      "last": "2026-10-16T04:14:04.330Z"
+    },
+    {
+      "name": "Solitary Confinement",
+      "oracleText": "At the beginning of your upkeep, sacrifice this enchantment unless you discard a card.\nSkip your draw step.\nYou have shroud. (You can't be the target of spells or abilities.)\nPrevent all damage that would be dealt to you.",
+      "clause": "At the beginning of your upkeep, sacrifice Solitary Confinement unless you discard a card.",
+      "reason": "no template matches",
+      "count": 1,
+      "last": "2026-10-16T04:09:48.537Z"
+    },
+    {
+      "name": "Stingcaster Mage",
+      "oracleText": "Haste\nWhen this creature enters, target instant or sorcery card in your graveyard gains flashback until end of turn. The flashback cost is equal to its mana cost. (You may cast that card from your graveyard for its flashback cost. Then exile it.)",
+      "clause": "target instant or sorcery card in your graveyard gains flashback until end of turn",
+      "reason": "no template matches",
+      "count": 1,
+      "last": "2026-10-16T04:14:04.330Z"
+    },
+    {
+      "name": "Stingerquill Charm",
+      "oracleText": "Choose one —\n• Stingerquill Charm deals 3 damage to any target.\n• Target creature gains first strike and deathtouch until end of turn.\n• Create a 2/2 colorless Wizard Soldier creature token named Cadet. It gains haste until end of turn.",
+      "clause": "choose one —",
+      "reason": "no template matches",
+      "count": 1,
+      "last": "2026-10-16T04:14:04.330Z"
+    },
+    {
+      "name": "Stock Up",
+      "oracleText": "Look at the top five cards of your library. Put two of them into your hand and the rest on the bottom of your library in any order.",
+      "clause": "look at the top five cards of your library",
+      "reason": "no template matches",
+      "count": 1,
+      "last": "2026-10-16T04:09:48.537Z"
+    },
+    {
+      "name": "Storm-Kiln Artist",
+      "oracleText": "This creature gets +1/+0 for each artifact you control.\nMagecraft — Whenever you cast or copy an instant or sorcery spell, create a Treasure token. (It's an artifact with \"{T}, Sacrifice this token: Add one mana of any color.\")",
+      "clause": "Storm-Kiln Artist gets +1/+0 for each artifact you control.",
+      "reason": "no template matches",
+      "count": 1,
+      "last": "2026-10-16T04:14:04.330Z"
+    },
+    {
+      "name": "Subtlety",
+      "oracleText": "Flash\nFlying\nWhen this creature enters, choose up to one target creature spell or planeswalker spell. Its owner puts it on their choice of the top or bottom of their library.\nEvoke—Exile a blue card from your hand.",
+      "clause": "choose up to one target creature spell or planeswalker spell",
+      "reason": "no template matches",
+      "count": 1,
+      "last": "2026-10-16T04:07:04.137Z"
+    },
+    {
+      "name": "Sunken Ruins",
+      "oracleText": "{T}: Add {C}.\n{U/B}, {T}: Add {U}{U}, {U}{B}, or {B}{B}.",
+      "clause": "{U/B}, {T}: Add {U}{U}, {U}{B}, or {B}{B}.",
+      "reason": "the cost \"{u/b}\"",
+      "count": 1,
+      "last": "2026-10-16T04:09:48.537Z"
+    },
+    {
+      "name": "Tablet of Discovery",
+      "oracleText": "When this artifact enters, mill a card. You may play that card this turn. (To mill a card, put the top card of your library into your graveyard.)\n{T}: Add {R}.\n{T}: Add {R}{R}. Spend this mana only to cast instant and sorcery spells.",
+      "clause": "play that card this turn",
+      "reason": "no template matches",
+      "count": 1,
+      "last": "2026-10-16T04:14:04.330Z"
+    },
+    {
+      "name": "The Unagi of Kyoshi Island",
+      "oracleText": "Flash\nWard—Waterbend {4}. (Whenever this creature becomes the target of a spell or ability an opponent controls, counter it unless that player pays {4}. They can tap their artifacts and creatures to help. Each one pays for {1}.)\nWhenever an opponent draws their second card each turn, you draw two cards.",
+      "clause": "Ward—Waterbend {4}.",
+      "reason": "no template matches",
+      "count": 1,
+      "last": "2026-10-16T04:07:04.137Z"
+    },
+    {
+      "name": "The Underworld Cookbook",
+      "oracleText": "{T}, Discard a card: Create a Food token. (It's an artifact with \"{2}, {T}, Sacrifice this token: You gain 3 life.\")\n{4}, {T}, Sacrifice this artifact: Return target creature card from your graveyard to your hand.",
+      "clause": "{T}, Discard a card: Create a Food token.",
+      "reason": "the cost \"discard a card\"",
+      "count": 1,
+      "last": "2026-10-16T04:07:04.137Z"
+    },
+    {
+      "name": "Tibalt's Trickery",
+      "oracleText": "Counter target spell. Choose 1, 2, or 3 at random. Its controller mills that many cards, then exiles cards from the top of their library until they exile a nonland card with a different name than that spell. They may cast that card without paying its mana cost. Then they put the exiled cards on the bottom of their library in a random order.",
+      "clause": "counter target spell",
+      "reason": "no template matches",
+      "count": 1,
+      "last": "2026-10-16T04:14:04.330Z"
+    },
+    {
+      "name": "Tinybones Joins Up",
+      "oracleText": "When Tinybones Joins Up enters, any number of target players each discard a card.\nWhenever a legendary creature you control enters, any number of target players each mill a card and lose 1 life.",
+      "clause": "any number of target players each discard a card",
+      "reason": "no template matches",
+      "count": 1,
+      "last": "2026-10-16T04:07:04.137Z"
+    },
+    {
+      "name": "Tomik, Izzet Sparkmage",
+      "oracleText": "Prowess (Whenever you cast a noncreature spell, this creature gets +1/+1 until end of turn.)\nIf a source you control would deal noncombat damage to an opponent or a permanent an opponent controls, it deals that much damage plus 1 instead.",
+      "clause": "Prowess",
+      "reason": "no template matches",
+      "count": 1,
+      "last": "2026-10-16T04:14:04.330Z"
+    },
+    {
+      "name": "Untimely Malfunction",
+      "oracleText": "Choose one —\n• Destroy target artifact.\n• Change the target of target spell or ability with a single target.\n• One or two target creatures can't block this turn.",
+      "clause": "choose one —",
+      "reason": "no template matches",
+      "count": 1,
+      "last": "2026-10-16T04:14:04.330Z"
+    },
+    {
+      "name": "Unwinding Clock",
+      "oracleText": "Untap all artifacts you control during each other player's untap step.",
+      "clause": "Untap all artifacts you control during each other player's untap step.",
+      "reason": "no template matches",
+      "count": 1,
+      "last": "2026-10-16T04:09:48.537Z"
+    },
+    {
+      "name": "Valakut Awakening // Valakut Stoneforge",
+      "oracleText": "Put any number of cards from your hand on the bottom of your library, then draw that many cards plus one.",
+      "clause": "Valakut Awakening has rules text but no script; Valakut Stoneforge has rules text but no script",
+      "reason": "not supported",
+      "count": 1,
+      "last": "2026-10-16T04:14:04.330Z"
+    },
+    {
+      "name": "Vivi's Persistence",
+      "oracleText": "Create a 0/1 black Wizard creature token with \"Whenever you cast a noncreature spell, this token deals 1 damage to each opponent.\"\nWhenever your commander enters or attacks, you may pay {2}. If you do, return this card from your graveyard to your hand.",
+      "clause": "create a 0/1 black wizard creature token with \"whenever you cast a noncreature spell, this token deals 1 damage to each opponent.\"",
+      "reason": "no listed token is \"0/1 black wizard creature with \"whenever you cast a noncreature spell, this token deals 1 damage to each opponent.\"\"",
+      "count": 1,
+      "last": "2026-10-16T04:14:04.330Z"
+    },
+    {
+      "name": "Wandering Archaic // Explore the Vastlands",
+      "oracleText": "Whenever an opponent casts an instant or sorcery spell, they may pay {2}. If they don't, you may copy that spell. You may choose new targets for the copy.",
+      "clause": "Wandering Archaic has rules text but no script; Explore the Vastlands has rules text but no script",
+      "reason": "not supported",
+      "count": 1,
+      "last": "2026-10-16T04:07:04.137Z"
+    },
+    {
+      "name": "Waterlogged Teachings // Inundated Archive",
+      "oracleText": "Search your library for an instant card or a card with flash, reveal it, put it into your hand, then shuffle.",
+      "clause": "Waterlogged Teachings has rules text but no script; Inundated Archive has rules text but no script",
+      "reason": "not supported",
+      "count": 1,
+      "last": "2026-10-16T04:09:48.537Z"
+    },
+    {
+      "name": "Y'shtola, Night's Blessed",
+      "oracleText": "Vigilance\nAt the beginning of each end step, if a player lost 4 or more life this turn, you draw a card.\nWhenever you cast a noncreature spell with mana value 3 or greater, Y'shtola deals 2 damage to each opponent and you gain 2 life.",
+      "clause": "At the beginning of each end step, if a player lost 4 or more life this turn, you draw a card.",
+      "reason": "no template matches",
+      "count": 1,
+      "last": "2026-10-16T04:09:48.537Z"
+    }
+  ]
 }

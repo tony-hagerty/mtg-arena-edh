@@ -117,6 +117,8 @@ export interface Announce {
   choices: CastChoices;
   /** The highest X that can be paid with the other choices, or null if the spell has no X. */
   maxX: number | null;
+  /** X is paid in life ("pay X life", 118.8), not mana. */
+  xLife: boolean;
   /** The kicker cost, and how many times it can be paid (more than once only for multikicker). */
   kicker: { text: string; most: number } | null;
   /**
@@ -235,7 +237,7 @@ function sacrificeNeeds(t: Targeting): { spec: TargetSpec; alt: number | undefin
   const alt = t.choices.alt === undefined ? undefined : script.alternativeCosts?.[t.choices.alt];
   return [
     ...(alt?.sacrifice ? [{ spec: alt.sacrifice, alt: t.choices.alt, optional: false }] : []),
-    ...(script.additionalCost ? [{ spec: script.additionalCost.sacrifice, alt: undefined, optional: !!script.additionalCost.optional }] : []),
+    ...(script.additionalCost?.sacrifice ? [{ spec: script.additionalCost.sacrifice, alt: undefined, optional: !!script.additionalCost.optional }] : []),
   ];
 }
 
@@ -251,11 +253,13 @@ function isEscaping(t: Targeting): boolean {
   return !!t.choices.escape && t.choices.escape.length < 3;
 }
 
-/** The ability's targets are chosen and its "Discard a card" cost still needs its cards. */
+/** The targets are chosen and an ability's or a spell's "Discard a card" cost still needs its cards (118.8). */
 function isDiscarding(t: Targeting): boolean {
-  if (t.chosen.length < t.specs.length) return false;
+  if (t.chosen.length < t.specs.length || t.announcing || isSacrificing(t)) return false;
   const card = findCard(S().game!, t.cardId);
-  return !!card && (activatedOf(t, card)?.cost.discard ?? 0) > (t.discard?.length ?? 0);
+  if (!card) return false;
+  const n = t.mode === 'cast' ? (scriptFor(asSpell(card, t.choices.face)).additionalCost?.discard ?? 0) : (activatedOf(t, card)?.cost.discard ?? 0);
+  return n > (t.discard?.length ?? 0);
 }
 
 /**
@@ -312,7 +316,7 @@ function announceOf(g: Game, me: PlayerId, card: Card, choices: CastChoices): An
   const spell = asSpell(card, face);
   const script = scriptFor(spell);
   const land = landFaces(card).includes(face) && !castFaces(card).includes(face);
-  const hasX = !land && (card.zone !== 'graveyard' || !!choices.escape) && parseCost(choices.alt === undefined ? data(spell).manaCost : script.alternativeCosts![choices.alt].mana).x > 0;
+  const hasX = !land && (script.additionalCost?.life === 'x' || ((card.zone !== 'graveyard' || !!choices.escape) && parseCost(choices.alt === undefined ? data(spell).manaCost : script.alternativeCosts![choices.alt].mana).x > 0));
   const payable = (ch: CastChoices) => !!planPayment(g, me, castCost(g, card, ch, me), asSpell(card, face, me));
   let most = 0;
   if (script.kicker) while (most < (script.kicker.multi ? 20 : 1) && payable({ ...choices, x: 0, kicked: most + 1 })) most++;
@@ -335,6 +339,7 @@ function announceOf(g: Game, me: PlayerId, card: Card, choices: CastChoices): An
         }
       : null,
     maxX: hasX ? Math.max(0, maxX(g, me, card, { ...choices, x: 0 })) : null,
+    xLife: script.additionalCost?.life === 'x',
     protectors: isSiege(spell) ? opponentsOf(g, me).map((o) => ({ id: o.id, name: o.name })) : null,
     faces:
       options.length > 1
@@ -782,7 +787,7 @@ function propose(mode: 'cast' | 'activate', card: Card) {
   const only = refs[0]?.activated;
   const specs = mode === 'cast' ? castTargets(card, undefined, face) : (activatedAt(card, only)?.targets ?? []);
   const script = scriptFor(asSpell(card, face));
-  const hasX = mode === 'cast' && (card.zone !== 'graveyard' || !!choices.escape) && parseCost(data(asSpell(card, face)).manaCost).x > 0;
+  const hasX = mode === 'cast' && (script.additionalCost?.life === 'x' || ((card.zone !== 'graveyard' || !!choices.escape) && parseCost(data(asSpell(card, face)).manaCost).x > 0));
   const siege = mode === 'cast' && isSiege(asSpell(card, face));
   const handMana = mode === 'cast' && card.zone === 'hand' && canTapForMana(g, me, card);
   const fromHand = mode === 'cast' && !!handAbility(g, me, card);
@@ -840,6 +845,7 @@ function defaultChoices(g: Game, me: PlayerId, card: Card, face: number): CastCh
   const spell = asSpell(card, face, me);
   const alts = ways ? [] : altCostsOf(g, card, face, me);
   const alt = planPayment(g, me, castCost(g, card, { face, escape }, me), spell) ? undefined : alts.find((i) => planPayment(g, me, castCost(g, card, { alt: i, face }, me), spell));
+  // An X paid in life ("pay X life", Toxic Deluge) starts at 0, not at all the player's life.
   const hasX = (card.zone !== 'graveyard' || !!escape) && parseCost(data(asSpell(card, face)).manaCost).x > 0;
   const choices: CastChoices = { alt, x: hasX && alt === undefined ? Math.max(0, maxX(g, me, card, { alt, face, escape })) : 0, kicked: 0, ...(escape ? { escape } : {}) };
   if (face) choices.face = face;
@@ -960,7 +966,7 @@ function pay() {
   useStore.setState({ hold: false });
   const action: Action =
     t.mode === 'cast'
-      ? { type: 'cast', card: t.cardId, targets: t.chosen, hold, ...t.choices }
+      ? { type: 'cast', card: t.cardId, targets: t.chosen, hold, ...t.choices, ...(t.discard ? { discard: t.discard } : {}) }
       : { type: 'activate', card: t.cardId, ability: t.ability, activated: t.activated, x: t.x, targets: t.chosen, hold, crew: t.crew, discard: t.discard, sacrifice: t.choices.sacrifice };
   if (!S().act(action)) cancel();
 }

@@ -6,7 +6,7 @@ import { cardData, isCardName } from './db';
 import { refusalOf } from './oracle';
 
 /** Ability words and keyword actions: they label a rule that the card's script implements. */
-export const ABILITY_WORDS = ['landfall', 'treasure', 'mill', 'threshold', 'metalcraft', 'recruit', "scions' secretary", 'delirium', 'surveil', 'imprint', 'channel', 'ferocious', 'bloodrush', 'populate'];
+export const ABILITY_WORDS = ['landfall', 'treasure', 'mill', 'threshold', 'metalcraft', 'recruit', "scions' secretary", 'delirium', 'surveil', 'imprint', 'channel', 'ferocious', 'bloodrush', 'populate', 'food'];
 
 /** Oracle text split into abilities, with reminder text removed. */
 export const abilities = (text: string) =>

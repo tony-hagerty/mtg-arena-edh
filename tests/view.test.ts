@@ -44,6 +44,45 @@ describe('casting with choices in the UI (601.2b)', () => {
     expect(game().players[1].life).toBe(38);
   });
 
+  it('asks for the card to discard as an additional cost, then pays (118.8)', () => {
+    play((d) => {
+      put(d, 0, 'Mountain', 'battlefield', 2);
+      put(d, 0, 'Grab the Prize', 'hand');
+      put(d, 0, 'Lightning Bolt', 'hand');
+    });
+    const grab = byName(game(), 0, 'Grab the Prize', 'hand')!;
+    playHandCard(grab);
+    let v = buildView();
+    expect(v.prompt).toContain('choose a card in your hand to discard');
+    expect(v.glow.get(byName(game(), 0, 'Lightning Bolt', 'hand')!.id)).toBe('target');
+    expect(v.glow.get(grab.id)).toBe('picked');
+    playHandCard(byName(game(), 0, 'Lightning Bolt', 'hand')!);
+    v = buildView();
+    expect(v.prompt).toContain('Pay {1}{R}');
+    press();
+    expect(byName(game(), 0, 'Lightning Bolt', 'graveyard')).toBeDefined();
+    expect(game().players[1].life).toBe(38);
+  });
+
+  it('announces X for "pay X life" starting at 0, up to the life total (119.4)', () => {
+    play((d) => {
+      put(d, 0, 'Swamp', 'battlefield', 3);
+      put(d, 0, 'Toxic Deluge', 'hand');
+      d.players[0].life = 7;
+    });
+    playHandCard(byName(game(), 0, 'Toxic Deluge', 'hand')!);
+    let v = buildView();
+    expect(v.announce?.maxX).toBe(7);
+    expect(v.announce?.choices.x).toBe(0);
+    expect(v.announce?.xLife).toBe(true);
+    setChoices({ x: 3 });
+    press(); // Continue
+    v = buildView();
+    expect(v.prompt).toContain('3 life');
+    press(); // Pay
+    expect(game().players[0].life).toBe(4);
+  });
+
   it('offers kicker only when it can be paid', () => {
     play((d) => {
       put(d, 0, 'Mountain', 'battlefield', 4);

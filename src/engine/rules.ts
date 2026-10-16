@@ -73,6 +73,8 @@ export const SUPPORTED_KEYWORDS = [
   'cumulative upkeep',
   'partner',
   'mobilize',
+  // Cycling (702.29) is read by the Oracle text parser as an ability activated from the hand.
+  'cycling',
   // Ward (702.21), dash (702.109), bargain (702.166) and gift (702.174) by the engine with
   // the card's script; escape (702.138) is given by Underworld Breach.
   'ward',
@@ -81,6 +83,8 @@ export const SUPPORTED_KEYWORDS = [
   'gift',
   // Afterlife (702.135) by the card's script.
   'afterlife',
+  // Prowess (702.108) is read by the Oracle text parser; a hand script uses `prowess` below.
+  'prowess',
 ];
 
 // ---------- card queries ----------
@@ -473,6 +477,10 @@ export function castCost(g: Game, c: Card, choices: CastChoices = {}, pid = c.ow
   // "Mana of any type can be spent to cast them" (Mnemonic Betrayal).
   if (permission(g, pid, c)?.anyMana) cost = anyType(cost);
   cost.life += alt?.life ?? 0;
+  // "Pay N life" or "pay X life" as an additional cost (118.8, 119.4). It is paid whatever
+  // else is paid instead of the mana cost (118.9d).
+  const life = script.additionalCost?.life;
+  cost.life += life === 'x' ? (choices.x ?? 0) : (life ?? 0);
   // X counts as generic mana (107.4b). An alternative cost without {X} makes X 0 (107.3b).
   cost.generic += cost.x * (choices.x ?? 0);
   cost.x = 0;
@@ -1756,6 +1764,19 @@ export function pump(_g: Game, c: Card | undefined, power: number, toughness: nu
   if (c && c.zone === 'battlefield') c.mods.push({ power, toughness, keywords });
 }
 
+/**
+ * Prowess (702.108a): "Whenever you cast a noncreature spell, this creature gets +1/+1 until
+ * end of turn." Only the permanent it triggered from gets it, if it is still there (400.7).
+ */
+export const prowess: NonNullable<CardScript['onCast']> = {
+  when: (_g, { self, card, caster }) => caster === self.controller && !isCreature(card),
+  resolve: (g, { self }) => {
+    const c = permanent(g, self.id);
+    if (sameCard(c, self)) pump(g, c, 1, 1);
+  },
+  text: 'Prowess',
+};
+
 /** Puts `n` counters of `kind` on a permanent (122). */
 export function addCounters(g: Game, c: Card | undefined, n = 1, kind = '+1/+1') {
   if (!c || c.zone !== 'battlefield' || n <= 0) return;
@@ -1914,8 +1935,9 @@ export function searchBasic(
 }
 
 /** Cards that a search for `find` can find (701.23a). A search for any card finds any card. */
-export function searchable(c: Card, find?: Find): boolean {
+export function searchable(g: Game, c: Card, find?: Find): boolean {
   if (!find) return true;
+  if (find.maxToughness !== undefined && stats(g, c).toughness > find.maxToughness) return false;
   const d = data(c);
   if (find.basic && !hasType(c, 'Basic Land')) return false;
   if (find.types && !find.types.some((x) => hasType(c, x))) return false;
