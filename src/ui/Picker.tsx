@@ -111,7 +111,8 @@ export function CardPicker({ title, hint, cards, selectable = () => false, max =
               <button
                 key={c.id}
                 className={cx('picker-card', can && 'can', count > 0 && 'picked', !can && max > 0 && 'dim')}
-                disabled={!can}
+                // Not `disabled`: a disabled button gets no mouse events, so hovering it would show no preview.
+                aria-disabled={!can}
                 onClick={() => toggle(tile)}
                 {...hoverProps(c.name)}
               >

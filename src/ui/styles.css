@@ -2032,6 +2032,28 @@ button {
   animation: appear 0.12s 0.15s both;
 }
 
+/* Darkens the table behind a right-clicked preview. A left click on it closes the preview. */
+.preview-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 199;
+  pointer-events: none;
+  background: rgba(0, 0, 0, 0.7);
+  opacity: 0;
+  transition: opacity 0.2s;
+}
+
+.preview-backdrop.on {
+  pointer-events: auto;
+  opacity: 1;
+}
+
+/* Right-clicked: no wait, since the player asked for it. Clicks on the card itself don't close it. */
+.preview.pinned {
+  pointer-events: auto;
+  animation: appear 0.1s both;
+}
+
 .preview :is(img, .text-card) {
   display: block;
   width: 100%;

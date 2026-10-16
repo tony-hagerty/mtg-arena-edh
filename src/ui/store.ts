@@ -166,6 +166,8 @@ export function seatDecks(human: DeckDef | null, opponents: (string | null)[], s
 export interface Hover {
   name: string;
   el: HTMLElement;
+  /** A card in the human's hand. It zooms itself, so it only gets a preview when right-clicked. */
+  hand?: boolean;
 }
 
 interface Store {
