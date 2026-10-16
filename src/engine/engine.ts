@@ -130,6 +130,7 @@ import {
   triggerModeOptions,
 } from './rules';
 import type { EnterOpts } from './rules';
+import { settled } from './layers';
 import type {
   AbilityRef,
   Action,
@@ -787,8 +788,8 @@ function choicesOk(g: Game, pid: PlayerId, c: Card, ch: CastChoices): boolean {
  */
 export function canCast(g: Game, pid: PlayerId, c: Card, choices?: CastChoices): boolean {
   if (!castableFrom(g, pid, c)) return false;
-  if (choices) return canCastAs(g, pid, c, choices.face ?? 0, choices);
-  return castFaces(c).some((face) => canCastAs(g, pid, c, face));
+  if (choices) return settled(g, () => canCastAs(g, pid, c, choices.face ?? 0, choices));
+  return settled(g, () => castFaces(c).some((face) => canCastAs(g, pid, c, face)));
 }
 
 /** Can `pid` cast `c` as `face` now: with these choices, or without them, any way at all? */
@@ -1027,6 +1028,10 @@ export function illegalBlocks(g: Game, pid: PlayerId): string[] {
 
 /** Could the player with priority do anything other than pass? Mana abilities don't count. */
 export function canAct(g: Game, pid: PlayerId): boolean {
+  return settled(g, () => canActNow(g, pid));
+}
+
+function canActNow(g: Game, pid: PlayerId): boolean {
   const p = g.players[pid];
   return (
     castableCards(g, pid).some((c) => canCast(g, pid, c)) ||
