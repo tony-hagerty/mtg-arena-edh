@@ -10,6 +10,8 @@ export interface Mana {
   keep?: number;
   /** "Spend this mana only to cast a creature spell of the chosen type" (106.6): that creature type. */
   only?: string;
+  /** "Spend this mana only to cast a legendary spell" (106.6, Plaza of Heroes). */
+  legendary?: boolean;
   /** "... and that spell can't be countered" (106.6): the spell it is spent on can't be countered. */
   uncounterable?: boolean;
 }
@@ -106,6 +108,10 @@ export interface CastInfo {
   spent?: number;
   /** Mana spent on it said the spell can't be countered (Cavern of Souls, 106.6). */
   uncounterable?: boolean;
+  /** Cast from exile for {2} after being airbent (701.65a). */
+  airbent?: boolean;
+  /** Cast from exile as a plotted card, without paying its mana cost (702.170d). */
+  plotted?: boolean;
 }
 
 /**
@@ -227,6 +233,34 @@ export interface Card {
   triggeredBy?: Record<string, unknown>;
   /** Subtypes effects give this permanent now (`CardScript.grantsSubtypes`), kept by `refreshSubtypes`. */
   addedSubtypes?: string[];
+  /**
+   * Cards whose activated abilities this permanent has now, by name (Agatha's Soul Cauldron's
+   * "have all activated abilities of all creature cards exiled with" it), kept by `refreshSubtypes`.
+   */
+  borrowed?: string[];
+  /** What effects with no end have done to this permanent, until it leaves the battlefield (611.2a, 400.7). */
+  lasting?: Lasting;
+  /** In exile: the turn it became plotted (702.170d). Its owner may cast it free on a later turn. */
+  plotted?: number;
+  /** In exile: it was airbent, so its owner may cast it for {2} while it stays exiled (701.65a). */
+  airbent?: boolean;
+  /** In exile: the turn warp exiled it (702.185a). Its owner may cast it after that turn. */
+  warped?: number;
+  /** Phased out indirectly with the permanent it is attached to (702.26g): it phases in with that one. */
+  phasedWith?: string;
+}
+
+/**
+ * Lasting changes to one permanent (611.2a): a new base power and toughness (613.4b), extra
+ * subtypes and keywords, and markers its script reads, like harnessed (701.64b) or an
+ * ability a Saga's chapter gave it.
+ */
+export interface Lasting {
+  power?: number;
+  toughness?: number;
+  subtypes?: string[];
+  keywords?: string[];
+  flags?: string[];
 }
 
 /**
@@ -284,6 +318,14 @@ export interface Player {
   drawn: number;
   /** Life this player has lost this turn, from damage (119.2), paying life (119.4) or an effect (119.3). */
   lifeLost: number;
+  /** Life this player has gained this turn (119.3). */
+  lifeGained?: number;
+  /**
+   * Permanents that phased out while this player controlled them (702.26). They are treated as
+   * though they don't exist, so they aren't on the battlefield list, and phase back in during
+   * this player's untap step (502.1). Ones attached to them came along (`Card.phasedWith`).
+   */
+  phasedOut?: Card[];
   /**
    * A setting: this (human) player divides their attackers' combat damage by hand when
    * there is a choice (510.1c, 702.19b). Off, it is split automatically.
@@ -298,8 +340,15 @@ export type TurnEffect =
    * `types`: only spells with one of these card types ("Players can't cast creature or
    * planeswalker spells"). `until`: it lasts until the end of that player's turn numbered
    * `turn` or later (Single Combat's "until the end of your next turn"), not just this turn.
+   * `notFromHand`: only spells cast from anywhere other than their hand (Avatar's Wrath).
    */
-  | { kind: 'cantCast'; player: PlayerId; noncreature?: boolean; types?: string[]; until?: { player: PlayerId; turn: number } }
+  | { kind: 'cantCast'; player: PlayerId; noncreature?: boolean; types?: string[]; notFromHand?: boolean; until?: { player: PlayerId; turn: number }; ends?: Ends }
+  /** The player's life total can't change (119.7, 119.8): they can't gain or lose life, or pay life. */
+  | { kind: 'lifeLocked'; player: PlayerId; ends?: Ends }
+  /** The player has protection from everything (702.16j). */
+  | { kind: 'protection'; player: PlayerId; ends?: Ends }
+  /** Creatures can't attack the player unless their controller pays `mana` for each of them (508.1g, Summon: Yojimbo). */
+  | { kind: 'attackTax'; player: PlayerId; mana: string; ends?: Ends }
   /**
    * The player may cast card `card` (while it is the same object, `moves`) this turn, or
    * also play it if it is a land (`play`). `anyMana`: mana of any type can be spent to cast it.
@@ -307,6 +356,14 @@ export type TurnEffect =
   | { kind: 'mayCast'; player: PlayerId; card: string; moves: number; play?: boolean; anyMana?: boolean }
   /** The player may cast spells as though they had flash this turn (Borne Upon a Wind). */
   | { kind: 'flash'; player: PlayerId };
+
+/**
+ * When an effect that doesn't last just until end of turn ends: "until your next turn" ends
+ * as `nextTurnOf`'s next turn begins (611.2a, 500.1).
+ */
+export interface Ends {
+  nextTurnOf: PlayerId;
+}
 
 /**
  * A delayed triggered ability (603.7): it triggers once, at the beginning of the next
@@ -450,6 +507,10 @@ export interface StackItem {
   copy?: boolean;
   /** A triggered ability another card gave its source: entry `index` of card `from`'s `grants`. */
   granted?: { from: string; index: number };
+  /** An activated ability its source has from another card (Agatha's Soul Cauldron): that card's name, whose script it runs. */
+  borrowed?: string;
+  /** Permanents exiled to pay its costs (The Soul Stone), as they last were on the battlefield. */
+  exiled?: Card[];
   /** Permanents sacrificed to pay its costs, as they last were on the battlefield, and their power then. */
   sacrificed?: Card[];
   sacrificedPower?: number[];
@@ -468,6 +529,8 @@ export interface Find {
   subtypes?: string[];
   /** Mana value at most this. */
   maxMv?: number;
+  /** A mana cost exactly one of these ("an artifact card with mana cost {0} or {1}", 202.1). */
+  costs?: string[];
   /** Toughness at most this, as the card has it in the library (208.2a). */
   maxToughness?: number;
   /** "a Mountain or Plains card", for the prompt. */
@@ -691,13 +754,15 @@ export type Action =
    */
   /** `discard`: the cards discarded to pay a "Discard a card" cost. `sacrifice`: the permanent for a "Sacrifice a creature" cost. */
   /** `x`: the value of X, for an ability with {X} or −X in its cost (107.3a). */
-  | { type: 'activate'; card: string; ability?: number; activated?: number; x?: number; targets?: (TargetRef | null)[]; hold?: boolean; crew?: string[]; discard?: string[]; sacrifice?: string[] }
+  /** `exile`: the permanent for an "Exile a creature you control" cost (The Soul Stone). */
+  | { type: 'activate'; card: string; ability?: number; activated?: number; x?: number; targets?: (TargetRef | null)[]; hold?: boolean; crew?: string[]; discard?: string[]; sacrifice?: string[]; exile?: string[] }
   /**
    * `ability`: which of its mana abilities (`manaAbilities`). Left out, the one that suits
    * the player best. `color`: the colour to make, for an ability with a choice.
    */
   /** `tap`: the creature tapped to pay an ability's "Tap an untapped creature you control" cost (Relic of Legends). */
-  | { type: 'tapMana'; card: string; ability?: number; color?: ManaSym; tap?: string }
+  /** `discard`: the card discarded to pay a "Discard a card" cost (Skirge Familiar). */
+  | { type: 'tapMana'; card: string; ability?: number; color?: ManaSym; tap?: string; discard?: string }
   | { type: 'untapMana'; card: string }
   /** `target`: a planeswalker or battle to attack instead of the player; `defender` is then its controller or protector (508.1b). */
   | { type: 'declareAttack'; card: string; defender: PlayerId; target?: string }
@@ -751,6 +816,11 @@ export interface TargetSpec {
   optional?: boolean; // "you may" / "up to one"
   /** Can't be the same as the target chosen for the spec at this index: "two target players" (115.3). */
   distinctFrom?: number;
+  /**
+   * "Any number of target ..." (115.1d): this spec, which must be the last, is repeated once for
+   * each target chosen, none at all included, and each is a different object (115.3).
+   */
+  any?: boolean;
   label: string;
 }
 
@@ -844,6 +914,30 @@ export interface TriggerEvents {
   onSacrifice: { card: Card; player: PlayerId };
   /** Ward (702.21a), which the engine resolves. `item` is the spell or ability to counter unless its controller pays. */
   onWard: { item: string; cost: WardCost };
+  /** "Whenever [a permanent] enters": every permanent, creature or not, as it was as it entered. */
+  onPermanentEnters: { entered: Card };
+  /**
+   * "Whenever one or more cards are put into exile from graveyards and/or the battlefield"
+   * (Ketramose): once for each event, with the cards (not tokens, 108.2b) as they are in exile.
+   * It looks back in time for permanents that left the battlefield (603.10a).
+   */
+  onExiled: { cards: Card[] };
+  /** "When this leaves the battlefield" (603.6c): it looks back in time (603.10a). `to`: the zone it went to. */
+  onLeave: { to: Zone };
+  /** "Whenever [a permanent] leaves the battlefield": `left` is as it last was there (603.10a). */
+  onPermanentLeaves: { left: Card; to: Zone };
+  /** "Whenever a player searches their library" (701.23): once for each search, however many cards it finds. */
+  onSearch: { player: PlayerId };
+  /** "Whenever [creatures] attack": once, after attackers are declared (508.1m), with every attack. */
+  onAttackersDeclared: { player: PlayerId; attacks: { attacker: Card; defender: PlayerId; target: string | null }[] };
+  /** "Whenever [a permanent] becomes the target of a spell or ability" (Monk Gyatso). `item` is that spell or ability. */
+  onBecomesTarget: { target: Card; item: string };
+  /** "Whenever one or more [kind] counters are put on this" (122.6): `n` of them at once. */
+  onCounters: { kind: string; n: number };
+  /** A reflexive triggered ability (603.12): the script's `reflexive[key]` runs. */
+  onReflexive: { key: string; data: Record<string, unknown> };
+  /** Evoke's "When this permanent enters, if its evoke cost was paid, its controller sacrifices it" (702.74a). */
+  onEvoked: object;
 }
 
 /** What ward costs (702.21a): mana, life, or both. */
@@ -881,6 +975,8 @@ type Triggers = { [H in TriggerHook]?: Trigger<TriggerEvents[H]> | Trigger<Trigg
 /** One mode of a modal spell (700.2). */
 export interface Mode {
   text: string;
+  /** Spree (702.172a): the additional cost of choosing this mode. */
+  cost?: string;
   targets?: TargetSpec[];
   resolve: (g: Game, ctx: Ctx) => void;
 }
@@ -916,6 +1012,10 @@ export interface ManaAbility {
   chosenType?: boolean;
   /** "... and that spell can't be countered." */
   uncounterable?: boolean;
+  /** "Spend this mana only to cast a legendary spell" (Plaza of Heroes). */
+  legendary?: boolean;
+  /** "Discard a card" is its cost (Skirge Familiar). Auto-pay never uses it: it costs a card. */
+  discard?: number;
   /**
    * Mana paid as part of its cost, like a Signet's "{1}, {T}" or a filter land's "{W/B}, {T}"
    * (605.1a: it is still a mana ability). That mana can't come from this ability itself.
@@ -977,6 +1077,10 @@ export interface ActivatedAbility {
     sacrificeOne?: TargetSpec;
     /** "Spend only black mana on X" (Crypt Rats): each X in `mana` is paid with mana of this colour. */
     xColor?: ManaSym;
+    /** "Exile this [permanent]" (Relic of Progenitus). */
+    exileSelf?: boolean;
+    /** "Exile a creature you control:": one permanent its controller controls that fits, chosen as it is activated. */
+    exileOne?: TargetSpec;
   };
   sorcery?: boolean;
   /** Activated from its owner's hand rather than the battlefield, like channel. */
@@ -1055,6 +1159,12 @@ export interface CardScript extends Triggers {
     sacrifice?: TargetSpec;
     /** Dash (702.109a): the permanent has haste and returns to its owner's hand at the next end step. */
     dash?: boolean;
+    /** Overload (702.96a): "target" becomes "each", so the spell has no targets (702.96b). */
+    overload?: boolean;
+    /** Evoke (702.74a): its controller sacrifices the permanent when it enters. */
+    evoke?: boolean;
+    /** Warp (702.185a): only from the hand; the permanent is exiled at the next end step. */
+    warp?: boolean;
   }[];
   /** Extra damage added when `source` (controlled by self's owner) damages `targetOwner` or their permanent. */
   damageBonus?: (g: Game, self: Card, source: Card, targetOwner: PlayerId) => number;
@@ -1083,6 +1193,20 @@ export interface CardScript extends Triggers {
    * A choice names one with `then`; the resolving spell or ability's script runs it.
    */
   then?: Record<string, (g: Game, ctx: ThenCtx) => void>;
+  /** Reflexive triggered abilities this card creates (603.12), by key: their targets and what they do. */
+  reflexive?: Record<string, { targets?: TargetSpec[]; text?: string; resolve: (g: Game, ctx: Ctx & { data: Record<string, unknown> }) => void }>;
+  /** Escape (702.138a) printed on the card: cast from its owner's graveyard for `mana` plus exiling `exile` other cards from there. */
+  escape?: { mana: string; exile: number };
+  /** While this permanent is on the battlefield: does creature spell `spell` cast by `caster` have convoke (702.51a)? */
+  grantsConvoke?: (g: Game, self: Card, spell: Card, caster: PlayerId) => boolean;
+  /** While this permanent is on the battlefield: the names of cards whose activated abilities permanent `c` has. */
+  grantsAbilities?: (g: Game, self: Card, c: Card) => string[];
+  /** While this permanent is on the battlefield: may `pid` spend mana as though it were mana of any colour to activate an ability of `source` (Agatha's Soul Cauldron)? */
+  anyColorFor?: (g: Game, self: Card, pid: PlayerId, source: Card) => boolean;
+  /** While this permanent is on the battlefield: does `pid` skip the extra turn they would begin (614.10, Trouble in Pairs)? */
+  skipsExtraTurn?: (g: Game, self: Card, pid: PlayerId) => boolean;
+  /** "No more than N creatures can attack this permanent each combat": a restriction on declaring attackers (508.1c). */
+  maxAttackers?: number;
   /** Delayed triggered abilities this card creates (603.7), by key. See `Delayed`. */
   delayed?: Record<string, (g: Game, ctx: Ctx & { data: Record<string, unknown> }) => void>;
   /** An intervening "if" of a delayed triggered ability (603.4): it triggers only if this is true. Its `delayed` checks again as it resolves. */
@@ -1182,5 +1306,5 @@ export interface CardScript extends Triggers {
 /** Hooks that every permanent on the battlefield hears, not only the card the event is about. */
 export type BroadcastHook = Exclude<
   TriggerHook,
-  'onEnter' | 'onDies' | 'onAttack' | 'onCombatDamageToPlayer' | 'onDefeat' | 'onChapter' | 'onLevel' | 'onStorm' | 'onDelayed' | 'onTapped' | 'onWard'
+  'onEnter' | 'onDies' | 'onAttack' | 'onCombatDamageToPlayer' | 'onDefeat' | 'onChapter' | 'onLevel' | 'onStorm' | 'onDelayed' | 'onTapped' | 'onWard' | 'onLeave' | 'onCounters' | 'onReflexive' | 'onEvoked'
 >;
