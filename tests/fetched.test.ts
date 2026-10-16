@@ -178,6 +178,21 @@ describe('Commander legality of fetched cards', () => {
     expect(bare.legality).toEqual({ 'Wall of Omens': 'not_legal' });
   });
 
+  it('lets in a card that is not legal only because it is not released yet', async () => {
+    // Scryfall lists previewed cards as not legal until their release date.
+    const MATOC = scry('Matoc, Lavamancer', 'Legendary Creature — Human Shaman', '', { legalities: { commander: 'not_legal' }, released_at: '2026-10-19', set_type: 'draft_innovation' });
+    const before = await fetchCollection(['Matoc, Lavamancer'], { fetch: fakeScryfall([MATOC]), today: '2026-10-16' });
+    expect(before.legality).toEqual({ 'Matoc, Lavamancer': 'legal' });
+    // Once it is out, Scryfall's answer stands: a released card that isn't legal stays out.
+    const after = await fetchCollection(['Matoc, Lavamancer'], { fetch: fakeScryfall([MATOC]), today: '2026-10-19' });
+    expect(after.legality).toEqual({ 'Matoc, Lavamancer': 'not_legal' });
+    // Un-set and Alchemy cards are never legal, released or not; nor is a banned card.
+    const UNSET = { ...LOTUS, released_at: '2099-01-01', set_type: 'funny' };
+    const BANNED = { ...CRYPT, released_at: '2099-01-01', set_type: 'expansion' };
+    const res = await fetchCollection(['Mox Lotus', 'Mana Crypt'], { fetch: fakeScryfall([UNSET, BANNED]), today: '2026-10-16' });
+    expect(res.legality).toEqual({ 'Mox Lotus': 'not_legal', 'Mana Crypt': 'banned' });
+  });
+
   it('refuses a banned card on the paste screen and in a saved deck, even one the engine could play', async () => {
     await fetchCards(['Mana Crypt'], { fetch: fakeScryfall([CRYPT]) });
     expect(commanderLegality('Mana Crypt')).toBe('banned');

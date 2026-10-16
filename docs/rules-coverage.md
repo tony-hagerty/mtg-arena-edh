@@ -29,7 +29,9 @@ are from the Comprehensive Rules in `docs/rules/`.
   pool's cards and hand scripts always win over fetched ones. Fetched card data is cached
   in IndexedDB (`src/cards/cache.ts`) and scripted again on each load, so a newer parser
   reaches cached cards too. At start-up a saved deck's cards missing from the cache are
-  fetched again.
+  fetched again. A card Scryfall lists as not legal in Commander only because it isn't
+  released yet (a preview) counts as legal; Un-set, Alchemy and other never-legal sets
+  don't (`legalityOf`).
 - **Card requests:** each fetched card the game can't play goes into
   `docs/card-requests.json` (name, Oracle text, the clause, how many times, when last),
   merged by name (`src/cards/requests.ts`). Under `npm run dev` the app posts it to a dev
@@ -188,6 +190,13 @@ are from the Comprehensive Rules in `docs/rules/`.
   itself, added up together; reductions only take off generic mana (601.2f).
 - When you cast a spell with any of these, a small panel asks for X, kicker and which cost
   before you choose targets. A sacrifice is picked after the targets.
+- **Delve (702.66):** after the targets, you pick cards in your graveyard to exile; each
+  pays for {1}, after other cost changes (702.66b). Bots delve the cards they want least.
+- **Attack costs (508.1g-i):** Propaganda's "{2} for each creature attacking you". An
+  attack you can't pay for is refused as you declare it; the cost is paid with auto-pay
+  once attackers are declared, after they tap, so an attacker can't tap for it. A creature
+  that must attack doesn't have to pay (508.1d). Bots attack through it only when the
+  attack is worth the mana.
 
 ### Mana
 
@@ -212,6 +221,12 @@ are from the Comprehensive Rules in `docs/rules/`.
   its untap (502.3), and "whenever this becomes tapped" triggers.
 - **Treasure, Food and Clue tokens (111.10).** A Treasure is sacrificed for one mana of
   any colour; auto-pay spends lands first and Treasures last.
+- **Mana abilities with a mana cost (605.1a):** Signets ("{1}, {T}: Add {W}{U}") and
+  filter lands ("{W/B}, {T}: Add {W}{W}, {W}{B}, or {B}{B}"). Auto-pay and bots use them
+  only when a payment can't be made without them, and never to pay their own cost.
+- **"Tap an untapped legendary creature you control: Add one mana"** (Relic of Legends):
+  click the Relic once it is tapped, then pick the creature and the colour. A creature
+  that just arrived can pay it (302.6).
 - **Special mana:** restricted mana that makes a spell uncounterable (106.6, Cavern of
   Souls), mana kept until end of turn (Birgi), mana abilities a land gains until end of
   turn (Rain of Filth), and Lion's Eye Diamond (discard your hand, only with priority).
@@ -262,7 +277,17 @@ are from the Comprehensive Rules in `docs/rules/`.
   copy effect's exceptions (707.9b); the copy has the copied card's abilities, enters
   abilities included, and mana cost.
 - **Replacement effects as a permanent enters** (614.1c, 614.12a), with a choice: Mox
-  Diamond's discard, Cavern of Souls's creature type (all of 205.3m), Mockingbird's copy.
+  Diamond's discard, Cavern of Souls's and Roaming Throne's creature type (all of 205.3m),
+  Mockingbird's copy. "Artifacts and creatures your opponents control enter tapped"
+  (Blind Obedience).
+- **Abilities one permanent gives another (613.1f):** Equipment and Auras that give a
+  triggered ability ("has 'Whenever this creature deals damage to an opponent, ...'"),
+  only while a condition holds (Helm of the Ghastlord's blue or black), or until end of
+  turn (Malakir Rebirth's "When this creature dies, return it"). The ability is the
+  creature's own. Types given by effects ("is a Wizard in addition to its other types",
+  Urborg's "Each land is a Swamp", which then taps for {B}, 305.6).
+- **Untapping in other players' untap steps** (502.3, Unwinding Clock, Bender's
+  Waterskin).
   "Enters with counters". Actions from an opening hand (103.6, Gemstone Caverns).
 - **The legend rule (704.5j):** you choose which to keep; bots keep the untapped, ready
   one.
@@ -277,7 +302,10 @@ are from the Comprehensive Rules in `docs/rules/`.
   combined (its mana value is the total).
 - **Adventurer cards (715):** cast the creature, or the Adventure, which goes to exile
   when it resolves and can be cast from there as the creature (715.3d). A countered
-  Adventure goes to the graveyard.
+  Adventure goes to the graveyard. A land with an Adventure (Ishgard, the Holy See) is
+  played from exile afterwards, as the turn's land.
+- **Aftermath (702.127):** the first half is cast only from the hand, the aftermath half
+  only from the graveyard, and it is exiled whenever it leaves the stack.
 
 ### Casting from other zones
 
@@ -288,7 +316,13 @@ are from the Comprehensive Rules in `docs/rules/`.
   Harnfel, Mnemonic Betrayal, whose spells take mana of any type). A land played this way
   is the turn's land (305.2a).
 - **Casting while a spell resolves**, without paying its mana cost (608.2g, Beseech the
-  Mirror).
+  Mirror), or paying it from a graveyard (Emet-Selch, which also exiles the spell instead
+  of putting it into a graveyard).
+- **Rebound (702.88):** a spell cast from the hand is exiled as it resolves and may be
+  cast free at your next upkeep.
+- **Paradigm (702.192):** the spell is exiled; after the first one of that name you
+  resolve, a copy of it is made in exile at each of your precombat main phases, and you
+  may cast it free. A copy you don't cast ceases to exist.
 
 ### Combat
 
@@ -332,13 +366,34 @@ are from the Comprehensive Rules in `docs/rules/`.
   the next opponent), "skip your draw step", "whenever you discard", "at the beginning of
   combat on your turn" (507), and "whenever this becomes tapped" however it is tapped: for
   mana, to attack, for a cost or by an effect.
+- **Protection from a colour (702.16):** it can't be targeted, blocked by, enchanted or
+  equipped by, or dealt damage by anything of that colour. The colour is chosen as the
+  spell or ability resolves (Mother of Runes, Sejiri Shelter).
+- **Damage and life:** damage prevention (615, Solitary Confinement's "Prevent all damage
+  that would be dealt to you"), shroud on a player (702.18a), each player's life lost
+  this turn ("if a player lost 4 or more life this turn"), "whenever a source deals
+  damage to a player", and "whenever one or more opponents lose life", which triggers once
+  for an event that hits several players at once: "each opponent loses 1 life", combat
+  damage, extort.
+- **Trigger doubling (603.2d):** Roaming Throne's "triggers an additional time", even for
+  a creature that died alongside it (603.10a).
+- **"Do this only once each turn" (603.2h):** the ability doesn't trigger again that turn
+  once its controller has done it (G'raha Tia, Emet-Selch).
+- **Looking at the top of a library:** "the rest on the bottom in any order" lets you
+  order them (401.4); "in a random order" shuffles them. A look can show cards you can't
+  take (Silundi Vision's six, only an instant or sorcery can be taken).
+- **"Until the end of your next turn"** (Single Combat), and choices each player makes in
+  turn order before anything happens (101.4): Single Combat's and Papalymo Totolymo's
+  sacrifices happen together.
 - **Populate (701.36):** you choose which creature token to copy, and a token that is
   itself a copy copies what it copies.
 - **Linked abilities** (607, Chrome Mox), cards exiled face down (406.3), and targets in
   a graveyard.
 - **Keywords:** flying, reach, first strike, double strike, deathtouch, lifelink,
   trample, vigilance, haste, defender, hexproof, indestructible, menace, flash, storm,
-  cumulative upkeep, mobilize, ward, dash, bargain, gift, afterlife.
+  cumulative upkeep, mobilize, ward, dash, bargain, gift, afterlife, delve, rebound,
+  aftermath, paradigm, extort (702.101), job select (702.182), and protection from a
+  colour.
 
 ### Bots
 
@@ -406,7 +461,7 @@ These are deliberate cuts for a prototype. The biggest ones come first.
 
 ### Card frames and commanders
 
-- Not supported yet: meld cards (712.4), fuse (702.102), aftermath, split cards with a
+- Not supported yet: meld cards (712.4), fuse (702.102), split cards with a
   shared type line (709.5, "unlocking" rooms), Sagas with read ahead (714.3b), disturb and
   other ways to cast a back face from a graveyard, and casting a transformed card's back
   face any way but a defeated Siege.
@@ -428,8 +483,11 @@ These are deliberate cuts for a prototype. The biggest ones come first.
 - **Auto-pay's lookahead** checks your other cards at what they cost now, with commander
   tax and cost increases and reductions (601.2f), but with no kicker, X as 0 and no
   alternative cost. It doesn't foresee cost changes the spell being paid for will bring.
-- **Auto-pay** never uses a mana ability that costs a card (Simian Spirit Guide) or your
-  hand (Lion's Eye Diamond): use them by hand.
+- **Auto-pay** never uses a mana ability that costs a card (Simian Spirit Guide), your
+  hand (Lion's Eye Diamond) or tapping a creature (Relic of Legends): use them by hand.
+  Bots don't use Relic of Legends's second ability.
+- **Attack costs** (Propaganda) are paid with auto-pay once attackers are declared: you
+  can't pick which lands pay them.
 - **Mana Vault** doesn't ask about paying {4} while it is untapped, and **Tymna** doesn't
   ask with no opponent dealt combat damage: paying would change nothing. Both still
   trigger.
@@ -442,13 +500,16 @@ templates and builds the script from the helpers in `rules.ts`. One clause it ca
 refuses the whole card, naming the clause: it never guesses. Hand scripts always win.
 
 - **Abilities:** "When this enters", "When this dies", "Whenever this attacks" and
-  "Whenever you cast a [noncreature] spell" (603.1) and Prowess (702.108a); activated
+  "Whenever you cast a [noncreature] spell" (603.1), prowess (702.108a), extort
+  (702.101a) and job select (702.182a); delve, rebound and paradigm lines are the
+  engine's; activated
   abilities (602) with `{T}`, mana (with `{X}`, 107.3a), "Pay N life" (119.4), "Discard
   a card", "Sacrifice this" and "Sacrifice a/another [creature, artifact, land,
   permanent]" costs, and "Activate only as a sorcery"; cycling (702.29a); mana abilities
   "{T}: Add {G}", "{C}{C}", "{W} or {B}", "{W}, {U}, or {B}", "one mana of any color",
-  "three mana of any one color", with "This deals 1 damage to you" or "Activate only if
-  you control a Plains or a Swamp" (605); "[Other] [Soldier] creatures you control get
+  "three mana of any one color", "{1}, {T}: Add {W}{U}" (Signets) and "{W/B}, {T}: Add
+  {W}{W}, {W}{B}, or {B}{B}" (filter lands), with "This deals 1 damage to you" or
+  "Activate only if you control a Plains or a Swamp" (605); "[Other] [Soldier] creatures you control get
   +N/+N [and have flying]" and "... have haste" (613); instants and sorceries.
 - **Lines about the card itself:** "This land enters tapped", "... unless you control two
   or more other lands / two or more basic lands / a basic land / an Island or a Swamp",

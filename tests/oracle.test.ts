@@ -260,6 +260,70 @@ describe('lands and mana from Oracle text', () => {
     const found = g.players[0].battlefield.find((c) => isLand(c) && c.name !== 'Plains');
     expect(found?.tapped).toBe(true);
   });
+
+  describe('mana abilities with a mana cost (Signets, filter lands, 605.1a)', () => {
+    teach('Test Signet', 'Artifact', '{1}, {T}: Add {W}{U}.', { manaCost: '{2}', cmc: 2 });
+    teach('Test Filter', 'Land', '{T}: Add {C}.\n{W/B}, {T}: Add {W}{W}, {W}{B}, or {B}{B}.', { manaCost: '' });
+    teach('Test Wastes', 'Land', '{T}: Add {C}.', { manaCost: '' });
+    teach('Two Drop', 'Creature — Bird', 'Flying', { manaCost: '{W}{U}', cmc: 2 });
+    teach('Black Drop', 'Creature — Rat', 'Menace', { manaCost: '{1}{B}{B}', cmc: 3 });
+
+    it('reads the cost and the exact mana', () => {
+      expect(scriptOf('Test Signet').mana).toEqual({ amount: 2, colors: ['W', 'U'], produces: [['W', 'U']], cost: '{1}' });
+      expect(scriptOf('Test Filter').mana).toEqual([
+        { amount: 1, colors: ['C'] },
+        { amount: 2, colors: ['W', 'B'], produces: [['W', 'W'], ['W', 'B'], ['B', 'B']], cost: '{W/B}' },
+      ]);
+      expect(refusal('Artifact', 'Sacrifice a creature: Add {B}.')).toMatchObject({ reason: 'a mana ability with a cost other than {T}' });
+    });
+
+    it('auto-pay uses a Signet only when it must, paying its {1} from another source', () => {
+      let g = emptyGame((d) => {
+        put(d, 0, 'Test Signet');
+        put(d, 0, 'Test Wastes');
+        put(d, 0, 'Two Drop', 'hand');
+      });
+      // {W}{U} from a Signet, its {1} from Wastes: Wastes alone couldn't pay.
+      g = run(g, { type: 'cast', card: byName(g, 0, 'Two Drop', 'hand')!.id });
+      expect(byName(g, 0, 'Two Drop')).toBeDefined();
+      expect(byName(g, 0, 'Test Signet')!.tapped).toBe(true);
+      expect(byName(g, 0, 'Test Wastes')!.tapped).toBe(true);
+      expect(g.players[0].pool).toEqual([]);
+    });
+
+    it("a Signet can't pay its own {1}", () => {
+      const g = emptyGame((d) => {
+        put(d, 0, 'Test Signet');
+        put(d, 0, 'Two Drop', 'hand');
+      });
+      expect(applyAction(g, { type: 'cast', card: byName(g, 0, 'Two Drop', 'hand')!.id })).toBe(g);
+    });
+
+    it('a filter land turns one coloured mana into two', () => {
+      let g = emptyGame((d) => {
+        put(d, 0, 'Test Filter');
+        put(d, 0, 'Swamp');
+        put(d, 0, 'Test Wastes');
+        put(d, 0, 'Black Drop', 'hand');
+      });
+      // Swamp pays {W/B}, the filter land adds {B}{B}, Wastes pays the {1}.
+      g = run(g, { type: 'cast', card: byName(g, 0, 'Black Drop', 'hand')!.id });
+      expect(byName(g, 0, 'Black Drop')).toBeDefined();
+      expect(g.players[0].battlefield.filter((c) => c.tapped)).toHaveLength(3);
+    });
+
+    it('by hand, a Signet takes its {1} from the pool or a land first', () => {
+      let g = emptyGame((d) => {
+        put(d, 0, 'Test Signet');
+        put(d, 0, 'Test Wastes');
+      });
+      g = run(g, { type: 'tapMana', card: byName(g, 0, 'Test Signet')!.id });
+      expect(g.players[0].pool.map((m) => m.sym).sort()).toEqual(['U', 'W']);
+      expect(byName(g, 0, 'Test Wastes')!.tapped).toBe(true);
+      // It can't be untapped: its cost was more than {T}.
+      expect(applyAction(g, { type: 'untapMana', card: byName(g, 0, 'Test Signet')!.id })).toBe(g);
+    });
+  });
 });
 
 describe('more effects and static lines from Oracle text', () => {

@@ -11,7 +11,7 @@ import { SoundButton } from './SoundControl';
 import { useStore } from './store';
 import type { Hover } from './store';
 import { type Seat, cx, deckColor, faceUp, hoverProps, seatOf } from './util';
-import { STEP_NAMES, activateFromHand, cancel, clickStackItem, pickAbility, pickColor, pickFace, pickMode, playHandCard, setAbilityX, setChoices, exileForMana, useView } from './view';
+import { STEP_NAMES, activateFromHand, cancel, clickStackItem, pickAbility, pickColor, pickTapCreature, pickFace, pickMode, playHandCard, setAbilityX, setChoices, exileForMana, useView } from './view';
 import type { AbilityOption, Btn } from './view';
 
 // ---------- phase tracker + buttons (bottom right) ----------
@@ -417,6 +417,21 @@ export function ColorPicker() {
   if (!pick || !card) return null;
   return (
     <div className="cast-options">
+      {pick.creatures && pick.creatures.length > 1 && (
+        <div className="cast-row">
+          <span className="cast-label">{label(card)}: tap</span>
+          {pick.creatures.map((id) => {
+            const c = findCard(g, id);
+            return (
+              c && (
+                <button key={id} className={`chip${pick.creature === id ? ' on' : ''}`} onClick={() => pickTapCreature(id)}>
+                  {label(c)}
+                </button>
+              )
+            );
+          })}
+        </div>
+      )}
       <div className="cast-row">
         <span className="cast-label">{label(card)}: choose a colour</span>
         {pick.colors.map((c) => (

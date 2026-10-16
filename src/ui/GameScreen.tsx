@@ -3,7 +3,7 @@ import { botAction, botPause } from '../engine';
 import { OpponentPanel, PlayerField } from './Board';
 import { ActionBar, ArrowLayer, CastOptions, ColorPicker, ExitConfirm, GameOver, LogPanel, Preview, Prompt, SpellFlash, StackPanel, ZoneViewer } from './Hud';
 import { GameVotes, PausedOverlay } from './LobbyScreen';
-import { Decisions, EscapePicker, GraveyardTargets } from './Picker';
+import { Decisions, DelvePicker, EscapePicker, GraveyardTargets } from './Picker';
 import { useStore } from './store';
 import { fromSeat } from './util';
 import { ViewContext, buildView } from './view';
@@ -71,6 +71,7 @@ export function GameScreen() {
         <ZoneViewer />
         <Decisions />
         <EscapePicker />
+        <DelvePicker />
         <GraveyardTargets />
         <GameOver />
         {/* Before the exit dialog, so leaving a paused game still asks first. */}

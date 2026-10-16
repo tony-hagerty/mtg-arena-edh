@@ -30,6 +30,8 @@ import {
   moveCard,
   opponentsOf,
   prowess,
+  extort,
+  jobSelect,
   pump,
   refCard,
   refPlayer,
@@ -38,6 +40,7 @@ import {
   searchBasic,
   surveil,
   their,
+  simultaneously,
 } from '../engine/rules';
 import type { ActivatedAbility, Card, CardData, CardScript, Color, Ctx, Game, ManaAbility, ManaSym, PlayerId, StaticBonus, TargetSpec, ThenCtx } from '../engine/types';
 import { ALL_CARD_NAMES, cardData } from './db';
@@ -228,7 +231,7 @@ function effect(clause: string, env: Env, who: Subject | null): { effect: Effect
   }
   if ((m = new RegExp(`^loses? ${NUM} life$`).exec(rest))) {
     const n = amount(m[1], env, clause);
-    return done({ ...subjectTargets, run: (g, ctx, i) => players(g, ctx, i, me).forEach((p) => loseLife(g, p, amountOf(ctx, n))) });
+    return done({ ...subjectTargets, run: (g, ctx, i) => simultaneously(g, () => players(g, ctx, i, me).forEach((p) => void loseLife(g, p, amountOf(ctx, n)))) });
   }
   if ((m = new RegExp(`^mills? ${NUM} cards?$`).exec(rest)) && me !== 'each opponent') {
     const n = amount(m[1], env, clause);
@@ -256,7 +259,7 @@ function effect(clause: string, env: Env, who: Subject | null): { effect: Effect
   // "[This] deals N damage to each opponent" (120): no target, so every opponent, in APNAP order (101.4).
   if ((m = new RegExp(`^~ deals ${NUM} damage to each opponent$`).exec(rest))) {
     const n = amount(m[1], env, clause);
-    return done({ targets: [], run: (g, ctx) => opponentsOf(g, ctx.you).forEach((o) => void damagePlayer(g, ctx.self, o.id, amountOf(ctx, n))) });
+    return done({ targets: [], run: (g, ctx) => simultaneously(g, () => opponentsOf(g, ctx.you).forEach((o) => void damagePlayer(g, ctx.self, o.id, amountOf(ctx, n)))) });
   }
   // "Exile target player's graveyard": every card in it (406.2).
   if (rest === "exile target player's graveyard") {
@@ -492,9 +495,17 @@ function baseMana(text: string): ManaAbility | null {
   if (m && m[1] !== 'x') return { amount: /^\d+$/.test(m[1]) ? parseInt(m[1], 10) : NUMBERS[m[1]], colors: 'any' };
   m = /^add ((?:\{[wubrgc]\})+)\.$/.exec(text);
   if (m) {
-    const syms = m[1].slice(1, -1).split('}{');
-    if (syms.some((s) => s !== syms[0])) return null;
-    return { amount: syms.length, colors: [syms[0].toUpperCase() as ManaSym] };
+    const syms = m[1].slice(1, -1).split('}{').map((x) => x.toUpperCase() as ManaSym);
+    if (syms.every((x) => x === syms[0])) return { amount: syms.length, colors: [syms[0]] };
+    // "Add {W}{U}." (a Signet): exactly that mana.
+    return { amount: syms.length, colors: [...new Set(syms)], produces: [syms] };
+  }
+  // "Add {W}{W}, {W}{B}, or {B}{B}." (a filter land): one of those lists.
+  m = /^add ((?:\{[wubrgc]\})+(?:, (?:\{[wubrgc]\})+)*,? or (?:\{[wubrgc]\})+)\.$/.exec(text);
+  if (m) {
+    const produces = m[1].split(/,? or |, /).map((o) => o.slice(1, -1).split('}{').map((x) => x.toUpperCase() as ManaSym));
+    if (produces.some((o) => o.length !== produces[0].length)) return null;
+    if (produces[0].length > 1) return { amount: produces[0].length, colors: [...new Set(produces.flat())], produces };
   }
   m = /^add \{([wubrg])\} or \{([wubrg])\}\.$/.exec(text);
   if (m) return { amount: 1, colors: [m[1].toUpperCase(), m[2].toUpperCase()] as ManaSym[] };
@@ -530,6 +541,9 @@ function lines(d: CardData): { text: string; original: string }[] {
 }
 
 const isKeywordLine = (line: string) => line.split(',').every((part) => BARE_KEYWORDS.includes(part.trim()));
+
+/** Keywords that change how a spell is cast or where it goes, which the engine applies from the card's keywords. */
+const CAST_KEYWORDS = ['delve', 'rebound', 'paradigm'];
 
 const HOOKS: Record<string, 'onEnter' | 'onDies' | 'onAttack'> = { 'when ~ enters': 'onEnter', 'when ~ dies': 'onDies', 'whenever ~ attacks': 'onAttack' };
 
@@ -670,6 +684,21 @@ function readCard(d: CardData): CardScript {
       script.onCast = prowess;
       return;
     }
+    // Casting rules the engine applies itself: delve (702.66), rebound (702.88), paradigm (702.192).
+    if (CAST_KEYWORDS.includes(text)) return;
+    // Extort (702.101a) and job select (702.182a) are triggered abilities.
+    if (text === 'extort') {
+      if (script.onCast) refuse(original, 'two abilities that trigger on the same event');
+      script.onCast = extort.onCast;
+      Object.assign(then, extort.then);
+      script.botChoice = { ...script.botChoice, ...extort.botChoice };
+      return;
+    }
+    if (text === 'job select') {
+      if (script.onEnter) refuse(original, 'two abilities that trigger on the same event');
+      script.onEnter = jobSelect;
+      return;
+    }
     if (cardLine(text, original, script, then)) return;
     if (spell) {
       spellEffects.push(...effects(text, { permanent: false, x: false }));
@@ -708,8 +737,10 @@ function readCard(d: CardData): CardScript {
       const body = act[2].replace(/ activate only as a sorcery\.$/, '');
       const add = manaEffect(body);
       if (add) {
-        if (act[1] !== '{t}') refuse(original, 'a mana ability with a cost other than {T}');
-        mana.push(add);
+        // "{T}", or mana and "{T}" like a Signet's "{1}, {T}" or a filter land's "{W/B}, {T}" (605.1a).
+        const paid = /^((?:\{(?:\d+|[wubrgc]|[wubrg]\/[wubrg])\})+), \{t\}$/.exec(act[1]);
+        if (act[1] !== '{t}' && !paid) refuse(original, 'a mana ability with a cost other than {T}');
+        mana.push(paid ? { ...add, cost: paid[1].toUpperCase() } : add);
         return;
       }
       const paid = cost(act[1], original);
