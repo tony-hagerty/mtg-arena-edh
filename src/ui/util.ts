@@ -1,5 +1,5 @@
 import type { MouseEvent } from 'react';
-import type { Card, Game, PlayerId } from '../engine';
+import type { Card, CardData, Game, PlayerId } from '../engine';
 import { useStore } from './store';
 
 /** Joins class names, skipping falsy ones. */
@@ -34,9 +34,13 @@ export function fromSeat<T extends { id: PlayerId }>(players: T[], viewer: Playe
 /** Can the human look at this card? Not one exiled face down, unless they may look at it (406.3). */
 export const faceUp = (c: Card, me: PlayerId | null) => !c.faceDown || (me !== null && c.known.includes(me));
 
-/** Shows the big card preview while the pointer is over an element. */
-export const hoverProps = (name: string) => ({
-  onMouseEnter: (e: MouseEvent<HTMLElement>) => useStore.setState({ hover: { name, el: e.currentTarget } }),
+/**
+ * Shows the big card preview while the pointer is over an element: a card by its name, or a
+ * card in the game by its data (`data(card)`), which a token or a copy needs.
+ */
+export const hoverProps = (card: string | CardData) => ({
+  onMouseEnter: (e: MouseEvent<HTMLElement>) =>
+    useStore.setState({ hover: typeof card === 'string' ? { name: card, el: e.currentTarget } : { name: card.name, d: card, el: e.currentTarget } }),
   onMouseLeave: () => useStore.setState({ hover: null }),
 });
 

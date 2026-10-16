@@ -128,7 +128,7 @@ function Attachments({ cards }: { cards: Card[] }) {
             e.stopPropagation();
             clickPermanent(c);
           }}
-          {...hoverProps(data(c).name)}
+          {...hoverProps(data(c))}
         >
           <AttachedArt url={data(c).art} />
           <span>{data(c).name}</span>
@@ -194,7 +194,7 @@ export function Permanent({ card, badge }: { card: Card; badge?: Card[] }) {
       exit={{ opacity: 0, scale: 0.4, transition: { duration: 0.3 } }}
       transition={SPRING}
       onClick={() => clickPermanent(card)}
-      {...hoverProps(d.name)}
+      {...hoverProps(d)}
     >
       {attached.length > 0 && <Attachments cards={attached} />}
       <div className="tile-face">
@@ -331,7 +331,7 @@ export function HandCard({
       }}
       onMouseEnter={(e) => {
         setHot(true);
-        useStore.setState({ hover: { name: d.name, el: e.currentTarget, hand: true } });
+        useStore.setState({ hover: { name: d.name, d, el: e.currentTarget, hand: true } });
       }}
       onMouseLeave={() => {
         setHot(false);

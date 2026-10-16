@@ -3,10 +3,11 @@ import type { CSSProperties, ReactNode } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import { cardData } from '../cards/db';
 import { data, findCard, label, triggerText } from '../engine';
-import type { Game, LogEntry, PlayerId, Step, StopKind } from '../engine';
+import type { CardData, Game, LogEntry, PlayerId, Step, StopKind } from '../engine';
 import { CardImage, ManaCost } from './TextCard';
 import { useRem } from './rem';
 import { useStore } from './store';
+import type { Hover } from './store';
 import { type Seat, cx, deckColor, faceUp, hoverProps, seatOf } from './util';
 import { STEP_NAMES, activateFromHand, cancel, clickStackItem, pickAbility, pickColor, pickFace, pickMode, playHandCard, setAbilityX, setChoices, exileForMana, useView } from './view';
 import type { AbilityOption, Btn } from './view';
@@ -598,11 +599,21 @@ export function ExitConfirm() {
 
 // ---------- overlays ----------
 
+/** The card a hover target shows, or null for a name that is neither a card nor a token key. */
+function hoverData(hover: Hover): CardData | null {
+  if (hover.d) return hover.d;
+  try {
+    return cardData(hover.name);
+  } catch {
+    return null;
+  }
+}
+
 /** The card element at a point on screen, as a hover target (or null if there is no card there). */
 function cardAt(game: Game | null, at: Element | null) {
   const el = at?.closest<HTMLElement>('[data-card]');
   const card = el && game && findCard(game, el.dataset.card!);
-  return el && card ? { name: card.name, el } : null;
+  return el && card ? { name: card.name, d: data(card), el } : null;
 }
 
 /**
@@ -614,7 +625,7 @@ export function Preview() {
   const hover = useStore((s) => s.hover);
   const game = useStore((s) => s.game);
   /** The card kept up by a right-click. */
-  const [pinned, setPinned] = useState<string | null>(null);
+  const [pinned, setPinned] = useState<CardData | null>(null);
   const pointer = useRef({ x: -1, y: -1 });
   const shown = useRef<{ left: number; top: number; width: number } | null>(null);
 
@@ -634,7 +645,8 @@ export function Preview() {
   useEffect(() => {
     const onMenu = (e: MouseEvent) => {
       const hover = useStore.getState().hover;
-      if (hover) setPinned(hover.name);
+      const d = hover && hoverData(hover);
+      if (d) setPinned(d);
       if (hover || (e.target as Element).closest('.preview-backdrop, .preview')) e.preventDefault();
     };
     window.addEventListener('contextmenu', onMenu);
@@ -649,7 +661,7 @@ export function Preview() {
   }, [game, hover]);
 
   // A hand card zooms itself, so it only gets the pinned preview.
-  const name = pinned ?? (hover && !hover.hand ? hover.name : null);
+  const d = pinned ?? (hover && !hover.hand ? hoverData(hover) : null);
   const rem = parseFloat(getComputedStyle(document.documentElement).fontSize);
   const gap = 1.5 * rem;
   if (pinned) {
@@ -667,19 +679,12 @@ export function Preview() {
     const top = Math.max(gap, Math.min(r.top + r.height / 2 - height / 2, window.innerHeight - height - gap));
     shown.current = { left, top, width };
   }
-  // A name that isn't a card or token key (a copied token's own name) has nothing to show.
-  let d: ReturnType<typeof cardData> | null = null;
-  try {
-    if (name && shown.current) d = cardData(name);
-  } catch {
-    d = null;
-  }
   return (
     <>
       {/* Always there, so the table fades back in when the preview closes too. */}
-      <div className={cx('preview-backdrop', pinned && d && 'on')} onClick={() => setPinned(null)} />
-      {d && (
-        <div className={cx('preview', pinned && 'pinned')} key={`${name}-${!!pinned}`} style={shown.current!}>
+      <div className={cx('preview-backdrop', pinned && 'on')} onClick={() => setPinned(null)} />
+      {d && shown.current && (
+        <div className={cx('preview', pinned && 'pinned')} key={`${d.name}-${!!pinned}`} style={shown.current}>
           <CardImage d={d} alt={d.name} />
         </div>
       )}
@@ -707,7 +712,7 @@ export function StackPanel() {
             className={cx('stack-item', i === g.stack.length - 1 && !paying && 'top', targetStack.has(item.id) && 'targetable')}
             onClick={() => clickStackItem(item.id)}
             title={triggerText(item)}
-            {...hoverProps(data(item.card).name)}
+            {...hoverProps(data(item.card))}
           >
             <CardImage d={data(item.card)} alt={label(item.card)} draggable={false} />
             <span className="stack-tag">
@@ -718,7 +723,7 @@ export function StackPanel() {
         );
       })}
       {paying && (
-        <div key={`paying-${paying.card.id}`} className="stack-item top paying" {...hoverProps(data(paying.card).name)}>
+        <div key={`paying-${paying.card.id}`} className="stack-item top paying" {...hoverProps(data(paying.card))}>
           <CardImage d={data(paying.card)} alt={label(paying.card)} draggable={false} />
           <span className="stack-tag">Pay to {paying.kind === 'spell' ? 'cast' : 'activate'}</span>
         </div>

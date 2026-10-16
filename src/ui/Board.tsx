@@ -236,7 +236,7 @@ function CastCrown({ player, c, name, index }: { player: Player; c: Card | undef
         e.stopPropagation();
         clickCrown(player.id, c);
       }}
-      {...(c ? hoverProps(data(c).name) : {})}
+      {...(c ? hoverProps(data(c)) : {})}
     >
       <span>♛</span>
     </motion.button>
