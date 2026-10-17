@@ -336,8 +336,9 @@ are from the Comprehensive Rules in `docs/rules/`.
 - **Abilities one permanent gives another (613.1f):** Equipment and Auras that give a
   triggered ability ("has 'Whenever this creature deals damage to an opponent, ...'"),
   only while a condition holds (Helm of the Ghastlord's blue or black), or until end of
-  turn (Malakir Rebirth's "When this creature dies, return it"). The ability is the
-  creature's own. Types given by effects ("is a Wizard in addition to its other types",
+  turn (Malakir Rebirth's "When this creature dies, return it"), and ward ("Other
+  creatures you control have 'Ward—Pay 2 life'"). The ability is the creature's own, and
+  a layer 6 effect with its source's timestamp (613.7a). Types given by effects ("is a Wizard in addition to its other types",
   Urborg's "Each land is a Swamp", which then taps for {B}, 305.6).
 - **Continuous effects in layers (613):** every permanent's types, abilities, power and
   toughness are worked out by `characteristics` (src/engine/layers.ts) from its copiable
@@ -358,6 +359,20 @@ are from the Comprehensive Rules in `docs/rules/`.
   does nothing (205.3d). "Until your next turn" ends as that turn begins, or as the next
   player's would if you left the game (800.4m); "for as long as" ends when that object
   leaves.
+- **Losing abilities (613.1f):** "loses all abilities" (113.10) takes a permanent's own
+  abilities, keywords, triggered, activated, static, mana (its basic land types' too,
+  305.6), characteristic-defining (so Tarmogoyf's shape is 0/1) and ward, and every
+  ability effects with earlier timestamps gave it; later ones give abilities back.
+  "Loses flying" takes every instance (113.10b). Restrictions like "can't attack" and
+  designations like harnessed aren't abilities, so they stay (113.12, 701.64b). An
+  ability that is lost does nothing more: its static effects stop applying, even ones it
+  gave other permanents in layer 6 (they depend on the loss, 613.8a), but an effect that
+  had started to apply goes on in later layers (613.6), and an ability already on the
+  stack still resolves (113.7a). A creature entering under Humility loses its abilities as
+  it enters, so its "enters" abilities don't trigger and it doesn't enter tapped or with
+  counters by its own abilities (603.6b, 614.12). A Saga that lost its chapter abilities
+  isn't sacrificed (714.4), and an Aura that lost its enchant ability stays on what it's
+  attached to (303.4c).
 - **Untapping in other players' untap steps** (502.3, Unwinding Clock, Bender's
   Waterskin).
 - **Entering at the same time (603.6a):** cards an effect puts onto the battlefield
@@ -581,9 +596,12 @@ These are deliberate cuts for a prototype. The biggest ones come first.
 - **Modes and copies:** only spells can be modal: modal triggered and activated abilities
   (700.2b) aren't supported. A copy's controller must pick legal new targets or keep all
   the old ones (707.10c allows keeping some). Copying abilities isn't supported yet.
-- **Layers (613) not built yet:** dependency between effects (613.8), effects that
-  remove abilities (layer 6), effects that set or change colour (layer 5), and copy
-  effects on a permanent already on the battlefield (layer 1).
+- **Layers (613) not built yet:** dependency between effects (613.8), and copy effects on
+  a permanent already on the battlefield (layer 1). In layer 6: "can't have [ability]" (113.11); effects that give a permanent
+  an ability other than a keyword, ward, or a triggered, activated or mana ability (such
+  as a static ability, or Animate Dead's new enchant ability); losing a keyword ability
+  the card's script carries, other than ward and enchant (the layer system refuses it);
+  and abilities of cards that aren't on the battlefield (Yixlid Jailer).
 - **Counters:** proliferate, shield, stun and other counters with their own rules
   (122.1c-j) do nothing special yet.
 - **Auras** can only enchant permanents, not players (702.5d).
