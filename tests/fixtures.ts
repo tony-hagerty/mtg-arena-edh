@@ -9,6 +9,9 @@ import { registerCards } from '../src/cards/db';
 import generated from './fixtures.generated.json';
 import {
   CANT_ATTACK,
+  firstDrawInDrawStep,
+  simultaneously,
+  subtypesOf,
   addMana,
   attach,
   nameCard,
@@ -472,5 +475,52 @@ registerScripts({
       text: '{1}, {T}, Sacrifice this artifact: Draw a card.',
       resolve: (g, { you }) => draw(g, you, 1),
     },
+  },
+
+  // ---------- replacement and prevention effects (614-616) ----------
+  'Notion Thief': {
+    // "If an opponent would draw a card except the first one they draw in each of their draw
+    // steps, instead that player skips that draw and you draw a card." (614.11)
+    replaces: (g, self, ev) =>
+      ev.kind === 'draw' && ev.player !== self.controller && !ev.firstInDrawStep
+        ? { instead: { kind: 'draw', player: self.controller, firstInDrawStep: firstDrawInDrawStep(g, self.controller) } }
+        : null,
+  },
+  'Doubling Season': {
+    replaces: (_g, self, ev) => {
+      // "If an effect would create one or more tokens under your control, it creates twice that many of those tokens instead."
+      if (ev.kind === 'tokens' && ev.player === self.controller) return { instead: { ...ev, tokens: ev.tokens.map((t) => ({ ...t, count: t.count * 2 })) } };
+      // "If an effect would put one or more counters on a permanent you control, it puts twice
+      // that many of those counters on that permanent instead." Not a cost's, or a turn-based action's.
+      if (ev.kind === 'counters' && !ev.by && ev.card.controller === self.controller) return { instead: { ...ev, n: ev.n * 2 } };
+      return null;
+    },
+  },
+  'Hardened Scales': {
+    // "If one or more +1/+1 counters would be put on a creature you control, that many plus one +1/+1 counters are put on it instead."
+    replaces: (g, self, ev) =>
+      ev.kind === 'counters' && ev.counter === '+1/+1' && ev.card.controller === self.controller && isCreature(g, ev.card) ? { instead: { ...ev, n: ev.n + 1 } } : null,
+  },
+  'Rhox Faithmender': {
+    // "If you would gain life, you gain twice that much life instead."
+    replaces: (_g, self, ev) => (ev.kind === 'gainLife' && ev.player === self.controller ? { instead: { ...ev, amount: ev.amount * 2 } } : null),
+  },
+  'Rest in Peace': {
+    // "When this enchantment enters, exile all graveyards."
+    onEnter: (g) => {
+      const cards = g.players.flatMap((p) => p.graveyard);
+      if (!cards.length) return;
+      log(g, `${cards.map(label).join(', ')} ${cards.length === 1 ? 'is' : 'are'} exiled from graveyards.`, undefined, cards);
+      simultaneously(g, () => cards.forEach((c) => moveCard(g, c, 'exile')));
+    },
+    // "If a card or token would be put into a graveyard from anywhere, exile it instead."
+    replaces: (_g, _self, ev) => (ev.kind === 'move' && ev.to === 'graveyard' ? { instead: { ...ev, to: 'exile' } } : null),
+  },
+  'Daunting Defender': {
+    // "If a source would deal damage to a Cleric creature you control, prevent 1 of that damage." (615.10)
+    replaces: (g, self, ev) =>
+      ev.kind === 'damage' && ev.card && ev.card.controller === self.controller && isCreature(g, ev.card) && subtypesOf(g, ev.card).includes('Cleric')
+        ? { instead: { ...ev, amount: ev.amount - 1 } }
+        : null,
   },
 });

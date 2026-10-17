@@ -27,6 +27,7 @@ src/cards/      decklists.json        the decks and tokens
 src/engine/     types.ts              game state, actions, card-script types
                 rules.ts              queries (stats, mana, targets) + effect primitives
                 layers.ts             continuous effects in layers and timestamp order (613)
+                replace.ts            replacement and prevention effects, and their order (614-616)
                 engine.ts             setup, turn structure, priority, the stack, applyAction()
                 ai.ts                 the bots
 src/net/        protocol.ts           what the game window and game server send each other
@@ -249,10 +250,32 @@ own timestamp (613.7b): `untilEndOfTurn(g, c, parts)` ("gets +2/+2 until end of 
 `addContinuous(g, c, parts, until, { while })` for other durations ("until your next turn",
 "for as long as you control ...").
 
+**Replacement and prevention effects**
+
+A static ability that says "instead", "skip" or "prevent" (614.1, 615.1) is a `replaces`
+hook: given an event about to happen (`ReplaceEvent`: damage, a card changing zones, a
+draw, tokens being created, counters being put on, life gained, a permanent entering, an
+extra turn or draw step beginning), it returns the event that happens instead, or null.
+
+```ts
+// "If one or more tokens would be created under your control, twice that many of those tokens are created instead."
+replaces: (g, self, ev) =>
+  ev.kind === 'tokens' && ev.player === self.controller ? { instead: { ...ev, tokens: ev.tokens.map((t) => ({ ...t, count: t.count * 2 })) } } : null,
+```
+
+`replace` in `replace.ts` collects every effect that applies to the event, the rules'
+own included (protection, finality counters, flashback, a commander's way to the command
+zone), and applies each once (614.5). When the order changes the outcome, the affected
+player chooses (616.1); a "you may" effect (`optional`) is asked too. A person is asked
+partway through the action, which is then applied again with their answer (`Game.replay`).
+`changesDamage`, `preventsDamage`, `entersTappedFor`, `skipDrawStep` and `skipsExtraTurn`
+are shorthand for common ones. A card's own way of entering stays `entersTapped`,
+`entersWith` or `replaceEnter`.
+
 **Other static hooks**
 
 `forbids` ("can't cast"/"can't activate"), `grantsFlash`, `uncounterable`,
-`protectsSpell`, `ward`, `grantsWard`, `grantsEscape`, `skipDrawStep`, `delayedIf`.
+`protectsSpell`, `ward`, `grantsWard`, `grantsEscape`, `delayedIf`.
 
 **Effect helpers**
 
