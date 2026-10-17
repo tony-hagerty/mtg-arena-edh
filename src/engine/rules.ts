@@ -2071,10 +2071,12 @@ export function trigger<H extends TriggerHook>(g: Game, source: Card, hook: H, e
   const given = grantedTo(g, source)
     .filter((x) => x.grant.hook === hook)
     .map((x) => ({ t: x.grant.trigger as Trigger<object>, extra: { granted: { from: x.from, index: x.index } } }));
+  const abilities = [...own, ...given];
+  if (!abilities.length) return;
   // Each of a card's abilities for this event triggers on its own (603.2), in printed order,
   // and once more for each effect like Roaming Throne's (603.2d).
-  const times = 1 + (lookBack ?? battlefield(g)).filter((x) => scriptFor(x).doublesTriggers?.(g, x, source)).length;
-  for (const { t, extra } of [...own, ...given]) {
+  const times = 1 + triggerSources(g).doublers.filter((x) => scriptFor(x).doublesTriggers!(g, x, source)).length;
+  for (const { t, extra } of abilities) {
     if (typeof t !== 'function' && t.when && !t.when(g, { self: source, ...event })) continue;
     const remembered = Object.fromEntries(Object.entries(event).map(([k, v]) => [k, isCard(v) ? snapshot(v) : v]));
     for (let k = 0; k < times; k++) {
@@ -2090,6 +2092,21 @@ export function trigger<H extends TriggerHook>(g: Game, source: Card, hook: H, e
  */
 let lookBack: Card[] | null = null;
 
+/** The permanents that give other permanents triggered abilities (`grants`) or double them (`doublesTriggers`). */
+interface TriggerSources {
+  lookBack: Card[] | null;
+  granters: Card[];
+  doublers: Card[];
+}
+/** Those permanents while `broadcast` offers an event around, found once for every permanent it offers it to. */
+let offering: TriggerSources | null = null;
+
+function triggerSources(g: Game): TriggerSources {
+  if (offering && offering.lookBack === lookBack) return offering;
+  const field = lookBack ?? battlefield(g);
+  return { lookBack, granters: field.filter((x) => scriptFor(x).grants?.length), doublers: field.filter((x) => scriptFor(x).doublesTriggers) };
+}
+
 /** The triggered abilities other cards give `c` now: from resolved effects (`LayerParts.grant`), and from permanents on the battlefield. */
 function grantedTo(g: Game, c: Card): { grant: GrantedTrigger; from: string; index: number }[] {
   const out: { grant: GrantedTrigger; from: string; index: number }[] = [];
@@ -2098,8 +2115,8 @@ function grantedTo(g: Game, c: Card): { grant: GrantedTrigger; from: string; ind
     const grant = scriptOf(m.from).grants?.[m.index];
     if (grant) out.push({ grant, from: m.from, index: m.index });
   }
-  for (const src of lookBack ?? battlefield(g)) {
-    (scriptFor(src).grants ?? []).forEach((grant, index) => {
+  for (const src of triggerSources(g).granters) {
+    scriptFor(src).grants!.forEach((grant, index) => {
       if (grant.applies?.(g, src, c)) out.push({ grant, from: scriptName(src), index });
     });
   }
@@ -2142,9 +2159,18 @@ export function triggerText(item: StackItem): string | undefined {
 /** Offers an event to every permanent on the battlefield, and to cards with abilities that work from a graveyard. */
 export function broadcast<H extends BroadcastHook>(g: Game, hook: H, event: TriggerEvents[H]) {
   // Triggering only puts abilities in `Game.triggers`, which no characteristic depends on.
+  // Nor do the permanents that give or double them change, so they are found once (`offering`).
   settled(g, () => {
-    for (const c of battlefield(g)) trigger(g, c, hook, event);
-    for (const p of g.players) for (const c of p.graveyard) if (scriptFor(c).fromGraveyard?.includes(hook)) trigger(g, c, hook, event);
+    const was = offering;
+    // Found afresh, not taken from an event already being offered around.
+    offering = null;
+    offering = triggerSources(g);
+    try {
+      for (const c of battlefield(g)) trigger(g, c, hook, event);
+      for (const p of g.players) for (const c of p.graveyard) if (scriptFor(c).fromGraveyard?.includes(hook)) trigger(g, c, hook, event);
+    } finally {
+      offering = was;
+    }
   });
 }
 
