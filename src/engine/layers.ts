@@ -313,7 +313,7 @@ function entries(g: Game, c: Card, temporary: boolean): Entry[] {
     answerOf(source, 0, 0);
     const ts = Math.max(src.ts, src.copyTs ?? -Infinity);
     source.answer.forEach((_, i) => {
-      if (!without.some((x) => x.id === src.id && x.i === i)) out.push({ ts, seq: seq++, source, i });
+      if (!without.length || !without.some((x) => x.id === src.id && x.i === i)) out.push({ ts, seq: seq++, source, i });
     });
   }
   return out.sort((a, b) => (a.cda === b.cda ? 0 : a.cda ? -1 : 1) || a.ts - b.ts || a.seq - b.seq);
@@ -442,11 +442,12 @@ function layers(g: Game, c: Card, upTo: Layer, temporary: boolean): { chars: Cha
   let clean = false;
   try {
     const all = entries(g, c, temporary);
+    // Characteristic-defining abilities first (613.3, 613.4a), each group in its own order:
+    // one can depend only on another of its kind (613.8a). They sort first.
+    const n = all.findIndex((e) => !e.cda);
+    const groups = n <= 0 ? [all] : [all.slice(0, n), all.slice(n)];
     for (const l of LAYERS) {
-      // Characteristic-defining abilities first (613.3, 613.4a), each group in its own order:
-      // one can depend only on another of its kind (613.8a).
-      applyLayer(g, c, w, l, all.filter((e) => e.cda), temporary);
-      applyLayer(g, c, w, l, all.filter((e) => !e.cda), temporary);
+      for (const group of groups) applyLayer(g, c, w, l, group, temporary);
       if (l === upTo) break;
     }
   } finally {
