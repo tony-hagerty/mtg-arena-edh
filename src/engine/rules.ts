@@ -189,17 +189,29 @@ const listOf = <T>(x: T | T[] | undefined): T[] => (Array.isArray(x) ? x : x ? [
 /** The cards whose activated abilities permanent `c` has from effects (613.1f), like Agatha's Soul Cauldron's. */
 const lenders = (g: Game, c: Card): string[] => (c.zone === 'battlefield' ? characteristics(g, c, '6').activatedOf : []);
 
-/** `c`'s activated abilities, in printed order (602), then any it has from other cards (`LayerParts.activatedOf`). */
+/** The activated abilities a copy effect gave `c` as exceptions (707.9a), like Likeness Looter's "this ability". */
+const copyExtras = (c: Card) => (c.zone === 'battlefield' ? (c.copy?.activated ?? []) : []);
+
+/**
+ * `c`'s activated abilities, in printed order (602), then any its copy effect added (707.9a),
+ * then any it has from other cards (`LayerParts.activatedOf`).
+ */
 export function activatedAbilities(g: Game, c: Card): ActivatedAbility[] {
   const own = listOf(scriptFor(c).activated);
+  const extra = copyExtras(c).flatMap((a) => listOf(scriptOf(a.from).activated).slice(a.index, a.index + 1));
   const lent = lenders(g, c);
-  return lent.length ? [...own, ...lent.flatMap((name) => listOf(scriptOf(name).activated))] : own;
+  return extra.length || lent.length ? [...own, ...extra, ...lent.flatMap((name) => listOf(scriptOf(name).activated))] : own;
 }
 
-/** The card whose script `c`'s activated ability `i` comes from, if another card gives it that ability (Agatha's Soul Cauldron). */
+/**
+ * The card whose script `c`'s activated ability `i` comes from, if it isn't `c`'s own: a copy
+ * effect's exception (707.9a, Likeness Looter) or another card that gives it the ability
+ * (Agatha's Soul Cauldron).
+ */
 export function borrowedFrom(g: Game, c: Card, i = 0): string | undefined {
   let n = listOf(scriptFor(c).activated).length;
   if (i < n) return undefined;
+  for (const a of copyExtras(c)) if (i < ++n) return a.from;
   for (const name of lenders(g, c)) {
     n += listOf(scriptOf(name).activated).length;
     if (i < n) return name;
@@ -534,7 +546,7 @@ export function altCostsOf(g: Game, c: Card, face = 0, pid = c.owner): number[] 
 /** Does permanent `c` fit what `spec` describes (its type and filter), ignoring targeting? */
 export function fitsSpec(g: Game, c: Card, spec: TargetSpec, source: Card): boolean {
   if (spec.type === 'creature' && !isCreature(g, c)) return false;
-  return spec.filter?.(g, c, source) ?? true;
+  return spec.filter?.(g, c, source, 0) ?? true;
 }
 
 /** Is `c` the card a resolving spell or ability lets its player cast now (608.2g)? */
@@ -1512,11 +1524,12 @@ export function devotion(g: Game, pid: PlayerId, color: Color): number {
 
 // ---------- targeting ----------
 
-export function legalTargets(g: Game, pid: PlayerId, spec: TargetSpec, source: Card): TargetRef[] {
-  return settled(g, () => findTargets(g, pid, spec, source));
+/** What `pid` could choose for target `spec` of `source`. `x`: the X announced for the activated ability choosing it (107.3a), which `spec.filter` may read. */
+export function legalTargets(g: Game, pid: PlayerId, spec: TargetSpec, source: Card, x = 0): TargetRef[] {
+  return settled(g, () => findTargets(g, pid, spec, source, x));
 }
 
-function findTargets(g: Game, pid: PlayerId, spec: TargetSpec, source: Card): TargetRef[] {
+function findTargets(g: Game, pid: PlayerId, spec: TargetSpec, source: Card, x: number): TargetRef[] {
   const out: TargetRef[] = [];
   if (spec.type === 'spell' || spec.type === 'ability' || spec.type === 'spell or ability') {
     // A spell or ability on the stack. One can't target itself (115.5).
@@ -1524,7 +1537,7 @@ function findTargets(g: Game, pid: PlayerId, spec: TargetSpec, source: Card): Ta
       if (item.card.id === source.id && item.kind === 'spell') continue;
       if (spec.type !== 'spell or ability' && (item.kind === 'spell') !== (spec.type === 'spell')) continue;
       if (spec.who && spec.who !== 'any' && (spec.who === 'you') !== (item.controller === pid)) continue;
-      if (spec.filter && !spec.filter(g, item.card, source)) continue;
+      if (spec.filter && !spec.filter(g, item.card, source, x)) continue;
       if (spec.item && !spec.item(g, item, source)) continue;
       out.push({ kind: 'stack', id: item.id });
     }
@@ -1536,7 +1549,7 @@ function findTargets(g: Game, pid: PlayerId, spec: TargetSpec, source: Card): Ta
     // A card in a graveyard: `who` is whose graveyard. Hexproof doesn't matter there (702.11a).
     for (const p of living(g)) {
       if (!whoOk(p.id)) continue;
-      for (const c of p.graveyard) if (!spec.filter || spec.filter(g, c, source)) out.push({ kind: 'card', id: c.id });
+      for (const c of p.graveyard) if (!spec.filter || spec.filter(g, c, source, x)) out.push({ kind: 'card', id: c.id });
     }
     return out;
   }
@@ -1565,7 +1578,7 @@ function findTargets(g: Game, pid: PlayerId, spec: TargetSpec, source: Card): Ta
       if (c.controller !== pid && has(g, c, 'hexproof')) continue;
       // Shroud (702.18a), and protection from what the spell or the ability's source is (702.16b).
       if (has(g, c, 'shroud') || protectedFrom(g, c, source)) continue;
-      if (spec.filter && !spec.filter(g, c, source)) continue;
+      if (spec.filter && !spec.filter(g, c, source, x)) continue;
       out.push({ kind: 'card', id: c.id });
     }
   }
@@ -1890,6 +1903,7 @@ export function moveCard(g: Game, c: Card, to: Zone) {
   if (to !== 'battlefield') c.controller = c.owner;
   c.gained = [];
   c.copy = null;
+  delete c.copyTs;
   c.faceDown = false;
   c.known = [];
   c.chosen = null;
@@ -2476,16 +2490,21 @@ export function finishEnter(g: Game, c: Card, data: Record<string, unknown>, ext
 }
 
 /**
- * What a copy of `c` copies (707.2), with the exceptions `subtypes`, `keywords` and a base
- * power and toughness (707.9b). A copy of a copy copies what that copies, exceptions
+ * What a copy of `c` copies (707.2), with the exceptions `subtypes`, `keywords`, `activated`
+ * abilities (707.9a) and a base power and toughness (707.9b). A copy of a copy copies what that copies, exceptions
  * included (707.3).
  */
-export function copyOf(c: Card, extra: { subtypes?: string[]; keywords?: string[]; power?: number; toughness?: number } = {}): CopyInfo {
-  const base = c.copy ?? { name: c.name, face: c.zone === 'battlefield' ? c.face : 0, subtypes: [], keywords: [] };
+export function copyOf(
+  c: Card,
+  extra: { subtypes?: string[]; keywords?: string[]; activated?: CopyInfo['activated']; power?: number; toughness?: number } = {},
+): CopyInfo {
+  const base: CopyInfo = c.copy ?? { name: c.name, face: c.zone === 'battlefield' ? c.face : 0, subtypes: [], keywords: [] };
+  const activated = [...(base.activated ?? []), ...(extra.activated ?? [])];
   return {
     ...base,
     subtypes: [...base.subtypes, ...(extra.subtypes ?? [])],
     keywords: [...base.keywords, ...(extra.keywords ?? [])],
+    ...(activated.length ? { activated } : {}),
     ...(extra.power !== undefined ? { power: extra.power } : {}),
     ...(extra.toughness !== undefined ? { toughness: extra.toughness } : {}),
   };
@@ -2497,6 +2516,25 @@ export function tokenCopy(g: Game, pid: PlayerId, c: Card, extra: Parameters<typ
   const [made] = createToken(g, pid, c.copy?.name ?? c.name, 1, { copy: copyOf(c, extra) });
   if (made) log(g, `${says(g.players[pid], 'creates')} a token copy of ${label(c)}.`, pid, [made]);
   return made;
+}
+
+/**
+ * Permanent `c` becomes a copy of something while it stays on the battlefield (707.4), like
+ * Likeness Looter: `copy` replaces every copiable value it had, printed or from an earlier
+ * copy effect (707.2, 613.2a). The copy effect gets its timestamp now (613.7b); the permanent
+ * keeps its own. It doesn't enter or leave, so nothing triggers on that, and its status,
+ * counters and the other effects on it stay (707.4, 110.5). Its abilities are new ones,
+ * linked only to one another (707.7): cards exiled with its old abilities and choices made
+ * for them aren't theirs (607.2a, 607.2d).
+ */
+export function becomeCopy(g: Game, c: Card, copy: CopyInfo) {
+  if (c.zone !== 'battlefield') return;
+  const before = label(c);
+  c.copy = copy;
+  c.copyTs = g.nextId++;
+  c.linked = [];
+  c.chosen = null;
+  log(g, `${before} becomes a copy of ${label(c)}.`, c.controller, [c]);
 }
 
 /**
@@ -2940,7 +2978,7 @@ export function canEnchant(g: Game, aura: Card, host: Card | undefined): boolean
   if (spec.who === 'you' && host.controller !== aura.controller) return false;
   if (spec.who === 'opponent' && host.controller === aura.controller) return false;
   if (protectedFrom(g, host, aura)) return false; // 702.16c
-  return spec.filter?.(g, host, aura) ?? true;
+  return spec.filter?.(g, host, aura, 0) ?? true;
 }
 
 /** Can Equipment `eq` stay attached to `host`? Only to a creature on the battlefield, and not itself (301.5c). */
