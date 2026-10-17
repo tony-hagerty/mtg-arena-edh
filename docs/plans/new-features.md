@@ -15,7 +15,7 @@ The same as in `commander-decks.md`, plus one:
 - Cite rule numbers from `docs/rules/` in comments (see `CLAUDE.md`).
 - Script cards from their exact Oracle text, clause by clause (`docs/card-scripting.md`).
 - Bots must use each new feature (`src/engine/ai.ts`), or at least not break on it.
-- Add tests in `tests/engine.test.ts`. Keep `tests/simulation.test.ts` passing.
+- Add tests in `tests/engine.test.ts`. Keep the bot games in `tests/simulation/` passing.
 - Finish with `npm test` and `npm run build` passing, and update `README.md`
   ("What works", "Known simplifications", "Adding a card").
 - Ask the user before committing.

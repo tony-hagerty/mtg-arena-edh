@@ -12,7 +12,6 @@ import {
   counterCount,
   createToken,
   damagePlayer,
-  data,
   destroyMany,
   didThisTurn,
   dieMany,
@@ -58,6 +57,7 @@ import {
   subtypesOf,
   their,
   turnOrder,
+  colorsOf,
 } from '../engine/rules';
 import { cardWant, threat } from '../engine/ai';
 import type { Action, Card, CardScript, Color, Game, GrantedTrigger, PlayerId, TargetSpec, Trigger, TriggerEvents, TriggerHook } from '../engine/types';
@@ -147,10 +147,10 @@ const protectThen: NonNullable<CardScript['then']> = {
  */
 function protectionColor(g: Game, pid: PlayerId): Action {
   const top = [...g.stack].reverse().find((x) => x.controller !== pid);
-  const fromStack = top ? data(top.card).colors[0] : undefined;
+  const fromStack = top ? colorsOf(g, top.card)[0] : undefined;
   if (fromStack) return { type: 'name', name: fromStack };
   const counts = new Map<Color, number>();
-  for (const o of opponentsOf(g, pid)) for (const c of o.battlefield) for (const x of data(c).colors) counts.set(x, (counts.get(x) ?? 0) + 1);
+  for (const o of opponentsOf(g, pid)) for (const c of o.battlefield) for (const x of colorsOf(g, c)) counts.set(x, (counts.get(x) ?? 0) + 1);
   const best = [...counts].sort((a, b) => b[1] - a[1])[0]?.[0];
   return { type: 'name', name: best ?? 'B' };
 }

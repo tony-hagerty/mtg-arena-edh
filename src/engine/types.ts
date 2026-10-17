@@ -16,6 +16,26 @@ export interface Mana {
   types?: string[];
   /** "... and that spell can't be countered" (106.6): the spell it is spent on can't be countered. */
   uncounterable?: boolean;
+  /** Made by a mana ability used by hand that can be taken back: what taking it back undoes (`canUntapMana`). */
+  undo?: ManaUndo;
+  /** Left over from paying the mana cost of this permanent's mana ability by hand: taking that back takes this too. */
+  along?: string;
+}
+/**
+ * How to take back a mana ability a player used by hand. Only one that changed nothing but
+ * which permanents are tapped and what is in the pool gets one.
+ */
+export interface ManaUndo {
+  /** How much mana it made. */
+  made: number;
+  /** Every permanent it tapped: the source, a creature tapped for its cost (Relic of Legends), and sources tapped to pay its mana cost. */
+  tapped: string[];
+  /** Mana spent from the pool to pay its mana cost (a Signet's {1}), to put back. */
+  spent: Mana[];
+  /** How much mana was left over in the pool from paying that cost (marked `along`). */
+  left: number;
+  /** The creature tapped for its cost instead of {T} (Relic of Legends): clicking it takes the mana back. */
+  creature?: string;
 }
 export type PlayerId = number;
 /** A player's own zones. The stack is shared, so it lives on `Game` instead (405). */
@@ -168,6 +188,8 @@ export interface CastInfo {
   alt?: number;
   /** Cast for its dash cost (702.109a). */
   dash?: boolean;
+  /** Cast for its impending cost (702.176a): "this permanent's impending cost was paid". */
+  impending?: boolean;
   /** Cast with escape (702.138b). */
   escaped?: boolean;
   /** Cast without paying its mana cost (Beseech the Mirror). */
@@ -323,8 +345,19 @@ export interface Card {
   gained: PlayerId[];
   /** How many times it has changed zones. Each zone change makes a new object (400.7). */
   moves: number;
-  /** What this permanent entered as a copy of (707), or null. */
+  /**
+   * What this permanent is a copy of (707), or null: the copy effect it entered with (707.5),
+   * or the one it became a copy with on the battlefield (707.4). Each copy effect overwrites
+   * every copiable value (707.2), and none has a duration, so the latest is all of layer 1
+   * (613.2a): an earlier one can't apply again.
+   */
   copy: CopyInfo | null;
+  /**
+   * The timestamp of the copy effect it became a copy with on the battlefield (613.7b, 707.4).
+   * Static abilities it has from that effect take this one if it is later than its own
+   * (613.7a). Unset for a permanent that entered as a copy: that effect began as it entered.
+   */
+  copyTs?: number;
   /** Exiled face down (406.3): nobody may look at it but the players in `known`. */
   faceDown: boolean;
   /** Players who may look at it while it is face down in exile (406.3). */
@@ -352,13 +385,20 @@ export interface Card {
 
 /**
  * A copy effect (707): the copiable values of card `name` with face `face` up, plus the
- * exceptions the copy effect adds (707.9b): extra subtypes and keywords.
+ * exceptions the copy effect adds, which become copiable values too (707.9a-b): extra
+ * subtypes, keywords and activated abilities.
  */
 export interface CopyInfo {
   name: string;
   face: number;
   subtypes: string[];
   keywords: string[];
+  /**
+   * Activated abilities the copy has besides the copied card's (707.9a): ability `index` of
+   * card `from`'s script, in that order after its own. Likeness Looter's "except it has ...
+   * this ability".
+   */
+  activated?: { from: string; index: number }[];
   /** A base power and toughness the copy effect sets (707.9b): offspring's 1/1, Saw in Half's halves. */
   power?: number;
   toughness?: number;
@@ -1001,12 +1041,13 @@ export type Action =
   | { type: 'activate'; card: string; ability?: number; activated?: number; x?: number; targets?: (TargetRef | null)[]; hold?: boolean; crew?: string[]; discard?: string[]; sacrifice?: string[]; exile?: string[]; graveyard?: string[] }
   /**
    * `ability`: which of its mana abilities (`manaAbilities`). Left out, the one that suits
-   * the player best. `color`: the colour to make, for an ability with a choice.
+   * the player best. `color`: the colour to make, for an ability with a choice. `mana`: the
+   * exact mana to make, one of the ability's choices (a filter land's {U}{B}); it wins over `color`.
    */
   /** `tap`: the creature tapped to pay an ability's "Tap an untapped creature you control" cost (Relic of Legends). */
   /** `discard`: the card discarded to pay a "Discard a card" cost (Skirge Familiar). */
   /** `sacrifice`: the creature sacrificed to pay a "Sacrifice a creature" cost (Phyrexian Tower). */
-  | { type: 'tapMana'; card: string; ability?: number; color?: ManaSym; tap?: string; discard?: string; sacrifice?: string }
+  | { type: 'tapMana'; card: string; ability?: number; color?: ManaSym; mana?: ManaSym[]; tap?: string; discard?: string; sacrifice?: string }
   | { type: 'untapMana'; card: string }
   /** `target`: a planeswalker or battle to attack instead of the player; `defender` is then its controller or protector (508.1b). */
   | { type: 'declareAttack'; card: string; defender: PlayerId; target?: string }
@@ -1062,7 +1103,12 @@ export interface TargetSpec {
     /** A card in a graveyard (Sevinne's Reclamation). */
     | 'graveyard card';
   who?: 'you' | 'opponent' | 'any'; // whose permanent / which player
-  filter?: (g: Game, c: Card, source: Card) => boolean;
+  /**
+   * `x`: the X announced for the activated ability choosing the target (107.3a, 601.2b-c via
+   * 602.2b), 0 for one without X, as in "target creature card with mana value X". A spell's
+   * X is `source.cast.x`.
+   */
+  filter?: (g: Game, c: Card, source: Card, x: number) => boolean;
   /** For a spell or ability on the stack: whether `item` fits, like "with a single target" or "instant spell". */
   item?: (g: Game, item: StackItem, source: Card) => boolean;
   optional?: boolean; // "you may" / "up to one"
@@ -1464,6 +1510,8 @@ export interface CardScript extends Triggers {
     evoke?: boolean;
     /** Warp (702.185a): only from the hand; the permanent is exiled at the next end step. */
     warp?: boolean;
+    /** Impending N (702.176a): the permanent enters with N time counters and isn't a creature while it has one. See `impending`. */
+    impending?: number;
   }[];
   /**
    * While this permanent is on the battlefield: a replacement effect that changes how much

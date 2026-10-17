@@ -17,8 +17,13 @@ import {
   nameCard,
   refGraveyard,
   CANT_BLOCK,
+  abilitySource,
   addCounters,
   allCreatures,
+  becomeCopy,
+  copyOf,
+  manaValue,
+  pickCards,
   attachedBonus,
   crew,
   equip,
@@ -419,6 +424,45 @@ registerScripts({
       destroy(g, refCard(g, targets[0]));
       createToken(g, you, 'Food');
     },
+  },
+
+  // ---------- copy effects on the battlefield (707.4) ----------
+  'Likeness Looter': {
+    activated: [
+      // "{T}: Draw a card, then discard a card."
+      {
+        cost: { tap: true },
+        text: 'Draw a card, then discard a card',
+        resolve: (g, { you }) => {
+          draw(g, you);
+          const hand = g.players[you].hand;
+          if (hand.length) pickCards(g, you, hand, { min: 1, max: 1, text: 'discard a card', button: 'Discard', then: '@discard' });
+        },
+      },
+      // "{X}: This creature becomes a copy of target creature card in your graveyard with mana
+      // value X, except it has flying and this ability. Activate only as a sorcery." The
+      // exceptions are part of what it copies (707.9a), so a copy of it has them too.
+      {
+        cost: { mana: '{X}' },
+        sorcery: true,
+        targets: [
+          {
+            type: 'graveyard card',
+            who: 'you',
+            label: 'target creature card in your graveyard with mana value X',
+            filter: (g, c, _self, x) => !c.isToken && hasType(g, c, 'Creature') && manaValue(c) === x,
+          },
+        ],
+        text: 'Become a copy of a creature card in your graveyard with mana value X',
+        resolve: (g, { targets }) => {
+          // "This creature": the permanent the ability came from, if it is still the same object (400.7).
+          const it = abilitySource(g);
+          const card = refGraveyard(g, targets[0]);
+          if (!it || !card) return;
+          becomeCopy(g, it, copyOf(card, { keywords: ['Flying'], activated: [{ from: 'Likeness Looter', index: 1 }] }));
+        },
+      },
+    ],
   },
 
   // ---------- auto-pay ----------

@@ -2,7 +2,7 @@
 // Immer draft of one; turn structure and action handling live in engine.ts.
 import { cardData } from '../cards/db';
 import { scriptOf } from './registry';
-import { characteristics, settled } from './layers';
+import { characteristics, settled, typesOf } from './layers';
 import { replace, whileArriving } from './replace';
 import type {
   ActivatedAbility,
@@ -24,6 +24,7 @@ import type {
   Game,
   GrantedTrigger,
   Mana,
+  ManaUndo,
   ManaSym,
   Player,
   PlayerId,
@@ -117,10 +118,13 @@ export const SUPPORTED_KEYWORDS = [
   'persist',
   'harness',
   // Offspring (702.175) and spectacle (702.137) by the engine with the card's script;
-  // changeling (702.73) by `subtypesOf`.
+  // changeling (702.73) and devoid (702.114) by the layer system; impending (702.176) by the
+  // engine with the card's script (`impending`).
   'offspring',
   'spectacle',
   'changeling',
+  'devoid',
+  'impending',
 ];
 
 // ---------- card queries ----------
@@ -186,17 +190,29 @@ const listOf = <T>(x: T | T[] | undefined): T[] => (Array.isArray(x) ? x : x ? [
 /** The cards whose activated abilities permanent `c` has from effects (613.1f), like Agatha's Soul Cauldron's. */
 const lenders = (g: Game, c: Card): string[] => (c.zone === 'battlefield' ? characteristics(g, c, '6').activatedOf : []);
 
-/** `c`'s activated abilities, in printed order (602), then any it has from other cards (`LayerParts.activatedOf`). */
+/** The activated abilities a copy effect gave `c` as exceptions (707.9a), like Likeness Looter's "this ability". */
+const copyExtras = (c: Card) => (c.zone === 'battlefield' ? (c.copy?.activated ?? []) : []);
+
+/**
+ * `c`'s activated abilities, in printed order (602), then any its copy effect added (707.9a),
+ * then any it has from other cards (`LayerParts.activatedOf`).
+ */
 export function activatedAbilities(g: Game, c: Card): ActivatedAbility[] {
   const own = listOf(scriptFor(c).activated);
+  const extra = copyExtras(c).flatMap((a) => listOf(scriptOf(a.from).activated).slice(a.index, a.index + 1));
   const lent = lenders(g, c);
-  return lent.length ? [...own, ...lent.flatMap((name) => listOf(scriptOf(name).activated))] : own;
+  return extra.length || lent.length ? [...own, ...extra, ...lent.flatMap((name) => listOf(scriptOf(name).activated))] : own;
 }
 
-/** The card whose script `c`'s activated ability `i` comes from, if another card gives it that ability (Agatha's Soul Cauldron). */
+/**
+ * The card whose script `c`'s activated ability `i` comes from, if it isn't `c`'s own: a copy
+ * effect's exception (707.9a, Likeness Looter) or another card that gives it the ability
+ * (Agatha's Soul Cauldron).
+ */
 export function borrowedFrom(g: Game, c: Card, i = 0): string | undefined {
   let n = listOf(scriptFor(c).activated).length;
   if (i < n) return undefined;
+  for (const a of copyExtras(c)) if (i < ++n) return a.from;
   for (const name of lenders(g, c)) {
     n += listOf(scriptOf(name).activated).length;
     if (i < n) return name;
@@ -217,10 +233,17 @@ export const facesOf = (c: Card): number[] => (cardData(c.name).faces ?? [cardDa
 export const layoutOf = (c: Card) => cardData(c.name).layout;
 /** Display name (token keys like "Beast 3/3" differ from the printed name). */
 export const label = (c: Card) => data(c).name;
-/** Does `c` have this card type, supertype or subtype now (205), every effect applied (613.1d)? */
-export const hasType = (g: Game, c: Card, t: string) => characteristics(g, c, '4').typeLine.includes(t);
-/** Its subtypes now (205.3): the words after the dash in its type line. */
-export const subtypesOf = (g: Game, c: Card) => characteristics(g, c, '4').typeLine.split(' — ')[1]?.split(' ') ?? [];
+/**
+ * Does `c` have this card type, supertype or subtype now (205), every effect applied
+ * (613.1d)? A whole type, not part of one: a Pirate isn't a Rat. Several words, like
+ * "Basic Land", ask for each of them, except a two-word creature type like Time Lord.
+ */
+export function hasType(g: Game, c: Card, t: string): boolean {
+  const { all } = typesOf(characteristics(g, c, '4').typeLine);
+  return all.has(t) || (t.includes(' ') && t.split(' ').every((x) => all.has(x)));
+}
+/** Its subtypes now (205.3): the words after the dash in its type line, Time Lord being one (205.3b). */
+export const subtypesOf = (g: Game, c: Card): readonly string[] => typesOf(characteristics(g, c, '4').typeLine).subtypes;
 /**
  * Is it a creature now? Printed as one, or made one by an effect, like a crewed Vehicle
  * (702.122a). An Equipment with reconfigure isn't one while it is attached (702.151b).
@@ -525,7 +548,7 @@ export function altCostsOf(g: Game, c: Card, face = 0, pid = c.owner): number[] 
 /** Does permanent `c` fit what `spec` describes (its type and filter), ignoring targeting? */
 export function fitsSpec(g: Game, c: Card, spec: TargetSpec, source: Card): boolean {
   if (spec.type === 'creature' && !isCreature(g, c)) return false;
-  return spec.filter?.(g, c, source) ?? true;
+  return spec.filter?.(g, c, source, 0) ?? true;
 }
 
 /** Is `c` the card a resolving spell or ability lets its player cast now (608.2g)? */
@@ -967,33 +990,57 @@ function useManaAbility(g: Game, pid: PlayerId, c: Card, ab: ManaUse, tapId?: st
   if (ab.sacrifice) dieMany(g, [c], 'is sacrificed');
 }
 
+/** Is `mana` one of the lists of mana this ability can add (in any order)? */
+export const canProduce = (ab: ManaUse, mana: ManaSym[]) =>
+  produceOptions(ab).some((o) => o.length === mana.length && [...o].sort().join() === [...mana].sort().join());
+
 /**
  * Uses a mana ability by hand. A Treasure is sacrificed too (111.10a): that can't be undone.
- * `color`: the colour to make, if the ability has a choice; left out, one is picked.
+ * `mana`: the exact mana to make, one of its choices; else `color`: a choice with that
+ * colour; left out, one is picked.
  */
-export function tapForMana(g: Game, pid: PlayerId, c: Card, ability = pickManaAbility(g, pid, c), color?: ManaSym, tapId?: string, discardId?: string, sacrificeId?: string) {
+export function tapForMana(g: Game, pid: PlayerId, c: Card, ability = pickManaAbility(g, pid, c), color?: ManaSym, tapId?: string, discardId?: string, sacrificeId?: string, mana?: ManaSym[]) {
   const ab = manaAbilities(g, c).find((m) => m.index === ability);
   if (!ab) return;
-  if (ab.cost) {
-    // Its mana cost is paid first, from the pool or other sources (602.2b, 601.2g-h).
-    if (!pay(g, pid, parseCost(ab.cost), undefined, [c.id])) return;
-    const made = pickProduce(g, pid, ab, color);
-    for (const sym of made) g.players[pid].pool.push({ sym, source: c.id, ability: ab.index });
-    useManaAbility(g, pid, c, ab);
-    return;
-  }
+  const p = g.players[pid];
+  const triggers = g.triggers.length;
+  const before = p.pool.slice();
+  let plan: Payment | null = null;
+  // Its mana cost is paid first, from the pool or other sources (602.2b, 601.2g-h).
+  if (ab.cost && !(plan = pay(g, pid, parseCost(ab.cost), undefined, [c.id]))) return;
   const sym = color && ab.colors.includes(color) ? color : ab.colors.length === 1 ? ab.colors[0] : pickColor(g, pid, ab.colors);
+  const made = mana && canProduce(ab, mana) ? mana : ab.produces ? pickProduce(g, pid, ab, color) : Array.from({ length: ab.amount }, () => sym);
   const only = ab.chosenType ? (c.chosen ?? undefined) : undefined;
-  for (let k = 0; k < ab.amount; k++)
-    g.players[pid].pool.push({
-      sym,
-      source: c.id,
-      ability: ab.index,
-      ...(only ? { only, uncounterable: ab.uncounterable } : {}),
-      ...(ab.legendary ? { legendary: true } : {}),
-      ...(ab.types ? { types: ab.types } : {}),
-    });
+  const added: Mana[] = made.map((sym) => ({ sym, source: c.id, ability: ab.index, ...(only ? { only, uncounterable: ab.uncounterable } : {}), ...(ab.legendary ? { legendary: true } : {}), ...(ab.types ? { types: ab.types } : {}) }));
+  const options = tapCandidates(g, pid, ab);
+  const creature = ab.tapCreature ? (options.find((x) => x.id === tapId) ?? options[0]) : undefined;
   useManaAbility(g, pid, c, ab, tapId, discardId, sacrificeId);
+  // It can be taken back if it changed nothing else: no life paid, no damage, nothing
+  // sacrificed, discarded or exiled, nothing triggered, and the same for the sources that
+  // paid its mana cost.
+  const used = (plan?.uses ?? []).map((u) => manaAbilities(g, permanent(g, u.id)!).find((m) => m.index === u.ability));
+  const clean = (m: ManaUse | undefined) => !!m && !m.life && !m.damage && !m.sacrifice && !m.sacrificeCreature && !m.discardHand && !m.discard && !m.fromHand;
+  if (clean(ab) && used.every(clean) && !plan?.life && g.triggers.length === triggers) {
+    const key = (m: Mana) => JSON.stringify(m);
+    const spent = without(before, plan ? plan.pool : before, key);
+    const left = without(plan ? plan.pool : before, before, key);
+    for (const m of p.pool) if (left.some((x) => key(x) === key(m))) m.along = c.id;
+    const tapped = [...new Set([...(ab.noTap ? [] : [c.id]), ...(creature ? [creature.id] : []), ...(plan?.tap ?? [])])];
+    const undo: ManaUndo = { made: added.length, tapped, spent, left: left.length, ...(creature ? { creature: creature.id } : {}) };
+    for (const m of added) m.undo = undo;
+  }
+  p.pool.push(...added);
+}
+
+/** The items of `a` left once each item of `b` is taken out of it once (matched by `key`). */
+function without<T>(a: T[], b: T[], key: (x: T) => string): T[] {
+  const rest = b.map(key);
+  return a.filter((x) => {
+    const i = rest.indexOf(key(x));
+    if (i < 0) return true;
+    rest.splice(i, 1);
+    return false;
+  });
 }
 
 /**
@@ -1007,21 +1054,43 @@ export function addMana(g: Game, pid: PlayerId, syms: ManaSym[], source: Card, o
 }
 
 /**
- * Tapping for mana can be undone while every mana it made is still unspent in the pool,
- * and it cost nothing but the tap.
+ * The mana ability used by hand that clicking `c` takes back: the one `c` made mana with
+ * while tapping itself, or the one `c` was tapped to pay for (Relic of Legends).
  */
-export function canUntapMana(g: Game, pid: PlayerId, c: Card): boolean {
-  if (c.controller !== pid || c.zone !== 'battlefield' || !c.tapped) return false;
-  const made = g.players[pid].pool.filter((x) => x.source === c.id);
-  const ab = made.length ? manaAbilities(g, c).find((m) => m.index === made[0].ability) : undefined;
-  if (!ab || ab.life || ab.damage || ab.sacrifice || ab.noTap || ab.discardHand || ab.discard || ab.sacrificeCreature || ab.cost || scriptFor(c).onTapped) return false;
-  return made.length === ab.amount;
+function undoOf(g: Game, pid: PlayerId, c: Card): { source: string; undo: ManaUndo } | null {
+  if (c.controller !== pid || c.zone !== 'battlefield' || !c.tapped) return null;
+  const m = g.players[pid].pool.find((x) => x.undo && (x.undo.creature === c.id || (x.source === c.id && x.undo.tapped.includes(c.id))));
+  return m ? { source: m.source, undo: m.undo! } : null;
 }
 
+/**
+ * Using a mana ability by hand can be taken back while all the mana it made, and any left
+ * over from paying its mana cost, is still unspent in the pool, and everything it tapped is
+ * still tapped. Not if it did anything else, like paying life, dealing damage, sacrificing,
+ * or triggering an ability (see `tapForMana`): that has happened and others may have seen it.
+ */
+export function canUntapMana(g: Game, pid: PlayerId, c: Card): boolean {
+  const found = undoOf(g, pid, c);
+  if (!found) return false;
+  const { source, undo } = found;
+  const pool = g.players[pid].pool;
+  const made = pool.filter((x) => x.source === source);
+  if (made.length !== undo.made || made.some((x) => !x.undo)) return false;
+  if (pool.filter((x) => x.along === source).length !== undo.left) return false;
+  return undo.tapped.every((id) => {
+    const x = permanent(g, id);
+    return !!x && x.tapped && x.controller === pid;
+  });
+}
+
+/** Takes back a mana ability used by hand: its mana leaves the pool, the mana its cost spent comes back, and what it tapped untaps. */
 export function untapMana(g: Game, pid: PlayerId, c: Card) {
+  const found = undoOf(g, pid, c);
+  if (!found) return;
+  const { source, undo } = found;
   const p = g.players[pid];
-  p.pool = p.pool.filter((x) => x.source !== c.id);
-  c.tapped = false;
+  p.pool = [...p.pool.filter((x) => x.source !== source && x.along !== source), ...undo.spent];
+  for (const id of undo.tapped) permanent(g, id)!.tapped = false;
 }
 
 /** Total mana the player could produce right now (for display). */
@@ -1308,7 +1377,7 @@ function costedSources(g: Game, pid: PlayerId): { c: Card; ab: ManaUse }[] {
 }
 
 /** The lists of mana an ability can add: its `produces`, or `amount` of each of its colours. */
-const produceOptions = (ab: ManaUse): ManaSym[][] => ab.produces ?? ab.colors.map((x) => Array.from({ length: ab.amount }, () => x));
+export const produceOptions = (ab: ManaUse): ManaSym[][] => ab.produces ?? ab.colors.map((x) => Array.from({ length: ab.amount }, () => x));
 
 /** Which of an ability's lists of mana a player makes by hand: one with `color` if given, else the one their cards want most. */
 function pickProduce(g: Game, pid: PlayerId, ab: ManaUse, color?: ManaSym): ManaSym[] {
@@ -1503,11 +1572,12 @@ export function devotion(g: Game, pid: PlayerId, color: Color): number {
 
 // ---------- targeting ----------
 
-export function legalTargets(g: Game, pid: PlayerId, spec: TargetSpec, source: Card): TargetRef[] {
-  return settled(g, () => findTargets(g, pid, spec, source));
+/** What `pid` could choose for target `spec` of `source`. `x`: the X announced for the activated ability choosing it (107.3a), which `spec.filter` may read. */
+export function legalTargets(g: Game, pid: PlayerId, spec: TargetSpec, source: Card, x = 0): TargetRef[] {
+  return settled(g, () => findTargets(g, pid, spec, source, x));
 }
 
-function findTargets(g: Game, pid: PlayerId, spec: TargetSpec, source: Card): TargetRef[] {
+function findTargets(g: Game, pid: PlayerId, spec: TargetSpec, source: Card, x: number): TargetRef[] {
   const out: TargetRef[] = [];
   if (spec.type === 'spell' || spec.type === 'ability' || spec.type === 'spell or ability') {
     // A spell or ability on the stack. One can't target itself (115.5).
@@ -1515,7 +1585,7 @@ function findTargets(g: Game, pid: PlayerId, spec: TargetSpec, source: Card): Ta
       if (item.card.id === source.id && item.kind === 'spell') continue;
       if (spec.type !== 'spell or ability' && (item.kind === 'spell') !== (spec.type === 'spell')) continue;
       if (spec.who && spec.who !== 'any' && (spec.who === 'you') !== (item.controller === pid)) continue;
-      if (spec.filter && !spec.filter(g, item.card, source)) continue;
+      if (spec.filter && !spec.filter(g, item.card, source, x)) continue;
       if (spec.item && !spec.item(g, item, source)) continue;
       out.push({ kind: 'stack', id: item.id });
     }
@@ -1527,7 +1597,7 @@ function findTargets(g: Game, pid: PlayerId, spec: TargetSpec, source: Card): Ta
     // A card in a graveyard: `who` is whose graveyard. Hexproof doesn't matter there (702.11a).
     for (const p of living(g)) {
       if (!whoOk(p.id)) continue;
-      for (const c of p.graveyard) if (!spec.filter || spec.filter(g, c, source)) out.push({ kind: 'card', id: c.id });
+      for (const c of p.graveyard) if (!spec.filter || spec.filter(g, c, source, x)) out.push({ kind: 'card', id: c.id });
     }
     return out;
   }
@@ -1556,7 +1626,7 @@ function findTargets(g: Game, pid: PlayerId, spec: TargetSpec, source: Card): Ta
       if (c.controller !== pid && has(g, c, 'hexproof')) continue;
       // Shroud (702.18a), and protection from what the spell or the ability's source is (702.16b).
       if (has(g, c, 'shroud') || protectedFrom(g, c, source)) continue;
-      if (spec.filter && !spec.filter(g, c, source)) continue;
+      if (spec.filter && !spec.filter(g, c, source, x)) continue;
       out.push({ kind: 'card', id: c.id });
     }
   }
@@ -1880,6 +1950,7 @@ export function moveCard(g: Game, c: Card, to: Zone) {
   if (to !== 'battlefield') c.controller = c.owner;
   c.gained = [];
   c.copy = null;
+  delete c.copyTs;
   c.faceDown = false;
   c.known = [];
   c.chosen = null;
@@ -2064,9 +2135,10 @@ export function trigger<H extends TriggerHook>(g: Game, source: Card, hook: H, e
     .map((x) => ({ t: x.grant.trigger as Trigger<object>, extra: { granted: { from: x.from, index: x.index } } }));
   // Each of a card's abilities for this event triggers on its own (603.2), in printed order,
   // and once more for each effect like Roaming Throne's (603.2d).
-  const times = 1 + (lookBack ?? battlefield(g)).filter((x) => scriptFor(x).doublesTriggers?.(g, x, source)).length;
+  let times = 0;
   for (const { t, extra } of [...own, ...given]) {
     if (typeof t !== 'function' && t.when && !t.when(g, { self: source, ...event })) continue;
+    times ||= 1 + (watchers ?? watchersNow(g)).doublers.filter((x) => scriptFor(x).doublesTriggers!(g, x, source)).length;
     const remembered = Object.fromEntries(Object.entries(event).map(([k, v]) => [k, isCard(v) ? snapshot(v) : v]));
     for (let k = 0; k < times; k++) {
       g.triggers.push({ id: `s${g.nextId++}`, kind: 'triggered', controller: source.controller, card: { ...snapshot(source), triggeredBy: remembered }, hook, ...extra, event: remembered, targets: [] });
@@ -2081,6 +2153,20 @@ export function trigger<H extends TriggerHook>(g: Game, source: Card, hook: H, e
  */
 let lookBack: Card[] | null = null;
 
+/** The permanents that give other cards triggered abilities, and those that make abilities trigger again (603.2d). */
+interface Watchers {
+  granters: Card[];
+  doublers: Card[];
+}
+
+/** While `broadcast` asks every permanent about one event: the `Watchers`, found once for all of them. */
+let watchers: Watchers | null = null;
+
+function watchersNow(g: Game): Watchers {
+  const all = lookBack ?? battlefield(g);
+  return { granters: all.filter((x) => scriptFor(x).grants?.length), doublers: all.filter((x) => scriptFor(x).doublesTriggers) };
+}
+
 /** The triggered abilities other cards give `c` now: from resolved effects (`LayerParts.grant`), and from permanents on the battlefield. */
 function grantedTo(g: Game, c: Card): { grant: GrantedTrigger; from: string; index: number }[] {
   const out: { grant: GrantedTrigger; from: string; index: number }[] = [];
@@ -2089,7 +2175,7 @@ function grantedTo(g: Game, c: Card): { grant: GrantedTrigger; from: string; ind
     const grant = scriptOf(m.from).grants?.[m.index];
     if (grant) out.push({ grant, from: m.from, index: m.index });
   }
-  for (const src of lookBack ?? battlefield(g)) {
+  for (const src of (watchers ?? watchersNow(g)).granters) {
     (scriptFor(src).grants ?? []).forEach((grant, index) => {
       if (grant.applies?.(g, src, c)) out.push({ grant, from: scriptName(src), index });
     });
@@ -2134,8 +2220,14 @@ export function triggerText(item: StackItem): string | undefined {
 export function broadcast<H extends BroadcastHook>(g: Game, hook: H, event: TriggerEvents[H]) {
   // Triggering only puts abilities in `Game.triggers`, which no characteristic depends on.
   settled(g, () => {
-    for (const c of battlefield(g)) trigger(g, c, hook, event);
-    for (const p of g.players) for (const c of p.graveyard) if (scriptFor(c).fromGraveyard?.includes(hook)) trigger(g, c, hook, event);
+    const outer = watchers;
+    watchers = watchersNow(g);
+    try {
+      for (const c of battlefield(g)) trigger(g, c, hook, event);
+      for (const p of g.players) for (const c of p.graveyard) if (scriptFor(c).fromGraveyard?.includes(hook)) trigger(g, c, hook, event);
+    } finally {
+      watchers = outer;
+    }
   });
 }
 
@@ -2201,6 +2293,8 @@ function setUp(g: Game, c: Card, opts: EnterOpts): Record<string, number> {
   }
   // Warp: "exile the permanent this spell becomes at the beginning of the next end step" (702.185a).
   const alt = c.cast?.alt !== undefined ? scriptFor(c, 'stack', c.face).alternativeCosts?.[c.cast.alt] : undefined;
+  // Impending: "If you chose to pay this permanent's impending cost, it enters with N time counters on it" (702.176a, 614.1c).
+  if (alt?.impending && c.cast?.impending) c.counters.time = (c.counters.time ?? 0) + alt.impending;
   if (alt?.warp) g.delayed.push({ id: `d${g.nextId++}`, controller: c.controller, card: snapshot(c), key: WARP, step: 'end', data: { id: c.id, moves: c.moves } });
   // Dash: "return the permanent this spell becomes to its owner's hand at the beginning of the next end step" (702.109a).
   if (c.cast?.dash) g.delayed.push({ id: `d${g.nextId++}`, controller: c.controller, card: snapshot(c), key: RETURN_TO_HAND, step: 'end', data: { id: c.id, moves: c.moves } });
@@ -2446,16 +2540,21 @@ export function finishEnter(g: Game, c: Card, data: Record<string, unknown>, ext
 }
 
 /**
- * What a copy of `c` copies (707.2), with the exceptions `subtypes`, `keywords` and a base
- * power and toughness (707.9b). A copy of a copy copies what that copies, exceptions
+ * What a copy of `c` copies (707.2), with the exceptions `subtypes`, `keywords`, `activated`
+ * abilities (707.9a) and a base power and toughness (707.9b). A copy of a copy copies what that copies, exceptions
  * included (707.3).
  */
-export function copyOf(c: Card, extra: { subtypes?: string[]; keywords?: string[]; power?: number; toughness?: number } = {}): CopyInfo {
-  const base = c.copy ?? { name: c.name, face: c.zone === 'battlefield' ? c.face : 0, subtypes: [], keywords: [] };
+export function copyOf(
+  c: Card,
+  extra: { subtypes?: string[]; keywords?: string[]; activated?: CopyInfo['activated']; power?: number; toughness?: number } = {},
+): CopyInfo {
+  const base: CopyInfo = c.copy ?? { name: c.name, face: c.zone === 'battlefield' ? c.face : 0, subtypes: [], keywords: [] };
+  const activated = [...(base.activated ?? []), ...(extra.activated ?? [])];
   return {
     ...base,
     subtypes: [...base.subtypes, ...(extra.subtypes ?? [])],
     keywords: [...base.keywords, ...(extra.keywords ?? [])],
+    ...(activated.length ? { activated } : {}),
     ...(extra.power !== undefined ? { power: extra.power } : {}),
     ...(extra.toughness !== undefined ? { toughness: extra.toughness } : {}),
   };
@@ -2467,6 +2566,25 @@ export function tokenCopy(g: Game, pid: PlayerId, c: Card, extra: Parameters<typ
   const [made] = createToken(g, pid, c.copy?.name ?? c.name, 1, { copy: copyOf(c, extra) });
   if (made) log(g, `${says(g.players[pid], 'creates')} a token copy of ${label(c)}.`, pid, [made]);
   return made;
+}
+
+/**
+ * Permanent `c` becomes a copy of something while it stays on the battlefield (707.4), like
+ * Likeness Looter: `copy` replaces every copiable value it had, printed or from an earlier
+ * copy effect (707.2, 613.2a). The copy effect gets its timestamp now (613.7b); the permanent
+ * keeps its own. It doesn't enter or leave, so nothing triggers on that, and its status,
+ * counters and the other effects on it stay (707.4, 110.5). Its abilities are new ones,
+ * linked only to one another (707.7): cards exiled with its old abilities and choices made
+ * for them aren't theirs (607.2a, 607.2d).
+ */
+export function becomeCopy(g: Game, c: Card, copy: CopyInfo) {
+  if (c.zone !== 'battlefield') return;
+  const before = label(c);
+  c.copy = copy;
+  c.copyTs = g.nextId++;
+  c.linked = [];
+  c.chosen = null;
+  log(g, `${before} becomes a copy of ${label(c)}.`, c.controller, [c]);
 }
 
 /**
@@ -2898,7 +3016,7 @@ export function canEnchant(g: Game, aura: Card, host: Card | undefined): boolean
   if (spec.who === 'you' && host.controller !== aura.controller) return false;
   if (spec.who === 'opponent' && host.controller === aura.controller) return false;
   if (protectedFrom(g, host, aura)) return false; // 702.16c
-  return spec.filter?.(g, host, aura) ?? true;
+  return spec.filter?.(g, host, aura, 0) ?? true;
 }
 
 /** Can Equipment `eq` stay attached to `host`? Only to a creature on the battlefield, and not itself (301.5c). */
@@ -2965,6 +3083,29 @@ export const persist: Trigger<object> = {
     enterBattlefield(g, c, { counters: { '-1/-1': 1 } });
   },
   text: 'Persist',
+};
+
+/**
+ * Impending N—[cost] (702.176a): "You may choose to pay [cost] rather than pay this spell's
+ * mana cost", and "At the beginning of your end step, if this permanent's impending cost was
+ * paid and it has a time counter on it, remove a time counter from it." Spread into the card's
+ * script. The engine does the rest: the time counters it enters with (`setUp`), and that it
+ * isn't a creature while it has one (`characteristics`, layer 4).
+ */
+export const impending = (n: number, cost: string): Pick<CardScript, 'alternativeCosts' | 'onEndStep'> => {
+  // The intervening "if" (603.4): checked as the step begins, and again as it resolves.
+  const impends = (c: Card | undefined) => !!c?.cast?.impending && counterCount(c, 'time') > 0;
+  return {
+    alternativeCosts: [{ label: `Impending ${n}—${cost}`, mana: cost, impending: n }],
+    onEndStep: {
+      when: (_g, { self, player }) => player === self.controller && impends(self),
+      resolve: (g, { self }) => {
+        const c = permanent(g, self.id);
+        if (sameCard(c, self) && impends(c)) removeCounters(c!, 1, 'time');
+      },
+      text: 'Impending: remove a time counter',
+    },
+  };
 };
 
 /** "Crew N": tap other creatures with total power N or more, and this becomes an artifact creature until end of turn (702.122a). */
@@ -3067,7 +3208,8 @@ export function searchable(g: Game, c: Card, find?: Find): boolean {
   const typed = !!find.types?.some((x) => hasType(g, c, x));
   const keyworded = !!find.keywords?.some((k) => d.keywords.some((x) => x.toLowerCase() === k));
   if ((find.types || find.keywords) && !typed && !keyworded) return false;
-  if (find.subtypes && !find.subtypes.some((x) => d.typeLine.split('—')[1]?.split(' ').includes(x))) return false;
+  // Its subtypes as they are in that zone: a changeling card is every creature type there too (702.73a).
+  if (find.subtypes && !find.subtypes.some((x) => subtypesOf(g, c).includes(x))) return false;
   if (find.costs && !find.costs.includes(d.manaCost)) return false;
   return find.maxMv === undefined || d.cmc <= find.maxMv;
 }

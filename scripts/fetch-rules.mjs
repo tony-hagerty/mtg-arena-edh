@@ -4,6 +4,7 @@
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { creatureTypesOf, subtypeListsOf } from './rules-lists.mjs';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const outDir = join(root, 'docs/rules');
@@ -99,11 +100,6 @@ const typesLine = lines.find((l) => l.startsWith('205.3m'));
 if (!typesLine) throw new Error('Rule 205.3m (creature types) not found');
 const creatureTypes = creatureTypesOf(typesLine);
 writeFileSync(join(root, 'src/cards/creature-types.json'), JSON.stringify(creatureTypes, null, 1) + '\n');
+// The other card types' subtypes (205.3g-q), for which subtypes go with which card type (205.1a, 205.3d).
+writeFileSync(join(root, 'src/cards/subtypes.json'), JSON.stringify(subtypeListsOf(lines), null, 1) + '\n');
 console.log(`Wrote ${count} rules (effective ${effective}) to ${outDir}`);
-
-/** The creature types listed in rule 205.3m: "... one word long: Advisor, ..., and Zubera." plus any two-word ones before it. */
-function creatureTypesOf(line) {
-  const twoWord = [...line.matchAll(/two words long: ([^.]+)\./g)].flatMap((m) => m[1].split(/, | and /));
-  const oneWord = line.split('one word long: ')[1].replace(/\.$/, '').split(/, (?:and )?/);
-  return [...new Set([...twoWord, ...oneWord].map((t) => t.trim()).filter(Boolean))].sort();
-}

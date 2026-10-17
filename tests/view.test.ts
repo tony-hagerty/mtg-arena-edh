@@ -4,7 +4,7 @@ import { produce } from 'immer';
 import { describe, expect, it } from 'vitest';
 import './fixtures';
 import { useStore } from '../src/ui/store';
-import { activateFromHand, buildView, chooseEscape, chooseGraveyardTarget, clickPermanent, clickPlayer, clickStackItem, exileForMana, pickAbility, pickColor, pickFace, pickMode, playHandCard, setAbilityX, setChoices } from '../src/ui/view';
+import { activateFromHand, buildView, clickGroup, chooseEscape, chooseGraveyardTarget, clickPermanent, clickPlayer, clickStackItem, exileForMana, manaOptions, pickAbility, pickMana, pickManaSacrifice, pickFace, pickMode, playHandCard, setAbilityX, setChoices } from '../src/ui/view';
 import { applyAction, canCast, isCreature } from '../src/engine';
 import type { Game } from '../src/engine';
 import { byName, emptyGame, put } from './helpers';
@@ -506,8 +506,8 @@ describe('the Kraum and Tymna deck in the UI (session 7b)', () => {
       put(d, 0, "Lion's Eye Diamond");
     });
     clickPermanent(byName(game(), 0, "Lion's Eye Diamond")!);
-    expect(useStore.getState().colorPick?.colors).toHaveLength(5);
-    pickColor('U');
+    expect(useStore.getState().manaPick?.options[0].mana).toHaveLength(5);
+    pickMana(0, ['U', 'U', 'U']);
     expect(game().players[0].pool.map((m) => m.sym)).toEqual(['U', 'U', 'U']);
   });
 
@@ -606,6 +606,27 @@ describe('X in ability costs in the UI (107.3a)', () => {
     expect(game().players.map((p) => p.life)).toEqual([39, 39, 39, 39]);
   });
 
+  it('X comes before the targets it decides: "target creature card ... with mana value X" (601.2b-c)', () => {
+    play((d) => {
+      put(d, 0, 'Likeness Looter');
+      put(d, 0, 'Island', 'battlefield', 6);
+      put(d, 0, 'Elite Vanguard', 'graveyard');
+      put(d, 0, 'Shivan Dragon', 'graveyard');
+    });
+    clickPermanent(byName(game(), 0, 'Likeness Looter')!);
+    pickAbility({ activated: 1 });
+    expect(buildView().abilityX).toMatchObject({ x: 6, max: 6 });
+    setAbilityX(3); // no creature card with mana value 3
+    expect(buildView().primary?.disabled).toBe(true);
+    setAbilityX(1);
+    press(); // Continue
+    const v = buildView();
+    expect(v.graveTargets?.options.map((c) => c.name)).toEqual(['Elite Vanguard']);
+    chooseGraveyardTarget(v.graveTargets!.options[0].id);
+    press(); // Pay {1}; the bots pass and it resolves
+    expect(game().players[0].battlefield.find((c) => c.name === 'Likeness Looter')?.copy?.name).toBe('Elite Vanguard');
+  });
+
   it('announces X for a −X loyalty ability, then its target', () => {
     play((d) => {
       put(d, 0, 'Chandra Nalaar').counters.loyalty = 6;
@@ -644,5 +665,87 @@ describe('the combat damage setting (510.1c)', () => {
     expect(buildView().prompt).toContain('combat damage');
     useStore.getState().setSetting({ manualDamage: false });
     expect(game().players[0].manualDamage).toBe(false);
+  });
+});
+
+describe('choosing the mana by hand (605, 106.1)', () => {
+  const pool = () => game().players[0].pool.map((m) => m.sym).sort().join('');
+
+  it("asks which of Sunken Ruins's abilities, and which mana, then pays", () => {
+    play((d) => {
+      put(d, 0, 'Sunken Ruins');
+      put(d, 0, 'Swamp');
+      put(d, 0, 'Island');
+      put(d, 0, 'Stock Up', 'hand'); // {2}{U}
+    });
+    playHandCard(byName(game(), 0, 'Stock Up', 'hand')!);
+    clickPermanent(byName(game(), 0, 'Swamp')!);
+    clickPermanent(byName(game(), 0, 'Sunken Ruins')!);
+    const pick = useStore.getState().manaPick!;
+    expect(pick.options.map((o) => [o.text, o.mana.map((m) => m.join(''))])).toEqual([
+      ['{T}', ['C']],
+      ['{U/B}, {T}', ['UU', 'UB', 'BB']],
+    ]);
+    expect(byName(game(), 0, 'Sunken Ruins')!.tapped).toBe(false); // nothing is used until a pick
+    pickMana(1, ['U', 'B']); // its {U/B} is paid with the Swamp's {B}
+    expect(pool()).toBe('BU');
+    clickPermanent(byName(game(), 0, 'Island')!);
+    expect(game().stack.map((x) => x.card.name)).toEqual(['Stock Up']);
+  });
+
+  it('asks which mana a Talisman makes, and a dual land', () => {
+    play((d) => {
+      put(d, 0, 'Talisman of Dominance');
+      put(d, 0, 'Watery Grave');
+    });
+    clickPermanent(byName(game(), 0, 'Talisman of Dominance')!);
+    expect(useStore.getState().manaPick!.options.map((o) => [o.text, o.mana.map((m) => m.join(''))])).toEqual([
+      ['{T}', ['C']],
+      ['{T} · 1 damage to you', ['U', 'B']],
+    ]);
+    pickMana(1, ['U']);
+    expect(pool()).toBe('U');
+    expect(game().players[0].life).toBe(39);
+    clickPermanent(byName(game(), 0, 'Watery Grave')!);
+    expect(manaOptions(game(), 0, byName(game(), 0, 'Watery Grave')!).map((o) => o.mana.map((m) => m.join('')))).toEqual([['U', 'B']]);
+    pickMana(0, ['B']);
+    expect(pool()).toBe('BU');
+  });
+
+  it('uses a pile of dual lands the way picked once', () => {
+    play((d) => put(d, 0, 'Watery Grave', 'battlefield', 2));
+    clickGroup(game().players[0].battlefield);
+    expect(useStore.getState().manaPick?.group).toHaveLength(1);
+    pickMana(0, ['B']);
+    expect(pool()).toBe('BB');
+  });
+
+  it('asks which creature Phyrexian Tower sacrifices', () => {
+    play((d) => {
+      put(d, 0, 'Phyrexian Tower');
+      put(d, 0, 'Walking Corpse');
+      put(d, 0, 'Goblin Piker');
+    });
+    clickPermanent(byName(game(), 0, 'Phyrexian Tower')!);
+    const pick = useStore.getState().manaPick!;
+    expect(pick.options.map((o) => o.text)).toEqual(['{T}', '{T}, Sacrifice a creature']);
+    pickManaSacrifice(byName(game(), 0, 'Goblin Piker')!.id);
+    pickMana(1, ['B', 'B']);
+    expect(pool()).toBe('BB');
+    expect(byName(game(), 0, 'Goblin Piker')).toBeUndefined();
+    expect(byName(game(), 0, 'Walking Corpse')).toBeDefined();
+  });
+
+  it('a click takes back a Signet, and the land that paid for it', () => {
+    play((d) => {
+      put(d, 0, 'Dimir Signet');
+      put(d, 0, 'Island');
+    });
+    clickPermanent(byName(game(), 0, 'Dimir Signet')!);
+    expect(pool()).toBe('BU');
+    expect(byName(game(), 0, 'Island')!.tapped).toBe(true);
+    clickPermanent(byName(game(), 0, 'Dimir Signet')!);
+    expect(pool()).toBe('');
+    expect(game().players[0].battlefield.filter((c) => c.tapped)).toEqual([]);
   });
 });
