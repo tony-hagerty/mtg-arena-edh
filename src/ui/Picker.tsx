@@ -8,6 +8,7 @@ import { useState } from 'react';
 import { CREATURE_TYPES, cardNames, isCardName } from '../cards/db';
 import {
   autoAssignments,
+  CARD_TYPES,
   canCast,
   canMulligan,
   canSayYes,
@@ -280,10 +281,11 @@ function NamePanel({ g, choice }: { g: Game; choice: NameChoice }) {
   const [name, setName] = useState('');
   const [folded, setFolded] = useState(false);
   const source = choice.script ? findCard(g, choice.script) : resolvingItem(g)?.card;
-  // A creature type (205.3m, Cavern of Souls), or a card name (201.3).
-  const type = choice.of === 'creature type';
-  const ok = type ? CREATURE_TYPES.includes(name) : isCardName(name);
-  const list = type ? CREATURE_TYPES : cardNames();
+  // A creature type (205.3m, Cavern of Souls), a card type (205.2a, Serra's Emissary), or a card name (201.3).
+  const type = choice.of === 'creature type' || choice.of === 'card type';
+  const what = choice.of === 'card type' ? 'card type' : 'creature type';
+  const list = choice.of === 'card type' ? CARD_TYPES : type ? CREATURE_TYPES : cardNames();
+  const ok = type ? list.includes(name) : isCardName(name);
   if (folded) {
     return (
       <button className="picker-pill" onClick={() => setFolded(false)}>
@@ -296,7 +298,7 @@ function NamePanel({ g, choice }: { g: Game; choice: NameChoice }) {
       <div className="viewer picker">
         <div className="picker-head">
           <h2>
-            {choice.source}: {type ? 'choose a creature type' : 'name a card'}
+            {choice.source}: {type ? `choose a ${what}` : 'name a card'}
           </h2>
           <button className="picker-fold" onClick={() => setFolded(true)}>
             View table
@@ -310,7 +312,7 @@ function NamePanel({ g, choice }: { g: Game; choice: NameChoice }) {
             list="card-names"
             value={name}
             autoFocus
-            placeholder={type ? 'Creature type' : 'Card name'}
+            placeholder={type ? (what === 'card type' ? 'Card type' : 'Creature type') : 'Card name'}
             onChange={(e) => setName(e.target.value)}
             onKeyDown={(e) => {
               e.stopPropagation(); // typing a space shouldn't press the main button
@@ -326,7 +328,7 @@ function NamePanel({ g, choice }: { g: Game; choice: NameChoice }) {
         <div className="picker-buttons">
           <button className="btn btn-go small" disabled={!ok} onClick={() => act({ type: 'name', name })}>
             <span className="btn-label">{type ? 'Choose It' : 'Name It'}</span>
-            {name && !ok && <span className="btn-sub">{type ? 'Not a creature type' : 'No card has that name'}</span>}
+            {name && !ok && <span className="btn-sub">{type ? `Not a ${what}` : 'No card has that name'}</span>}
           </button>
         </div>
       </div>

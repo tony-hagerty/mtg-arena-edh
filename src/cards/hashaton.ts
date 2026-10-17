@@ -56,6 +56,8 @@ import {
   untilEndOfTurn,
   becomeCopy,
   bounce,
+  addEffect,
+  copyItem,
 } from '../engine/rules';
 import type { Card, CardScript, Game, Mode, PlayerId, TargetRef, TargetSpec } from '../engine/types';
 import { exileTop } from './kraum-tymna';
@@ -71,6 +73,7 @@ const still = (g: Game, ref: { id: string; moves: number }) => {
 };
 
 const isInstantOrSorcery = (g: Game, c: Card) => hasType(g, c, 'Instant') || hasType(g, c, 'Sorcery');
+const artifactInstantOrSorcery = (g: Game, c: Card) => hasType(g, c, 'Artifact') || isInstantOrSorcery(g, c);
 
 /** "Target creature card in your graveyard." */
 const creatureCardInYourGraveyard = (label = 'target creature card in your graveyard'): TargetSpec => ({
@@ -543,6 +546,85 @@ registerScripts({
       enterBattlefield(g, c, { controller: you });
       gainLife(g, you, mv);
     },
+  },
+
+  'Vohar, Vodalian Desecrator': {
+    activated: [
+      // "{T}: Draw a card, then discard a card. If you discarded an instant or sorcery card this
+      // way, each opponent loses 1 life and you gain 1 life."
+      {
+        cost: { tap: true },
+        text: 'Draw a card, then discard a card. If you discarded an instant or sorcery card this way, each opponent loses 1 life and you gain 1 life.',
+        resolve: (g, { you }) => {
+          draw(g, you);
+          pickToDiscard(g, you, 1, 'vohar');
+        },
+      },
+      // "{2}, Sacrifice Vohar: You may cast target instant or sorcery card from your graveyard
+      // this turn. If that spell would be put into your graveyard, exile it instead. Activate
+      // only as a sorcery." Casting it follows the usual timing and costs.
+      {
+        cost: { mana: '{2}', sacrifice: true },
+        sorcery: true,
+        targets: [{ type: 'graveyard card', who: 'you', label: 'target instant or sorcery card in your graveyard', filter: (g, c) => isInstantOrSorcery(g, c) }],
+        text: 'You may cast target instant or sorcery card from your graveyard this turn. If that spell would be put into your graveyard, exile it instead.',
+        resolve: (g, { you, targets }) => {
+          const c = refGraveyard(g, targets[0]);
+          if (c) addEffect(g, { kind: 'mayCast', player: you, card: c.id, moves: c.moves, graveyardToExile: true });
+        },
+      },
+    ],
+    then: {
+      vohar: (g, { you, picked }) => {
+        const c = picked[0] && g.players[you].hand.find((x) => x.id === picked[0].id);
+        if (!c) return;
+        const spell = isInstantOrSorcery(g, c);
+        discard(g, c);
+        if (!spell) return;
+        simultaneously(g, () => {
+          for (const o of opponentsOf(g, you)) loseLife(g, o.id, 1);
+        });
+        gainLife(g, you, 1);
+      },
+    },
+  },
+  'Jin-Gitaxias, Progress Tyrant': {
+    onCast: [
+      // "Whenever you cast an artifact, instant, or sorcery spell, copy that spell. You may choose
+      // new targets for the copy. This ability triggers only once each turn." The copy is made
+      // even if the spell has left the stack, as it last was (707.10); a copy of an artifact
+      // spell becomes a token (707.10f).
+      {
+        when: (g, { self, card, caster }) => {
+          if (caster !== self.controller || !artifactInstantOrSorcery(g, card) || self.once.jinCopy === g.turn) return false;
+          self.once.jinCopy = g.turn;
+          return true;
+        },
+        resolve: (g, { you, item }) => copyItem(g, g.stack.find((x) => x.id === item.id) ?? item, you),
+        text: 'Whenever you cast an artifact, instant, or sorcery spell, copy that spell. You may choose new targets for the copy. This ability triggers only once each turn.',
+      },
+      // "Whenever an opponent casts an artifact, instant, or sorcery spell, counter that spell.
+      // This ability triggers only once each turn." Once a turn, not once for each opponent.
+      {
+        when: (g, { self, card, caster }) => {
+          if (!isOpponent(g, self.controller, caster) || !artifactInstantOrSorcery(g, card) || self.once.jinCounter === g.turn) return false;
+          self.once.jinCounter = g.turn;
+          return true;
+        },
+        resolve: (g, { item }) => void counter(g, { kind: 'stack', id: item.id }),
+        text: 'Whenever an opponent casts an artifact, instant, or sorcery spell, counter that spell. This ability triggers only once each turn.',
+      },
+    ],
+  },
+  'Jin-Gitaxias, Core Augur': {
+    // "At the beginning of your end step, draw seven cards."
+    onEndStep: {
+      when: (_g, { self, player }) => player === self.controller,
+      resolve: (g, { you }) => draw(g, you, 7),
+      text: 'At the beginning of your end step, draw seven cards.',
+    },
+    // "Each opponent's maximum hand size is reduced by seven." (402.2)
+    handSize: (g, self, pid) => (isOpponent(g, self.controller, pid) ? -7 : 0),
   },
 
   // ===== Instants and sorceries =====

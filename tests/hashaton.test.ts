@@ -1,6 +1,6 @@
 // The Hashaton deck's hand scripts and the rules they needed: the clauses that could go wrong.
 import { describe, expect, it } from 'vitest';
-import { applyAction, applyBotAction, botAction, canBlock, colorsOf, counterCount, has, isCreature, makeCard, stats, subtypesOf, hasType } from '../src/engine';
+import { applyAction, applyBotAction, botAction, canBlock, colorsOf, counterCount, has, isCreature, makeCard, maxHandSize, stats, subtypesOf, hasType } from '../src/engine';
 import type { Action, Game, PlayerId, TargetRef } from '../src/engine';
 import { byName, emptyGame, put, run } from './helpers';
 import './fixtures';
@@ -420,5 +420,67 @@ describe('lands', () => {
       for (let i = 0; i < 6; i++) put(d, 0, 'Plains', 'graveyard');
     });
     expect(applyAction(g, { type: 'activate', card: byName(g, 0, 'Cephalid Coliseum')!.id, targets: [player(1)] })).toBe(g);
+  });
+});
+
+describe('Vohar and the Jin-Gitaxias', () => {
+  it('Vohar: discarding an instant or sorcery drains each opponent for 1', () => {
+    let g = emptyGame((d) => {
+      human(d);
+      put(d, 0, 'Vohar, Vodalian Desecrator');
+      top(d, 0, ['Bitter Triumph', 'Plains']);
+    });
+    g = run(g, { type: 'activate', card: byName(g, 0, 'Vohar, Vodalian Desecrator')!.id, activated: 0 });
+    g = settle(g, (x) => (x.decision?.type === 'chooseCards' ? pick(byName(x, 0, 'Bitter Triumph', 'hand')!.id) : null));
+    expect(g.players.map((p) => p.life)).toEqual([41, 39, 39, 39]);
+  });
+
+  it("Vohar: sacrifice to cast an instant or sorcery from your graveyard, exiled after", () => {
+    let g = emptyGame((d) => {
+      put(d, 0, 'Vohar, Vodalian Desecrator');
+      put(d, 0, 'Swamp', 'battlefield', 6);
+      put(d, 0, 'Fell the Profane', 'graveyard');
+      put(d, 1, 'Serra Angel');
+    });
+    g = settle(run(g, { type: 'activate', card: byName(g, 0, 'Vohar, Vodalian Desecrator')!.id, activated: 1, targets: [card(g.players[0].graveyard[0])] }));
+    expect(byName(g, 0, 'Vohar, Vodalian Desecrator', 'graveyard')).toBeDefined();
+    g = settle(run(g, cast(g, 'Fell the Profane', { targets: [card(byName(g, 1, 'Serra Angel')!)] }, 'graveyard')));
+    expect(byName(g, 1, 'Serra Angel')).toBeUndefined();
+    expect(byName(g, 0, 'Fell the Profane', 'exile')).toBeDefined();
+  });
+
+  it('Jin-Gitaxias, Progress Tyrant copies your first such spell each turn and counters an opponent\'s first', () => {
+    let g = emptyGame((d) => {
+      put(d, 0, 'Jin-Gitaxias, Progress Tyrant');
+      put(d, 0, 'Fell the Profane', 'hand');
+      put(d, 0, 'Swamp', 'battlefield', 4);
+      put(d, 1, 'Serra Angel', 'battlefield', 2);
+    });
+    g = settle(run(g, cast(g, 'Fell the Profane', { targets: [card(g.players[1].battlefield[0])] })));
+    // The copy may take a new target: the bot picks the other Angel.
+    expect(g.players[1].battlefield).toHaveLength(0);
+
+    g = emptyGame((d) => {
+      put(d, 0, 'Jin-Gitaxias, Progress Tyrant');
+      put(d, 0, 'Psychic Frog');
+      put(d, 0, 'Serra Angel');
+      put(d, 1, 'Bitter Triumph', 'hand', 2);
+      put(d, 1, 'Swamp', 'battlefield', 4);
+      d.active = 1;
+      d.priority = 1;
+    });
+    g = settle(run(g, cast(g, 'Bitter Triumph', { extra: 1, targets: [card(byName(g, 0, 'Serra Angel')!)] }, 'hand', 1)));
+    expect(byName(g, 0, 'Serra Angel')).toBeDefined();
+    expect(byName(g, 1, 'Bitter Triumph', 'graveyard')).toBeDefined();
+    g = settle(run(g, cast(g, 'Bitter Triumph', { extra: 1, targets: [card(byName(g, 0, 'Serra Angel')!)] }, 'hand', 1)));
+    expect(byName(g, 0, 'Serra Angel')).toBeUndefined();
+  });
+
+  it("Jin-Gitaxias, Core Augur: each opponent's maximum hand size is reduced by seven", () => {
+    const g = emptyGame((d) => {
+      put(d, 0, 'Jin-Gitaxias, Core Augur');
+    });
+    expect(maxHandSize(g, 0)).toBe(7);
+    expect(maxHandSize(g, 1)).toBe(0);
   });
 });

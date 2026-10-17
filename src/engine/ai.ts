@@ -1013,6 +1013,8 @@ function choiceAnswer(g: Game, pid: PlayerId): Action {
   if (d.type === 'player') return { type: 'choosePlayer', player: d.choice.options[0] };
   if (d.type === 'name' && d.choice.of === 'creature type') return { type: 'name', name: 'Human' };
   if (d.type === 'name' && d.choice.of === 'color') return { type: 'name', name: preferredColor(g, pid) };
+  // A card type: creatures are what usually attack and block.
+  if (d.type === 'name' && d.choice.of === 'card type') return { type: 'name', name: 'Creature' };
   if (d.type === 'name') {
     const lib = [...g.players[pid].library].sort((a, b) => cardWant(g, pid, b) - cardWant(g, pid, a));
     return { type: 'name', name: lib.length ? cardData(lib[0].name).name : 'Island' };
@@ -1112,7 +1114,7 @@ export function applyBotAction(g: Game, a: Action, opts?: ApplyOptions): Game {
   if (next === g && g.decision?.type === 'triggerModes') next = applyAction(g, modesFor(g, g.decision.item), opts);
   if (next === g && g.decision?.type === 'chooseCards') next = applyAction(g, cardChoice(g, g.priority), opts);
   if (next === g && g.decision?.type === 'ask') next = applyAction(g, { type: 'answer', yes: false }, opts);
-  if (next === g && g.decision?.type === 'name') next = applyAction(g, { type: 'name', name: g.decision.choice.of ? 'Human' : 'Island' }, opts);
+  if (next === g && g.decision?.type === 'name') next = applyAction(g, { type: 'name', name: g.decision.choice.of === 'card type' ? 'Creature' : g.decision.choice.of ? 'Human' : 'Island' }, opts);
   if (next === g && g.decision?.type === 'player') next = applyAction(g, { type: 'choosePlayer', player: g.decision.choice.options[0] }, opts);
   if (next === g && g.decision?.type === 'number') next = applyAction(g, { type: 'chooseNumber', n: g.decision.choice.decline ? null : g.decision.choice.min }, opts);
   if (next === g && g.decision?.type === 'cast') next = applyAction(g, { type: 'answer', yes: false }, opts);

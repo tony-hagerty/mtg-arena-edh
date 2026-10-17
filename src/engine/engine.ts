@@ -132,6 +132,7 @@ import {
   hasType,
   triggerModeOptions,
   rememberModes,
+  CARD_TYPES,
 } from './rules';
 import type { EnterOpts } from './rules';
 import { settled } from './layers';
@@ -1835,9 +1836,9 @@ function castDone(g: Game, pid: PlayerId, item: StackItem) {
   g.spellsCast++;
   p.spellsCast++;
   if (!isCreature(g, c)) p.noncreatureSpellsCast++;
-  broadcast(g, 'onCast', { card: c, caster: pid });
+  const remembered: StackItem = { ...item, card: snapshot(c), targets: [...item.targets] };
+  broadcast(g, 'onCast', { card: c, caster: pid, item: remembered });
   if (data(c).keywords.includes('Storm') && g.spellsCast > 1) {
-    const remembered: StackItem = { ...item, card: snapshot(c), targets: [...item.targets] };
     g.triggers.push({ id: `s${g.nextId++}`, kind: 'triggered', controller: pid, card: snapshot(c), hook: 'onStorm', event: { count: g.spellsCast - 1, item: remembered }, targets: [] });
   }
 }
@@ -2475,7 +2476,8 @@ function act(g: Game, a: Action): boolean {
     case 'name': {
       if (g.decision?.type !== 'name') return false;
       const { choice } = g.decision;
-      const valid = choice.of === 'creature type' ? CREATURE_TYPES.includes(a.name) : choice.of === 'color' ? COLORS.includes(a.name) : isCardName(a.name);
+      const valid =
+        choice.of === 'creature type' ? CREATURE_TYPES.includes(a.name) : choice.of === 'color' ? COLORS.includes(a.name) : choice.of === 'card type' ? CARD_TYPES.includes(a.name) : isCardName(a.name);
       if (!valid) return false;
       g.decision = null;
       const named = choice.of === 'color' ? `{${a.name}}` : a.name;

@@ -593,7 +593,7 @@ export function buildView(): View {
             : deciding === 'ask'
               ? `${who} is deciding`
               : deciding === 'name'
-                ? `${who} is naming ${g.decision?.type === 'name' && g.decision.choice.of ? (g.decision.choice.of === 'color' ? 'a colour' : 'a creature type') : 'a card'}`
+                ? `${who} is naming ${g.decision?.type === 'name' && g.decision.choice.of ? (g.decision.choice.of === 'color' ? 'a colour' : `a ${g.decision.choice.of}`) : 'a card'}`
                 : deciding === 'player'
                   ? `${who} is choosing a player`
                   : deciding === 'number'
