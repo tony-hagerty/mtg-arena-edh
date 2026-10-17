@@ -55,6 +55,8 @@ src/ui/         store.ts              Zustand store (game + what the player is s
                 styles.css            all styling
 tests/                                Vitest: card coverage, rules, the UI casting flow,
                                       bot-vs-bot games
+                simulation/           bot-vs-bot games, a few to a file so they run on
+                                      every core at once; play.ts plays one out
                 fixtures.ts           scripts for cards not in the pool yet, for testing
                 fixture-cards.json    their names; fetch-cards writes their data to
                                       fixtures.generated.json
