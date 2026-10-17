@@ -102,8 +102,8 @@ are from the Comprehensive Rules in `docs/rules/`.
   as resuming does for a game saved by another build.
 - **Commander zone changes:** a commander that dies or is exiled really goes there (so
   "dies" abilities see it), then its owner may move it to the command zone (903.9a). One
-  headed for a hand or library may go to the command zone instead (903.9b). You're asked;
-  bots always do.
+  headed for a hand or library may go to the command zone instead (903.9b): a replacement
+  effect, so you're asked as it moves, before it gets there. Bots always send it.
 - **Every card in the pool works.** `npm test` fails if a card has rules text the engine
   doesn't implement. The menu shows each deck's colour pips:
 
@@ -477,9 +477,19 @@ are from the Comprehensive Rules in `docs/rules/`.
   Harmonic Prodigy does it for a Shaman's or another Wizard's triggered abilities.
 - **Damage that is doubled or increased (614.1a):** Furnace of Rath, Trance Kuja (a
   Wizard you control), Collective Inferno (sources you control of the chosen type), and
-  Tomik's "plus 1" for noncombat damage to an opponent or their permanent. When several
-  apply, the player being dealt damage (or the permanent's controller) picks the order
-  (616.1).
+  Tomik's "plus 1" for noncombat damage to an opponent or their permanent.
+- **Replacement and prevention effects (614-616):** one system for every event they can
+  change: damage (doubling, plus N, prevention, protection), a card changing zones
+  (finality counters, flashback, "exile it instead"), draws (614.11, even from an empty
+  library), tokens being created and counters being put on (614.16, including the
+  counters a permanent enters with, but not a loyalty cost or a Saga's turn-based lore
+  counter), gaining life (119.10), how a permanent enters (614.1c-d), and skipping a draw
+  step or an extra turn (614.10). Each effect applies once to an event (614.5). When two
+  or more apply and the order changes what happens, the affected player chooses which
+  goes first, after any that must (616.1a-f); you're asked only then, with what each
+  choice leads to, and bots take what is best for them. "You may" replacement effects ask
+  too. A general effect of a permanent doesn't apply to it or to others entering at the
+  same time (614.12), and tokens created together enter together.
 - **Roles (303.7):** a Role token enters attached to its creature (Not Dead After All's
   Wicked Role). If a player has two or more Roles on the same permanent, all but the one
   attached most recently go to the graveyard (704.5z); each attachment gets a new
@@ -566,10 +576,10 @@ These are deliberate cuts for a prototype. The biggest ones come first.
   Chrome Mox, Beseech the Mirror, Wishclaw Talisman, Underworld Breach), but targets
   don't: a spell aimed at a creature that left and came back before it resolved still
   finds it.
-- **Your commander going to your hand or library** lands there first, and you choose
-  before anyone gets priority. By the rules (903.9b) that is a replacement effect chosen
-  as it moves, but an effect can't stop partway through to ask. Bots get the real
-  replacement. No card in the pool puts a permanent into a hand or library yet.
+- **Choosing about replacement effects** (616.1): while you choose, the game shows the
+  moment before the action that led to the question (casting the spell, passing
+  priority), and carries it out with your answer. Nothing has happened yet when you're
+  asked, so the spell may still look like it's in your hand.
 
 ### Rules
 
