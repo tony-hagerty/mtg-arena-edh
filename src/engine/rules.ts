@@ -23,6 +23,7 @@ import type {
   Game,
   GrantedTrigger,
   Mana,
+  ManaUndo,
   ManaSym,
   Player,
   PlayerId,
@@ -988,33 +989,57 @@ function useManaAbility(g: Game, pid: PlayerId, c: Card, ab: ManaUse, tapId?: st
   if (ab.sacrifice) dieMany(g, [c], 'is sacrificed');
 }
 
+/** Is `mana` one of the lists of mana this ability can add (in any order)? */
+export const canProduce = (ab: ManaUse, mana: ManaSym[]) =>
+  produceOptions(ab).some((o) => o.length === mana.length && [...o].sort().join() === [...mana].sort().join());
+
 /**
  * Uses a mana ability by hand. A Treasure is sacrificed too (111.10a): that can't be undone.
- * `color`: the colour to make, if the ability has a choice; left out, one is picked.
+ * `mana`: the exact mana to make, one of its choices; else `color`: a choice with that
+ * colour; left out, one is picked.
  */
-export function tapForMana(g: Game, pid: PlayerId, c: Card, ability = pickManaAbility(g, pid, c), color?: ManaSym, tapId?: string, discardId?: string, sacrificeId?: string) {
+export function tapForMana(g: Game, pid: PlayerId, c: Card, ability = pickManaAbility(g, pid, c), color?: ManaSym, tapId?: string, discardId?: string, sacrificeId?: string, mana?: ManaSym[]) {
   const ab = manaAbilities(g, c).find((m) => m.index === ability);
   if (!ab) return;
-  if (ab.cost) {
-    // Its mana cost is paid first, from the pool or other sources (602.2b, 601.2g-h).
-    if (!pay(g, pid, parseCost(ab.cost), undefined, [c.id])) return;
-    const made = pickProduce(g, pid, ab, color);
-    for (const sym of made) g.players[pid].pool.push({ sym, source: c.id, ability: ab.index });
-    useManaAbility(g, pid, c, ab);
-    return;
-  }
+  const p = g.players[pid];
+  const triggers = g.triggers.length;
+  const before = p.pool.slice();
+  let plan: Payment | null = null;
+  // Its mana cost is paid first, from the pool or other sources (602.2b, 601.2g-h).
+  if (ab.cost && !(plan = pay(g, pid, parseCost(ab.cost), undefined, [c.id]))) return;
   const sym = color && ab.colors.includes(color) ? color : ab.colors.length === 1 ? ab.colors[0] : pickColor(g, pid, ab.colors);
+  const made = mana && canProduce(ab, mana) ? mana : ab.produces ? pickProduce(g, pid, ab, color) : Array.from({ length: ab.amount }, () => sym);
   const only = ab.chosenType ? (c.chosen ?? undefined) : undefined;
-  for (let k = 0; k < ab.amount; k++)
-    g.players[pid].pool.push({
-      sym,
-      source: c.id,
-      ability: ab.index,
-      ...(only ? { only, uncounterable: ab.uncounterable } : {}),
-      ...(ab.legendary ? { legendary: true } : {}),
-      ...(ab.types ? { types: ab.types } : {}),
-    });
+  const added: Mana[] = made.map((sym) => ({ sym, source: c.id, ability: ab.index, ...(only ? { only, uncounterable: ab.uncounterable } : {}), ...(ab.legendary ? { legendary: true } : {}), ...(ab.types ? { types: ab.types } : {}) }));
+  const options = tapCandidates(g, pid, ab);
+  const creature = ab.tapCreature ? (options.find((x) => x.id === tapId) ?? options[0]) : undefined;
   useManaAbility(g, pid, c, ab, tapId, discardId, sacrificeId);
+  // It can be taken back if it changed nothing else: no life paid, no damage, nothing
+  // sacrificed, discarded or exiled, nothing triggered, and the same for the sources that
+  // paid its mana cost.
+  const used = (plan?.uses ?? []).map((u) => manaAbilities(g, permanent(g, u.id)!).find((m) => m.index === u.ability));
+  const clean = (m: ManaUse | undefined) => !!m && !m.life && !m.damage && !m.sacrifice && !m.sacrificeCreature && !m.discardHand && !m.discard && !m.fromHand;
+  if (clean(ab) && used.every(clean) && !plan?.life && g.triggers.length === triggers) {
+    const key = (m: Mana) => JSON.stringify(m);
+    const spent = without(before, plan ? plan.pool : before, key);
+    const left = without(plan ? plan.pool : before, before, key);
+    for (const m of p.pool) if (left.some((x) => key(x) === key(m))) m.along = c.id;
+    const tapped = [...new Set([...(ab.noTap ? [] : [c.id]), ...(creature ? [creature.id] : []), ...(plan?.tap ?? [])])];
+    const undo: ManaUndo = { made: added.length, tapped, spent, left: left.length, ...(creature ? { creature: creature.id } : {}) };
+    for (const m of added) m.undo = undo;
+  }
+  p.pool.push(...added);
+}
+
+/** The items of `a` left once each item of `b` is taken out of it once (matched by `key`). */
+function without<T>(a: T[], b: T[], key: (x: T) => string): T[] {
+  const rest = b.map(key);
+  return a.filter((x) => {
+    const i = rest.indexOf(key(x));
+    if (i < 0) return true;
+    rest.splice(i, 1);
+    return false;
+  });
 }
 
 /**
@@ -1028,21 +1053,43 @@ export function addMana(g: Game, pid: PlayerId, syms: ManaSym[], source: Card, o
 }
 
 /**
- * Tapping for mana can be undone while every mana it made is still unspent in the pool,
- * and it cost nothing but the tap.
+ * The mana ability used by hand that clicking `c` takes back: the one `c` made mana with
+ * while tapping itself, or the one `c` was tapped to pay for (Relic of Legends).
  */
-export function canUntapMana(g: Game, pid: PlayerId, c: Card): boolean {
-  if (c.controller !== pid || c.zone !== 'battlefield' || !c.tapped) return false;
-  const made = g.players[pid].pool.filter((x) => x.source === c.id);
-  const ab = made.length ? manaAbilities(g, c).find((m) => m.index === made[0].ability) : undefined;
-  if (!ab || ab.life || ab.damage || ab.sacrifice || ab.noTap || ab.discardHand || ab.discard || ab.sacrificeCreature || ab.cost || scriptFor(c).onTapped) return false;
-  return made.length === ab.amount;
+function undoOf(g: Game, pid: PlayerId, c: Card): { source: string; undo: ManaUndo } | null {
+  if (c.controller !== pid || c.zone !== 'battlefield' || !c.tapped) return null;
+  const m = g.players[pid].pool.find((x) => x.undo && (x.undo.creature === c.id || (x.source === c.id && x.undo.tapped.includes(c.id))));
+  return m ? { source: m.source, undo: m.undo! } : null;
 }
 
+/**
+ * Using a mana ability by hand can be taken back while all the mana it made, and any left
+ * over from paying its mana cost, is still unspent in the pool, and everything it tapped is
+ * still tapped. Not if it did anything else, like paying life, dealing damage, sacrificing,
+ * or triggering an ability (see `tapForMana`): that has happened and others may have seen it.
+ */
+export function canUntapMana(g: Game, pid: PlayerId, c: Card): boolean {
+  const found = undoOf(g, pid, c);
+  if (!found) return false;
+  const { source, undo } = found;
+  const pool = g.players[pid].pool;
+  const made = pool.filter((x) => x.source === source);
+  if (made.length !== undo.made || made.some((x) => !x.undo)) return false;
+  if (pool.filter((x) => x.along === source).length !== undo.left) return false;
+  return undo.tapped.every((id) => {
+    const x = permanent(g, id);
+    return !!x && x.tapped && x.controller === pid;
+  });
+}
+
+/** Takes back a mana ability used by hand: its mana leaves the pool, the mana its cost spent comes back, and what it tapped untaps. */
 export function untapMana(g: Game, pid: PlayerId, c: Card) {
+  const found = undoOf(g, pid, c);
+  if (!found) return;
+  const { source, undo } = found;
   const p = g.players[pid];
-  p.pool = p.pool.filter((x) => x.source !== c.id);
-  c.tapped = false;
+  p.pool = [...p.pool.filter((x) => x.source !== source && x.along !== source), ...undo.spent];
+  for (const id of undo.tapped) permanent(g, id)!.tapped = false;
 }
 
 /** Total mana the player could produce right now (for display). */
@@ -1329,7 +1376,7 @@ function costedSources(g: Game, pid: PlayerId): { c: Card; ab: ManaUse }[] {
 }
 
 /** The lists of mana an ability can add: its `produces`, or `amount` of each of its colours. */
-const produceOptions = (ab: ManaUse): ManaSym[][] => ab.produces ?? ab.colors.map((x) => Array.from({ length: ab.amount }, () => x));
+export const produceOptions = (ab: ManaUse): ManaSym[][] => ab.produces ?? ab.colors.map((x) => Array.from({ length: ab.amount }, () => x));
 
 /** Which of an ability's lists of mana a player makes by hand: one with `color` if given, else the one their cards want most. */
 function pickProduce(g: Game, pid: PlayerId, ab: ManaUse, color?: ManaSym): ManaSym[] {
