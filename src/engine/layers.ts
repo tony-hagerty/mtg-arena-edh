@@ -14,8 +14,15 @@
  *
  * A static ability may look at the object it is deciding about (`isCreature(g, c)`): while an
  * object is being worked out, a question about it gets the answer so far. A question about
- * another object works that one out in full first. Dependency (613.8) isn't applied yet:
- * effects in one layer apply in timestamp order.
+ * another object works that one out in full first.
+ *
+ * Within a layer, effects apply in timestamp order unless one depends on another (613.8):
+ * applying the other would change whether it exists, what it applies to or what it does
+ * (613.8a). Each static ability's answer is asked again with the other effect applied, and
+ * if the answer changes, it waits until just after that effect (613.8b). Effects that
+ * depend on each other in a loop apply in timestamp order, and the order is worked out
+ * again after each effect applies (613.8c). Only an ability that looked at a characteristic
+ * this layer can change can depend on anything, so most layers need no extra asking.
  */
 import { CREATURE_TYPES, SUBTYPES, cardData } from '../cards/db';
 import { hasStaticScript } from './registry';
@@ -73,12 +80,38 @@ interface Source {
   ask: () => LayerParts | (LayerParts | null)[] | null;
   version: number;
   answer: (LayerParts | null)[];
+  /** The permanent whose static abilities these are; none for a characteristic-defining ability, which only defines its own object. */
+  id?: string;
+  /** The characteristics the last answer looked at. */
+  reads: Read[];
+}
+
+/** A question an ability's answer asked about a permanent's characteristics. */
+interface Read {
+  id: string;
+  /** Index in `LAYERS` of the last layer it asked to have applied. */
+  upTo: number;
+  temporary: boolean;
+}
+
+/** The questions the ability being asked now has asked, or null when none is being asked. */
+let reading: Read[] | null = null;
+
+/** Asks `s` now, noting what its answer looked at. */
+function askNow(s: Source): { answer: (LayerParts | null)[]; reads: Read[] } {
+  const outer = reading;
+  const reads: Read[] = (reading = []);
+  try {
+    const r = s.ask();
+    return { answer: Array.isArray(r) ? r : [r], reads };
+  } finally {
+    reading = outer;
+  }
 }
 
 function answerOf(s: Source, version: number, i: number): LayerParts | null {
   if (s.version !== version) {
-    const r = s.ask();
-    s.answer = Array.isArray(r) ? r : [r];
+    ({ answer: s.answer, reads: s.reads } = askNow(s));
     s.version = version;
   }
   return s.answer[i] ?? null;
@@ -255,7 +288,7 @@ function entries(g: Game, c: Card, temporary: boolean): Entry[] {
       const { power, toughness } = basePT(g, c);
       return { setPower: power, setToughness: toughness };
     };
-    out.push({ ts: -Infinity, seq: seq++, cda: true, source: { ask, version: -1, answer: [] }, i: 0 });
+    out.push({ ts: -Infinity, seq: seq++, cda: true, source: { ask, version: -1, answer: [], reads: [] }, i: 0 });
   }
   // A reconfigured Equipment isn't a creature from the moment it was attached (702.151b, 613.7e).
   if (c.attachedTo && hasReconfigure(c)) out.push({ ts: c.ts, seq: seq++, parts: { notTypes: ['Creature'] } });
@@ -276,10 +309,12 @@ function entries(g: Game, c: Card, temporary: boolean): Entry[] {
   // Static abilities of permanents on the battlefield (611.3), with their source's timestamp,
   // or that of the copy effect that gave them, whichever is later (613.7a).
   for (const { src, fn } of staticSources(g)) {
-    const source: Source = { ask: () => fn(g, src, c), version: -1, answer: [] };
+    const source: Source = { ask: () => fn(g, src, c), version: -1, answer: [], reads: [], id: src.id };
     answerOf(source, 0, 0);
     const ts = Math.max(src.ts, src.copyTs ?? -Infinity);
-    source.answer.forEach((_, i) => out.push({ ts, seq: seq++, source, i }));
+    source.answer.forEach((_, i) => {
+      if (!without.length || !without.some((x) => x.id === src.id && x.i === i)) out.push({ ts, seq: seq++, source, i });
+    });
   }
   return out.sort((a, b) => (a.cda === b.cda ? 0 : a.cda ? -1 : 1) || a.ts - b.ts || a.seq - b.seq);
 }
@@ -371,6 +406,7 @@ function storeFor(g: Game): WeakMap<Card, Result> | null {
  */
 export function characteristics(g: Game, c: Card, upTo: Layer = '7d', temporary = true): Characteristics {
   if (c.lki) return c.lki;
+  if (reading && c.zone === 'battlefield') reading.push({ id: c.id, upTo: LAYERS.indexOf(upTo), temporary });
   const partial = working.get(c.id);
   if (partial) {
     // Every answer being worked out above it now depends on it partway.
@@ -378,7 +414,8 @@ export function characteristics(g: Game, c: Card, upTo: Layer = '7d', temporary 
     return partial.w;
   }
   if (c.zone !== 'battlefield') return offBattlefield(g, c);
-  const store = temporary ? storeFor(g) : null;
+  // Nor is one worked out for a game without some effect, to see what depends on it (613.8a).
+  const store = temporary && !without.length ? storeFor(g) : null;
   // A kept answer is used only for a first question: asked while another object is partway,
   // the answer could depend on that object as it is so far.
   const known = !working.size ? store?.get(c) : undefined;
@@ -405,14 +442,12 @@ function layers(g: Game, c: Card, upTo: Layer, temporary: boolean): { chars: Cha
   let clean = false;
   try {
     const all = entries(g, c, temporary);
+    // Characteristic-defining abilities first (613.3, 613.4a), each group in its own order:
+    // one can depend only on another of its kind (613.8a). They sort first.
+    const n = all.findIndex((e) => !e.cda);
+    const groups = n <= 0 ? [all] : [all.slice(0, n), all.slice(n)];
     for (const l of LAYERS) {
-      for (const e of all) {
-        // A static ability's effect that hasn't started to apply: does it now?
-        const p = e.parts ?? answerOf(e.source!, w.version, e.i!);
-        if (!p || !appliesAt(e, p, l)) continue;
-        e.parts = p;
-        apply(w, p, l);
-      }
+      for (const group of groups) applyLayer(g, c, w, l, group, temporary);
       if (l === upTo) break;
     }
   } finally {
@@ -421,4 +456,145 @@ function layers(g: Game, c: Card, upTo: Layer, temporary: boolean): { chars: Cha
   }
   const { version: _, suspended: __, ...chars } = w;
   return { chars, clean };
+}
+
+/** Could applying an effect in layer `l` change entry `e`'s answer? Only if it asked about a characteristic that layer changes. */
+const watches = (e: Entry, l: number) => !e.parts && e.source!.reads.some((r) => r.upTo >= l);
+
+/** Applies to `w` the effects in `group` that apply in layer `l`, in timestamp order changed by dependency (613.8). */
+function applyLayer(g: Game, c: Card, w: Working, l: Layer, group: Entry[], temporary: boolean) {
+  const li = LAYERS.indexOf(l);
+  let pending = group;
+  for (let first = true; ; first = false) {
+    const live: { e: Entry; p: LayerParts }[] = [];
+    let watching = false;
+    for (const e of pending) {
+      // Asked again with the object as it is now, unless nothing applied in this layer can have changed the answer.
+      const again = first || watches(e, li);
+      const p = e.parts ?? (again ? answerOf(e.source!, w.version, e.i!) : (e.source!.answer[e.i!] ?? null));
+      if (p && appliesAt(e, p, l)) live.push({ e, p });
+      watching ||= watches(e, li);
+    }
+    if (!live.length) return;
+    // With no answer that applying an effect here could change, nothing depends on anything:
+    // timestamp order, and nothing starts or stops applying along the way.
+    if (!watching) {
+      for (const { e, p } of live) {
+        e.parts = p;
+        apply(w, p, l);
+      }
+      return;
+    }
+    const next = live.length > 1 ? firstReady(g, c, w, l, li, live, temporary) : { ...live[0], loop: [] };
+    pending = pending.filter((e) => e !== next.e);
+    // Going first in a loop, it sees other permanents as they are before the rest of the loop applies (613.8b).
+    const left = next.loop.flatMap((d) => (d.source?.id === undefined ? [] : [{ id: d.source.id, i: d.i! }]));
+    const then = left.length ? askWithout(g, c, next.e.source!, li, left, temporary) : undefined;
+    const p = then ? (then[next.e.i!] ?? null) : next.p;
+    if (p && appliesAt(next.e, p, l)) {
+      next.e.parts = p;
+      apply(w, p, l);
+    }
+  }
+}
+
+/**
+ * The effect to apply next among those that apply now (`live`, in timestamp order): the
+ * first that depends on none of the others, or only on ones in a loop with it (613.8b),
+ * with the ones in that loop it goes before (`loop`).
+ * Effects that don't apply now can't be depended on: applying one would change nothing here.
+ */
+function firstReady(g: Game, c: Card, w: Working, l: Layer, li: number, live: { e: Entry; p: LayerParts }[], temporary: boolean) {
+  const on = new Map<Entry, Entry[]>();
+  for (const b of live) {
+    if (!watches(b.e, li)) continue;
+    const deps = live.filter((a) => a !== b && dependsOn(g, c, w, l, li, b.e, a, temporary));
+    if (deps.length) on.set(b.e, deps.map((a) => a.e));
+  }
+  if (!on.size) return { ...live[0], loop: [] };
+  /** Does `from` depend on `to`, directly or through others? */
+  const reaches = (from: Entry, to: Entry) => {
+    const seen = new Set<Entry>([from]);
+    const stack = [from];
+    while (stack.length) {
+      for (const d of on.get(stack.pop()!) ?? []) {
+        if (d === to) return true;
+        if (seen.has(d)) continue;
+        seen.add(d);
+        stack.push(d);
+      }
+    }
+    return false;
+  };
+  const next = live.find(({ e }) => (on.get(e) ?? []).every((d) => reaches(d, e)))!;
+  return { ...next, loop: on.get(next.e) ?? [] };
+}
+
+/**
+ * Does static ability effect `b` depend on effect `a` (613.8a): would applying `a` change
+ * whether `b` applies to `c` or what it does? Asked of `b` again with `a` applied to `c`, and,
+ * for a static ability `a`, with every other permanent `b` looked at worked out without `a`.
+ */
+function dependsOn(g: Game, c: Card, w: Working, l: Layer, li: number, b: Entry, a: { e: Entry; p: LayerParts }, temporary: boolean): boolean {
+  const s = b.source!;
+  const now = s.answer[b.i!] ?? null;
+  const relevant = s.reads.filter((r) => r.upTo >= li);
+  if (relevant.some((r) => r.id === c.id)) {
+    const me = working.get(c.id)!;
+    const tried = { ...w };
+    apply(tried, a.p, l);
+    working.set(c.id, { w: tried, depth: me.depth });
+    try {
+      if (!same(askNow(s).answer[b.i!] ?? null, now)) return true;
+    } finally {
+      working.set(c.id, me);
+    }
+  }
+  const other = a.e.source?.id;
+  if (other === undefined) return false;
+  // Another permanent it looked at, as it would be without `a` (613.8a: "applying the other").
+  const then = askWithout(g, c, s, li, [{ id: other, i: a.e.i! }], temporary);
+  return then !== undefined && !same(then[b.i!] ?? null, now);
+}
+
+/**
+ * Asks `s` again with every other permanent it looked at in layer `li` or later worked out
+ * as if the static ability effects in `left` didn't exist: undefined if it looked at none.
+ * Permanents partway through the layers keep their state so far.
+ */
+function askWithout(g: Game, c: Card, s: Source, li: number, left: { id: string; i: number }[], temporary: boolean) {
+  const others = new Map<string, Read>();
+  for (const r of s.reads) if (r.upTo >= li && r.id !== c.id && !working.has(r.id) && (others.get(r.id)?.upTo ?? -1) < r.upTo) others.set(r.id, r);
+  if (!others.size) return undefined;
+  const outer = without;
+  without = [...outer, ...left];
+  const shown: string[] = [];
+  try {
+    for (const r of others.values()) {
+      const x = permanent(g, r.id);
+      if (!x) continue;
+      const { chars } = layers(g, x, LAYERS[r.upTo], r.temporary && temporary);
+      // Shown as partway through `c`'s question, so no answer that saw it is kept.
+      working.set(x.id, { w: { ...chars, version: 0 }, depth: tainted.length - 1 });
+      shown.push(x.id);
+    }
+    return askNow(s).answer;
+  } finally {
+    for (const id of shown) working.delete(id);
+    without = outer;
+  }
+}
+
+/** Static ability effects left out while working out what the game would be without them. */
+let without: { id: string; i: number }[] = [];
+
+/** Do two answers do the same thing? A function in one (a mana ability's colours) is worked out when used, so the same code counts as the same. */
+function same(x: unknown, y: unknown): boolean {
+  if (x === y) return true;
+  if (typeof x === 'function' && typeof y === 'function') return String(x) === String(y);
+  if (!x || !y || typeof x !== 'object' || typeof y !== 'object') return false;
+  if (Array.isArray(x) !== Array.isArray(y)) return false;
+  const kx = Object.keys(x).filter((k) => (x as Record<string, unknown>)[k] !== undefined);
+  const ky = Object.keys(y).filter((k) => (y as Record<string, unknown>)[k] !== undefined);
+  return kx.length === ky.length && kx.every((k) => same((x as Record<string, unknown>)[k], (y as Record<string, unknown>)[k]));
 }

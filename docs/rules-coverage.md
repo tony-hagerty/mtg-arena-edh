@@ -356,7 +356,12 @@ are from the Comprehensive Rules in `docs/rules/`.
   toughness: characteristic-defining abilities (7a), "base power and toughness" (7b),
   +N/+N and counters (7c), switching (7d). Within a layer, effects apply in timestamp
   order (613.7), and an ability that changes something in several layers does so in all
-  of them as it first applied (613.6). Timestamps: a permanent gets one as it enters,
+  of them as it first applied (613.6). An effect that depends on another in the same
+  layer waits until just after it (613.8): one that would apply to more or fewer things,
+  or do something different, once the other applied. Urborg makes an artifact a Swamp
+  once another effect made it a land, whichever came first, and "+X/+0 where X is its
+  toughness" counts the +0/+2 from a later effect. Effects that depend on each other in a
+  loop apply in timestamp order. Timestamps: a permanent gets one as it enters,
   becomes attached, or transforms; a static ability has its permanent's; an effect from a
   spell or ability gets its own when it starts, locked in (611.2c); counters of a kind
   get the newest one's (613.7c). Permanents entering together get theirs in APNAP order,
@@ -613,9 +618,9 @@ These are deliberate cuts for a prototype. The biggest ones come first.
 - **Modes and copies:** only spells can be modal: modal triggered and activated abilities
   (700.2b) aren't supported. A copy's controller must pick legal new targets or keep all
   the old ones (707.10c allows keeping some). Copying abilities isn't supported yet.
-- **Layers (613) not built yet:** dependency between effects (613.8), effects that
-  remove abilities (layer 6), and effects that set or change colour (layer 5). No card
-  has a copy effect with a duration ("until end of turn") yet.
+- **Layers (613) not built yet:** effects that remove abilities (layer 6), and effects
+  that set or change colour (layer 5). No card has a copy effect with a duration ("until
+  end of turn") yet.
 - **Counters:** proliferate, shield, stun and other counters with their own rules
   (122.1c-j) do nothing special yet.
 - **Auras** can only enchant permanents, not players (702.5d).
