@@ -25,7 +25,7 @@ import {
   triggerModeOptions,
   triggerOf,
 } from '../engine';
-import type { Action, AskChoice, Card, CardChoice, CastChoice, DamageAssignment, DamageRoom, Game, NameChoice, NumberChoice, OrderDamageChoice, PlayerChoice, PlayerId, StackItem } from '../engine';
+import type { Action, AskChoice, Card, CardChoice, CastChoice, DamageAssignment, DamageRoom, Game, NameChoice, NumberChoice, PlayerChoice, ReplacementChoice, PlayerId, StackItem } from '../engine';
 import { CardImage, ManaCost } from './TextCard';
 import { useStore } from './store';
 import { cx, hoverProps } from './util';
@@ -429,18 +429,16 @@ function NumberPanel({ g, choice }: { g: Game; choice: NumberChoice }) {
 }
 
 /**
- * Replacement effects that change damage you or your permanent would be dealt, in an order
- * you choose (616.1): one button for each different amount of damage.
+ * Replacement effects that would change an event that affects you or your permanent (616.1):
+ * which applies first, or whether to apply an optional one. Each button says what it leads to.
  */
-function OrderDamagePanel({ choice }: { choice: OrderDamageChoice }) {
+function ReplacementPanel({ choice }: { choice: ReplacementChoice }) {
   return (
     <CardPicker
-      title="Order Replacement Effects"
+      title="Replacement Effects"
       hint={choice.text}
       cards={[]}
-      buttons={() =>
-        choice.options.map((o, i) => ({ label: `${o.amount} damage`, sub: o.order.join(', then '), tone: 'go' as const, onClick: () => act({ type: 'orderDamage', option: i }) }))
-      }
+      buttons={() => choice.options.map((o, i) => ({ label: o.label, sub: o.sub, tone: 'go' as const, onClick: () => act({ type: 'replacement', option: i }) }))}
     />
   );
 }
@@ -774,8 +772,8 @@ export function Decisions() {
       return <TriggerModesPanel key={d.item.id} g={g} item={d.item} />;
     case 'orderTriggers':
       return <TriggerOrder key={g.triggers.map((t) => t.id).join()} g={g} me={me} />;
-    case 'orderDamage':
-      return <OrderDamagePanel key={g.log.length} choice={d.order} />;
+    case 'replacement':
+      return <ReplacementPanel key={g.log.length} choice={d.ask} />;
     case 'assignDamage':
       return <DamagePanel key={`${g.turn}:${d.firstStrike}`} g={g} attackers={d.attackers} />;
     case 'commanderZone': {
