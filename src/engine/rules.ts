@@ -3,6 +3,7 @@
 import { cardData } from '../cards/db';
 import { scriptOf } from './registry';
 import { characteristics, settled, typesOf } from './layers';
+import { replace, whileArriving } from './replace';
 import type {
   ActivatedAbility,
   BroadcastHook,
@@ -34,7 +35,6 @@ import type {
   Delayed,
   LayerParts,
   ContinuousEffect,
-  OrderDamageChoice,
   Trigger,
   TriggerEvents,
   TurnEffect,
@@ -298,7 +298,8 @@ export const isInstantSpeed = (g: Game, c: Card) => hasType(g, c, 'Instant') || 
 export const colorsOf = (g: Game, c: Card) => characteristics(g, c, '5').colors;
 export const isColor = (g: Game, c: Card, color: Color) => colorsOf(g, c).includes(color);
 
-const num = (s?: string) => {
+/** A printed number, like loyalty or defense: 0 if it isn't one ("*", "X"). */
+export const num = (s?: string) => {
   const n = parseInt(s ?? '', 10);
   return Number.isNaN(n) ? 0 : n;
 };
@@ -1795,6 +1796,7 @@ export function shuffle<T>(g: Game, arr: T[]) {
 
 const SECOND_PERSON: Record<string, string> = {
   plays: 'play',
+  applies: 'apply',
   pays: 'pay',
   sacrifices: 'sacrifice',
   casts: 'cast',
@@ -1916,21 +1918,19 @@ export function removeFromCombat(g: Game, id: string) {
 }
 
 /**
- * Moves a card between zones. Tokens vanish. A commander can leave for the command zone:
+ * Moves a card between zones, or wherever replacement effects send it instead (614): a
+ * finality counter, flashback, Rest in Peace. Tokens vanish. A commander can leave for the
+ * command zone:
  *  - Into a graveyard or exile it really goes there, so "dies" abilities see it, and the
  *    next state-based check offers to move it on (903.9a).
- *  - Into a hand or library it may go to the command zone instead (903.9b). That is a
- *    replacement effect, chosen as the card moves. Bots always take it. A human's commander
- *    goes where it was headed and they are asked at the next state-based check, because an
- *    effect can't stop partway through for an answer. No card in the pool does this yet.
+ *  - Into a hand or library its owner may put it into the command zone instead (903.9b), a
+ *    replacement effect they choose as it moves. Bots always do.
+ * Callers that care where the card went look at `c.zone` afterwards.
  */
 export function moveCard(g: Game, c: Card, to: Zone) {
   const from = c.zone;
-  // "If this permanent would be put into a graveyard from the battlefield, exile it instead" (122.1h).
-  if (from === 'battlefield' && to === 'graveyard' && counterCount(c, 'finality') > 0) {
-    log(g, `${label(c)} is exiled instead (finality counter).`, c.controller, [c]);
-    to = 'exile';
-  }
+  const happens = replace(g, { kind: 'move', card: c, to });
+  if (happens.kind === 'move') to = happens.to;
   // As it last was on the battlefield, for leaves-the-battlefield abilities (603.10a).
   const last = from === 'battlefield' && watchingLeaves(g) ? lastKnown(g, c) : null;
   if (last && batch && !batch.before) batch.before = battlefield(g).map(snapshot);
@@ -1974,21 +1974,12 @@ export function moveCard(g: Game, c: Card, to: Zone) {
   c.airbent = undefined;
   c.warped = undefined;
   c.phasedWith = undefined;
-  // A spell cast with flashback, or an aftermath half cast from a graveyard, is exiled
-  // instead of going anywhere else (702.34a, 702.127a).
-  if (c.zone === 'stack' && (c.cast?.flashback || c.cast?.exileOnLeave) && to !== 'exile') to = 'exile';
-  // "If that spell would be put into your graveyard, exile it instead" (Emet-Selch).
-  if (c.zone === 'stack' && c.cast?.graveyardToExile && to === 'graveyard') to = 'exile';
   // A permanent spell enters with the face it had on the stack up (712.13). Anywhere else,
   // a card has its front face up (712.8a, 712.14).
   if (c.zone !== 'stack' || to !== 'battlefield') c.face = 0;
   // A spell keeps what it was cast with as it becomes a permanent (107.3m), and loses it after.
   if (c.zone !== 'stack' || to !== 'battlefield') c.cast = null;
-  if (c.isCommander && (to === 'hand' || to === 'library') && g.players[c.owner].isBot) {
-    log(g, `${label(c)} goes to the command zone instead.`, c.owner, [c]);
-    to = 'command';
-  }
-  c.mayReturn = c.isCommander && to !== 'command' && to !== 'battlefield';
+  c.mayReturn = c.isCommander && (to === 'graveyard' || to === 'exile');
   c.zone = to;
   c.ts = g.nextId++; // a new timestamp as it enters a zone (613.7d)
   if (c.isToken && to !== 'battlefield') {
@@ -2267,24 +2258,39 @@ export const canProtect = (g: Game, c: Card, pid: PlayerId) =>
 
 /** Sets up a permanent that was just put onto the battlefield, and triggers "enters" abilities (603.6a). */
 function arrive(g: Game, c: Card, opts: EnterOpts) {
-  setUp(g, c, opts);
-  entered(g, c, opts);
+  const counters = whileArriving([c.id], () => setUp(g, c, opts));
+  entered(g, c, opts, counters);
 }
 
 /** The `Delayed.key` of warp's exile (702.185a). Its `data` names the permanent: `id` and `moves`. */
 export const WARP = '@warp';
 
-/** Sets up a permanent that was just put onto the battlefield, before anything triggers on it. */
-function setUp(g: Game, c: Card, opts: EnterOpts) {
+/**
+ * Sets up a permanent that was just put onto the battlefield, before anything triggers on it.
+ * Returns the counters it entered with. Call it inside `whileArriving`, so the effects of
+ * permanents entering with it don't apply to it (614.12).
+ */
+function setUp(g: Game, c: Card, opts: EnterOpts): Record<string, number> {
   c.sick = true;
   c.entered = g.turn;
-  const tapped = scriptFor(c).entersTapped;
-  c.tapped =
-    !!opts.tapped ||
-    (typeof tapped === 'function' ? tapped(g, c, c.controller) : !!tapped) ||
-    battlefield(g).some((x) => x.id !== c.id && scriptFor(x).entersTappedFor?.(g, x, c));
-  // "This enters with [counters]" (614.1c), and counters the effect putting it there gives it (Ghost Vacuum's flying counter).
-  for (const [kind, n] of [...Object.entries(scriptFor(c).entersWith ?? {}), ...Object.entries(opts.counters ?? {})]) c.counters[kind] = (c.counters[kind] ?? 0) + n;
+  // What the effect putting it there says it is or has for as long as it stays (611.2a). It
+  // applies as it enters, so replacement effects see it (614.12).
+  if (opts.lasting) addLasting(g, c, opts.lasting);
+  // How it enters, as replacement effects change it (614.1c-d, 614.12): tapped ("This enters
+  // tapped", Blind Obedience), and with counters (its own "enters with", a planeswalker's
+  // loyalty, the effect putting it there, like Ghost Vacuum's flying counter).
+  const how = replace(g, { kind: 'enter', card: c, tapped: !!opts.tapped, counters: { ...(opts.counters ?? {}) } });
+  const enters = how.kind === 'enter' ? how : { tapped: !!opts.tapped, counters: {} };
+  c.tapped = enters.tapped;
+  // Each kind is then put on it (122.6), which may be replaced in turn (616.1g, 614.16).
+  const counters: Record<string, number> = {};
+  for (const [kind, n] of Object.entries(enters.counters)) {
+    if (n <= 0) continue;
+    const put = replace(g, { kind: 'counters', card: c, counter: kind, n, entering: true });
+    if (put.kind !== 'counters') continue;
+    putCounters(g, c, put.counter, put.n);
+    counters[put.counter] = (counters[put.counter] ?? 0) + put.n;
+  }
   // Warp: "exile the permanent this spell becomes at the beginning of the next end step" (702.185a).
   const alt = c.cast?.alt !== undefined ? scriptFor(c, 'stack', c.face).alternativeCosts?.[c.cast.alt] : undefined;
   // Impending: "If you chose to pay this permanent's impending cost, it enters with N time counters on it" (702.176a, 614.1c).
@@ -2292,21 +2298,15 @@ function setUp(g: Game, c: Card, opts: EnterOpts) {
   if (alt?.warp) g.delayed.push({ id: `d${g.nextId++}`, controller: c.controller, card: snapshot(c), key: WARP, step: 'end', data: { id: c.id, moves: c.moves } });
   // Dash: "return the permanent this spell becomes to its owner's hand at the beginning of the next end step" (702.109a).
   if (c.cast?.dash) g.delayed.push({ id: `d${g.nextId++}`, controller: c.controller, card: snapshot(c), key: RETURN_TO_HAND, step: 'end', data: { id: c.id, moves: c.moves } });
-  // A planeswalker enters with its printed loyalty (306.5b), a battle with its printed defense (310.4b).
-  if (isPlaneswalker(g, c)) c.counters.loyalty = num(data(c).loyalty);
-  // A Saga enters with a lore counter, which triggers chapter I (714.3a, 714.2b).
-  if (isSaga(g, c) && scriptFor(c).chapters?.length) addCounters(g, c, 1, 'lore');
   if (isBattle(g, c)) {
-    c.counters.defense = num(data(c).defense);
     c.protector = opts.protector !== undefined && canProtect(g, c, opts.protector) ? opts.protector : defaultProtector(g, c);
     if (c.protector !== null) log(g, `${g.players[c.protector].name} protects ${label(c)}.`, c.controller, [c]);
   }
-  // What the effect putting it there says it is or has for as long as it stays (611.2a).
-  if (opts.lasting) addLasting(g, c, opts.lasting);
+  return counters;
 }
 
-/** Triggers on a permanent having entered (603.6a): its own "enters" abilities, then everything watching. */
-function entered(g: Game, c: Card, opts: EnterOpts) {
+/** Triggers on a permanent having entered (603.6a): its own "enters" abilities, then everything watching. `counters`: what it entered with. */
+function entered(g: Game, c: Card, opts: EnterOpts, counters: Record<string, number>) {
   // Evoke: "When this permanent enters, if its evoke cost was paid, its controller sacrifices it" (702.74a).
   const alt = c.cast?.alt !== undefined ? scriptFor(c, 'stack', c.face).alternativeCosts?.[c.cast.alt] : undefined;
   if (alt?.evoke) g.triggers.push({ id: `s${g.nextId++}`, kind: 'triggered', controller: c.controller, card: snapshot(c), hook: 'onEvoked', event: {}, targets: [] });
@@ -2314,7 +2314,7 @@ function entered(g: Game, c: Card, opts: EnterOpts) {
   if (c.cast?.offspring) g.triggers.push({ id: `s${g.nextId++}`, kind: 'triggered', controller: c.controller, card: snapshot(c), hook: 'onOffspring', event: {}, targets: [] });
   trigger(g, c, 'onEnter', {});
   // Entering with counters is having them put on it (122.6).
-  for (const [kind, n] of [...Object.entries(scriptFor(c).entersWith ?? {}), ...Object.entries(opts.counters ?? {})]) if (n > 0) trigger(g, c, 'onCounters', { kind, n });
+  for (const [kind, n] of Object.entries(counters)) trigger(g, c, 'onCounters', { kind, n });
   if (isCreature(g, c)) broadcast(g, 'onCreatureEnters', { entered: c });
   if (isLand(g, c)) broadcast(g, 'onLandfall', { land: c });
   broadcast(g, 'onPermanentEnters', { entered: c });
@@ -2506,8 +2506,11 @@ function putTogether(g: Game, ready: { id: string; moves: number; opts: EnterOpt
     now.push({ c, opts });
   }
   timestampTogether(g, now.map((x) => x.c));
-  for (const { c, opts } of now) setUp(g, c, opts);
-  for (const { c, opts } of now) entered(g, c, opts);
+  const counters = whileArriving(
+    now.map((x) => x.c.id),
+    () => now.map(({ c, opts }) => setUp(g, c, opts)),
+  );
+  now.forEach(({ c, opts }, i) => entered(g, c, opts, counters[i]));
 }
 
 /**
@@ -2585,24 +2588,37 @@ export function becomeCopy(g: Game, c: Card, copy: CopyInfo) {
 }
 
 /**
- * Creates tokens (111.2). Returns them as stored in the game, so callers can change them
- * further. `copy`: what the tokens are copies of (707.2), set before they enter.
+ * Creates tokens (111.2), or as many as replacement effects make it instead (614.16):
+ * Mondrak's "twice that many". They enter the battlefield at the same time (603.6a). Returns
+ * them as stored in the game, so callers can change them further. `copy`: what the tokens are
+ * copies of (707.2), set before they enter.
  */
 export function createToken(g: Game, pid: PlayerId, key: string, count = 1, opts: { tapped?: boolean; copy?: CopyInfo | null; attachTo?: string } = {}): Card[] {
-  if (g.players[pid].lost) return [];
+  if (g.players[pid].lost || count <= 0) return [];
+  const happens = replace(g, { kind: 'tokens', player: pid, tokens: [{ key, count, copy: opts.copy ?? null }] });
+  if (happens.kind !== 'tokens') return [];
+  const owner = happens.player;
+  if (g.players[owner].lost) return [];
   const out: Card[] = [];
-  for (let i = 0; i < count; i++) {
-    const c = makeCard(g, key, pid, 'battlefield', { isToken: true, copy: opts.copy ?? null });
-    // One to be created attached to a permanent it can't enchant isn't created (303.7, as Roles' rulings say).
-    if (opts.attachTo && !canEnchant(g, c, permanent(g, opts.attachTo))) continue;
-    g.players[pid].battlefield.push(c);
-    // Re-read through the draft so later mutations hit the stored object.
-    const stored = g.players[pid].battlefield[g.players[pid].battlefield.length - 1];
-    // A token created attached to something (a Role, 303.7) enters attached to it.
-    if (opts.attachTo) stored.attachedTo = opts.attachTo;
-    arrive(g, stored, { tapped: opts.tapped });
-    out.push(stored);
+  for (const spec of happens.tokens) {
+    for (let i = 0; i < spec.count; i++) {
+      const c = makeCard(g, spec.key, owner, 'battlefield', { isToken: true, copy: spec.copy ?? null });
+      // One to be created attached to a permanent it can't enchant isn't created (303.7, as Roles' rulings say).
+      if (opts.attachTo && !canEnchant(g, c, permanent(g, opts.attachTo))) continue;
+      g.players[owner].battlefield.push(c);
+      // Re-read through the draft so later mutations hit the stored object.
+      const stored = g.players[owner].battlefield[g.players[owner].battlefield.length - 1];
+      // A token created attached to something (a Role, 303.7) enters attached to it.
+      if (opts.attachTo) stored.attachedTo = opts.attachTo;
+      out.push(stored);
+    }
   }
+  const enter: EnterOpts = { tapped: opts.tapped };
+  const counters = whileArriving(
+    out.map((c) => c.id),
+    () => out.map((c) => setUp(g, c, enter)),
+  );
+  out.forEach((c, i) => entered(g, c, enter, counters[i]));
   return out;
 }
 
@@ -2623,10 +2639,12 @@ export function abilityCost(ab: { cost: { mana?: string; life?: number; xColor?:
 }
 
 /** Returns a permanent to its owner's hand (Snapback, Chain of Vapor). */
+/** Returns a permanent to its owner's hand. A commander may go to the command zone instead (903.9b). */
 export function bounce(g: Game, c: Card | undefined) {
   if (!c || c.zone !== 'battlefield') return;
-  log(g, `${label(c)} returns to its owner's hand.`, c.owner, [c]);
+  const name = label(c);
   moveCard(g, c, 'hand');
+  if ((c as Card).zone === 'hand') log(g, `${name} returns to its owner's hand.`, c.owner, [c]);
 }
 
 /** Does card `c` have this name? A card with several faces has each face's name too (201.2, 709.4b). */
@@ -2693,11 +2711,16 @@ export function exile(g: Game, c: Card | undefined) {
   moveCard(g, c, 'exile');
 }
 
+/** Player `pid` gains `n` life, or what replacement effects make it instead (119.10). */
 export function gainLife(g: Game, pid: PlayerId, n: number) {
   const p = g.players[pid];
   if (n <= 0 || p.lost) return;
-  // A life total that can't change doesn't, so no life is gained (119.7).
+  // A life total that can't change doesn't, so no life is gained (119.7). An event that
+  // can't happen isn't replaced (614.17c).
   if (lifeLocked(g, pid)) return;
+  const happens = replace(g, { kind: 'gainLife', player: pid, amount: n });
+  if (happens.kind !== 'gainLife') return;
+  n = happens.amount;
   p.life += n;
   p.lifeGained = (p.lifeGained ?? 0) + n;
   log(g, `${says(p, 'gains')} ${n} life.`, pid);
@@ -2730,76 +2753,36 @@ export function loseLife(g: Game, pid: PlayerId, n: number): number {
   return n;
 }
 
+/**
+ * Player `pid` draws `n` cards, one at a time (121.2). Each draw may be replaced (614.11),
+ * even with no card to draw: Notion Thief has another player draw instead.
+ */
 export function draw(g: Game, pid: PlayerId, n = 1) {
   const p = g.players[pid];
   for (let i = 0; i < n; i++) {
     if (p.lost) return;
-    const top = p.library[0];
-    if (!top) {
-      p.drewFromEmpty = true;
-      return;
-    }
-    moveCard(g, top, 'hand');
-    p.drawn++;
-    broadcast(g, 'onDraw', { player: pid });
+    const happens = replace(g, { kind: 'draw', player: pid, firstInDrawStep: firstDrawInDrawStep(g, pid) });
+    if (happens.kind === 'draw') drawOne(g, happens.player);
   }
 }
 
-/**
- * Thrown out of `applyAction` when a person must order replacement effects (616.1) partway
- * through an action. The action is applied again, from the start, once they answer: the game
- * is deterministic, so it gets back to the same point and uses the answer there.
- */
-export class NeedsOrder {
-  constructor(public choice: OrderDamageChoice) {}
-}
+/** Would a card `pid` draws now be the first they draw in their own draw step (504.1)? */
+export const firstDrawInDrawStep = (g: Game, pid: PlayerId) =>
+  g.step === 'draw' && g.active === pid && g.players[pid].drawn === (g.players[pid].drawnBeforeDrawStep ?? -1);
 
-/** The answers to `NeedsOrder` questions for the action being applied, in the order they come up. Null: nobody can be asked (a bot's look-ahead). */
-let orderAnswers: { answers: number[]; used: number } | null = null;
-
-/** Runs `fn` with these answers to order questions (`NeedsOrder`), or with nobody asked if null. */
-export function withOrderAnswers<T>(answers: number[] | null, fn: () => T): T {
-  const was = orderAnswers;
-  orderAnswers = answers ? { answers, used: 0 } : null;
-  try {
-    return fn();
-  } finally {
-    orderAnswers = was;
+/** Player `pid` puts the top card of their library into their hand (121.1): a draw that happens. */
+function drawOne(g: Game, pid: PlayerId) {
+  const p = g.players[pid];
+  if (p.lost) return;
+  const top = p.library[0];
+  if (!top) {
+    // Drawing from an empty library loses the game at the next state-based check (704.5b).
+    p.drewFromEmpty = true;
+    return;
   }
-}
-
-const orders = <T>(xs: T[]): T[][] => (xs.length <= 1 ? [xs] : xs.flatMap((x, i) => orders([...xs.slice(0, i), ...xs.slice(i + 1)]).map((rest) => [x, ...rest])));
-
-/**
- * The damage `source` deals after the replacement effects that change it (614.1a): each one
- * that applies, in the order the player being dealt damage, or the permanent's controller,
- * chooses (616.1). A bot takes the least damage; a person is asked when the order matters.
- */
-function changedDamage(g: Game, source: Card, to: { player?: PlayerId; card?: Card }, n: number, combat: boolean): number {
-  const changes = battlefield(g).flatMap((x) => {
-    const c = scriptFor(x).changesDamage?.(g, x, source, to, combat);
-    return c ? [{ by: x, ...c }] : [];
-  });
-  if (!changes.length) return n;
-  const amounts = new Map<number, string[]>();
-  for (const order of orders(changes)) {
-    const amount = order.reduce((m, c) => (c.times !== undefined ? m * c.times : m + (c.plus ?? 0)), n);
-    if (!amounts.has(amount)) amounts.set(amount, order.map((c) => label(c.by)));
-  }
-  const options = [...amounts.entries()].sort((a, b) => a[0] - b[0]).map(([amount, order]) => ({ order, amount }));
-  if (options.length === 1) return options[0].amount;
-  const chooser = to.player ?? to.card!.controller;
-  const p = g.players[chooser];
-  if (p.isBot || !orderAnswers) return options[0].amount;
-  const answer = orderAnswers.answers[orderAnswers.used];
-  if (answer === undefined) {
-    const what = to.player !== undefined ? (p.you ? 'you' : p.name) : label(to.card!);
-    throw new NeedsOrder({ player: chooser, text: `${label(source)} would deal ${n} damage to ${what}. Choose the order its replacement effects apply in (616.1).`, options });
-  }
-  orderAnswers.used++;
-  const chosen = options[answer] ?? options[0];
-  log(g, `${says(p, 'applies')} ${chosen.order.join(', then ')}.`, chooser);
-  return chosen.amount;
+  moveCard(g, top, 'hand');
+  p.drawn++;
+  broadcast(g, 'onDraw', { player: pid });
 }
 
 /** The colours protection keywords name, like "protection from white" (702.16a). */
@@ -2813,25 +2796,19 @@ export function protectedFrom(g: Game, c: Card, source: Card): boolean {
 }
 
 /**
- * Is damage `source` would deal to this player or permanent prevented (615)? By protection
- * (702.16e), or by an effect like Solitary Confinement's "Prevent all damage that would be
- * dealt to you."
+ * `source` deals `n` damage to player `pid`, as replacement and prevention effects change it
+ * (120.4b): Furnace of Rath's double, Solitary Confinement's "Prevent all damage", protection.
+ * Returns the damage dealt.
  */
-function prevented(g: Game, source: Card, to: { player?: PlayerId; card?: Card }): boolean {
-  if (to.card && protectedFrom(g, to.card, source)) return true;
-  // Protection from everything prevents all damage to the player (702.16e, 702.16j).
-  if (to.player !== undefined && playerProtected(g, to.player)) return true;
-  return battlefield(g).some((x) => scriptFor(x).preventsDamage?.(g, x, source, to));
-}
-
 export function damagePlayer(g: Game, source: Card, pid: PlayerId, n: number, combat = false): number {
   const p = g.players[pid];
   if (n <= 0 || p.lost) return 0;
-  if (prevented(g, source, { player: pid })) {
+  const happens = replace(g, { kind: 'damage', source, player: pid, amount: n, combat });
+  if (happens.kind !== 'damage') {
     log(g, `Damage ${label(source)} would deal to ${p.name} is prevented.`, source.controller, [source]);
     return 0;
   }
-  n = changedDamage(g, source, { player: pid }, n, combat);
+  n = happens.amount;
   subtractLife(g, pid, n); // damage to a player makes them lose that much life (120.3a)
   log(g, `${label(source)} deals ${n} damage to ${p.name}.`, source.controller, [source]);
   // Combat damage from a commander counts toward 21, separately for each partner (903.10a, 702.124d).
@@ -2863,16 +2840,18 @@ export function removeDefense(g: Game, c: Card, n: number) {
 const defeatPending = (g: Game, c: Card) => [...g.triggers, ...g.stack].some((x) => x.hook === 'onDefeat' && x.card.id === c.id);
 
 /**
- * Damage to a permanent: a planeswalker loses that many loyalty counters (120.3c), a
- * battle that many defense counters (120.3h), and a creature has it marked (120.3e).
+ * Damage to a permanent, as replacement and prevention effects change it (120.4b): a
+ * planeswalker loses that many loyalty counters (120.3c), a battle that many defense counters
+ * (120.3h), and a creature has it marked (120.3e).
  */
 export function damageCard(g: Game, source: Card, target: Card | undefined, n: number, combat = false, logged = false): number {
   if (!target || n <= 0 || target.zone !== 'battlefield') return 0;
-  if (prevented(g, source, { card: target })) {
+  const happens = replace(g, { kind: 'damage', source, card: target, amount: n, combat });
+  if (happens.kind !== 'damage') {
     log(g, `Damage ${label(source)} would deal to ${label(target)} is prevented.`, source.controller, [source, target]);
     return 0;
   }
-  n = changedDamage(g, source, { card: target }, n, combat);
+  n = happens.amount;
   if (logged) log(g, `${label(source)} deals ${n} damage to ${label(target)}.`, source.controller, [source, target]);
   if (isPlaneswalker(g, target)) removeCounters(target, n, 'loyalty');
   if (isBattle(g, target)) removeDefense(g, target, n);
@@ -2964,15 +2943,27 @@ export function markDid(g: Game, pid: PlayerId, ability: string) {
   g.did = { ...(g.did ?? {}), [`${pid}:${ability}`]: g.turn };
 }
 
-/** Puts `n` counters of `kind` on a permanent (122). */
-export function addCounters(g: Game, c: Card | undefined, n = 1, kind = '+1/+1') {
+/**
+ * Puts `n` counters of `kind` on a permanent (122), or what replacement effects make it
+ * instead (614.16): Hardened Scales's "that many plus one". `by`: they aren't put on by an
+ * effect but as a cost (a loyalty ability's, 606.4) or by a turn-based action (714.3b), which
+ * "if an effect would put counters" doesn't change.
+ */
+export function addCounters(g: Game, c: Card | undefined, n = 1, kind = '+1/+1', opts: { by?: 'cost' | 'rule' } = {}) {
   if (!c || c.zone !== 'battlefield' || n <= 0) return;
+  const happens = replace(g, { kind: 'counters', card: c, counter: kind, n, ...(opts.by ? { by: opts.by } : {}) });
+  if (happens.kind !== 'counters') return;
+  putCounters(g, happens.card, happens.counter, happens.n);
+  // "Whenever one or more counters are put on this" (122.6), and abilities that depend on its counters (Agatha's Soul Cauldron).
+  trigger(g, happens.card, 'onCounters', { kind: happens.counter, n: happens.n });
+}
+
+/** Puts counters on permanent `c` as they come, after replacement effects. */
+function putCounters(g: Game, c: Card, kind: string, n: number) {
   const before = counterCount(c, kind);
   c.counters[kind] = before + n;
   // Every counter of that kind gets the new one's timestamp (613.7c).
   c.counterTs = { ...c.counterTs, [kind]: g.nextId++ };
-  // "Whenever one or more counters are put on this" (122.6), and abilities that depend on its counters (Agatha's Soul Cauldron).
-  trigger(g, c, 'onCounters', { kind, n });
   // A Saga's chapter ability triggers when lore counters take it from below N to N or more (714.2b).
   if (kind !== 'lore') return;
   (scriptFor(c).chapters ?? []).forEach((_, i) => {
@@ -3314,9 +3305,10 @@ export const canChangeTargets = (g: Game, item: StackItem) => {
   return item.targets.some(Boolean) && item.targets.every((t, i) => !t || options[i].length > 0);
 };
 
-/** Puts a card on top of its owner's library. */
+/** Puts a card on top of its owner's library, unless it goes somewhere else instead (903.9b). */
 export function putOnTop(g: Game, c: Card) {
   moveCard(g, c, 'library');
+  if (c.zone !== 'library') return;
   const lib = g.players[c.owner].library;
   lib.unshift(lib.pop()!);
 }
@@ -3832,11 +3824,11 @@ export function checkState(g: Game) {
       moveCard(g, c, 'graveyard');
       changed = true;
     }
-    // A commander just put into a graveyard or exile may go to the command zone (903.9a),
-    // and so may a human's that just went to a hand or library (903.9b, see `moveCard`).
+    // A commander just put into a graveyard or exile may go to the command zone (903.9a).
     // Bots always send it. A human is asked, unless the game is already waiting on another
-    // decision: then the commander waits for the next check.
-    for (const c of g.players.flatMap((p) => [...p.graveyard, ...p.exile, ...p.hand, ...p.library])) {
+    // decision: then the commander waits for the next check. (One headed for a hand or
+    // library may go there instead, as it moves: see `moveCard`, 903.9b.)
+    for (const c of g.players.flatMap((p) => [...p.graveyard, ...p.exile])) {
       if (!c.mayReturn) continue;
       if (g.players[c.owner].isBot) {
         returnCommander(g, c);
