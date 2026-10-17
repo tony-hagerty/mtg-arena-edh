@@ -639,12 +639,12 @@ const CARD_TYPES = ['Artifact', 'Battle', 'Creature', 'Enchantment', 'Instant', 
 const delirium = (g: Game, pid: PlayerId) => CARD_TYPES.filter((t) => g.players[pid].graveyard.some((c) => hasType(g, c, t))).length >= 4;
 
 /** "You may play / cast [cards] this turn": a permission for each card, while it stays the same object. */
-function mayCast(g: Game, pid: PlayerId, cards: Card[], opts: { play?: boolean; anyMana?: boolean } = {}) {
+export function mayCast(g: Game, pid: PlayerId, cards: Card[], opts: { play?: boolean; anyMana?: boolean } = {}) {
   for (const c of cards) addEffect(g, { kind: 'mayCast', player: pid, card: c.id, moves: c.moves, ...opts });
 }
 
 /** Exiles the top `n` cards of a player's library face up, and returns them. */
-function exileTop(g: Game, pid: PlayerId, n: number): Card[] {
+export function exileTop(g: Game, pid: PlayerId, n: number): Card[] {
   const cards = g.players[pid].library.slice(0, n);
   for (const c of cards) moveCard(g, c, 'exile');
   if (cards.length) log(g, `${says(g.players[pid], 'exiles')} ${cards.map(label).join(', ')} from the top of ${their(g.players[pid])} library.`, pid, cards);

@@ -47,8 +47,12 @@ export interface Targeting {
   sacrificeDone?: boolean;
   /** The creature picked to exile for an ability's "Exile a creature you control" cost. */
   exile?: string[];
+  /** The cards picked from the graveyard for an ability's "Exile two cards from your graveyard" cost (Matoc). */
+  graveyard?: string[];
   /** Done picking "any number of" targets (115.1d): the trailing slot is gone. */
   anyDone?: boolean;
+  /** The division of a spell's damage among its targets so far (601.2d), before it is confirmed into `choices.divide`. */
+  dividing?: number[];
 }
 
 // Renamed when the defaults change, so everyone starts again from the new ones once.
@@ -231,7 +235,23 @@ interface Store {
   /** A mana ability with a choice of colour that the human is about to use, like Lion's Eye Diamond's. */
   /** `creatures`: the creatures that could pay a "Tap an untapped creature you control" cost; `creature` is the one picked. */
   /** `discards`: the cards in hand that could pay a "Discard a card" cost (Skirge Familiar); `discard` is the one picked. */
-  colorPick: { cardId: string; ability: number; colors: ManaSym[]; creatures?: string[]; creature?: string; discards?: string[]; discard?: string } | null;
+  /**
+   * `sacrifices`: the creatures that ability `ability` could sacrifice (Phyrexian Tower), and
+   * `sacrifice` the one picked, or null to use the card's plain ability `plain` (making `plainColors`) instead.
+   */
+  colorPick: {
+    cardId: string;
+    ability: number;
+    colors: ManaSym[];
+    creatures?: string[];
+    creature?: string;
+    discards?: string[];
+    discard?: string;
+    sacrifices?: string[];
+    sacrifice?: string | null;
+    plain?: number;
+    plainColors?: ManaSym[];
+  } | null;
   showLog: boolean;
   /** The "leave this game?" dialog is open. */
   confirmExit: boolean;

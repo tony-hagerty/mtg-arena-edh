@@ -22,12 +22,14 @@ import {
   permanent,
   resolvingItem,
   triggerText,
+  triggerModeOptions,
+  triggerOf,
 } from '../engine';
-import type { Action, AskChoice, Card, CardChoice, CastChoice, DamageAssignment, DamageRoom, Game, NameChoice, OrderDamageChoice, PlayerChoice, PlayerId } from '../engine';
+import type { Action, AskChoice, Card, CardChoice, CastChoice, DamageAssignment, DamageRoom, Game, NameChoice, NumberChoice, OrderDamageChoice, PlayerChoice, PlayerId, StackItem } from '../engine';
 import { CardImage, ManaCost } from './TextCard';
 import { useStore } from './store';
 import { cx, hoverProps } from './util';
-import { chooseDelve, chooseEscape, chooseGraveyardTarget, playHandCard, useView } from './view';
+import { chooseDelve, chooseEscape, chooseGraveCost, chooseGraveyardTarget, playHandCard, useView } from './view';
 
 const act = (a: Action) => useStore.getState().act(a);
 
@@ -379,6 +381,53 @@ function PlayerPanel({ g, choice }: { g: Game; choice: PlayerChoice }) {
   );
 }
 
+/** The modes of a modal triggered ability of yours, chosen as it goes on the stack (603.3c). */
+function TriggerModesPanel({ g, item }: { g: Game; item: StackItem }) {
+  const [picked, setPicked] = useState<number[]>([]);
+  const modal = triggerModeOptions(g, item);
+  const t = triggerOf(item);
+  if (!modal || !t || typeof t === 'function' || !t.modes) return null;
+  const modes = t.modes.modes;
+  const toggle = (i: number) => setPicked(picked.includes(i) ? picked.filter((x) => x !== i) : [...picked, i].sort((a, b) => a - b));
+  const many = modal.max > 1 ? (modal.min === modal.max ? `${modal.min}` : modal.min === 1 ? 'one or more' : `${modal.min} to ${modal.max}`) : 'one';
+  return (
+    <CardPicker
+      title={label(item.card)}
+      hint={`Choose ${many}: ${modes.map((m) => m.text).join(' / ')}`}
+      cards={[item.card]}
+      buttons={() => [
+        ...modes.map((m, i) => ({
+          label: `${picked.includes(i) ? '✓ ' : ''}${m.text.split(' — ')[0]}`,
+          sub: m.text.includes(' — ') ? m.text.split(' — ').slice(1).join(' — ') : undefined,
+          tone: picked.includes(i) ? ('go' as const) : ('plain' as const),
+          disabled: !modal.legal.includes(i) || (!picked.includes(i) && picked.length >= modal.max),
+          onClick: () => toggle(i),
+        })),
+        { label: 'Done', tone: 'go' as const, disabled: picked.length < modal.min || picked.length > modal.max, onClick: () => act({ type: 'chooseModes', modes: picked }) },
+      ]}
+    />
+  );
+}
+
+/** Choosing a number (a bid of life, Mages' Contest): − and + from the least allowed, or none if that is allowed. */
+function NumberPanel({ g, choice }: { g: Game; choice: NumberChoice }) {
+  const [n, setN] = useState(choice.min);
+  const source = resolvingItem(g)?.card;
+  return (
+    <CardPicker
+      title={choice.source}
+      hint={choice.text}
+      cards={source ? [source] : []}
+      buttons={() => [
+        ...(choice.decline ? [{ label: choice.decline, tone: 'plain' as const, onClick: () => act({ type: 'chooseNumber', n: null }) }] : []),
+        { label: '−', tone: 'plain' as const, disabled: n <= choice.min, onClick: () => setN(n - 1) },
+        { label: '+', tone: 'plain' as const, disabled: n >= choice.max, onClick: () => setN(n + 1) },
+        { label: String(n), sub: 'Choose', tone: 'go' as const, onClick: () => act({ type: 'chooseNumber', n }) },
+      ]}
+    />
+  );
+}
+
 /**
  * Replacement effects that change damage you or your permanent would be dealt, in an order
  * you choose (616.1): one button for each different amount of damage.
@@ -429,6 +478,23 @@ export function EscapePicker() {
       selectable={() => true}
       max={escape.count}
       buttons={(picked) => [{ label: 'Exile Them', sub: `${picked.length} of ${escape.count}`, tone: 'go', disabled: picked.length !== escape.count, onClick: () => chooseEscape(picked) }]}
+    />
+  );
+}
+
+/** An ability's "Exile two cards from your graveyard" cost (Matoc): picks the cards. */
+export function GraveCostPicker() {
+  const { graveCost } = useView();
+  if (!graveCost) return null;
+  return (
+    <CardPicker
+      key={graveCost.card.id}
+      title={`${label(graveCost.card)}: cost`}
+      hint={`Choose ${graveCost.count} cards in your graveyard to exile to pay for it.`}
+      cards={graveCost.options}
+      selectable={() => true}
+      max={graveCost.count}
+      buttons={(picked) => [{ label: 'Exile Them', sub: `${picked.length} of ${graveCost.count}`, tone: 'go', disabled: picked.length !== graveCost.count, onClick: () => chooseGraveCost(picked) }]}
     />
   );
 }
@@ -699,9 +765,13 @@ export function Decisions() {
       return d.choice.of === 'color' ? <ColorPanel g={g} choice={d.choice} /> : <NamePanel key={g.log.length} g={g} choice={d.choice} />;
     case 'player':
       return <PlayerPanel key={g.log.length} g={g} choice={d.choice} />;
+    case 'number':
+      return <NumberPanel key={g.log.length} g={g} choice={d.choice} />;
     case 'cast':
       // Hidden while the human goes through casting it.
       return targeting ? null : <CastNowPanel key={g.log.length} g={g} choice={d.choice} />;
+    case 'triggerModes':
+      return <TriggerModesPanel key={d.item.id} g={g} item={d.item} />;
     case 'orderTriggers':
       return <TriggerOrder key={g.triggers.map((t) => t.id).join()} g={g} me={me} />;
     case 'orderDamage':

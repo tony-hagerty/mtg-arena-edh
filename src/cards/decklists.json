@@ -653,8 +653,8 @@
     {
       "id": "kuja",
       "title": "The Stand User Could Be Anyone!",
-      "blurb": "",
-      "pilot": "",
+      "blurb": "Black-red Wizards: every noncreature spell pings the table, and Trance Kuja doubles what your Wizards deal.",
+      "pilot": "Zidane",
       "commanders": [
         "Kuja, Genome Sorcerer"
       ],
@@ -749,8 +749,7 @@
         "Vivi's Persistence",
         "Withering Torment",
         "Wooded Foothills"
-      ],
-      "wip": true
+      ]
     }
   ],
   "tokens": {
@@ -1135,6 +1134,35 @@
       "typeLine": "Token Creature — Illusion",
       "keywords": [],
       "query": "t:token !\"Illusion\" c=u pow=0 tou=0"
+    },
+    "Wicked Role": {
+      "name": "Wicked",
+      "colors": [],
+      "typeLine": "Token Enchantment — Aura Role",
+      "oracleText": "Enchant creature\nEnchanted creature gets +1/+1.\nWhen this token is put into a graveyard from the battlefield, each opponent loses 1 life.",
+      "keywords": [],
+      "query": "t:token t:role wicked"
+    },
+    "Shapeshifter 3/2 changeling": {
+      "name": "Shapeshifter",
+      "power": "3",
+      "toughness": "2",
+      "colors": [],
+      "typeLine": "Token Creature — Shapeshifter",
+      "oracleText": "Changeling (This creature is every creature type.)",
+      "keywords": [
+        "Changeling"
+      ],
+      "query": "t:token !\"Shapeshifter\" c=c pow=3 tou=2"
+    },
+    "Cadet": {
+      "name": "Cadet",
+      "power": "2",
+      "toughness": "2",
+      "colors": [],
+      "typeLine": "Token Creature — Wizard Soldier",
+      "keywords": [],
+      "query": "t:token !\"Cadet\""
     }
   }
 }
