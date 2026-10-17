@@ -2087,9 +2087,10 @@ export function trigger<H extends TriggerHook>(g: Game, source: Card, hook: H, e
     .map((x) => ({ t: x.grant.trigger as Trigger<object>, extra: { granted: { from: x.from, index: x.index } } }));
   // Each of a card's abilities for this event triggers on its own (603.2), in printed order,
   // and once more for each effect like Roaming Throne's (603.2d).
-  const times = 1 + (lookBack ?? battlefield(g)).filter((x) => scriptFor(x).doublesTriggers?.(g, x, source)).length;
+  let times = 0;
   for (const { t, extra } of [...own, ...given]) {
     if (typeof t !== 'function' && t.when && !t.when(g, { self: source, ...event })) continue;
+    times ||= 1 + (watchers ?? watchersNow(g)).doublers.filter((x) => scriptFor(x).doublesTriggers!(g, x, source)).length;
     const remembered = Object.fromEntries(Object.entries(event).map(([k, v]) => [k, isCard(v) ? snapshot(v) : v]));
     for (let k = 0; k < times; k++) {
       g.triggers.push({ id: `s${g.nextId++}`, kind: 'triggered', controller: source.controller, card: { ...snapshot(source), triggeredBy: remembered }, hook, ...extra, event: remembered, targets: [] });
@@ -2104,6 +2105,20 @@ export function trigger<H extends TriggerHook>(g: Game, source: Card, hook: H, e
  */
 let lookBack: Card[] | null = null;
 
+/** The permanents that give other cards triggered abilities, and those that make abilities trigger again (603.2d). */
+interface Watchers {
+  granters: Card[];
+  doublers: Card[];
+}
+
+/** While `broadcast` asks every permanent about one event: the `Watchers`, found once for all of them. */
+let watchers: Watchers | null = null;
+
+function watchersNow(g: Game): Watchers {
+  const all = lookBack ?? battlefield(g);
+  return { granters: all.filter((x) => scriptFor(x).grants?.length), doublers: all.filter((x) => scriptFor(x).doublesTriggers) };
+}
+
 /** The triggered abilities other cards give `c` now: from resolved effects (`LayerParts.grant`), and from permanents on the battlefield. */
 function grantedTo(g: Game, c: Card): { grant: GrantedTrigger; from: string; index: number }[] {
   const out: { grant: GrantedTrigger; from: string; index: number }[] = [];
@@ -2112,7 +2127,7 @@ function grantedTo(g: Game, c: Card): { grant: GrantedTrigger; from: string; ind
     const grant = scriptOf(m.from).grants?.[m.index];
     if (grant) out.push({ grant, from: m.from, index: m.index });
   }
-  for (const src of lookBack ?? battlefield(g)) {
+  for (const src of (watchers ?? watchersNow(g)).granters) {
     (scriptFor(src).grants ?? []).forEach((grant, index) => {
       if (grant.applies?.(g, src, c)) out.push({ grant, from: scriptName(src), index });
     });
@@ -2157,8 +2172,14 @@ export function triggerText(item: StackItem): string | undefined {
 export function broadcast<H extends BroadcastHook>(g: Game, hook: H, event: TriggerEvents[H]) {
   // Triggering only puts abilities in `Game.triggers`, which no characteristic depends on.
   settled(g, () => {
-    for (const c of battlefield(g)) trigger(g, c, hook, event);
-    for (const p of g.players) for (const c of p.graveyard) if (scriptFor(c).fromGraveyard?.includes(hook)) trigger(g, c, hook, event);
+    const outer = watchers;
+    watchers = watchersNow(g);
+    try {
+      for (const c of battlefield(g)) trigger(g, c, hook, event);
+      for (const p of g.players) for (const c of p.graveyard) if (scriptFor(c).fromGraveyard?.includes(hook)) trigger(g, c, hook, event);
+    } finally {
+      watchers = outer;
+    }
   });
 }
 
