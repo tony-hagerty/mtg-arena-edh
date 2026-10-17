@@ -233,7 +233,11 @@ A static ability (`static: (g, self, c) => ...`) says what it does to each perma
 `setPower`/`setToughness` for "base power and toughness", `power`/`toughness` for "+N/+N",
 `switchPT`, …), or a list of them for a card with several abilities. "Has '[triggered
 ability]'" is an entry in the card's `grants` plus `grantOf(self, i)` in `static`. A card
-whose static ability takes abilities away sets `removesAbilities: true`.
+whose static ability takes abilities away sets `removesAbilities: true`, and a resolving
+spell or ability takes them away only through `addContinuous` (or `addLasting`,
+`untilEndOfTurn`), which sets `Game.abilitiesLost`: until one of those is in the game,
+looking up a permanent's abilities checks nothing but names (the layer system throws if
+either is missing).
 `characteristics` in `layers.ts` applies every effect layer by layer (613.1), each layer
 in timestamp order (613.7) unless one effect depends on another (613.8), so a script
 doesn't think about order. Ask about a permanent through `g`, because another effect may
