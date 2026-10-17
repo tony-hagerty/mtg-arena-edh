@@ -26,7 +26,7 @@
  * effects in one layer apply in timestamp order.
  */
 import { CREATURE_TYPES, cardData } from '../cards/db';
-import { hasStaticScript } from './registry';
+import { anyRemovingScript, hasRemovingScript, hasStaticScript } from './registry';
 import { CANT_ATTACK, CANT_BLOCK, MUST_ATTACK, SUPPORTED_KEYWORDS, battlefield, data, hasReconfigure, permanent, scriptFor } from './rules';
 import type { Card, CardScript, Characteristics, ContinuousEffect, Game, LayerParts } from './types';
 
@@ -227,18 +227,23 @@ function apply(w: Working, p: LayerParts, l: Layer) {
  * Is there anything on the battlefield that can take abilities away: an effect from a resolved
  * spell or ability, or a static ability that says it can (`CardScript.removesAbilities`)? While
  * there isn't, every permanent has its own abilities, and nothing needs working out.
+ * It is asked for every ability looked at, so it looks only at names until a resolved effect
+ * has taken abilities away in this game (`Game.abilitiesLost`).
  */
 export function removesAbilities(g: Game): boolean {
+  if (!g.abilitiesLost && !anyRemovingScript()) return false;
   const isHeld = held?.g === g;
   const isFrozen = !isHeld && Object.isFrozen(g) && Object.isFrozen(g.players);
   const known = isHeld ? held!.removing : isFrozen ? removing.get(g) : undefined;
   if (known !== undefined) return known;
-  const any = battlefield(g).some((c) => scriptFor(c).removesAbilities || c.continuous.some((e) => e.loseAll || e.lose));
+  const any = battlefield(g).some((c) => mayRemove(c) || (g.abilitiesLost && c.continuous.some((e) => e.loseAll || e.lose)));
   if (isHeld) held!.removing = any;
   else if (isFrozen) removing.set(g, any);
   return any;
 }
 const removing = new WeakMap<Game, boolean>();
+/** Does `c`'s script, on any face, have a static ability that can take abilities away? */
+const mayRemove = (c: Card) => (c.copy ? !!scriptFor(c).removesAbilities : namesOf(c).some(hasRemovingScript));
 
 /** Does permanent `c` have the abilities of its copiable values now (`Characteristics.own`)? */
 export const hasOwnAbilities = (g: Game, c: Card) => (c.lki ? c.lki.own !== false : c.zone !== 'battlefield' || !removesAbilities(g) || characteristics(g, c, '6').own);
@@ -299,13 +304,16 @@ const scriptNames = new Map<string, string[]>();
 
 /** Could permanent `c` have a static ability? A quick check before looking up its script. */
 function mayHaveStatic(c: Card): boolean {
-  if (c.copy) return true;
+  return !!c.copy || namesOf(c).some(hasStaticScript);
+}
+/** The names `c`'s scripts can be registered under: the card's and each face's. */
+function namesOf(c: Card): string[] {
   let names = scriptNames.get(c.name);
   if (!names) {
     const d = cardData(c.name);
     scriptNames.set(c.name, (names = [d.name, c.name, ...(d.faces ?? []).map((f) => f.name)]));
   }
-  return names.some(hasStaticScript);
+  return names;
 }
 
 type StaticFn = NonNullable<CardScript['static']>;
@@ -422,6 +430,7 @@ function layers(g: Game, c: Card, upTo: Layer, temporary: boolean): { chars: Cha
         if (!p || !appliesAt(e, p, l)) continue;
         if (!e.parts && !exists(g, c, w, e, l)) continue;
         if (e.from && (p.loseAll || p.lose) && !scriptFor(e.from).removesAbilities) throw new Error(`${e.from.name}'s static ability removes abilities: its script needs removesAbilities.`);
+        if (!e.from && !e.cda && (p.loseAll || p.lose) && !g.abilitiesLost) throw new Error(`An effect that removes ${c.name}'s abilities must be given with addContinuous, which marks the game.`);
         e.parts = p;
         apply(w, p, l);
       }

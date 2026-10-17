@@ -897,6 +897,8 @@ export interface Game {
   resolving: string | null;
   /** How many players have passed priority in a row (117.4). */
   passes: number;
+  /** Set once a resolved spell or ability gives a permanent an effect that takes abilities away (`LayerParts.loseAll`, `lose`). */
+  abilitiesLost?: true;
   /** A player who cast or activated with `hold`: auto-pass leaves them priority until they act again (117.3c). */
   holding: PlayerId | null;
   combat: Combat | null;

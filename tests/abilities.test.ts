@@ -280,6 +280,13 @@ describe('a static ability that takes abilities away (Humility)', () => {
     });
     expect(() => stats(g, byName(g, 0, 'Serra Angel')!)).toThrow(/removesAbilities/);
   });
+
+  it('must come from addContinuous, or the layer system throws', () => {
+    const g = emptyGame((d) => {
+      put(d, 0, 'Serra Angel').continuous.push({ loseAll: true, ts: d.nextId++, until: 'leaves' });
+    });
+    expect(() => stats(g, byName(g, 0, 'Serra Angel')!)).toThrow(/addContinuous/);
+  });
 });
 
 describe('losing one ability (113.10b)', () => {

@@ -307,6 +307,7 @@ export const hasFlag = (g: Game, c: Card, flag: string) => characteristics(g, c,
  */
 export function addContinuous(g: Game, c: Card | undefined, parts: LayerParts, until: ContinuousEffect['until'] = 'leaves', opts: { while?: ContinuousEffect['while'] } = {}) {
   if (!c || c.zone !== 'battlefield') return;
+  if (parts.loseAll || parts.lose) g.abilitiesLost = true;
   c.continuous.push({ ...parts, ts: g.nextId++, until, ...(opts.while ? { while: opts.while } : {}) });
 }
 /** An effect with no duration (611.2a): it lasts until `c` leaves the battlefield. */
