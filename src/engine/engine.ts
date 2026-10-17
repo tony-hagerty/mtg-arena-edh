@@ -125,15 +125,20 @@ import {
   NeedsOrder,
   withOrderAnswers,
   tokenCopy,
+  canChangeTargets,
+  hasType,
+  triggerModeOptions,
 } from './rules';
 import type { EnterOpts } from './rules';
 import { settled } from './layers';
 import type {
   AbilityRef,
   Action,
+  Mana,
   AskChoice,
   Card,
   CardChoice,
+  CardScript,
   CastChoices,
   CastInfo,
   Choice,
@@ -389,6 +394,13 @@ function nextChoice(g: Game): boolean {
     }
     // A spell or ability with no targets left to change has nothing to ask (115.7d).
     if (choice.kind === 'retarget' && !g.stack.some((x) => x.id === choice.item && x.targets.some(Boolean))) continue;
+    // Targets that can't all change to other legal targets stay as they are (115.7a).
+    if (choice.kind === 'retarget' && choice.change && !canChangeTargets(g, g.stack.find((x) => x.id === choice.item)!)) {
+      const item = g.stack.find((x) => x.id === choice.item)!;
+      log(g, `The target of ${describeRef(g, { kind: 'stack', id: item.id })} can't be changed.`, choice.player);
+      runThen(g, choice, {});
+      continue;
+    }
     switch (choice.kind) {
       case 'ask':
         g.decision = { type: 'ask', choice };
@@ -398,6 +410,9 @@ function nextChoice(g: Game): boolean {
         break;
       case 'player':
         g.decision = { type: 'player', choice };
+        break;
+      case 'number':
+        g.decision = { type: 'number', choice };
         break;
       case 'cast':
         g.decision = { type: 'cast', choice };
@@ -425,7 +440,7 @@ function afterChoice(g: Game) {
  * Runs the continuation a choice names (`CardScript.then`), with the answer. Choices it
  * asks come before any that were already waiting: they are the next step of the same effect.
  */
-function runThen(g: Game, choice: Choice, answer: { picked?: Card[]; yes?: boolean; name?: string; player?: PlayerId }) {
+function runThen(g: Game, choice: Choice, answer: { picked?: Card[]; yes?: boolean; name?: string; player?: PlayerId; n?: number }) {
   if (!('then' in choice) || !choice.then) return;
   const key = choice.then;
   // The card the continuation belongs to: one entering the battlefield or acting from an
@@ -446,6 +461,7 @@ function runThen(g: Game, choice: Choice, answer: { picked?: Card[]; yes?: boole
     yes: !!answer.yes,
     name: answer.name ?? '',
     player: answer.player ?? null,
+    n: answer.n ?? 0,
     data,
   });
   // A card entering with others whose replacement effect sent it elsewhere (Mox Diamond): the rest needn't wait for it.
@@ -718,6 +734,9 @@ function choicesOk(g: Game, pid: PlayerId, c: Card, ch: CastChoices): boolean {
   if (!Number.isInteger(x) || x < 0 || !Number.isInteger(kicked) || kicked < 0) return false;
   if (kicked > (script.kicker ? (script.kicker.multi ? Infinity : 1) : 0)) return false;
   if (ch.offspring && !script.offspring) return false;
+  // One of the additional costs a spell offers, if it offers a choice (118.8).
+  const oneOf = script.additionalCost?.oneOf;
+  if (oneOf ? ch.extra === undefined || !Number.isInteger(ch.extra) || ch.extra < 0 || ch.extra >= oneOf.length : ch.extra !== undefined) return false;
   if (ch.alt !== undefined && !altCostsOf(g, c, face, pid).includes(ch.alt)) return false;
   if (ch.protector !== undefined && !(isBattle(g, spell) && canProtect(g, spell, ch.protector))) return false;
   // A gift is promised to an opponent (702.174a), and only by a spell with gift.
@@ -802,10 +821,12 @@ export function canCastAs(g: Game, pid: PlayerId, c: Card, face: number, choices
     const escaping = escapes(g, c).filter((e) => escapeOptions(g, c).length >= e.exile).map((e): CastChoices => ({ face, escape: Array.from({ length: e.exile }, () => '') }));
     routes = [...(ways.flashback || ways.aftermath || ways.permitted ? [{ face }] : []), ...escaping];
   } else routes = [undefined, ...altCostsOf(g, c, face, pid)].map((alt) => ({ alt, face }));
-  return routes.some((r) => modeSets.some((modes) => {
-    const ch = modes ? { ...r, modes } : r;
+  // Each of the additional costs it offers a choice of ("pay 5 life or pay {2}").
+  const extras: (number | undefined)[] = script.additionalCost?.oneOf ? script.additionalCost.oneOf.map((_, i) => i) : [undefined];
+  return routes.some((r) => modeSets.some((modes) => extras.some((extra) => {
+    const ch = { ...r, ...(modes ? { modes } : {}), ...(extra !== undefined ? { extra } : {}) };
     return targetsLegal(ch) && !!planPayment(g, pid, castCost(g, c, ch, pid), spell);
-  }));
+  })));
 }
 
 /** The highest X `pid` can pay for `c` with these other choices (107.3a), or -1 if it can't be cast at all. */
@@ -840,6 +861,7 @@ export function canActivate(g: Game, pid: PlayerId, c: Card, ability?: number, a
   if (ab.cost.discard && discardOptions(g, pid, c).length < ab.cost.discard) return false;
   if (ab.cost.sacrificeOne && !activationSacrificeOptions(g, pid, c, activated).length) return false;
   if (ab.cost.exileOne && !activationExileOptions(g, pid, c, activated).length) return false;
+  if (ab.cost.exileGraveyard && g.players[pid].graveyard.length < ab.cost.exileGraveyard) return false;
   // The source can't also make the mana if tapping, sacrificing or exiling it is part of the cost.
   if ((ab.cost.mana || ab.cost.life) && !planPayment(g, pid, activationCost(g, pid, c, ab, x), undefined, ab.cost.tap || ab.cost.sacrifice || ab.cost.exileSelf ? [c.id] : [])) return false;
   for (const spec of ab.targets ?? []) {
@@ -933,6 +955,22 @@ export const crewOptions = (g: Game, pid: PlayerId, v: Card) => creaturesOf(g, p
 export const crewPower = (g: Game, _pid: PlayerId, _v: Card, cards: Card[]) => cards.reduce((n, c) => n + Math.max(0, stats(g, c).power), 0);
 
 /** Every slot has a legal target, or is an optional one left empty, and none repeats one it must differ from (115.3). */
+/** The total a spell divides among its targets (601.2d), or null if it divides nothing. */
+export const divisionTotal = (script: CardScript, x: number): number | null => (script.divide === undefined ? null : script.divide === 'x' ? x : script.divide);
+
+/**
+ * Is `divide` a legal division for a spell with these targets (601.2d)? Each target gets a
+ * whole amount, at least 1, and together they get the whole total. A spell that divides
+ * nothing has no division; one with no targets left divides nothing.
+ */
+export function divisionOk(script: CardScript, x: number, targets: (TargetRef | null)[], divide: number[] | undefined): boolean {
+  const total = divisionTotal(script, x);
+  if (total === null || targets.every((t) => !t)) return !divide?.length;
+  if (!divide || divide.length !== targets.length) return false;
+  if (divide.some((n, i) => (targets[i] ? !Number.isInteger(n) || n < 1 : n !== 0))) return false;
+  return divide.reduce((a, b) => a + b, 0) === total;
+}
+
 function targetsOk(g: Game, pid: PlayerId, c: Card, specs: TargetSpec[], targets: (TargetRef | null)[]) {
   return specs.every((spec, i) => {
     const t = targets[i];
@@ -1264,10 +1302,13 @@ function beginStep(g: Game, step: Step) {
   }
 }
 
+/** Does a permanent say player `pid` doesn't lose this mana as steps and phases end (Electro's red mana, 500.5)? */
+const keptMana = (g: Game, pid: PlayerId, m: Mana) => battlefield(g).some((src) => scriptFor(src).keepsMana?.(g, src, pid, m));
+
 /** Ends the current step or phase and begins the next. */
 function nextStep(g: Game) {
   // Unspent mana empties (500.5), except mana an effect says isn't lost this turn (Birgi).
-  for (const p of g.players) p.pool = p.pool.filter((m) => m.keep === g.turn);
+  for (const p of g.players) p.pool = p.pool.filter((m) => m.keep === g.turn || keptMana(g, p.id, m));
   const combat = g.combat;
   switch (g.step) {
     case 'upkeep':
@@ -1303,7 +1344,8 @@ function nextStep(g: Game) {
  */
 function cleanup(g: Game) {
   for (const p of g.players) {
-    p.pool = []; // mana kept "until end of turn" is gone now (514.2)
+    // Mana kept "until end of turn" is gone now (514.2), but not mana an effect says isn't lost (Electro).
+    p.pool = p.pool.filter((m) => keptMana(g, p.id, m));
     // Phased-out permanents too (514.2, 702.26f).
     for (const c of [...p.battlefield, ...(p.phasedOut ?? [])]) {
       c.damage = 0;
@@ -1623,7 +1665,7 @@ function resolveTop(g: Game) {
     }
   } else if (!fizzled) {
     // An ability uses its source as it is now, or as it last was if it has gone (113.7a).
-    const ctx = { self: permanent(g, card.id) ?? card, you: controller, targets, sacrificed: item.sacrificed, sacrificedPower: item.sacrificedPower, x: item.x ?? 0 };
+    const ctx = { self: permanent(g, card.id) ?? card, you: controller, targets, sacrificed: item.sacrificed, sacrificedPower: item.sacrificedPower, x: item.x ?? 0, ...(item.modes ? { modes: item.modes } : {}) };
     if (item.kind === 'activated' && item.ability !== undefined && script.levels) {
       // The Class gains the level, and "when this Class becomes level N" triggers (716.2a).
       const cls = permanent(g, card.id);
@@ -1824,6 +1866,22 @@ function putTriggerOnStack(g: Game): boolean {
     return true;
   }
   const [item] = g.triggers.splice(next, 1);
+  // A modal triggered ability: its controller chooses the modes as it goes on the stack (603.3c).
+  const modal = item.modes ? null : triggerModeOptions(g, item);
+  if (modal) {
+    // With too few modes that can be chosen, it is removed from the stack (603.3c).
+    if (modal.legal.length < modal.min) return true;
+    const t = triggerOf(item) as { modes: { bot?: (g: Game, pid: PlayerId, self: Card) => number[] } };
+    if (g.players[pid].isBot) {
+      const wanted = t.modes.bot?.(g, pid, item.card) ?? [];
+      item.modes = wanted.filter((i) => modal.legal.includes(i)).slice(0, modal.max);
+      if (item.modes.length < modal.min) item.modes = modal.legal.slice(0, modal.min);
+    } else {
+      g.decision = { type: 'triggerModes', item, resume: g.priority };
+      g.priority = pid;
+      return true;
+    }
+  }
   const specs = targetSpecs(g, item);
   const options = specs.map((spec) => legalTargets(g, item.controller, spec, item.card));
   if (specs.some((spec, i) => !spec.optional && !spec.any && options[i].length === 0)) {
@@ -1852,8 +1910,10 @@ function putTriggerOnStack(g: Game): boolean {
  * a cast spell. Copies of spells wait with the triggers but aren't triggered abilities.
  */
 function announceTrigger(g: Game, item: StackItem) {
-  if (item.kind !== 'triggered') return;
-  const text = triggerText(item);
+  if (item.kind !== 'triggered' || item.copy) return;
+  const t = triggerOf(item);
+  const modes = item.modes && t && typeof t !== 'function' && t.modes ? item.modes.map((i) => `“${t.modes!.modes[i].text}”`).join(', ') : '';
+  const text = [triggerText(item), modes].filter(Boolean).join(': ');
   const chosen = item.targets.filter((t): t is TargetRef => !!t).map((t) => describeRef(g, t));
   log(g, `${whose(g.players[item.controller])} ${label(item.card)} triggers${text ? ` (${text})` : ''}${chosen.length ? ` targeting ${chosen.join(' and ')}` : ''}.`, item.controller, [item.card, ...refCards(g, item.targets)]);
   flash(g, item.card, item.controller, 'triggered');
@@ -1891,7 +1951,10 @@ function retarget(g: Game, pid: PlayerId, choice: RetargetChoice, chosen: (Targe
     const same = (a: TargetRef | null, b: TargetRef | null) => (!a && !b) || (!!a && !!b && sameRef(a, b));
     const ok = specs.every((spec, i) => {
       const t = targets[i];
-      if (same(t, item.targets[i])) return true;
+      // Changing the targets: each one changes to another legal target (115.7a).
+      if (choice.change && item.targets[i]) {
+        if (!t || same(t, item.targets[i])) return false;
+      } else if (same(t, item.targets[i])) return true;
       if (!t) return false; // leaving a target out isn't choosing a new one
       const other = spec.distinctFrom === undefined ? null : targets[spec.distinctFrom];
       if (other && sameRef(other, t)) return false;
@@ -1904,7 +1967,7 @@ function retarget(g: Game, pid: PlayerId, choice: RetargetChoice, chosen: (Targe
     item.targets = targets;
     if (changed.length) {
       const names = targets.filter((t): t is TargetRef => !!t).map((t) => describeRef(g, t));
-      log(g, `${says(g.players[pid], 'chooses')} new targets for ${describeRef(g, { kind: 'stack', id: item.id })}: ${names.join(' and ')}.`, pid, refCards(g, targets));
+      log(g, `${says(g.players[pid], choice.change ? 'changes' : 'chooses')} ${choice.change ? 'the targets of' : 'new targets for'} ${describeRef(g, { kind: 'stack', id: item.id })}: ${names.join(' and ')}.`, pid, refCards(g, targets));
       checkWard(g, item, changed);
     }
   }
@@ -1989,6 +2052,7 @@ function act(g: Game, a: Action): boolean {
       if (!targetsOk(g, pid, { ...c, controller: pid }, specs, targets)) return false;
       const spell = asSpell(c, face, pid);
       const script = scriptFor(spell);
+      if (!divisionOk(script, choices.x ?? 0, targets, choices.divide)) return false;
       const from = c.zone as Zone;
       // Cast while a spell resolves (608.2g): the choice that allowed it is answered.
       const during = g.decision?.type === 'cast' ? g.decision.choice : null;
@@ -2043,12 +2107,19 @@ function act(g: Game, a: Action): boolean {
         ...(fromExile === 'airbent' ? { airbent: true } : {}),
         ...(fromExile === 'plotted' ? { plotted: true } : {}),
         ...(choices.offspring ? { offspring: true } : {}),
+        ...(choices.divide?.length ? { divide: [...choices.divide] } : {}),
         bargained: !!script.additionalCost?.optional && sacrificed.length > (alt?.sacrifice ? 1 : 0),
         ...(discarded.length ? { discarded: discarded.map(snapshot) } : {}),
         gift: choices.gift,
         spent: paid.spent,
         uncounterable: paid.uncounterable,
       };
+      // "The next instant or sorcery spell you cast this turn can't be countered" (Overmaster).
+      const next = g.effects.findIndex((e) => e.kind === 'uncounterableNext' && e.player === pid);
+      if (next >= 0 && (hasType(g, spell, 'Instant') || hasType(g, spell, 'Sorcery'))) {
+        info.uncounterable = true;
+        g.effects.splice(next, 1);
+      }
       c.cast = info;
       const item: StackItem = { id: `s${g.nextId++}`, kind: 'spell', controller: pid, card: c, targets };
       if (sacrificed.length) {
@@ -2071,6 +2142,7 @@ function act(g: Game, a: Action): boolean {
         info.kicked && (info.kicked > 1 ? `kicked ${info.kicked} times` : 'kicked'),
         info.bargained && 'bargained',
         info.offspring && 'paying offspring',
+        choices.extra !== undefined && script.additionalCost?.oneOf?.[choices.extra]?.label,
         choices.gift !== undefined && `gift promised to ${g.players[choices.gift].name}`,
         alt?.label,
         info.modes.length > 0 &&
@@ -2136,6 +2208,9 @@ function act(g: Game, a: Action): boolean {
       // "Exile a creature you control": exactly one that fits (The Soul Stone).
       const exiling = (a.exile ?? []).map((id) => activationExileOptions(g, pid, c, a.activated).find((x) => x.id === id));
       if (exiling.length !== (ab.cost.exileOne ? 1 : 0) || exiling.some((x) => !x)) return false;
+      // "Exile two cards from your graveyard": exactly that many different ones (Matoc).
+      const fromGrave = (a.graveyard ?? []).map((id) => p.graveyard.find((x) => x.id === id));
+      if (fromGrave.length !== (ab.cost.exileGraveyard ?? 0) || fromGrave.some((x) => !x) || new Set(a.graveyard).size !== fromGrave.length) return false;
       // The ability goes on the stack as its own object, apart from its source (602.2a).
       // X is announced as it is activated (107.3a, 602.2b), and kept with the ability on the stack.
       const hasX = abilityHasX(g, c, { activated: a.activated });
@@ -2172,6 +2247,13 @@ function act(g: Game, a: Action): boolean {
           }
         });
       }
+      if (fromGrave.length) {
+        const cards = fromGrave as Card[];
+        simultaneously(g, () => {
+          log(g, `${says(p, 'exiles')} ${cards.map(label).join(' and ')} from ${their(p)} graveyard to pay for it.`, pid, cards);
+          for (const x of cards) moveCard(g, x, 'exile');
+        });
+      }
       g.stack.push(item);
       checkWard(g, item);
       g.passes = 0;
@@ -2191,7 +2273,10 @@ function act(g: Game, a: Action): boolean {
       }
       // "Discard a card: Add {B}" (Skirge Familiar): the card named must be in their hand.
       if (a.discard !== undefined && !p.hand.some((x) => x.id === a.discard && x.id !== c.id)) return false;
-      tapForMana(g, pid, c, a.ability, a.color, a.tap, a.discard);
+      // "Sacrifice a creature: Add {B}{B}" (Phyrexian Tower): a creature they control, named.
+      const used = manaAbilities(g, c).find((m) => m.index === (a.ability ?? -1));
+      if (used?.sacrificeCreature ? !p.battlefield.some((x) => x.id === a.sacrifice && isCreature(g, x)) : a.sacrifice !== undefined) return false;
+      tapForMana(g, pid, c, a.ability, a.color, a.tap, a.discard, a.sacrifice);
       return true;
     }
 
@@ -2253,6 +2338,21 @@ function act(g: Game, a: Action): boolean {
         g.decision = null;
         cleanup(g);
       }
+      return true;
+    }
+
+    case 'chooseModes': {
+      if (g.decision?.type !== 'triggerModes') return false;
+      const { item, resume } = g.decision;
+      const modal = triggerModeOptions(g, item);
+      const modes = a.modes;
+      if (!modal || modes.length < modal.min || modes.length > modal.max) return false;
+      if (modes.some((m, i) => !modal.legal.includes(m) || (i > 0 && m <= modes[i - 1]))) return false;
+      item.modes = [...modes];
+      // It goes back to wait first in line, and on to its targets.
+      g.triggers.unshift(item);
+      g.decision = null;
+      g.priority = resume;
       return true;
     }
 
@@ -2346,6 +2446,17 @@ function act(g: Game, a: Action): boolean {
       const named = choice.of === 'color' ? `{${a.name}}` : a.name;
       log(g, `${says(p, choice.of ? 'chooses' : 'names')} ${named}${choice.of ? ` (${choice.source})` : ''}.`, pid);
       runThen(g, choice, { name: a.name });
+      afterChoice(g);
+      return true;
+    }
+
+    case 'chooseNumber': {
+      if (g.decision?.type !== 'number') return false;
+      const { choice } = g.decision;
+      if (a.n === null ? !choice.decline : !Number.isInteger(a.n) || a.n < choice.min || a.n > choice.max) return false;
+      g.decision = null;
+      log(g, a.n === null ? `${says(p, 'chooses')} none (${choice.source}).` : `${says(p, 'chooses')} ${a.n} (${choice.source}).`, pid);
+      runThen(g, choice, a.n === null ? { yes: false } : { yes: true, n: a.n });
       afterChoice(g);
       return true;
     }

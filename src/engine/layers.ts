@@ -31,6 +31,7 @@ const LAYER_OF: Record<keyof LayerParts, Layer> = {
   types: '4',
   notTypes: '4',
   subtypes: '4',
+  colors: '5',
   keywords: '6',
   mana: '6',
   grant: '6',
@@ -98,7 +99,7 @@ const num = (s?: string) => {
 function start(c: Card): Working {
   const d = data(c);
   return {
-    typeLine: d.typeLine,
+    typeLine: changeling(d.typeLine, d.keywords),
     colors: d.colors,
     keywords: d.keywords.map((k) => k.toLowerCase()),
     power: num(d.power),
@@ -109,6 +110,17 @@ function start(c: Card): Working {
     flags: [],
     version: 0,
   };
+}
+
+/**
+ * Changeling: "This object is every creature type" (702.73a). A characteristic-defining
+ * ability (604.3), so it applies in every zone, before other layer 4 effects (613.3).
+ */
+function changeling(typeLine: string, keywords: string[]): string {
+  if (!keywords.includes('Changeling')) return typeLine;
+  const [left, right] = typeLine.split(' — ');
+  const own = right ? right.split(' ') : [];
+  return `${left} — ${[...own, ...CREATURE_TYPES.filter((t) => !own.includes(t))].join(' ')}`;
 }
 
 const addAll = (to: string[], xs: string[] | undefined) => {
@@ -159,6 +171,7 @@ function apply(w: Working, p: LayerParts, l: Layer) {
       if (p.switchPT) [w.power, w.toughness] = [w.toughness, w.power];
       break;
     case '5':
+      if (p.colors) w.colors = [...p.colors];
       break;
   }
   w.version++;
@@ -167,12 +180,15 @@ function apply(w: Working, p: LayerParts, l: Layer) {
 /** Does a locked-in effect still apply: has its "for as long as" object stayed (611.2b)? */
 const lasts = (g: Game, e: ContinuousEffect) => !e.while || permanent(g, e.while.id)?.moves === e.while.moves;
 
+/** Its ability that defines power and toughness (604.3), unless a copy effect set them instead (707.9d). */
+const definesPT = (c: Card) => (c.copy?.power === undefined && c.copy?.toughness === undefined ? scriptFor(c).basePT : undefined);
+
 /** Every effect that may apply to permanent `c`, in the order they apply in each layer (613.3, 613.7). `temporary`: include effects with a duration. */
 function entries(g: Game, c: Card, temporary: boolean): Entry[] {
   const out: Entry[] = [];
   let seq = 0;
   // Its characteristic-defining ability that defines power and toughness, first (613.4a).
-  const basePT = scriptFor(c).basePT;
+  const basePT = definesPT(c);
   if (basePT) {
     const ask = () => {
       const { power, toughness } = basePT(g, c);
@@ -310,7 +326,7 @@ export function characteristics(g: Game, c: Card, upTo: Layer = '7d', temporary 
 /** A card off the battlefield: its copiable values, with its characteristic-defining abilities applied (604.3). */
 function offBattlefield(g: Game, c: Card): Characteristics {
   const { version: _, ...w } = start(c);
-  const basePT = scriptFor(c).basePT;
+  const basePT = definesPT(c);
   if (basePT) ({ power: w.power, toughness: w.toughness } = basePT(g, c));
   return w;
 }

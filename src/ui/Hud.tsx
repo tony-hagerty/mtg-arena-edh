@@ -11,7 +11,7 @@ import { SoundButton } from './SoundControl';
 import { useStore } from './store';
 import type { Hover } from './store';
 import { type Seat, cx, deckColor, faceUp, hoverProps, seatOf } from './util';
-import { STEP_NAMES, activateFromHand, cancel, clickStackItem, pickAbility, pickColor, pickTapCreature, pickManaDiscard, pickFace, pickMode, playHandCard, setAbilityX, setChoices, exileForMana, plotCard, useView } from './view';
+import { STEP_NAMES, activateFromHand, cancel, clickStackItem, pickAbility, pickColor, pickTapCreature, pickManaDiscard, pickManaSacrifice, pickFace, pickMode, playHandCard, setAbilityX, setChoices, shiftDivision, exileForMana, plotCard, useView } from './view';
 import type { AbilityOption, Btn } from './view';
 
 // ---------- phase tracker + buttons (bottom right) ----------
@@ -249,9 +249,10 @@ export function ActionBar() {
  * times to pay kicker (702.33), and the mana cost or an alternative cost (118.9).
  */
 export function CastOptions() {
-  const { announce: a, loyalty, abilityX } = useView();
+  const { announce: a, loyalty, abilityX, divide } = useView();
   if (loyalty) return <LoyaltyOptions options={loyalty.options} />;
   if (abilityX) return <AbilityX x={abilityX.x} max={abilityX.max} />;
+  if (divide) return <DivideOptions rows={divide.rows} />;
   if (!a) return null;
   const { choices } = a;
   const x = choices.x ?? 0;
@@ -392,6 +393,16 @@ export function CastOptions() {
           )}
         </div>
       )}
+      {a.extraCosts && (
+        <div className="cast-row">
+          <span className="cast-label">Additional cost</span>
+          {a.extraCosts.map((o, i) => (
+            <button key={i} className={cx('chip', choices.extra === i && 'on')} disabled={!o.payable} onClick={() => setChoices({ extra: i })}>
+              {o.label.split(/((?:\{[^}]+\})+)/).map((part, k) => (part.startsWith('{') ? <ManaCost key={k} cost={part} /> : part))}
+            </button>
+          ))}
+        </div>
+      )}
       {a.offspring && (
         <div className="cast-row">
           <span className="cast-label">
@@ -402,6 +413,26 @@ export function CastOptions() {
           </button>
         </div>
       )}
+    </div>
+  );
+}
+
+/** How a spell's damage is divided among its targets (601.2d): each target's share, at least 1. */
+function DivideOptions({ rows }: { rows: { name: string; amount: number }[] }) {
+  return (
+    <div className="cast-options">
+      {rows.map((r, i) => (
+        <div className="cast-row" key={i}>
+          <span className="cast-label">{r.name}</span>
+          <button className="chip" disabled={r.amount <= 1} onClick={() => shiftDivision(i, -1)} aria-label="Less">
+            −
+          </button>
+          <b className="cast-x">{r.amount}</b>
+          <button className="chip" disabled={rows.every((o, j) => j === i || o.amount <= 1)} onClick={() => shiftDivision(i, 1)} aria-label="More">
+            +
+          </button>
+        </div>
+      ))}
     </div>
   );
 }
@@ -465,9 +496,29 @@ export function ColorPicker() {
           })}
         </div>
       )}
+      {pick.sacrifices && (
+        <div className="cast-row">
+          <span className="cast-label">{label(card)}: sacrifice</span>
+          {pick.plain !== undefined && (
+            <button className={`chip${pick.sacrifice === null ? ' on' : ''}`} onClick={() => pickManaSacrifice(null)}>
+              None
+            </button>
+          )}
+          {pick.sacrifices.map((id) => {
+            const c = findCard(g, id);
+            return (
+              c && (
+                <button key={id} className={`chip${pick.sacrifice === id ? ' on' : ''}`} onClick={() => pickManaSacrifice(id)}>
+                  {label(c)}
+                </button>
+              )
+            );
+          })}
+        </div>
+      )}
       <div className="cast-row">
         <span className="cast-label">{label(card)}: choose a colour</span>
-        {pick.colors.map((c) => (
+        {(pick.sacrifices && !pick.sacrifice ? (pick.plainColors ?? []) : pick.colors).map((c) => (
           <button key={c} className="chip" onClick={() => pickColor(c)} aria-label={c}>
             <ManaCost cost={`{${c}}`} />
           </button>

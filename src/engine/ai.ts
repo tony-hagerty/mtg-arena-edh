@@ -73,11 +73,14 @@ import {
   canPayAttacks,
   isFree,
   escapes,
+  changeOptions,
+  triggerModeOptions,
+  triggerOf,
 } from './rules';
 import type { ApplyOptions, AttackOption } from './engine';
 import { produce } from 'immer';
 import { cardData } from '../cards/db';
-import type { AbilityRef, Action, Card, CastChoices, Choice, Game, ManaSym, Player, PlayerId, TargetRef, TargetSpec } from './types';
+import type { AbilityRef, Action, Card, CastChoices, Choice, Game, ManaSym, Player, PlayerId, StackItem, TargetRef, TargetSpec } from './types';
 
 // ---------- position evaluation ----------
 
@@ -280,8 +283,11 @@ function castChoices(g: Game, pid: PlayerId, c: Card): CastChoices[] {
     const lifeX = script.additionalCost?.life === 'x';
     const gifts = script.gift ? [undefined, ...opponentsOf(g, pid).map((o) => o.id)] : [undefined];
     const modeSets = script.modal ? modeChoices(g, pid, c, face) : [undefined];
+    // "Pay 5 life or pay {2}": each of the additional costs it offers.
+    const extraCosts: (number | undefined)[] = script.additionalCost?.oneOf ? script.additionalCost.oneOf.map((_, i) => i) : [undefined];
+    const paths = ways.flatMap((w) => extraCosts.map((e): CastChoices => ({ ...w, ...(e !== undefined ? { extra: e } : {}) })));
     for (const modes of modeSets) {
-      for (const way of ways) {
+      for (const way of paths) {
         for (const add of extra) {
           if (add && way.sacrifice?.includes(add)) continue;
           const sacrifice = [...(way.sacrifice ?? []), ...(add ? [add] : [])];
@@ -307,7 +313,8 @@ function castChoices(g: Game, pid: PlayerId, c: Card): CastChoices[] {
             for (const kicked of kicks)
               for (const offspring of offsprings) {
                 const most = maxX(g, pid, c, { ...base, gift, kicked, offspring });
-                const xs = lifeX ? lifeXChoices(g, pid, most) : [most, Math.floor(most / 2)];
+                // X damage divided among targets: X follows from the targets (`divisions`).
+                const xs = script.divide === 'x' ? [0] : lifeX ? lifeXChoices(g, pid, most) : [most, Math.floor(most / 2)];
                 for (const x of new Set(xs)) {
                   const choices: CastChoices = { ...base, x, kicked, ...(gift !== undefined ? { gift } : {}), ...(offspring ? { offspring } : {}) };
                   if (x >= 0 && canCast(g, pid, c, choices)) out.push(choices);
@@ -316,6 +323,42 @@ function castChoices(g: Game, pid: PlayerId, c: Card): CastChoices[] {
           }
         }
       }
+    }
+  }
+  return out;
+}
+
+/**
+ * Ways to cast a spell that divides damage among its targets (601.2d): at opponents' most
+ * valuable creatures and planeswalkers, each given just enough to destroy it. For X damage,
+ * X is what that adds up to (a few targets at most, never all of the bot's life); for a set
+ * amount, what is left over goes to the first target.
+ */
+function divisions(g: Game, pid: PlayerId, c: Card, choices: CastChoices, specs: TargetSpec[]): { targets: TargetRef[]; divide: number[]; x?: number }[] {
+  const spell = asSpell(c, choices.face ?? 0, pid);
+  const total = scriptFor(spell).divide!;
+  const spec = specs[specs.length - 1];
+  if (!spec) return [];
+  const lethal = (x: Card) => (isPlaneswalker(g, x) && !isCreature(g, x) ? loyaltyOf(x) : Math.max(1, stats(g, x).toughness - x.damage));
+  const foes = legalTargets(g, pid, spec, spell)
+    .filter((t) => t.kind === 'card')
+    .map((t) => findCard(g, t.id as string)!)
+    .filter((x) => x.controller !== pid)
+    .sort((a, b) => worth(g, b) - worth(g, a))
+    .slice(0, spec.any ? 4 : specs.length);
+  const out: { targets: TargetRef[]; divide: number[]; x?: number }[] = [];
+  for (let k = 1; k <= foes.length; k++) {
+    const picked = foes.slice(0, k);
+    const divide = picked.map(lethal);
+    const sum = divide.reduce((a, b) => a + b, 0);
+    if (total === 'x') {
+      if (!canCast(g, pid, c, { ...choices, x: sum }) || sum >= g.players[pid].life) break;
+      out.push({ targets: picked.map((x) => ({ kind: 'card', id: x.id })), divide, x: sum });
+    } else {
+      if (k > total) break;
+      // Short of killing them all, each still gets at least 1 (601.2d).
+      const fair = sum > total ? picked.map((_, i) => (i === 0 ? total - (k - 1) : 1)) : divide.map((n, i) => (i === 0 ? n + total - sum : n));
+      out.push({ targets: picked.map((x) => ({ kind: 'card', id: x.id })), divide: fair });
     }
   }
   return out;
@@ -333,7 +376,12 @@ function candidateActions(g: Game, pid: PlayerId): { action: Action; spendsCard:
     const ways = castChoices(g, pid, c);
     const each = Math.max(4, Math.floor(36 / Math.max(1, ways.length)));
     for (const choices of ways) {
-      for (const targets of targetChoices(g, pid, castTargets(c, choices.modes, choices.face, choices.gift, choices.alt), c).slice(0, each)) {
+      const specs = castTargets(c, choices.modes, choices.face, choices.gift, choices.alt);
+      if (scriptFor(asSpell(c, choices.face ?? 0)).divide !== undefined) {
+        for (const d of divisions(g, pid, c, choices, specs)) out.push({ action: { type: 'cast', card: c.id, ...choices, ...d }, spendsCard: c.zone === 'hand' || c.zone === 'command' });
+        continue;
+      }
+      for (const targets of targetChoices(g, pid, specs, c).slice(0, each)) {
         out.push({ action: { type: 'cast', card: c.id, targets, ...choices }, spendsCard: c.zone === 'hand' || c.zone === 'command' });
       }
     }
@@ -380,6 +428,9 @@ function activations(g: Game, pid: PlayerId, c: Card, ref: AbilityRef): Action[]
   // "Exile a creature you control": the least valuable one, not the source if there is another.
   const exilable = ab?.cost.exileOne ? [...activationExileOptions(g, pid, c, activated)].sort((a, b) => sacrificeWorth(g, a) - sacrificeWorth(g, b)) : [];
   const exiled = exilable.find((x) => x.id !== c.id) ?? exilable[0];
+  // "Exile two cards from your graveyard": the ones the bot wants least.
+  const k = ab?.cost.exileGraveyard ?? 0;
+  const graveyard = k ? [...g.players[pid].graveyard].sort((a, b) => cardWant(g, pid, a) - cardWant(g, pid, b)).slice(0, k).map((x) => x.id) : undefined;
   const targetSets = targetChoices(g, pid, specs, c);
   return xChoices(g, pid, c, ref).flatMap((x) =>
     targetSets.map((targets): Action => ({
@@ -393,6 +444,7 @@ function activations(g: Game, pid: PlayerId, c: Card, ref: AbilityRef): Action[]
       ...(discard ? { discard } : {}),
       ...(victim ? { sacrifice: [victim.id] } : {}),
       ...(exiled ? { exile: [exiled.id] } : {}),
+      ...(graveyard ? { graveyard } : {}),
     })),
   );
 }
@@ -406,12 +458,32 @@ const STEP_BY_STEP = { autoPass: false, simulate: true } as const;
  * A quick answer to a decision that comes up while the stack resolves: the first legal
  * targets, a bot's card choice, the order triggers went on in, or a commander sent home.
  */
+/** The modes a bot chooses for a modal triggered ability (603.3c): its card's own rule, else the first it can. */
+function modesFor(g: Game, item: StackItem): Action {
+  const modal = triggerModeOptions(g, item);
+  if (!modal) return PASS;
+  const t = triggerOf(item);
+  const wanted = (t && typeof t !== 'function' && t.modes?.bot?.(g, item.controller, item.card)) || [];
+  const modes = wanted.filter((i) => modal.legal.includes(i)).slice(0, modal.max);
+  return { type: 'chooseModes', modes: modes.length >= modal.min ? modes : modal.legal.slice(0, modal.min) };
+}
+
 function anyTargets(g: Game): Action {
   if (g.decision?.type === 'chooseCards') return cardChoice(g, g.priority);
-  if (g.decision?.type === 'ask' || g.decision?.type === 'name' || g.decision?.type === 'player') return choiceAnswer(g, g.priority);
+  if (g.decision?.type === 'ask' || g.decision?.type === 'name' || g.decision?.type === 'player' || g.decision?.type === 'number') return choiceAnswer(g, g.priority);
   if (g.decision?.type === 'cast') return castNow(g, g.priority, true);
-  if (g.decision?.type === 'retarget') return { type: 'chooseTargets', targets: g.stack.find((x) => x.id === (g.decision as { choice: { item: string } }).choice.item)?.targets ?? [] };
+  if (g.decision?.type === 'retarget') {
+    const { choice } = g.decision;
+    const item = g.stack.find((x) => x.id === choice.item);
+    // Changing targets (115.7a): the first other legal target for each.
+    if (item && choice.change) {
+      const options = changeOptions(g, item);
+      return { type: 'chooseTargets', targets: item.targets.map((t, i) => (t ? (options[i][0] ?? t) : null)) };
+    }
+    return { type: 'chooseTargets', targets: item?.targets ?? [] };
+  }
   if (g.decision?.type === 'orderTriggers') return defaultOrder(g, g.priority);
+  if (g.decision?.type === 'triggerModes') return modesFor(g, g.decision.item);
   if (g.decision?.type === 'commanderZone') return { type: 'commanderZone', toCommand: true };
   if (g.decision?.type === 'assignDamage') return { type: 'assignDamage', assignments: autoAssignments(g) };
   if (g.decision?.type !== 'targets') return PASS;
@@ -438,8 +510,18 @@ function bestTargets(g: Game, pid: PlayerId, depth = 0): Action {
   let best = anyTargets(g);
   let bestScore = -Infinity;
   // New targets are legal for the item's controller (115.7d).
-  const options = targetChoices(g, d?.type === 'retarget' ? item.controller : pid, targetSpecs(g, item), item.card);
-  if (d?.type === 'retarget') options.push(item.targets);
+  let options = targetChoices(g, d?.type === 'retarget' ? item.controller : pid, targetSpecs(g, item), item.card);
+  if (d?.type === 'retarget') {
+    // Changing targets (115.7a): every target becomes another one. Choosing new ones (115.7d): keeping them is an option.
+    if (d.choice.change) {
+      const change = changeOptions(g, item);
+      options = [
+        ...options.filter((o) => item.targets.every((t, i) => !t || change[i].some((x) => o[i] && x.kind === o[i]!.kind && x.id === o[i]!.id))),
+        // Each other target alone, for a single one, so a wide board can't leave it out.
+        ...(item.targets.length === 1 && item.targets[0] ? change[0].map((x) => [x]) : []),
+      ];
+    } else options.push(item.targets);
+  }
   for (const targets of options) {
     const action: Action = { type: 'chooseTargets', targets };
     const after = applyAction(g, action, STEP_BY_STEP);
@@ -461,7 +543,7 @@ function resolveStack(g: Game, pid: PlayerId, depth = 0): Game {
   for (let i = 0; i < 200 && g.step !== 'gameOver'; i++) {
     let action: Action;
     const deciding = g.decision?.type;
-    if (deciding === 'chooseCards' || deciding === 'orderTriggers' || deciding === 'commanderZone' || deciding === 'assignDamage' || deciding === 'ask' || deciding === 'name' || deciding === 'player' || deciding === 'cast' || deciding === 'retarget') {
+    if (deciding === 'chooseCards' || deciding === 'triggerModes' || deciding === 'orderTriggers' || deciding === 'commanderZone' || deciding === 'assignDamage' || deciding === 'ask' || deciding === 'name' || deciding === 'player' || deciding === 'number' || deciding === 'cast' || deciding === 'retarget') {
       action = anyTargets(g);
     } else if (g.decision?.type === 'targets') action = g.priority === pid && depth < 1 ? bestTargets(g, pid, depth) : anyTargets(g);
     else if (g.stack.length && !g.decision) action = PASS;
@@ -915,9 +997,11 @@ function cardChoice(g: Game, pid: PlayerId): Action {
  */
 function choiceAnswer(g: Game, pid: PlayerId): Action {
   const d = g.decision;
-  if (d?.type !== 'ask' && d?.type !== 'name' && d?.type !== 'player') return PASS;
+  if (d?.type !== 'ask' && d?.type !== 'name' && d?.type !== 'player' && d?.type !== 'number') return PASS;
   const scripted = scriptedChoice(g, pid, d.choice);
   if (scripted) return scripted;
+  // A number: none if that is allowed, else the least.
+  if (d.type === 'number') return { type: 'chooseNumber', n: d.choice.decline ? null : d.choice.min };
   // A player: the first one offered.
   if (d.type === 'player') return { type: 'choosePlayer', player: d.choice.options[0] };
   if (d.type === 'name' && d.choice.of === 'creature type') return { type: 'name', name: 'Human' };
@@ -977,6 +1061,8 @@ export function botAction(g: Game, pid: PlayerId): Action {
       return cardChoice(g, pid);
     case 'orderTriggers':
       return defaultOrder(g, pid);
+    case 'triggerModes':
+      return modesFor(g, g.decision.item);
     case 'attackers':
       return attackAction(g, pid);
     case 'blockers':
@@ -988,6 +1074,7 @@ export function botAction(g: Game, pid: PlayerId): Action {
     case 'ask':
     case 'name':
     case 'player':
+    case 'number':
       return choiceAnswer(g, pid);
     case 'cast':
       return castNow(g, pid);
@@ -1015,10 +1102,12 @@ export function applyBotAction(g: Game, a: Action, opts?: ApplyOptions): Game {
   if (next === g && a.type !== 'pass') next = applyAction(g, PASS, opts);
   if (next === g && g.decision?.type === 'discard') next = applyAction(g, discardChoice(g, g.priority), opts);
   if (next === g && g.decision?.type === 'targets') next = applyAction(g, anyTargets(g), opts);
+  if (next === g && g.decision?.type === 'triggerModes') next = applyAction(g, modesFor(g, g.decision.item), opts);
   if (next === g && g.decision?.type === 'chooseCards') next = applyAction(g, cardChoice(g, g.priority), opts);
   if (next === g && g.decision?.type === 'ask') next = applyAction(g, { type: 'answer', yes: false }, opts);
   if (next === g && g.decision?.type === 'name') next = applyAction(g, { type: 'name', name: g.decision.choice.of ? 'Human' : 'Island' }, opts);
   if (next === g && g.decision?.type === 'player') next = applyAction(g, { type: 'choosePlayer', player: g.decision.choice.options[0] }, opts);
+  if (next === g && g.decision?.type === 'number') next = applyAction(g, { type: 'chooseNumber', n: g.decision.choice.decline ? null : g.decision.choice.min }, opts);
   if (next === g && g.decision?.type === 'cast') next = applyAction(g, { type: 'answer', yes: false }, opts);
   if (next === g && g.decision?.type === 'retarget') next = applyAction(g, anyTargets(g), opts);
   if (next === g && g.decision?.type === 'mulligan') next = applyAction(g, { type: 'keep' }, opts);

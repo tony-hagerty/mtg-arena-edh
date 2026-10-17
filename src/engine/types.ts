@@ -12,6 +12,8 @@ export interface Mana {
   only?: string;
   /** "Spend this mana only to cast a legendary spell" (106.6, Plaza of Heroes). */
   legendary?: boolean;
+  /** "Spend this mana only to cast instant and sorcery spells" (106.6, Tablet of Discovery): spells with one of these card types. */
+  types?: string[];
   /** "... and that spell can't be countered" (106.6): the spell it is spent on can't be countered. */
   uncounterable?: boolean;
 }
@@ -63,6 +65,11 @@ export interface LayerParts {
   notTypes?: string[];
   /** Layer 4: subtypes it adds (205.1b), like Urborg's Swamp. */
   subtypes?: string[];
+  /**
+   * Layer 5 (613.1e): its new colours, which replace all the ones it had (105.3), like
+   * Aphotic Wisps' "becomes black". Empty makes it colorless.
+   */
+  colors?: Color[];
   /**
    * Layer 6 (613.1f): keyword abilities it adds, in lower case ("flying", "protection from
    * white"), and restrictions carried the same way (`CANT_ATTACK`).
@@ -181,6 +188,8 @@ export interface CastInfo {
   plotted?: boolean;
   /** Its offspring cost was paid (702.175a). */
   offspring?: boolean;
+  /** How its damage is divided among its targets, by target index (601.2d). */
+  divide?: number[];
 }
 
 /**
@@ -204,6 +213,13 @@ export interface CastChoices {
   modes?: number[];
   /** Pay the offspring cost (702.175a). */
   offspring?: boolean;
+  /** Which of the additional costs it offers to pay ("pay 5 life or pay {2}"), by index into `additionalCost.oneOf`. */
+  extra?: number;
+  /**
+   * How a spell that divides damage among its targets divides it (601.2d): so much to each
+   * target, by index into the targets. Each target gets at least 1, and it adds up to the total.
+   */
+  divide?: number[];
   /**
    * A battle's protector (310.9a): an opponent for a Siege (310.12a). The rules choose it
    * as the battle enters; here it is announced with the spell. Left out, the engine picks.
@@ -250,6 +266,8 @@ export interface Card {
   counters: Record<string, number>;
   /** The permanent this Aura or Equipment is attached to (303.4b, 301.5a), or null. */
   attachedTo: string | null;
+  /** How many times it has transformed since it became this object (701.27f). */
+  transformed?: number;
   /** The turn one of its loyalty abilities was last activated, or 0 (606.3). */
   loyaltyTurn: number;
   /** A battle's protector (310.9), or null for anything else. */
@@ -321,6 +339,8 @@ export interface Card {
    * spec can name something from it, like "target creature that player controls".
    */
   triggeredBy?: Record<string, unknown>;
+  /** On the battlefield: the turn it entered ("if this land entered this turn", Dark Fortress). */
+  entered?: number;
   /** In exile: the turn it became plotted (702.170d). Its owner may cast it free on a later turn. */
   plotted?: number;
   /** In exile: it was airbent, so its owner may cast it for {2} while it stays exiled (701.65a). */
@@ -441,6 +461,8 @@ export type TurnEffect =
     }
   /** Card `card` in a graveyard has flashback this turn, its flashback cost its mana cost (Flashback, Stingcaster Mage). */
   | { kind: 'flashback'; card: string; moves: number }
+  /** "The next instant or sorcery spell you cast this turn can't be countered" (Overmaster): used up by that spell. */
+  | { kind: 'uncounterableNext'; player: PlayerId }
   /** The player may cast spells as though they had flash this turn (Borne Upon a Wind). */
   | { kind: 'flash'; player: PlayerId };
 
@@ -587,6 +609,8 @@ export interface StackItem {
   targets: (TargetRef | null)[];
   /** A waiting triggered ability whose controller has already chosen its place in the order (603.3b). */
   ordered?: boolean;
+  /** A modal triggered ability: the modes chosen as it was put on the stack (603.3c), in printed order. */
+  modes?: number[];
   /**
    * A copy of a spell (707.10). It isn't cast, and its card is a token, so it ceases to
    * exist once it leaves the stack (707.10a), or becomes a token permanent.
@@ -717,15 +741,35 @@ export interface CastChoice extends Then {
   graveyardToExile?: boolean;
 }
 
-/** A player may choose new targets for spell or ability `item` (115.7d). Answered by `chooseTargets`. */
+/**
+ * A player may choose new targets for spell or ability `item` (115.7d). Answered by
+ * `chooseTargets`. With `change`, they change its targets instead (115.7a): each to another
+ * legal target. It is only asked when every target can be changed; otherwise none is.
+ */
 export interface RetargetChoice extends Then {
   kind: 'retarget';
   player: PlayerId;
   source: string;
   item: string;
+  change?: boolean;
 }
 
-export type Choice = CardChoice | AskChoice | NameChoice | PlayerChoice | CastChoice | RetargetChoice;
+/**
+ * A player chooses a whole number from `min` to `max` (a bid of life, Mages' Contest), or
+ * with `decline`, may choose none: that button's label. The continuation reads `n`, and
+ * `yes` is false if they chose none.
+ */
+export interface NumberChoice extends Then {
+  kind: 'number';
+  player: PlayerId;
+  source: string;
+  text: string;
+  min: number;
+  max: number;
+  decline?: string;
+}
+
+export type Choice = CardChoice | AskChoice | NameChoice | PlayerChoice | CastChoice | RetargetChoice | NumberChoice;
 
 /** The mulligan process before the first turn (103.5). `active` is the starting player meanwhile. */
 export interface Mulligans {
@@ -754,6 +798,7 @@ export interface Mulligans {
  *  ask           - a player answers yes or no (see `AskChoice`)
  *  name          - a player names a card (see `NameChoice`)
  *  player        - a player chooses a player (see `PlayerChoice`)
+ *  number        - a player chooses a number (see `NumberChoice`)
  *  cast          - a player may cast a card while a spell resolves (see `CastChoice`)
  *  retarget      - a player may choose new targets for a spell or ability (see `RetargetChoice`)
  *  commanderZone - a player's commander was put into their graveyard, exile, hand or
@@ -782,11 +827,14 @@ export type Decision =
   | { type: 'mulligan' | 'attackers' | 'blockers' | 'discard' }
   | { type: 'orderDamage'; order: OrderDamageChoice }
   | { type: 'targets'; item: StackItem; resume: PlayerId }
+  /** A player chooses the modes of their modal triggered ability as it goes on the stack (603.3c). */
+  | { type: 'triggerModes'; item: StackItem; resume: PlayerId }
   | { type: 'orderTriggers'; resume: PlayerId }
   | { type: 'chooseCards'; choice: CardChoice }
   | { type: 'ask'; choice: AskChoice }
   | { type: 'name'; choice: NameChoice }
   | { type: 'player'; choice: PlayerChoice }
+  | { type: 'number'; choice: NumberChoice }
   | { type: 'cast'; choice: CastChoice }
   | { type: 'retarget'; choice: RetargetChoice }
   | { type: 'commanderZone'; card: string; resume: PlayerId }
@@ -882,14 +930,16 @@ export type Action =
   /** `discard`: the cards discarded to pay a "Discard a card" cost. `sacrifice`: the permanent for a "Sacrifice a creature" cost. */
   /** `x`: the value of X, for an ability with {X} or −X in its cost (107.3a). */
   /** `exile`: the permanent for an "Exile a creature you control" cost (The Soul Stone). */
-  | { type: 'activate'; card: string; ability?: number; activated?: number; x?: number; targets?: (TargetRef | null)[]; hold?: boolean; crew?: string[]; discard?: string[]; sacrifice?: string[]; exile?: string[] }
+  /** `graveyard`: the cards in its controller's graveyard exiled for an "Exile two cards from your graveyard" cost (Matoc). */
+  | { type: 'activate'; card: string; ability?: number; activated?: number; x?: number; targets?: (TargetRef | null)[]; hold?: boolean; crew?: string[]; discard?: string[]; sacrifice?: string[]; exile?: string[]; graveyard?: string[] }
   /**
    * `ability`: which of its mana abilities (`manaAbilities`). Left out, the one that suits
    * the player best. `color`: the colour to make, for an ability with a choice.
    */
   /** `tap`: the creature tapped to pay an ability's "Tap an untapped creature you control" cost (Relic of Legends). */
   /** `discard`: the card discarded to pay a "Discard a card" cost (Skirge Familiar). */
-  | { type: 'tapMana'; card: string; ability?: number; color?: ManaSym; tap?: string; discard?: string }
+  /** `sacrifice`: the creature sacrificed to pay a "Sacrifice a creature" cost (Phyrexian Tower). */
+  | { type: 'tapMana'; card: string; ability?: number; color?: ManaSym; tap?: string; discard?: string; sacrifice?: string }
   | { type: 'untapMana'; card: string }
   /** `target`: a planeswalker or battle to attack instead of the player; `defender` is then its controller or protector (508.1b). */
   | { type: 'declareAttack'; card: string; defender: PlayerId; target?: string }
@@ -912,6 +962,10 @@ export type Action =
   | { type: 'name'; name: string }
   /** Answers an `orderDamage` decision: the index of the order chosen. */
   | { type: 'orderDamage'; option: number }
+  /** Answers a `triggerModes` decision: the modes, as indexes in printed order (700.2). */
+  | { type: 'chooseModes'; modes: number[] }
+  /** Answers a `number` decision: the number, or null to choose none if it allows that. */
+  | { type: 'chooseNumber'; n: number | null }
   /** Answers a `player` decision. */
   | { type: 'choosePlayer'; player: PlayerId }
   /** Answers `commanderZone`: true moves the commander to the command zone, false leaves it where it is. */
@@ -942,6 +996,8 @@ export interface TargetSpec {
     | 'graveyard card';
   who?: 'you' | 'opponent' | 'any'; // whose permanent / which player
   filter?: (g: Game, c: Card, source: Card) => boolean;
+  /** For a spell or ability on the stack: whether `item` fits, like "with a single target" or "instant spell". */
+  item?: (g: Game, item: StackItem, source: Card) => boolean;
   optional?: boolean; // "you may" / "up to one"
   /** Can't be the same as the target chosen for the spec at this index: "two target players" (115.3). */
   distinctFrom?: number;
@@ -968,6 +1024,8 @@ export interface Ctx {
    * any other X of its source (107.3k). 0 for one without X. A spell reads `self.cast.x`.
    */
   x?: number;
+  /** A modal triggered ability's chosen modes (603.3c), in printed order. */
+  modes?: number[];
 }
 
 /** What a static ability does to an object it applies to (611.3), by layer. */
@@ -991,6 +1049,8 @@ export interface TriggerEvents {
   onPlaneswalkerDies: { dead: Card };
   onCreatureAttacks: { attacker: Card; defender: PlayerId; target: string | null };
   onCast: { card: Card; caster: PlayerId };
+  /** A spell is copied (707.10): magecraft's "whenever you cast or copy an instant or sorcery spell" (207.2c). `controller` controls the copy. */
+  onCopy: { card: Card; controller: PlayerId };
   onDraw: { player: PlayerId };
   onLifeGain: { player: PlayerId; amount: number };
   /** A player loses life: from damage (119.2), paying it (119.4), or an effect (119.3). */
@@ -1096,6 +1156,12 @@ export type Trigger<E> =
       resolve: (g: Game, e: Ctx & E) => void;
       targets?: TargetSpec[];
       text?: string;
+      /**
+       * A modal triggered ability, "choose one or more —" (700.2): `min` to `max` modes,
+       * chosen as it goes on the stack (603.3c), each with its own targets. `resolve` reads
+       * `ctx.modes`. `bot`: the modes a bot chooses.
+       */
+      modes?: { min: number; max: number; modes: Mode[]; bot?: (g: Game, pid: PlayerId, self: Card) => number[] };
     };
 
 /**
@@ -1147,8 +1213,12 @@ export interface ManaAbility {
   uncounterable?: boolean;
   /** "Spend this mana only to cast a legendary spell" (Plaza of Heroes). */
   legendary?: boolean;
+  /** "Spend this mana only to cast instant and sorcery spells" (Tablet of Discovery): spells with one of these card types. */
+  types?: string[];
   /** "Discard a card" is its cost (Skirge Familiar). Auto-pay never uses it: it costs a card. */
   discard?: number;
+  /** "Sacrifice a creature" is part of its cost (Phyrexian Tower). Auto-pay never uses it: it costs a creature. */
+  sacrificeCreature?: boolean;
   /**
    * Mana paid as part of its cost, like a Signet's "{1}, {T}" or a filter land's "{W/B}, {T}"
    * (605.1a: it is still a mana ability). That mana can't come from this ability itself.
@@ -1170,6 +1240,8 @@ export interface ThenCtx extends Ctx {
   name: string;
   /** The player chosen, for a `player` choice. */
   player: PlayerId | null;
+  /** The number chosen, for a `number` choice (0 if none). */
+  n: number;
   data: Record<string, unknown>;
 }
 
@@ -1214,6 +1286,8 @@ export interface ActivatedAbility {
     exileSelf?: boolean;
     /** "Exile a creature you control:": one permanent its controller controls that fits, chosen as it is activated. */
     exileOne?: TargetSpec;
+    /** "Exile two cards from your graveyard" (Matoc): that many cards from its controller's graveyard, chosen as it is activated. */
+    exileGraveyard?: number;
   };
   sorcery?: boolean;
   /** Activated from its owner's hand rather than the battlefield, like channel. */
@@ -1276,13 +1350,26 @@ export interface CardScript extends Triggers {
    */
   offspring?: string;
   /**
+   * "Deals [N] damage divided as you choose among [targets]" (601.2d): the amount divided, a
+   * number or X. The division is announced as it is cast (`CastChoices.divide`); the script
+   * reads `self.cast.divide`.
+   */
+  divide?: number | 'x';
+  /**
    * "As an additional cost to cast this spell, ..." (118.8), paid with the mana cost.
    * `sacrifice`: a permanent that fits the spec; `optional`, the caster may sacrifice one,
    * as bargain says (702.166a). `discard`: that many other cards from the caster's hand.
    * `life`: that much life (119.4), or `'x'` for "pay X life", X announced as it is cast
    * (601.2b, 107.3a) and kept in `CastInfo.x`.
    */
-  additionalCost?: { sacrifice?: TargetSpec; optional?: boolean; discard?: number; life?: number | 'x' };
+  additionalCost?: {
+    sacrifice?: TargetSpec;
+    optional?: boolean;
+    discard?: number;
+    life?: number | 'x';
+    /** "Pay 5 life or pay {2}" (Redirect Lightning): the caster pays one of these, chosen as it is cast (`CastChoices.extra`). */
+    oneOf?: { label: string; mana?: string; life?: number }[];
+  };
   /**
    * Gift (702.174): "Gift a [token]". The caster may promise an opponent a gift as they
    * cast it; that player then creates the token before the spell's other effects
@@ -1375,6 +1462,8 @@ export interface CardScript extends Triggers {
   exilesItself?: boolean;
   /** While this permanent is on the battlefield: can't `spell`, cast by `caster`, be countered? */
   protectsSpell?: (g: Game, self: Card, spell: Card, caster: PlayerId) => boolean;
+  /** While this permanent is on the battlefield: does `pid` keep mana `m` as steps and phases end (500.5)? "You don't lose unspent red mana" (Electro). */
+  keepsMana?: (g: Game, self: Card, pid: PlayerId, m: Mana) => boolean;
   /** "This doesn't untap during your untap step" (502.3). */
   noUntap?: boolean;
   /** "Skip your draw step" (614.1b, 614.10). */
