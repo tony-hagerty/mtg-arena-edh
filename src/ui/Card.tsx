@@ -1,7 +1,7 @@
 import { useRef, useState } from 'react';
 import type { CSSProperties, RefObject } from 'react';
 import { motion } from 'motion/react';
-import { activatedAbilities, attachmentsOf, data, defenseOf, isBattle, isCreature, isPlaneswalker, loyaltyOf, scriptFor, stats } from '../engine';
+import { activatedAbilities, attachmentsOf, data, defenseOf, isBattle, isCreature, isPlaneswalker, abilitiesOf, loyaltyOf, stats } from '../engine';
 import type { Card, Game } from '../engine';
 import { useRem } from './rem';
 import { play } from './sound';
@@ -147,7 +147,7 @@ function AttachedArt({ url }: { url: string }) {
 
 /** The hover text for a permanent's activated abilities: its `activated` one, and each loyalty ability (606). */
 const abilityText = (g: Game, card: Card) => {
-  const script = scriptFor(card);
+  const script = abilitiesOf(g, card);
   return [...activatedAbilities(g, card).map((ab) => ab.text), ...(script.loyalty ?? []).map((ab) => `${loyaltyCost(ab.cost)}: ${ab.text}`)].filter(Boolean).join('\n');
 };
 
@@ -240,7 +240,7 @@ export function Permanent({ card, badge, phased }: { card: Card; badge?: Card[];
         )}
         <Counters card={card} />
         {sick && <i className="tile-sick ms ms-ability-summoning-sickness" title="Summoning sick" />}
-        {(scriptFor(card).activated || scriptFor(card).loyalty) && <div className="tile-ability" title={abilityText(g, card)} />}
+        {(activatedAbilities(g, card).length > 0 || abilitiesOf(g, card).loyalty) && <div className="tile-ability" title={abilityText(g, card)} />}
         {card.tapped && <div className="tile-tapmark" />}
         {badge && (
           <div
