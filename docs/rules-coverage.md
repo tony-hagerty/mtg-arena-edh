@@ -353,9 +353,14 @@ are from the Comprehensive Rules in `docs/rules/`.
   and a person chooses the order of their own when two or more have static abilities
   (613.7m; bots keep the listed order). "Other permanents you control have
   indestructible" covers noncreature permanents too, and a Vehicle crewed into a creature
-  gets "creatures you control" bonuses. A reconfigured Equipment stops being a creature
-  and loses its creature types (702.151b), and a creature type given to a noncreature
-  does nothing (205.3d). "Until your next turn" ends as that turn begins, or as the next
+  gets "creatures you control" bonuses. A permanent that loses a card type loses the
+  subtypes that went only with it, and gets them back if a later effect gives that card
+  type back (205.1a): a reconfigured Equipment stops being a creature and isn't a Cat
+  (702.151b), and one that loses the artifact type isn't Equipment. A subtype given to an
+  object without its card type does nothing: a noncreature isn't a Wizard, a nonland isn't
+  a Swamp (205.3d; every list of subtypes in 205.3 comes from the rules by
+  `npm run fetch-rules`). Types are whole words: a Pirate isn't a Rat, and Time Lord is one
+  creature type (205.3b). "Until your next turn" ends as that turn begins, or as the next
   player's would if you left the game (800.4m); "for as long as" ends when that object
   leaves.
 - **Untapping in other players' untap steps** (502.3, Unwinding Clock, Bender's
@@ -485,8 +490,15 @@ are from the Comprehensive Rules in `docs/rules/`.
   attached most recently go to the graveyard (704.5z); each attachment gets a new
   timestamp (613.7e). A Role that can't be attached isn't created.
 - **Changeling (702.73):** every creature type, in every zone (Black Market Connections'
-  Shapeshifter is a Wizard for Kuja). It is a characteristic-defining ability, so it
-  applies first in layer 4 (604.3, 613.3).
+  Shapeshifter is a Wizard for Kuja, and a search for a creature type finds a changeling
+  card in the library). It is a characteristic-defining ability, so it applies first in
+  layer 4 (604.3, 613.3). **Devoid (702.114)** likewise makes an object colorless in every
+  zone, first in layer 5, so "becomes black" still makes it black.
+- **Impending (702.176):** cast for its impending cost, the permanent enters with N time
+  counters and isn't a creature while it has one (a layer 4 effect, so it loses its
+  creature types too); at the beginning of its controller's end step, one is removed.
+  Cast for its mana cost, time counters put on it change nothing (`impending` in a card's
+  script).
 - **Transforming (701.27f):** a permanent's own ability transforms it only if it hasn't
   transformed since the ability went on the stack (Kuja).
 - **"When enchanted permanent dies or is put into exile, return that card"** (Kaya's
