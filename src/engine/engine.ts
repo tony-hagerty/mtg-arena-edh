@@ -21,6 +21,7 @@ import {
   creaturesOf,
   damageCard,
   data,
+  discardsFor,
   dealDamage,
   damagePlayer,
   describeRef,
@@ -31,6 +32,7 @@ import {
   canProtect,
   isBattle,
   isCreature,
+  isLand,
   isInstantSpeed,
   isPlaneswalker,
   landFaces,
@@ -129,6 +131,7 @@ import {
   canChangeTargets,
   hasType,
   triggerModeOptions,
+  rememberModes,
 } from './rules';
 import type { EnterOpts } from './rules';
 import { settled } from './layers';
@@ -448,7 +451,9 @@ function runThen(g: Game, choice: Choice, answer: { picked?: Card[]; yes?: boole
   // opening hand (`script`), or else the spell or ability resolving.
   const item = resolvingItem(g);
   const card = choice.script ? findCard(g, choice.script) : item ? (permanent(g, item.card.id) ?? item.card) : undefined;
-  const fn = key.startsWith('@') ? ENGINE_THEN[key] : card && (choice.script ? scriptFor(card, 'battlefield') : itemScript(item!)).then?.[key];
+  // A card entering as one face of a modal double-faced card (712.12) has that face's script.
+  const face = (choice.data?.enter as EnterOpts | undefined)?.face;
+  const fn = key.startsWith('@') ? ENGINE_THEN[key] : card && (choice.script ? scriptFor(card, 'battlefield', face) : itemScript(item!)).then?.[key];
   if (!card || !fn) return;
   const waiting = g.choices;
   g.choices = [];
@@ -507,6 +512,13 @@ const ENGINE_THEN: Record<string, (g: Game, ctx: ThenCtx) => void> = {
   // "Discards a card" (701.9a): the player chose which.
   '@discard': (g, { picked }) => {
     for (const c of picked) discard(g, c);
+  },
+  // Connive (701.50a): the cards picked are discarded, then a +1/+1 counter for each nonland one, on the permanent if it is still there.
+  '@connive': (g, { picked, data }) => {
+    const nonland = picked.filter((c) => c.zone === 'hand' && !isLand(g, c)).length;
+    for (const c of picked) discard(g, c);
+    const it = permanent(g, data.id as string);
+    if (nonland && it && it.moves === data.moves) addCounters(g, it, nonland);
   },
   // Ward (702.21a): the spell or ability is countered unless its controller paid.
   '@ward': (g, { yes, data }) => {
@@ -771,7 +783,7 @@ function choicesOk(g: Game, pid: PlayerId, c: Card, ch: CastChoices): boolean {
   // "Discard a card": exactly that many different other cards from the caster's hand (118.8).
   const discard = ch.discard ?? [];
   const hand = new Set(discardOptions(g, pid, c).map((x) => x.id));
-  if (discard.length !== (script.additionalCost?.discard ?? 0) || new Set(discard).size !== discard.length || discard.some((id) => !hand.has(id))) return false;
+  if (discard.length !== discardsFor(script, ch.extra) || new Set(discard).size !== discard.length || discard.some((id) => !hand.has(id))) return false;
   const sacrifice = ch.sacrifice ?? [];
   const needs = [...(alt?.sacrifice ? [{ alt: ch.alt, optional: false }] : []), ...(script.additionalCost?.sacrifice ? [{ alt: undefined, optional: !!script.additionalCost.optional }] : [])];
   if (sacrifice.length > needs.length || new Set(sacrifice).size !== sacrifice.length) return false;
@@ -826,7 +838,7 @@ export function canCastAs(g: Game, pid: PlayerId, c: Card, face: number, choices
   const extras: (number | undefined)[] = script.additionalCost?.oneOf ? script.additionalCost.oneOf.map((_, i) => i) : [undefined];
   return routes.some((r) => modeSets.some((modes) => extras.some((extra) => {
     const ch = { ...r, ...(modes ? { modes } : {}), ...(extra !== undefined ? { extra } : {}) };
-    return targetsLegal(ch) && !!planPayment(g, pid, castCost(g, c, ch, pid), spell);
+    return targetsLegal(ch) && discardOptions(g, pid, c).length >= discardsFor(script, extra) && !!planPayment(g, pid, castCost(g, c, ch, pid), spell);
   })));
 }
 
@@ -869,7 +881,7 @@ function canPayActivation(g: Game, pid: PlayerId, c: Card, activated: number, x:
   if (ab.cost.tap && (c.tapped || (isCreature(g, c) && c.sick && !has(g, c, 'haste')))) return false;
   if (ab.cost.crew && crewPower(g, pid, c, crewOptions(g, pid, c)) < ab.cost.crew) return false;
   if (ab.cost.counters && counterCount(c, ab.cost.counters.kind) < ab.cost.counters.n) return false;
-  if (ab.cost.discard && discardOptions(g, pid, c).length < ab.cost.discard) return false;
+  if (ab.cost.discard && discardOptions(g, pid, c, ab.cost.discardFilter).length < ab.cost.discard) return false;
   if (ab.cost.sacrificeOne && !activationSacrificeOptions(g, pid, c, activated).length) return false;
   if (ab.cost.exileOne && !activationExileOptions(g, pid, c, activated).length) return false;
   if (ab.cost.exileGraveyard && g.players[pid].graveyard.length < ab.cost.exileGraveyard) return false;
@@ -889,8 +901,12 @@ export function activationSacrificeOptions(g: Game, pid: PlayerId, c: Card, acti
   return spec ? g.players[pid].battlefield.filter((p) => fitsSpec(g, p, spec, c)) : [];
 }
 
-/** Cards `pid` could discard to pay a "Discard a card" cost of `c`'s ability: any other card in their hand. */
-export const discardOptions = (g: Game, pid: PlayerId, c: Card): Card[] => g.players[pid].hand.filter((x) => x.id !== c.id);
+/**
+ * Cards `pid` could discard to pay a "Discard a card" cost of `c`'s spell or ability: any other
+ * card in their hand, or only those that fit `filter` ("Discard a creature card").
+ */
+export const discardOptions = (g: Game, pid: PlayerId, c: Card, filter?: (g: Game, c: Card) => boolean): Card[] =>
+  g.players[pid].hand.filter((x) => x.id !== c.id && (!filter || filter(g, x)));
 
 /** Does ability `ref` of `c` have X in its cost: {X} in an activated ability's mana, or a −X loyalty ability (107.3a)? */
 export function abilityHasX(g: Game, c: Card, ref: AbilityRef): boolean {
@@ -1888,6 +1904,7 @@ function putTriggerOnStack(g: Game): boolean {
       const wanted = t.modes.bot?.(g, pid, item.card) ?? [];
       item.modes = wanted.filter((i) => modal.legal.includes(i)).slice(0, modal.max);
       if (item.modes.length < modal.min) item.modes = modal.legal.slice(0, modal.min);
+      rememberModes(g, item);
     } else {
       g.decision = { type: 'triggerModes', item, resume: g.priority };
       g.priority = pid;
@@ -2075,6 +2092,8 @@ function act(g: Game, a: Action): boolean {
       const flashback = paysFlashback(g, c, choices);
       // An aftermath half cast from a graveyard is exiled whenever it would leave the stack (702.127a).
       const exileOnLeave = from === 'graveyard' && isAftermath(c, face);
+      // Cast from a graveyard with a permission that exiles it instead of putting it back (Vohar).
+      const exileInstead = from === 'graveyard' && !flashback && !escaped && !!permission(g, pid, c)?.graveyardToExile;
       const alt = choices.alt === undefined ? undefined : script.alternativeCosts![choices.alt];
       // X is chosen only if the cost being paid has {X}: an alternative cost without it makes X 0 (107.3b).
       const escapeMana = escaped ? escapeFor(g, c, choices.escape!.length)?.mana : undefined;
@@ -2110,7 +2129,7 @@ function act(g: Game, a: Action): boolean {
         flashback,
         ...(exileOnLeave ? { exileOnLeave } : {}),
         ...(delved.length ? { delved: delved.length } : {}),
-        ...(during?.card === c.id && during.graveyardToExile ? { graveyardToExile: true } : {}),
+        ...((during?.card === c.id && during.graveyardToExile) || exileInstead ? { graveyardToExile: true } : {}),
         from,
         alt: choices.alt,
         dash: !!alt?.dash,
@@ -2213,7 +2232,7 @@ function act(g: Game, a: Action): boolean {
         if (crewPower(g, pid, c, crewing as Card[]) < ab.cost.crew) return false;
       } else if (crewing.length) return false;
       // "Discard a card": exactly that many other cards from the hand.
-      const discarding = (a.discard ?? []).map((id) => discardOptions(g, pid, c).find((x) => x.id === id));
+      const discarding = (a.discard ?? []).map((id) => discardOptions(g, pid, c, ab.cost.discardFilter).find((x) => x.id === id));
       if (discarding.length !== (ab.cost.discard ?? 0) || discarding.some((x) => !x) || new Set(a.discard).size !== discarding.length) return false;
       // "Sacrifice a creature": exactly one that fits.
       const sacrificing = (a.sacrifice ?? []).map((id) => activationSacrificeOptions(g, pid, c, a.activated).find((x) => x.id === id));
@@ -2364,6 +2383,7 @@ function act(g: Game, a: Action): boolean {
       if (!modal || modes.length < modal.min || modes.length > modal.max) return false;
       if (modes.some((m, i) => !modal.legal.includes(m) || (i > 0 && m <= modes[i - 1]))) return false;
       item.modes = [...modes];
+      rememberModes(g, item);
       // It goes back to wait first in line, and on to its targets.
       g.triggers.unshift(item);
       g.decision = null;

@@ -403,6 +403,10 @@ export interface CopyInfo {
   /** A base power and toughness the copy effect sets (707.9b): offspring's 1/1, Saw in Half's halves. */
   power?: number;
   toughness?: number;
+  /** Creature types the copy effect sets, replacing the copied ones (707.9b, 205.1a): Hashaton's "it's a ... Zombie". */
+  creatureTypes?: string[];
+  /** Colours the copy effect sets, replacing the copied ones (707.9b, 105.3): Hashaton's "black". */
+  colors?: Color[];
 }
 
 export interface Player {
@@ -498,6 +502,8 @@ export type TurnEffect =
       until?: { player: PlayerId; turn: number };
       lasting?: boolean;
       ifSubtype?: string;
+      /** "If that spell would be put into your graveyard, exile it instead" (Vohar): a spell cast with this permission. */
+      graveyardToExile?: boolean;
     }
   /** Card `card` in a graveyard has flashback this turn, its flashback cost its mana cost (Flashback, Stingcaster Mage). */
   | { kind: 'flashback'; card: string; moves: number }
@@ -1033,6 +1039,8 @@ export interface TargetSpec {
     | 'creature or planeswalker'
     | 'player or planeswalker'
     | 'spell or ability'
+    /** A spell on the stack or a permanent (Sink into Stupor): `who` and `filter` apply to both. */
+    | 'spell or permanent'
     /** A card in a graveyard (Sevinne's Reclamation). */
     | 'graveyard card';
   who?: 'you' | 'opponent' | 'any'; // whose permanent / which player
@@ -1207,7 +1215,14 @@ export type Trigger<E> =
        * chosen as it goes on the stack (603.3c), each with its own targets. `resolve` reads
        * `ctx.modes`. `bot`: the modes a bot chooses.
        */
-      modes?: { min: number; max: number; modes: Mode[]; bot?: (g: Game, pid: PlayerId, self: Card) => number[] };
+      modes?: {
+        min: number;
+        max: number;
+        modes: Mode[];
+        bot?: (g: Game, pid: PlayerId, self: Card) => number[];
+        /** "Choose one that hasn't been chosen this turn" (Monument to Endurance): a mode its source chose this turn can't be chosen again. */
+        oncePerTurn?: boolean;
+      };
     };
 
 /**
@@ -1322,6 +1337,8 @@ export interface ActivatedAbility {
     crew?: number;
     life?: number;
     discard?: number;
+    /** "Discard a creature card" (Tortured Existence): only cards that fit can be discarded for `discard`. */
+    discardFilter?: (g: Game, c: Card) => boolean;
     discardSelf?: boolean;
     counters?: { kind: string; n: number };
     /** "Sacrifice a creature:": one permanent its controller controls that fits, chosen as it is activated. */
@@ -1413,8 +1430,11 @@ export interface CardScript extends Triggers {
     optional?: boolean;
     discard?: number;
     life?: number | 'x';
-    /** "Pay 5 life or pay {2}" (Redirect Lightning): the caster pays one of these, chosen as it is cast (`CastChoices.extra`). */
-    oneOf?: { label: string; mana?: string; life?: number }[];
+    /**
+     * "Pay 5 life or pay {2}" (Redirect Lightning), "discard a card or pay 3 life" (Bitter
+     * Triumph): the caster pays one of these, chosen as it is cast (`CastChoices.extra`).
+     */
+    oneOf?: { label: string; mana?: string; life?: number; discard?: number }[];
   };
   /**
    * Gift (702.174): "Gift a [token]". The caster may promise an opponent a gift as they

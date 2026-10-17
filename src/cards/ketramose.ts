@@ -127,7 +127,7 @@ function exileForNow(g: Game, cards: Card[]): { id: string; moves: number }[] {
 }
 
 /** "As this land enters, you may pay 3 life. If you don't, it enters tapped." (614.12a, 119.4) */
-const payThreeLand = (color: Color): CardScript => ({
+export const payThreeLand = (color: Color): CardScript => ({
   replaceEnter: (g, c, controller) => {
     ask(g, controller, { text: `Pay 3 life, or ${label(c)} enters tapped.`, life: 3, yes: 'Pay 3 Life', no: 'Enter Tapped', then: 'pay3', script: c.id });
     return true;

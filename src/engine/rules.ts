@@ -1,6 +1,6 @@
 // Queries and effect primitives. Everything here either reads a Game or mutates an
 // Immer draft of one; turn structure and action handling live in engine.ts.
-import { cardData } from '../cards/db';
+import { CREATURE_TYPES, cardData } from '../cards/db';
 import { scriptOf } from './registry';
 import { characteristics, settled, typesOf } from './layers';
 import type {
@@ -50,6 +50,9 @@ export const MAX_HAND = 7;
 export const maxHandSize = (g: Game, pid: PlayerId) => (g.players[pid].battlefield.some((c) => scriptFor(c).noMaxHandSize) ? Infinity : MAX_HAND);
 
 /** Keywords the engine actually enforces. tests/cards.test.ts fails on anything else. */
+/** Landwalk (702.14a): the basic land types a "[type]walk" keyword names. */
+const LANDWALKS: Record<string, string> = { plainswalk: 'Plains', islandwalk: 'Island', swampwalk: 'Swamp', mountainwalk: 'Mountain', forestwalk: 'Forest' };
+
 export const SUPPORTED_KEYWORDS = [
   'flying',
   'reach',
@@ -81,8 +84,12 @@ export const SUPPORTED_KEYWORDS = [
   'cumulative upkeep',
   'partner',
   'mobilize',
-  // Cycling (702.29) is read by the Oracle text parser as an ability activated from the hand.
+  // Cycling (702.29) and basic land typecycling (702.29e) are read by the Oracle text parser as
+  // abilities activated from the hand; a hand script uses `cycling` and `typecycling`.
   'cycling',
+  'typecycling',
+  'landcycling',
+  ...Object.values(LANDWALKS).map((t) => `${t.toLowerCase()}cycling`),
   // Ward (702.21), dash (702.109), bargain (702.166) and gift (702.174) by the engine with
   // the card's script; escape (702.138) is given by Underworld Breach.
   'ward',
@@ -125,6 +132,10 @@ export const SUPPORTED_KEYWORDS = [
   'changeling',
   'devoid',
   'impending',
+  // Shadow (702.28) and landwalk (702.14) are evasion abilities the engine checks as blockers are declared.
+  'shadow',
+  'landwalk',
+  ...Object.keys(LANDWALKS),
 ];
 
 // ---------- card queries ----------
@@ -160,14 +171,20 @@ function copyData(copy: CopyInfo): CardData {
   let d = copies.get(key);
   if (!d) {
     const base = faceData(cardData(copy.name), 'battlefield', copy.face);
-    const [types, subs] = base.typeLine.split(' — ');
-    const subtypes = [...(subs ? subs.split(' ') : []), ...copy.subtypes.filter((t) => !subs?.split(' ').includes(t))];
+    const [types] = base.typeLine.split(' — ');
+    const printed = typesOf(base.typeLine).subtypes;
+    // Creature types the copy effect sets replace the copied ones (205.1a); its other subtypes stay.
+    const kept = copy.creatureTypes ? [...printed.filter((t) => !CREATURE_TYPES.includes(t)), ...copy.creatureTypes] : printed;
+    const subtypes = [...kept, ...copy.subtypes.filter((t) => !kept.includes(t))];
+    // A characteristic-defining ability that would define a characteristic the copy effect sets isn't copied (707.9d).
+    const defined = [...(copy.creatureTypes ? ['Changeling'] : []), ...(copy.colors ? ['Devoid'] : [])];
     d = {
       ...base,
       typeLine: subtypes.length ? `${types} — ${subtypes.join(' ')}` : types,
-      keywords: [...base.keywords, ...copy.keywords.filter((k) => !base.keywords.includes(k))],
+      keywords: [...base.keywords.filter((k) => !defined.includes(k)), ...copy.keywords.filter((k) => !base.keywords.includes(k))],
       ...(copy.power !== undefined ? { power: String(copy.power) } : {}),
       ...(copy.toughness !== undefined ? { toughness: String(copy.toughness) } : {}),
+      ...(copy.colors ? { colors: [...copy.colors] } : {}),
     };
     copies.set(key, d);
   }
@@ -380,6 +397,8 @@ export const has = (g: Game, c: Card, keyword: string) => stats(g, c).keywords.h
  */
 export const CANT_ATTACK = "can't attack";
 export const CANT_BLOCK = "can't block";
+/** "[This creature] can't be blocked" (509.1b), given the same way. */
+export const CANT_BE_BLOCKED = "can't be blocked";
 /** "Attacks each combat if able" (508.1d), given the same way. */
 export const MUST_ATTACK = 'attacks each combat if able';
 
@@ -395,11 +414,19 @@ export function canAttack(g: Game, c: Card): boolean {
 export function canBlock(g: Game, blocker: Card, attacker: Card): boolean {
   if (blocker.zone !== 'battlefield' || !isCreature(g, blocker) || blocker.tapped) return false;
   if (has(g, blocker, CANT_BLOCK)) return false;
+  const kw = stats(g, attacker).keywords;
+  if (kw.has(CANT_BE_BLOCKED)) return false;
   // An attacker with protection can't be blocked by creatures with the stated quality (702.16f).
   if (protectedFrom(g, attacker, blocker)) return false;
+  // Shadow: it can't be blocked by creatures without shadow, and one without shadow can't be blocked by creatures with it (702.28b).
+  if (kw.has('shadow') !== has(g, blocker, 'shadow')) return false;
+  // Landwalk: it can't be blocked while the defending player, who controls the blockers, controls a land of that type (702.14c).
+  for (const [walk, type] of Object.entries(LANDWALKS)) {
+    if (kw.has(walk) && g.players[blocker.controller].battlefield.some((x) => isLand(g, x) && subtypesOf(g, x).includes(type))) return false;
+  }
   // Fear: only artifact creatures and/or black creatures can block it (702.36b).
-  if (has(g, attacker, 'fear') && !hasType(g, blocker, 'Artifact') && !isColor(g, blocker, 'B')) return false;
-  if (has(g, attacker, 'flying')) {
+  if (kw.has('fear') && !hasType(g, blocker, 'Artifact') && !isColor(g, blocker, 'B')) return false;
+  if (kw.has('flying')) {
     const kw = stats(g, blocker).keywords;
     return kw.has('flying') || kw.has('reach');
   }
@@ -619,6 +646,10 @@ export const escapeFor = (g: Game, c: Card, n: number) => escapes(g, c).find((e)
  */
 export const exileCast = (c: Card): 'airbent' | 'plotted' | undefined =>
   c.zone !== 'exile' ? undefined : c.plotted !== undefined ? 'plotted' : c.airbent ? 'airbent' : undefined;
+
+/** How many cards a spell's additional cost discards (118.8): its own "discard a card", plus the chosen one of a choice of costs. */
+export const discardsFor = (script: CardScript, extra?: number) =>
+  (script.additionalCost?.discard ?? 0) + (extra === undefined ? 0 : (script.additionalCost?.oneOf?.[extra]?.discard ?? 0));
 
 /**
  * What it costs `c` to be cast right now with these choices (601.2f): the mana cost, or
@@ -1578,17 +1609,18 @@ export function legalTargets(g: Game, pid: PlayerId, spec: TargetSpec, source: C
 
 function findTargets(g: Game, pid: PlayerId, spec: TargetSpec, source: Card, x: number): TargetRef[] {
   const out: TargetRef[] = [];
-  if (spec.type === 'spell' || spec.type === 'ability' || spec.type === 'spell or ability') {
+  if (spec.type === 'spell' || spec.type === 'ability' || spec.type === 'spell or ability' || spec.type === 'spell or permanent') {
     // A spell or ability on the stack. One can't target itself (115.5).
     for (const item of g.stack) {
       if (item.card.id === source.id && item.kind === 'spell') continue;
-      if (spec.type !== 'spell or ability' && (item.kind === 'spell') !== (spec.type === 'spell')) continue;
+      if (spec.type !== 'spell or ability' && (item.kind === 'spell') !== (spec.type !== 'ability')) continue;
       if (spec.who && spec.who !== 'any' && (spec.who === 'you') !== (item.controller === pid)) continue;
       if (spec.filter && !spec.filter(g, item.card, source, x)) continue;
       if (spec.item && !spec.item(g, item, source)) continue;
       out.push({ kind: 'stack', id: item.id });
     }
-    return out;
+    // "Target spell or nonland permanent": the permanents too, below.
+    if (spec.type !== 'spell or permanent') return out;
   }
   const whoOk = (owner: PlayerId) =>
     !spec.who || spec.who === 'any' || (spec.who === 'you' ? owner === pid : owner !== pid);
@@ -1605,6 +1637,7 @@ function findTargets(g: Game, pid: PlayerId, spec: TargetSpec, source: Card, x: 
   const fits = (c: Card) => {
     switch (spec.type) {
       case 'permanent':
+      case 'spell or permanent':
         return true;
       case 'any':
         return isCreature(g, c) || isPlaneswalker(g, c) || isBattle(g, c);
@@ -2214,8 +2247,26 @@ export function triggerOf(item: StackItem): Trigger<object> | undefined {
 export function triggerModeOptions(g: Game, item: StackItem): { min: number; max: number; legal: number[] } | null {
   const t = triggerOf(item);
   if (!t || typeof t === 'function' || !t.modes) return null;
-  const legal = t.modes.modes.map((_, i) => i).filter((i) => (t.modes!.modes[i].targets ?? []).every((spec) => spec.optional || spec.any || legalTargets(g, item.controller, spec, item.card).length > 0));
+  const source = modeSource(g, item);
+  const legal = t.modes.modes
+    .map((_, i) => i)
+    .filter((i) => !(t.modes!.oncePerTurn && source.once[`mode${i}`] === g.turn))
+    .filter((i) => (t.modes!.modes[i].targets ?? []).every((spec) => spec.optional || spec.any || legalTargets(g, item.controller, spec, item.card).length > 0));
   return { min: t.modes.min, max: t.modes.max, legal };
+}
+
+/** The source of modal triggered ability `item`: the permanent, if it is still the same object (400.7), else as it was. */
+const modeSource = (g: Game, item: StackItem): Card => {
+  const c = permanent(g, item.card.id);
+  return c && c.moves === item.card.moves ? c : item.card;
+};
+
+/** Remembers the modes chosen for `item` as it goes on the stack, for "one that hasn't been chosen this turn". */
+export function rememberModes(g: Game, item: StackItem) {
+  const t = triggerOf(item);
+  if (!t || typeof t === 'function' || !t.modes?.oncePerTurn) return;
+  const source = modeSource(g, item);
+  for (const i of item.modes ?? []) source.once[`mode${i}`] = g.turn;
 }
 
 /** The text of a triggered ability that has one (for a card with several for one event), or undefined. */
@@ -2543,7 +2594,7 @@ export function finishEnter(g: Game, c: Card, data: Record<string, unknown>, ext
  */
 export function copyOf(
   c: Card,
-  extra: { subtypes?: string[]; keywords?: string[]; activated?: CopyInfo['activated']; power?: number; toughness?: number } = {},
+  extra: { subtypes?: string[]; keywords?: string[]; activated?: CopyInfo['activated']; power?: number; toughness?: number; creatureTypes?: string[]; colors?: Color[] } = {},
 ): CopyInfo {
   const base: CopyInfo = c.copy ?? { name: c.name, face: c.zone === 'battlefield' ? c.face : 0, subtypes: [], keywords: [] };
   const activated = [...(base.activated ?? []), ...(extra.activated ?? [])];
@@ -2554,6 +2605,8 @@ export function copyOf(
     ...(activated.length ? { activated } : {}),
     ...(extra.power !== undefined ? { power: extra.power } : {}),
     ...(extra.toughness !== undefined ? { toughness: extra.toughness } : {}),
+    ...(extra.creatureTypes ? { creatureTypes: extra.creatureTypes } : {}),
+    ...(extra.colors ? { colors: extra.colors } : {}),
   };
 }
 
@@ -3117,6 +3170,21 @@ export const impending = (n: number, cost: string): Pick<CardScript, 'alternativ
   };
 };
 
+/** Cycling [cost] (702.29a): "[Cost], Discard this card: Draw a card", activated from the hand. */
+export const cycling = (mana: string): ActivatedAbility => ({ cost: { mana, discardSelf: true }, fromHand: true, text: `Cycling ${mana}`, resolve: (g, { you }) => draw(g, you) });
+
+/**
+ * [Type]cycling [cost] (702.29e), like plainscycling: "[Cost], Discard this card: Search your
+ * library for a [type] card, reveal it, put it into your hand, then shuffle." A search for a
+ * card with a stated quality may find nothing (701.23b).
+ */
+export const typecycling = (subtype: string, mana: string): ActivatedAbility => ({
+  cost: { mana, discardSelf: true },
+  fromHand: true,
+  text: `${subtype}cycling ${mana}`,
+  resolve: (g, { you }) => search(g, you, 'hand', { subtypes: [subtype], label: `a ${subtype} card` }, { reveal: true }),
+});
+
 /** "Crew N": tap other creatures with total power N or more, and this becomes an artifact creature until end of turn (702.122a). */
 export const crew = (n: number): ActivatedAbility => ({
   cost: { crew: n },
@@ -3392,6 +3460,30 @@ export function chooseToDiscard(g: Game, pid: PlayerId, n: number) {
   if (!hand.length || n <= 0) return;
   const count = Math.min(n, hand.length);
   pickCards(g, pid, hand, { min: count, max: count, text: `discard ${count === 1 ? 'a card' : `${count} cards`}`, button: 'Discard', then: '@discard' });
+}
+
+/**
+ * Permanent `c` connives N (701.50a, 701.50d): its controller draws N cards, then discards N
+ * cards, then puts a +1/+1 counter on it for each nonland card discarded this way. One that has
+ * left the battlefield still connives, as it last was (701.50b): its last controller draws and
+ * discards, and no counter goes anywhere. Conniving 0 does nothing (701.50e).
+ */
+export function connive(g: Game, c: Card, n = 1) {
+  const pid = c.controller;
+  if (n <= 0 || g.players[pid].lost) return;
+  log(g, `${label(c)} connives${n > 1 ? ` ${n}` : ''}.`, pid, [c]);
+  draw(g, pid, n);
+  const hand = g.players[pid].hand;
+  if (!hand.length) return;
+  const count = Math.min(n, hand.length);
+  pickCards(g, pid, hand, {
+    min: count,
+    max: count,
+    text: `connive: discard ${count === 1 ? 'a card' : `${count} cards`}. A +1/+1 counter for each nonland card`,
+    button: 'Discard',
+    then: '@connive',
+    data: { id: c.id, moves: c.moves, bot: 'discard' },
+  });
 }
 
 /** The player creates a token that's a copy of creature token `token` (701.36a, 707.2). */
