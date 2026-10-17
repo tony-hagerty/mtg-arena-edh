@@ -2,6 +2,7 @@ import type { CardData, Color } from '../engine/types';
 import generated from './cards.generated.json';
 import lists from './decklists.json';
 import creatureTypes from './creature-types.json';
+import subtypeLists from './subtypes.json';
 
 export interface DeckDef {
   id: string;
@@ -96,6 +97,12 @@ export const isCardName = (name: string) => name in cards || faceNames.has(name)
 
 /** Every creature type (205.3m), from the rules by `npm run fetch-rules`. */
 export const CREATURE_TYPES: string[] = creatureTypes;
+
+/**
+ * Each card type's subtypes (205.3g-q), from the rules by `npm run fetch-rules`. Creatures
+ * and kindreds share the creature types (205.3m). Planar types aren't listed: no planes here.
+ */
+export const SUBTYPES: Record<string, string[]> = { ...subtypeLists, Creature: creatureTypes, Kindred: creatureTypes };
 
 /** Every card name the game knows, faces included, for naming a card (201.3). */
 export const cardNames = () => [...new Set([...Object.keys(cards), ...faceNames.keys()])].sort();

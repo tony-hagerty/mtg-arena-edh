@@ -17,9 +17,9 @@
  * another object works that one out in full first. Dependency (613.8) isn't applied yet:
  * effects in one layer apply in timestamp order.
  */
-import { CREATURE_TYPES, cardData } from '../cards/db';
+import { CREATURE_TYPES, SUBTYPES, cardData } from '../cards/db';
 import { hasStaticScript } from './registry';
-import { SUPPORTED_KEYWORDS, data, hasReconfigure, permanent, scriptFor } from './rules';
+import { SUPPORTED_KEYWORDS, counterCount, data, hasReconfigure, permanent, scriptFor } from './rules';
 import type { Card, CardScript, Characteristics, ContinuousEffect, Game, LayerParts } from './types';
 
 /** The layers that change characteristics this engine has effects for, in order (613.1, 613.4). Layers 1-3 come first: see `LayerParts`. */
@@ -88,7 +88,54 @@ function answerOf(s: Source, version: number, i: number): LayerParts | null {
 interface Working extends Characteristics {
   /** Goes up each time an effect changes it. */
   version: number;
+  /** Subtypes it lost with a card type an effect removed, back if a later effect gives that card type back (205.1a). */
+  suspended?: string[];
 }
+
+/** A type line split up (205): the words before the dash (supertypes and card types) and its subtypes. */
+export interface TypeWords {
+  readonly types: readonly string[];
+  readonly subtypes: readonly string[];
+  /** Both, for looking one up. */
+  readonly all: ReadonlySet<string>;
+}
+
+const TWO_WORD = new Set(CREATURE_TYPES.filter((t) => t.includes(' ')));
+const typeWords = new Map<string, TypeWords>();
+
+/**
+ * Splits type line `line` into its types and subtypes. Each word after the dash is a subtype,
+ * except a two-word creature type like Time Lord (205.3b). Remembered: there are few type lines.
+ */
+export function typesOf(line: string): TypeWords {
+  let t = typeWords.get(line);
+  if (t) return t;
+  const [left, right] = line.split(' — ');
+  const words = right ? right.split(' ') : [];
+  const subtypes: string[] = [];
+  for (let i = 0; i < words.length; i++) {
+    const two = `${words[i]} ${words[i + 1]}`;
+    if (TWO_WORD.has(two)) subtypes.push(two), i++;
+    else subtypes.push(words[i]);
+  }
+  const types = left.split(' ').filter(Boolean);
+  t = { types, subtypes, all: new Set([...types, ...subtypes]) };
+  if (typeWords.size > 5000) typeWords.clear();
+  typeWords.set(line, t);
+  return t;
+}
+
+const typeLineOf = (types: readonly string[], subtypes: readonly string[]) => (subtypes.length ? `${types.join(' ')} — ${subtypes.join(' ')}` : types.join(' '));
+
+/** The card types each subtype goes with (205.3g-q). */
+const TYPES_OF_SUBTYPE = new Map<string, string[]>();
+for (const [type, subs] of Object.entries(SUBTYPES)) for (const s of subs) TYPES_OF_SUBTYPE.set(s, [...(TYPES_OF_SUBTYPE.get(s) ?? []), type]);
+
+/**
+ * Does subtype `s` go with one of card types `types` (205.3c)? A subtype the rules here don't
+ * list yet (a newer set's) is taken to go with the object's types as printed.
+ */
+const correlated = (s: string, types: readonly string[]) => !TYPES_OF_SUBTYPE.has(s) || TYPES_OF_SUBTYPE.get(s)!.some((t) => types.includes(t));
 
 const num = (s?: string) => {
   const n = parseInt(s ?? '', 10);
@@ -100,7 +147,8 @@ function start(c: Card): Working {
   const d = data(c);
   return {
     typeLine: changeling(d.typeLine, d.keywords),
-    colors: d.colors,
+    // Devoid: "This object is colorless" (702.114a), a characteristic-defining ability that works in every zone, first in layer 5 (613.3).
+    colors: d.keywords.includes('Devoid') ? [] : d.colors,
     keywords: d.keywords.map((k) => k.toLowerCase()),
     power: num(d.power),
     toughness: num(d.toughness),
@@ -118,9 +166,8 @@ function start(c: Card): Working {
  */
 function changeling(typeLine: string, keywords: string[]): string {
   if (!keywords.includes('Changeling')) return typeLine;
-  const [left, right] = typeLine.split(' — ');
-  const own = right ? right.split(' ') : [];
-  return `${left} — ${[...own, ...CREATURE_TYPES.filter((t) => !own.includes(t))].join(' ')}`;
+  const { types, subtypes } = typesOf(typeLine);
+  return typeLineOf(types, [...subtypes, ...CREATURE_TYPES.filter((t) => !subtypes.includes(t))]);
 }
 
 const addAll = (to: string[], xs: string[] | undefined) => {
@@ -135,19 +182,33 @@ const appliesAt = (e: Entry, p: LayerParts, l: Layer) =>
 function apply(w: Working, p: LayerParts, l: Layer) {
   switch (l) {
     case '4': {
-      const [left, right] = w.typeLine.split(' — ');
-      let words = left.split(' ');
-      let subs = right ? right.split(' ') : [];
-      for (const t of p.notTypes ?? []) {
-        words = words.filter((x) => x !== t);
-        // It loses its creature types too, unless it is still a kindred (205.3m, 702.151b).
-        if (t === 'Creature' && !words.includes('Kindred')) subs = subs.filter((s) => !CREATURE_TYPES.includes(s));
+      const t = typesOf(w.typeLine);
+      let types = t.types;
+      let subs = t.subtypes;
+      if (p.notTypes) {
+        types = types.filter((x) => !p.notTypes!.includes(x));
+        // The subtypes that went only with a card type it lost go too, for as long as that
+        // card type is removed (205.1a): a creature that stops being one loses its creature
+        // types, unless it is still a kindred (205.3m).
+        const lost = subs.filter((s) => !correlated(s, types));
+        if (lost.length) {
+          subs = subs.filter((s) => !lost.includes(s));
+          w.suspended = [...(w.suspended ?? []), ...lost];
+        }
       }
-      for (const t of p.types ?? []) if (!words.includes(t)) words.push(t);
-      const creature = words.includes('Creature') || words.includes('Kindred');
-      // An object can't gain a subtype that doesn't go with one of its types (205.3d).
-      for (const s of p.subtypes ?? []) if (!subs.includes(s) && (creature || !CREATURE_TYPES.includes(s))) subs.push(s);
-      w.typeLine = subs.length ? `${words.join(' ')} — ${subs.join(' ')}` : words.join(' ');
+      if (p.types) {
+        types = [...types, ...p.types.filter((x) => !types.includes(x))];
+        // A card type it gets back brings back the subtypes it lost with it (205.1a).
+        const back = w.suspended?.filter((s) => correlated(s, types)) ?? [];
+        if (back.length) {
+          subs = [...subs, ...back.filter((s) => !subs.includes(s))];
+          w.suspended = w.suspended!.filter((s) => !back.includes(s));
+        }
+      }
+      // An object can't gain a subtype that doesn't go with one of its card types (205.3d).
+      const gained = p.subtypes?.filter((s) => !subs.includes(s) && correlated(s, types)) ?? [];
+      if (gained.length) subs = [...subs, ...gained];
+      w.typeLine = typeLineOf(types, subs);
       break;
     }
     case '6':
@@ -198,6 +259,9 @@ function entries(g: Game, c: Card, temporary: boolean): Entry[] {
   }
   // A reconfigured Equipment isn't a creature from the moment it was attached (702.151b, 613.7e).
   if (c.attachedTo && hasReconfigure(c)) out.push({ ts: c.ts, seq: seq++, parts: { notTypes: ['Creature'] } });
+  // Impending: "As long as this permanent's impending cost was paid and it has a time counter
+  // on it, it's not a creature" (702.176a). A static ability of its own: its timestamp (613.7a).
+  if (c.cast?.impending && counterCount(c, 'time') > 0 && data(c).keywords.includes('Impending')) out.push({ ts: c.ts, seq: seq++, parts: { notTypes: ['Creature'] } });
   // A permanent whose dash cost was paid has haste (702.109a).
   if (c.cast?.dash) out.push({ ts: c.ts, seq: seq++, parts: { keywords: ['haste'] } });
   // +1/+1 and -1/-1 counters (122.1a, 613.4c), and keyword counters (122.1b, 613.1f), each kind from when it was last put on (613.7c).
@@ -353,6 +417,6 @@ function layers(g: Game, c: Card, upTo: Layer, temporary: boolean): { chars: Cha
     working.delete(c.id);
     clean = !tainted.pop();
   }
-  const { version: _, ...chars } = w;
+  const { version: _, suspended: __, ...chars } = w;
   return { chars, clean };
 }

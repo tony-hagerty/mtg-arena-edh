@@ -68,6 +68,8 @@ import {
   stats,
   turnOrder,
   winGame,
+  colorsOf,
+  subtypesOf,
 } from '../engine/rules';
 import { canPayLater, cardWant, oracleOnStack, threat } from '../engine/ai';
 import { canSayYes } from '../engine/engine';
@@ -671,7 +673,7 @@ export function favouriteType(g: Game, pid: PlayerId): string {
   const counts = new Map<string, number>();
   for (const c of [...p.library, ...p.hand, ...p.command]) {
     if (!isCreature(g, c)) continue;
-    for (const t of data(c).typeLine.split(' — ')[1]?.split(' ') ?? []) if (CREATURE_TYPES.includes(t)) counts.set(t, (counts.get(t) ?? 0) + 1);
+    for (const t of subtypesOf(g, c)) if (CREATURE_TYPES.includes(t)) counts.set(t, (counts.get(t) ?? 0) + 1);
   }
   return [...counts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? 'Human';
 }
@@ -978,7 +980,7 @@ registerScripts({
     botChoice: {
       imprint: (g, pid, choice) => {
         const cards = choice.kind === 'pick' ? choice.cards.map((id) => findCard(g, id)!) : [];
-        const useful = cards.filter((c) => data(c).colors.some((x) => g.players[pid].colors.includes(x)));
+        const useful = cards.filter((c) => colorsOf(g, c).some((x) => g.players[pid].colors.includes(x)));
         return pickCard([...useful].sort((a, b) => cardWant(g, pid, a) - cardWant(g, pid, b)).slice(0, 1).map((c) => c.id));
       },
     },

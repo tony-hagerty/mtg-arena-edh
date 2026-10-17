@@ -168,6 +168,8 @@ export interface CastInfo {
   alt?: number;
   /** Cast for its dash cost (702.109a). */
   dash?: boolean;
+  /** Cast for its impending cost (702.176a): "this permanent's impending cost was paid". */
+  impending?: boolean;
   /** Cast with escape (702.138b). */
   escaped?: boolean;
   /** Cast without paying its mana cost (Beseech the Mirror). */
@@ -1397,6 +1399,8 @@ export interface CardScript extends Triggers {
     evoke?: boolean;
     /** Warp (702.185a): only from the hand; the permanent is exiled at the next end step. */
     warp?: boolean;
+    /** Impending N (702.176a): the permanent enters with N time counters and isn't a creature while it has one. See `impending`. */
+    impending?: number;
   }[];
   /**
    * While this permanent is on the battlefield: a replacement effect that changes how much
