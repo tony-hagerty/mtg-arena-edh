@@ -48,6 +48,17 @@ registerCards({
   'Test Small Lord': fake('Test Small Lord', 'Creature — Human', 'Creatures you control have base power and toughness 1/1.', { power: '2', toughness: '2' }),
   'Test Big Lord': fake('Test Big Lord', 'Creature — Giant', 'Creatures you control have base power and toughness 4/4.', { power: '2', toughness: '2' }),
   'Test Recall': fake('Test Recall', 'Sorcery', 'Return all creature cards from your graveyard to the battlefield.'),
+  // For dependency (613.8).
+  'Test Terraform': fake('Test Terraform', 'Enchantment', 'Each artifact is a land in addition to its other types.'),
+  'Test Golem': fake('Test Golem', 'Artifact Creature — Golem', '', { power: '3', toughness: '3' }),
+  'Test Unforging': fake('Test Unforging', 'Enchantment', "Each creature isn't an artifact."),
+  'Test Stilling': fake('Test Stilling', 'Enchantment', "Each artifact isn't a creature."),
+  'Test Mirror': fake('Test Mirror', 'Enchantment', "Creatures you control get +X/+0, where X is that creature's toughness."),
+  'Test Echo': fake('Test Echo', 'Creature — Shapeshifter', 'This creature has base power and toughness X/X, where X is 1 plus the greatest power among other creatures you control.', {
+    power: '0',
+    toughness: '0',
+  }),
+  'Test Leveler': fake('Test Leveler', 'Enchantment', 'Creatures you control with power 2 or less have base power and toughness 4/4.'),
 });
 const baseFor = (power: number, toughness: number) => (g: Game, self: Card, c: Card) =>
   c.controller === self.controller && isCreature(g, c) ? { setPower: power, setToughness: toughness } : null;
@@ -60,6 +71,21 @@ registerScripts({
   'Test Shrinker': { static: (g, self, c) => (c.controller === self.controller && isCreature(g, c) ? { setPower: 0, setToughness: 1 } : null) },
   'Test Small Lord': { static: baseFor(1, 1) },
   'Test Big Lord': { static: baseFor(4, 4) },
+  'Test Terraform': { static: (g, _self, c) => (hasType(g, c, 'Artifact') ? { types: ['Land'] } : null) },
+  'Test Unforging': { static: (g, _self, c) => (isCreature(g, c) ? { notTypes: ['Artifact'] } : null) },
+  'Test Stilling': { static: (g, _self, c) => (hasType(g, c, 'Artifact') ? { notTypes: ['Creature'] } : null) },
+  'Test Mirror': { static: (g, self, c) => (c.controller === self.controller && isCreature(g, c) ? { power: stats(g, c).toughness } : null) },
+  'Test Echo': {
+    static: (g, self, c) => {
+      if (c.id !== self.id) return null;
+      const others = g.players[self.controller].battlefield.filter((x) => x.id !== self.id && isCreature(g, x));
+      const x = 1 + Math.max(0, ...others.map((o) => stats(g, o).power));
+      return { setPower: x, setToughness: x };
+    },
+  },
+  'Test Leveler': {
+    static: (g, self, c) => (c.controller === self.controller && isCreature(g, c) && stats(g, c).power <= 2 ? { setPower: 4, setToughness: 4 } : null),
+  },
   'Test Recall': {
     onResolve: (g, { you }) => enterTogether(g, g.players[you].graveyard.filter((c) => isCreature(g, c)).map((card) => ({ card, opts: { controller: you } }))),
   },
@@ -220,6 +246,87 @@ describe('layer 4 (613.1d)', () => {
       addContinuous(d, put(d, 0, 'Sol Ring'), { subtypes: ['Spirit'] });
     });
     expect(subtypesOf(g, byName(g, 0, 'Sol Ring')!)).toEqual([]);
+  });
+});
+
+describe('dependency (613.8)', () => {
+  it("an effect waits for one that changes what it applies to: Urborg makes an artifact a Swamp once another effect made it a land, whichever came first", () => {
+    for (const order of [
+      ['Urborg, Tomb of Yawgmoth', 'Test Terraform'],
+      ['Test Terraform', 'Urborg, Tomb of Yawgmoth'],
+    ]) {
+      const g = emptyGame((d) => {
+        put(d, 0, 'Sol Ring');
+        for (const name of order) put(d, 0, name);
+      });
+      expect(characteristics(g, byName(g, 0, 'Sol Ring')!).typeLine).toBe('Artifact Land — Swamp');
+    }
+  });
+
+  it('an effect that changes what another does goes first, whatever the timestamps (613.8b)', () => {
+    // Mirror adds the creature's toughness, so it waits for Bulwark's +0/+2 and the counter.
+    for (const order of [
+      ['Test Mirror', 'Test Bulwark'],
+      ['Test Bulwark', 'Test Mirror'],
+    ]) {
+      let g = emptyGame((d) => {
+        put(d, 0, 'Test Ogre');
+        for (const name of order) put(d, 0, name);
+      });
+      expect(pt(g, 'Test Ogre')).toBe('6/4');
+      g = produce(g, (d) => addCounters(d, byName(d, 0, 'Test Ogre'), 1));
+      expect(pt(g, 'Test Ogre')).toBe('8/5');
+    }
+  });
+
+  it('two effects that each change what the other applies to are a loop: timestamp order, and the second then no longer applies (613.8b)', () => {
+    const typeLine = (order: string[]) => {
+      const g = emptyGame((d) => {
+        put(d, 0, 'Test Golem');
+        for (const name of order) put(d, 0, name);
+      });
+      return characteristics(g, byName(g, 0, 'Test Golem')!).typeLine;
+    };
+    expect(typeLine(['Test Unforging', 'Test Stilling'])).toBe('Creature — Golem');
+    // It stops being a creature and so loses its creature type (205.3m).
+    expect(typeLine(['Test Stilling', 'Test Unforging'])).toBe('Artifact');
+  });
+
+  it("depends on an effect that changes another permanent it looks at: Echo's X counts the 4/4 the later Big Lord made", () => {
+    for (const order of [
+      ['Test Echo', 'Test Big Lord'],
+      ['Test Big Lord', 'Test Echo'],
+    ]) {
+      const g = emptyGame((d) => {
+        put(d, 0, 'Test Ogre');
+        for (const name of order) put(d, 0, name);
+      });
+      expect(['Test Echo', 'Test Ogre', 'Test Big Lord'].map((n) => pt(g, n))).toEqual(['5/5', '4/4', '4/4']);
+    }
+  });
+
+  it('in a loop, the one that goes first sees another permanent as it was before the rest of the loop applied', () => {
+    // Leveler changes what Echo counts (the Ogre's power), and Echo changes whether Leveler
+    // applies to Echo. Echo first: X is 1 plus the Ogre's 2, and 3 is too big for Leveler.
+    // Leveler first: everything is 4/4, then Echo's X is 1 plus 4.
+    const echo = (order: string[]) => {
+      const g = emptyGame((d) => {
+        put(d, 0, 'Test Ogre');
+        for (const name of order) put(d, 0, name);
+      });
+      return [pt(g, 'Test Echo'), pt(g, 'Test Ogre')];
+    };
+    expect(echo(['Test Echo', 'Test Leveler'])).toEqual(['3/3', '4/4']);
+    expect(echo(['Test Leveler', 'Test Echo'])).toEqual(['5/5', '4/4']);
+  });
+
+  it('effects that change nothing about each other keep timestamp order: the later base P/T wins', () => {
+    const g = emptyGame((d) => {
+      put(d, 0, 'Test Ogre');
+      put(d, 0, 'Test Big Lord');
+      put(d, 0, 'Test Small Lord');
+    });
+    expect(pt(g, 'Test Ogre')).toBe('1/1');
   });
 });
 
