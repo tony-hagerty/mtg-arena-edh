@@ -3,6 +3,7 @@
 import { registerScripts } from '../engine/registry';
 import {
   addCounters,
+  grantOf,
   addEffect,
   addLasting,
   adapt,
@@ -70,11 +71,7 @@ import type { Action, Card, CardScript, Choice, Color, Game, GrantedTrigger, Pla
 const isOpponent = (g: Game, a: PlayerId, b: PlayerId | null) => b !== null && a !== b && !g.players[b].lost;
 
 /** A triggered ability one card gives another (613.1f), typed by its hook. */
-const granted = <H extends TriggerHook>(hook: H, trigger: Trigger<TriggerEvents[H]>, applies?: GrantedTrigger['applies']): GrantedTrigger => ({
-  hook,
-  trigger: trigger as Trigger<never>,
-  ...(applies ? { applies } : {}),
-});
+const granted = <H extends TriggerHook>(hook: H, trigger: Trigger<TriggerEvents[H]>): GrantedTrigger => ({ hook, trigger: trigger as Trigger<never> });
 
 /** "Target card from a graveyard": any graveyard (Cling to Dust, Ghost Vacuum, Lion Sash). */
 const graveyardCard: TargetSpec = { type: 'graveyard card', label: 'target card from a graveyard' };
@@ -333,7 +330,8 @@ registerScripts({
   },
   'Isilu, Carrier of Twilight': {
     // "Each other nontoken creature you control has persist." (702.79a)
-    grants: [granted('onDies', persist, (g, self, c) => c.id !== self.id && c.controller === self.controller && isCreature(g, c) && !c.isToken)],
+    static: (g, self, c) => (c.id !== self.id && c.controller === self.controller && isCreature(g, c) && !c.isToken ? grantOf(self) : null),
+    grants: [granted('onDies', persist)],
     // "At the beginning of your first main phase, you may pay {W}. If you do, transform Isilu."
     onPrecombatMain: {
       when: (_g, { self, player }) => player === self.controller,

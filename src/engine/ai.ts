@@ -62,6 +62,7 @@ import {
   planPayment,
   stats,
   targetSpecs,
+  abilitiesOf,
   scriptFor,
   addCosts,
   castCost,
@@ -94,7 +95,7 @@ export function threat(g: Game, c: Card): number {
   if (s.keywords.has('trample')) v += 0.5;
   if (s.keywords.has('double strike')) v += s.power;
   if (c.isCommander) v += 3;
-  const script = scriptFor(c);
+  const script = abilitiesOf(g, c);
   if (script.static || script.onCreatureDies || script.onCast || script.onDraw || script.changesDamage) v += 1.5;
   // A creature that can't attack or block (Pacifism) is worth little.
   if (s.keywords.has(CANT_ATTACK) && s.keywords.has(CANT_BLOCK)) v *= 0.25;
@@ -137,7 +138,7 @@ function boardValue(g: Game, p: Player): number {
     if (isCreature(g, c)) v += threat(g, c);
     else if (isPlaneswalker(g, c)) v += walkerValue(c);
     else if (isBattle(g, c)) v += battleValue(c);
-    else if (scriptFor(c).levels) v += 1 + data(c).cmc * 0.5 + (c.level - 1) * 1.5; // a Class is worth more each level
+    else if (abilitiesOf(g, c).levels) v += 1 + data(c).cmc * 0.5 + (c.level - 1) * 1.5; // a Class is worth more each level
     else if (!isLand(g, c)) v += 1 + data(c).cmc * 0.5;
     mana += manaOf(g, c)?.amount ?? 0;
   }
@@ -417,7 +418,7 @@ function activations(g: Game, pid: PlayerId, c: Card, ref: AbilityRef): Action[]
   const { ability, activated } = ref;
   // One of its activated abilities, a loyalty ability, or a Class level bar (which has no targets).
   const ab = ability === undefined ? activatedAt(g, c, activated) : undefined;
-  const specs = (ab ? ab.targets : scriptFor(c).loyalty?.[ability!].targets) ?? [];
+  const specs = (ab ? ab.targets : abilitiesOf(g, c).loyalty?.[ability!].targets) ?? [];
   const crew = ab?.cost.crew ? crewChoice(g, pid, c, activated) : undefined;
   if (crew === null) return [];
   const n = ab?.cost.discard ?? 0;
@@ -674,7 +675,7 @@ function planAttacks(g: Game, pid: PlayerId): Map<string, AttackOption> {
   // "No more than one creature can attack [this planeswalker] each combat" (508.1c): only the best ones.
   for (const { option } of opps) {
     const attacked = option.target ? permanent(g, option.target) : undefined;
-    const most = attacked && scriptFor(attacked).maxAttackers;
+    const most = attacked && abilitiesOf(g, attacked).maxAttackers;
     if (most === undefined) continue;
     const at = [...plan].filter(([, o]) => sameAttack(o, option)).sort(([a], [b]) => (worth.get(b) ?? 0) - (worth.get(a) ?? 0));
     for (const [id] of at.slice(most)) plan.delete(id);

@@ -224,8 +224,11 @@ with `picked`, `yes` or `name`. Also `chooseToSacrifice`, `chooseToDiscard`,
 
 A static ability (`static: (g, self, c) => ...`) says what it does to each permanent `c`:
 `null` for nothing, or a `LayerParts` object (`types`, `subtypes`, `keywords`, `mana`,
-`grant`, `setPower`/`setToughness` for "base power and toughness", `power`/`toughness` for
-"+N/+N", `switchPT`, …), or a list of them for a card with several abilities.
+`ward`, `grant`, `loseAll`/`lose` for "loses all abilities"/"loses flying",
+`setPower`/`setToughness` for "base power and toughness", `power`/`toughness` for "+N/+N",
+`switchPT`, …), or a list of them for a card with several abilities. "Has '[triggered
+ability]'" is an entry in the card's `grants` plus `grantOf(self, i)` in `static`. A card
+whose static ability takes abilities away sets `removesAbilities: true`.
 `characteristics` in `layers.ts` applies every effect layer by layer (613.1), each layer
 in timestamp order (613.7), so a script doesn't think about order. Ask about a permanent
 through `g`, because another effect may have changed it: `isCreature(g, c)`,
@@ -248,7 +251,14 @@ own timestamp (613.7b): `untilEndOfTurn(g, c, parts)` ("gets +2/+2 until end of 
 **Other static hooks**
 
 `forbids` ("can't cast"/"can't activate"), `grantsFlash`, `uncounterable`,
-`protectsSpell`, `ward`, `grantsWard`, `grantsEscape`, `skipDrawStep`, `delayedIf`.
+`protectsSpell`, `ward`, `grantsEscape`, `skipDrawStep`, `delayedIf`.
+
+**A permanent's abilities**
+
+An effect can take a permanent's abilities away (layer 6, 613.1f), so the engine reads a
+permanent's abilities through `abilitiesOf(g, c)`: its script, less what it has lost.
+`scriptFor(c)` is the printed script, for spells, cards off the battlefield, and a spell or
+ability already on the stack, which exists apart from its source (113.7a).
 
 **Effect helpers**
 
