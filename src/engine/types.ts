@@ -757,8 +757,8 @@ export interface NameChoice extends Then {
   player: PlayerId;
   source: string;
   text: string;
-  /** What is named. Left out, a card. A colour is named by its mana symbol: W, U, B, R or G. */
-  of?: 'creature type' | 'color';
+  /** What is named. Left out, a card. A colour is named by its mana symbol: W, U, B, R or G. A card type by its name (`CARD_TYPES`). */
+  of?: 'creature type' | 'color' | 'card type';
 }
 
 /** A player chooses a player, such as "an opponent" (Wishclaw Talisman). */
@@ -1102,7 +1102,8 @@ export interface TriggerEvents {
   /** A planeswalker that isn't also a creature dies (Cruel Celebrant). */
   onPlaneswalkerDies: { dead: Card };
   onCreatureAttacks: { attacker: Card; defender: PlayerId; target: string | null };
-  onCast: { card: Card; caster: PlayerId };
+  /** `item`: the spell as it was cast, for "copy that spell" after it may have left the stack (707.10). */
+  onCast: { card: Card; caster: PlayerId; item: StackItem };
   /** A spell is copied (707.10): magecraft's "whenever you cast or copy an instant or sorcery spell" (207.2c). `controller` controls the copy. */
   onCopy: { card: Card; controller: PlayerId };
   onDraw: { player: PlayerId };
@@ -1494,6 +1495,8 @@ export interface CardScript extends Triggers {
   levels?: { cost: string; text: string }[];
   /** "You have no maximum hand size" (402.2). */
   noMaxHandSize?: boolean;
+  /** While this permanent is on the battlefield: how much it changes `pid`'s maximum hand size (402.2), like "Each opponent's maximum hand size is reduced by seven". */
+  handSize?: (g: Game, self: Card, pid: PlayerId) => number;
   /**
    * Continuations: what happens after a choice made partway through resolving (608.2d).
    * A choice names one with `then`; the resolving spell or ability's script runs it.
@@ -1571,6 +1574,8 @@ export interface CardScript extends Triggers {
    * triggered ability of [a permanent] triggers, it triggers an additional time" (603.2d).
    */
   doublesTriggers?: (g: Game, self: Card, source: Card) => boolean;
+  /** While this permanent is on the battlefield: does player `pid` have protection from `source` (702.16)? "You ... have protection from the chosen card type." */
+  protectsPlayer?: (g: Game, self: Card, pid: PlayerId, source: Card) => boolean;
   /** While this permanent is on the battlefield: does player `pid` have shroud (702.18a)? "You have shroud." */
   givesShroud?: (g: Game, self: Card, pid: PlayerId) => boolean;
   /**

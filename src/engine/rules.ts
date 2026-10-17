@@ -47,7 +47,13 @@ export const COMMANDER_DAMAGE = 21;
 export const MAX_HAND = 7;
 
 /** A player's maximum hand size (402.2): seven, unless something they control removes it. */
-export const maxHandSize = (g: Game, pid: PlayerId) => (g.players[pid].battlefield.some((c) => scriptFor(c).noMaxHandSize) ? Infinity : MAX_HAND);
+export function maxHandSize(g: Game, pid: PlayerId): number {
+  if (g.players[pid].battlefield.some((c) => scriptFor(c).noMaxHandSize)) return Infinity;
+  // Effects that change it, like Jin-Gitaxias's "Each opponent's maximum hand size is reduced by seven". It can't go below 0.
+  let n = MAX_HAND;
+  for (const c of battlefield(g)) n += scriptFor(c).handSize?.(g, c, pid) ?? 0;
+  return Math.max(0, n);
+}
 
 /** Keywords the engine actually enforces. tests/cards.test.ts fails on anything else. */
 /** Landwalk (702.14a): the basic land types a "[type]walk" keyword names. */
@@ -1650,8 +1656,8 @@ function findTargets(g: Game, pid: PlayerId, spec: TargetSpec, source: Card, x: 
     }
   };
   for (const p of living(g)) {
-    // A player with protection from everything can't be targeted (702.16j).
-    if (players && whoOk(p.id) && !playerShroud(g, p.id) && !playerProtected(g, p.id)) out.push({ kind: 'player', id: p.id });
+    // A player with protection can't be targeted by spells or abilities from sources with the quality (702.16b, 702.16j).
+    if (players && whoOk(p.id) && !playerShroud(g, p.id) && !playerProtectedFrom(g, p.id, source)) out.push({ kind: 'player', id: p.id });
     if (spec.type === 'player' || !whoOk(p.id)) continue;
     for (const c of p.battlefield) {
       if (!fits(c)) continue;
@@ -2859,11 +2865,26 @@ function changedDamage(g: Game, source: Card, to: { player?: PlayerId; card?: Ca
 const COLOR_NAMES: Record<Color, string> = { W: 'white', U: 'blue', B: 'black', R: 'red', G: 'green' };
 export const protectionFrom = (color: Color) => `protection from ${COLOR_NAMES[color]}`;
 
+/** The card types a player may choose (Serra's Emissary): those that may appear in a game of Magic here (205.2a). */
+export const CARD_TYPES = ['Artifact', 'Battle', 'Creature', 'Enchantment', 'Instant', 'Kindred', 'Land', 'Planeswalker', 'Sorcery'];
+const PLURAL: Record<string, string> = { Kindred: 'kindred', Sorcery: 'sorceries' };
+/** "Protection from creatures": protection from a card type (702.16a). */
+export const protectionFromType = (type: string) => `protection from ${PLURAL[type] ?? `${type.toLowerCase()}s`}`;
+
 /** Does permanent `c` have protection from something `source` is (702.16a)? Only colours so far. */
 export function protectedFrom(g: Game, c: Card, source: Card): boolean {
   const kw = stats(g, c).keywords;
-  return colorsOf(g, source).some((x) => kw.has(protectionFrom(x)));
+  if (colorsOf(g, source).some((x) => kw.has(protectionFrom(x)))) return true;
+  // From a card type: sources that are permanents of that type, or of that type off the battlefield (702.16a).
+  return CARD_TYPES.some((t) => kw.has(protectionFromType(t)) && hasType(g, source, t));
 }
+
+/**
+ * Does player `pid` have protection from `source` (702.16b, 702.16e)? From everything
+ * (702.16j), or from a quality an effect like Serra's Emissary's gives them.
+ */
+export const playerProtectedFrom = (g: Game, pid: PlayerId, source: Card) =>
+  playerProtected(g, pid) || battlefield(g).some((x) => scriptFor(x).protectsPlayer?.(g, x, pid, source));
 
 /**
  * Is damage `source` would deal to this player or permanent prevented (615)? By protection
@@ -2872,8 +2893,8 @@ export function protectedFrom(g: Game, c: Card, source: Card): boolean {
  */
 function prevented(g: Game, source: Card, to: { player?: PlayerId; card?: Card }): boolean {
   if (to.card && protectedFrom(g, to.card, source)) return true;
-  // Protection from everything prevents all damage to the player (702.16e, 702.16j).
-  if (to.player !== undefined && playerProtected(g, to.player)) return true;
+  // Protection prevents damage to the player from sources with the quality, or all damage from everything (702.16e, 702.16j).
+  if (to.player !== undefined && playerProtectedFrom(g, to.player, source)) return true;
   return battlefield(g).some((x) => scriptFor(x).preventsDamage?.(g, x, source, to));
 }
 
