@@ -390,7 +390,8 @@ are from the Comprehensive Rules in `docs/rules/`.
   had started to apply goes on in later layers (613.6), and an ability already on the
   stack still resolves (113.7a). A creature entering under Humility loses its abilities as
   it enters, so its "enters" abilities don't trigger and it doesn't enter tapped or with
-  counters by its own abilities (603.6b, 614.12). A Saga that lost its chapter abilities
+  counters by its own abilities (603.6b, 614.12); one entering at the same time as Humility
+  still enters that way, as Humility's effect doesn't exist yet, but doesn't trigger. A Saga that lost its chapter abilities
   isn't sacrificed (714.4), and an Aura that lost its enchant ability stays on what it's
   attached to (303.4c).
 - **Untapping in other players' untap steps** (502.3, Unwinding Clock, Bender's
