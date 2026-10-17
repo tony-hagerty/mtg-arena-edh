@@ -3,6 +3,8 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { defineConfig } from 'vitest/config';
+import { BaseSequencer } from 'vitest/node';
+import type { TestSpecification } from 'vitest/node';
 import type { Plugin } from 'vite';
 import react from '@vitejs/plugin-react';
 import { viteSingleFile } from 'vite-plugin-singlefile';
@@ -78,6 +80,19 @@ function gameServer(): Plugin {
   };
 }
 
+/**
+ * Starts the bot-vs-bot games (tests/simulation/) first. They take far longer than any
+ * other file, and with no timings from an earlier run (a fresh checkout, CI) Vitest would
+ * start the biggest files first, leaving the games for the end on one or two workers.
+ */
+class BotGamesFirst extends BaseSequencer {
+  async sort(files: TestSpecification[]) {
+    const sorted = await super.sort(files);
+    const game = (f: TestSpecification) => f.moduleId.replaceAll('\\', '/').includes('/tests/simulation/');
+    return [...sorted.filter(game), ...sorted.filter((f) => !game(f))];
+  }
+}
+
 export default defineConfig(({ mode }) => ({
   // `--mode single` (npm run build:single) inlines all JS, CSS and fonts into one
   // index.html that works when opened straight from disk (file://).
@@ -85,5 +100,11 @@ export default defineConfig(({ mode }) => ({
   build: mode === 'single' ? { outDir: 'dist-single' } : {},
   // PORT lets a second dev server run beside one that already holds 5180.
   server: { port: Number(process.env.PORT) || 5180 },
-  test: { include: ['tests/**/*.test.ts'], testTimeout: 120_000 },
+  test: {
+    include: ['tests/**/*.test.ts'],
+    testTimeout: 120_000,
+    // Every core: the tests keep them busy, and the main process hardly needs one.
+    maxWorkers: '100%',
+    sequence: { sequencer: BotGamesFirst },
+  },
 }));

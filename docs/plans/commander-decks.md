@@ -18,7 +18,7 @@ automatically is out of scope (projects like Forge spent years on that).
 - Cite rule numbers from `docs/rules/` in comments (see `CLAUDE.md`).
 - Script cards from their exact Oracle text, clause by clause (`docs/card-scripting.md`).
 - Bots must use each new feature (`src/engine/ai.ts`), or at least not break on it.
-- Add tests in `tests/engine.test.ts`. Keep `tests/simulation.test.ts` passing.
+- Add tests in `tests/engine.test.ts`. Keep the bot games in `tests/simulation/` passing.
 - Finish with `npm test` and `npm run build` passing, and update `README.md`
   ("What works", "Known simplifications", "Adding a card").
 - Ask the user before committing.
@@ -97,7 +97,7 @@ Order matters: each one builds on the ones before it.
 - Add it to `decklists.json`, run `npm run fetch-cards`, script every card, run tests.
 - Any card the engine still can't do: list it for the user and agree on a fix (new engine
   feature or a stand-in card). Don't swap cards silently.
-- Play a few bot games with it (`tests/simulation.test.ts`) to catch crashes.
+- Play a few bot games with it (a file in `tests/simulation/`) to catch crashes.
 - If the deck needs more than about 60 new scripts, split it over two sessions.
 - The user's deck: Kraum, Ludevic's Opus and Tymna the Weaver, a four-colour (WUBR) cEDH
   deck. Eight cards were listed by their Universes Within names (Chaos Emerald, Joshua
