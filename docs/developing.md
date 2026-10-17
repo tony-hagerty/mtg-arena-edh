@@ -19,6 +19,7 @@ src/cards/      decklists.json        the decks and tokens
                 cache.ts              the browser's cache of fetched cards (IndexedDB)
                 requests.ts           docs/card-requests.json: entries and merging
                 creature-types.json   every creature type (205.3m; npm run fetch-rules)
+                subtypes.json         the other card types' subtypes (205.3g-q; npm run fetch-rules)
                 cards.generated.json  card data from Scryfall (npm run fetch-cards)
                 scripts.ts            what each card does (starter decks)
                 kraum-tymna.ts        what the Kraum and Tymna deck's cards do
@@ -56,6 +57,8 @@ src/ui/         store.ts              Zustand store (game + what the player is s
                 styles.css            all styling
 tests/                                Vitest: card coverage, rules, the UI casting flow,
                                       bot-vs-bot games
+                simulation/           bot-vs-bot games, a few to a file so they run on
+                                      every core at once; play.ts plays one out
                 fixtures.ts           scripts for cards not in the pool yet, for testing
                 fixture-cards.json    their names; fetch-cards writes their data to
                                       fixtures.generated.json
@@ -191,6 +194,7 @@ fetched card too, since the card is matched to it by name.
 | Aura | `enchant` and `static: attachedBonus({...})` |
 | Equipment | `attachedBonus` with `activated: equip('{2}')` |
 | Vehicle | `activated: crew(3)` |
+| Impending | spread `...impending(4, '{1}{U}{U}')` into the script: its alternative cost and end-step trigger; the engine adds the time counters and "isn't a creature" |
 | Several activated abilities | list them in printed order (`activated: [ab1, equip('{1}')]`); an `activate` action and its stack item name one by `activated` (its index) |
 | Activated ability options | `fromHand`, `when`, `reduction`; costs `discard`, `discardSelf`, `counters`, or `sacrificeOne` permanent that fits a spec ("Sacrifice a creature:") |
 | Planeswalker | `loyalty` abilities: `{ cost: -2, text, targets, resolve }`, or `cost: '-X'` |
@@ -285,6 +289,7 @@ are shorthand for common ones. A card's own way of entering stays `entersTapped`
 | `mill`, `discard`, `surveil` | as named |
 | `gainControl` | changes control |
 | `copyOf` | copies a permanent |
+| `becomeCopy(g, card, copyOf(x))` | a permanent becomes a copy while it stays (707.4) |
 | `populate(g, pid)` | copies a creature token the player chooses |
 | `tap(g, card)` | taps a permanent and triggers `onTapped` |
 | `abilitySource` | the source, if it is still the same object |

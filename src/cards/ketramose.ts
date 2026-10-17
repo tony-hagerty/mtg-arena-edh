@@ -61,6 +61,7 @@ import {
   their,
   turnOrder,
   transform,
+  colorsOf,
 } from '../engine/rules';
 import { cardWant, threat } from '../engine/ai';
 import type { Action, Card, CardScript, Choice, Color, Game, GrantedTrigger, PlayerId, TargetRef, TargetSpec, Trigger, TriggerEvents, TriggerHook } from '../engine/types';
@@ -799,7 +800,7 @@ registerScripts({
       // "{T}: Add one mana of any color among legendary permanents you control."
       {
         amount: 1,
-        colors: (g, self) => [...new Set(g.players[self.controller].battlefield.filter((c) => hasType(g, c, 'Legendary')).flatMap((c) => data(c).colors))],
+        colors: (g, self) => [...new Set(g.players[self.controller].battlefield.filter((c) => hasType(g, c, 'Legendary')).flatMap((c) => colorsOf(g, c)))],
       },
     ],
     // "{3}, {T}, Exile this land: Target legendary creature gains hexproof and indestructible until end of turn."

@@ -13,6 +13,7 @@ import {
   canBlock,
   canTapForMana,
   canUntapMana,
+  canProduce,
   altCostsOf,
   castCost,
   checkState,
@@ -848,6 +849,16 @@ export function maxX(g: Game, pid: PlayerId, c: Card, choices: CastChoices = {})
 export function canActivate(g: Game, pid: PlayerId, c: Card, ability?: number, activated = 0, x = 0): boolean {
   if (!Number.isInteger(x) || x < 0 || (x > 0 && !abilityHasX(g, c, { ability, activated }))) return false;
   if (ability !== undefined) return scriptFor(c).levels ? canLevelUp(g, pid, c, ability) : canActivateLoyalty(g, pid, c, ability, x);
+  return canPayActivation(g, pid, c, activated, x) && hasTargetsFor(g, pid, c, activated, x);
+}
+
+/** Every target of `c`'s activated ability `activated` that must be chosen has a choice, with this X (601.2c via 602.2b). */
+function hasTargetsFor(g: Game, pid: PlayerId, c: Card, activated: number, x: number): boolean {
+  return (activatedAt(g, c, activated)?.targets ?? []).every((spec) => spec.optional || spec.any || legalTargets(g, pid, spec, c, x).length > 0);
+}
+
+/** Everything about activating `c`'s activated ability `activated` with this X but its targets: who, when, and its costs. */
+function canPayActivation(g: Game, pid: PlayerId, c: Card, activated: number, x: number): boolean {
   const ab = activatedAt(g, c, activated);
   if (!ab) return false;
   // Its controller activates it from the battlefield; its owner from their hand, like channel.
@@ -862,11 +873,7 @@ export function canActivate(g: Game, pid: PlayerId, c: Card, ability?: number, a
   if (ab.cost.exileOne && !activationExileOptions(g, pid, c, activated).length) return false;
   if (ab.cost.exileGraveyard && g.players[pid].graveyard.length < ab.cost.exileGraveyard) return false;
   // The source can't also make the mana if tapping, sacrificing or exiling it is part of the cost.
-  if ((ab.cost.mana || ab.cost.life) && !planPayment(g, pid, activationCost(g, pid, c, ab, x), undefined, ab.cost.tap || ab.cost.sacrifice || ab.cost.exileSelf ? [c.id] : [])) return false;
-  for (const spec of ab.targets ?? []) {
-    if (!spec.optional && !spec.any && legalTargets(g, pid, spec, c).length === 0) return false;
-  }
-  return true;
+  return !(ab.cost.mana || ab.cost.life) || !!planPayment(g, pid, activationCost(g, pid, c, ab, x), undefined, ab.cost.tap || ab.cost.sacrifice || ab.cost.exileSelf ? [c.id] : []);
 }
 
 /** Permanents `pid` could exile to pay an "Exile a creature you control" cost of `c`'s activated ability `activated` (The Soul Stone). */
@@ -896,13 +903,17 @@ export function abilityHasX(g: Game, c: Card, ref: AbilityRef): boolean {
  * can't be activated at all. 0 for an ability without X.
  */
 export function maxAbilityX(g: Game, pid: PlayerId, c: Card, ref: AbilityRef): number {
-  if (!canActivate(g, pid, c, ref.ability, ref.activated)) return -1;
-  if (!abilityHasX(g, c, ref)) return 0;
+  if (!abilityHasX(g, c, ref)) return canActivate(g, pid, c, ref.ability, ref.activated) ? 0 : -1;
   // −X removes X loyalty counters, so X can't be more than its loyalty (606.4, 606.6).
-  if (ref.ability !== undefined) return loyaltyOf(c);
-  let x = 0;
-  while (x < 99 && canActivate(g, pid, c, undefined, ref.activated, x + 1)) x++;
-  return x;
+  if (ref.ability !== undefined) return canActivate(g, pid, c, ref.ability) ? loyaltyOf(c) : -1;
+  const activated = ref.activated ?? 0;
+  if (!canPayActivation(g, pid, c, activated, 0)) return -1;
+  // The most it can pay for. A target may fit only some values of X ("with mana value X"),
+  // so the highest of those that has one.
+  let most = 0;
+  while (most < 99 && canPayActivation(g, pid, c, activated, most + 1)) most++;
+  for (let x = most; x >= 0; x--) if (hasTargetsFor(g, pid, c, activated, x)) return x;
+  return -1;
 }
 
 /** The loyalty counters a loyalty ability puts on (+) or removes (−) with this X (606.4). */
@@ -940,7 +951,8 @@ export function activatable(g: Game, pid: PlayerId, c: Card): AbilityRef[] {
     ...activatedAbilities(g, c).map((_, i) => ({ activated: i })),
     ...(script.loyalty ?? script.levels ?? []).map((_, i) => ({ ability: i })),
   ];
-  return refs.filter((r) => canActivate(g, pid, c, r.ability, r.activated));
+  // An ability with X can be activated if some X it can pay for gives it its targets.
+  return refs.filter((r) => canActivate(g, pid, c, r.ability, r.activated) || (r.activated !== undefined && abilityHasX(g, c, r) && maxAbilityX(g, pid, c, r) >= 0));
 }
 
 /**
@@ -970,15 +982,15 @@ export function divisionOk(script: CardScript, x: number, targets: (TargetRef | 
   return divide.reduce((a, b) => a + b, 0) === total;
 }
 
-function targetsOk(g: Game, pid: PlayerId, c: Card, specs: TargetSpec[], targets: (TargetRef | null)[]) {
+function targetsOk(g: Game, pid: PlayerId, c: Card, specs: TargetSpec[], targets: (TargetRef | null)[], x = 0) {
   return specs.every((spec, i) => {
     const t = targets[i];
     // "Any number of" targets: each one chosen is a different object (115.3).
-    if (spec.any) return !!t && !targets.some((o, k) => k < i && specs[k].any && o && sameRef(o, t)) && legalTargets(g, pid, spec, c).some((x) => sameRef(x, t));
+    if (spec.any) return !!t && !targets.some((o, k) => k < i && specs[k].any && o && sameRef(o, t)) && legalTargets(g, pid, spec, c, x).some((r) => sameRef(r, t));
     if (!t) return !!spec.optional;
     const other = spec.distinctFrom === undefined ? null : targets[spec.distinctFrom];
     if (other && sameRef(other, t)) return false;
-    return legalTargets(g, pid, spec, c).some((x) => sameRef(x, t));
+    return legalTargets(g, pid, spec, c, x).some((r) => sameRef(r, t));
   });
 }
 
@@ -1628,7 +1640,7 @@ function resolveTop(g: Game) {
   // become illegal the spell or ability does nothing at all (608.2b).
   const specs = specsFor(targetSpecs(g, item), item.targets.length);
   const targets = item.targets.map((t, i) =>
-    t && specs[i] && legalTargets(g, controller, specs[i], card).some((x) => sameRef(x, t)) ? t : null,
+    t && specs[i] && legalTargets(g, controller, specs[i], card, item.x).some((x) => sameRef(x, t)) ? t : null,
   );
   const fizzled = item.targets.some(Boolean) && !targets.some(Boolean);
   if (fizzled) log(g, `${label(card)} has no legal target left and does nothing.`, controller, [card]);
@@ -1876,7 +1888,7 @@ function putTriggerOnStack(g: Game): boolean {
     }
   }
   const specs = targetSpecs(g, item);
-  const options = specs.map((spec) => legalTargets(g, item.controller, spec, item.card));
+  const options = specs.map((spec) => legalTargets(g, item.controller, spec, item.card, item.x));
   if (specs.some((spec, i) => !spec.optional && !spec.any && options[i].length === 0)) {
     // A copy keeps the original's targets if there are no new ones (707.10c). An ability
     // that needs a target and has none is removed instead (603.3d).
@@ -1953,7 +1965,7 @@ function retarget(g: Game, pid: PlayerId, choice: RetargetChoice, chosen: (Targe
       if (other && sameRef(other, t)) return false;
       if (spec.any && targets.some((o, k) => k !== i && specs[k].any && o && sameRef(o, t))) return false;
       // Legal for the spell or ability as its controller would choose it.
-      return legalTargets(g, item.controller, spec, item.card).some((x) => sameRef(x, t));
+      return legalTargets(g, item.controller, spec, item.card, item.x).some((x) => sameRef(x, t));
     });
     if (!ok) return false;
     const changed = targets.filter((t, i) => !same(t, item.targets[i]));
@@ -2096,6 +2108,7 @@ function act(g: Game, a: Action): boolean {
         from,
         alt: choices.alt,
         dash: !!alt?.dash,
+        ...(alt?.impending ? { impending: true } : {}),
         escaped,
         free,
         ...(fromExile === 'airbent' ? { airbent: true } : {}),
@@ -2186,7 +2199,7 @@ function act(g: Game, a: Action): boolean {
       const several = activatedAbilities(g, c).length > 1;
       const specs = specsFor(ab.targets ?? [], a.targets?.length ?? 0);
       const targets = specs.map((_, i) => a.targets?.[i] ?? null);
-      if (!targetsOk(g, pid, c, specs, targets)) return false;
+      if (!targetsOk(g, pid, c, specs, targets, x)) return false;
       // Crew: the chosen creatures must be able to crew and have enough power (702.122a).
       const crewing = (a.crew ?? []).map((id) => crewOptions(g, pid, c).find((x) => x.id === id));
       if (ab.cost.crew) {
@@ -2270,7 +2283,9 @@ function act(g: Game, a: Action): boolean {
       // "Sacrifice a creature: Add {B}{B}" (Phyrexian Tower): a creature they control, named.
       const used = manaAbilities(g, c).find((m) => m.index === (a.ability ?? -1));
       if (used?.sacrificeCreature ? !p.battlefield.some((x) => x.id === a.sacrifice && isCreature(g, x)) : a.sacrifice !== undefined) return false;
-      tapForMana(g, pid, c, a.ability, a.color, a.tap, a.discard, a.sacrifice);
+      // The exact mana asked for must be one of the ability's choices.
+      if (a.mana && (!used || !canProduce(used, a.mana))) return false;
+      tapForMana(g, pid, c, a.ability, a.color, a.tap, a.discard, a.sacrifice, a.mana);
       return true;
     }
 

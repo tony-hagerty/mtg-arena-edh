@@ -200,6 +200,20 @@ describe('Relic of Legends: tap an untapped legendary creature you control', () 
     expect(applyAction(g, { type: 'tapMana', card: relic.id, ability: 1, color: 'U' })).toBe(g);
   });
 
+  it('takes the mana back from the creature tapped for it', () => {
+    let g = emptyGame((d) => {
+      put(d, 0, 'Relic of Legends');
+      put(d, 0, "Y'shtola, Night's Blessed");
+    });
+    const ysh = byName(g, 0, "Y'shtola, Night's Blessed")!;
+    g = run(g, { type: 'tapMana', card: byName(g, 0, 'Relic of Legends')!.id, ability: 1, color: 'B', tap: ysh.id });
+    // The Relic itself isn't tapped, so the creature is what is clicked to take it back.
+    expect(applyAction(g, { type: 'untapMana', card: byName(g, 0, 'Relic of Legends')!.id })).toBe(g);
+    g = run(g, { type: 'untapMana', card: ysh.id });
+    expect(byName(g, 0, "Y'shtola, Night's Blessed")!.tapped).toBe(false);
+    expect(g.players[0].pool).toEqual([]);
+  });
+
   it('is used by auto-pay: the Relic and the legendary creature each make a mana, lands first', () => {
     let g = emptyGame((d) => {
       put(d, 0, 'Relic of Legends');

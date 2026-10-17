@@ -1,5 +1,6 @@
 // The Oracle text parser (src/cards/oracle.ts): what it reads, what it refuses, and that
 // its scripts play the same as the hand scripts of the pool cards it can read.
+import { produce } from 'immer';
 import { describe, expect, it } from 'vitest';
 import { cardData, registerCards } from '../src/cards/db';
 import { needsScript, parseCard, scriptCards } from '../src/cards/oracle';
@@ -291,6 +292,54 @@ describe('lands and mana from Oracle text', () => {
       expect(g.players[0].pool).toEqual([]);
     });
 
+    it('by hand, a filter land makes the mana chosen, and taking it back returns the mana its cost spent', () => {
+      let g = emptyGame((d) => {
+        put(d, 0, 'Test Filter');
+        put(d, 0, 'Swamp');
+      });
+      const filter = byName(g, 0, 'Test Filter')!.id;
+      const swamp = byName(g, 0, 'Swamp')!.id;
+      g = run(g, { type: 'tapMana', card: swamp });
+      // Only one of the choices it lists: {W}{B}, not {W}{U}.
+      expect(applyAction(g, { type: 'tapMana', card: filter, ability: 1, mana: ['W', 'U'] })).toBe(g);
+      g = run(g, { type: 'tapMana', card: filter, ability: 1, mana: ['B', 'W'] });
+      expect(g.players[0].pool.map((m) => m.sym).sort()).toEqual(['B', 'W']);
+      g = run(g, { type: 'untapMana', card: filter });
+      // The Swamp's {B} is back, and the Swamp can be taken back in turn.
+      expect(g.players[0].pool.map((m) => m.sym)).toEqual(['B']);
+      g = run(g, { type: 'untapMana', card: swamp });
+      expect(g.players[0].pool).toEqual([]);
+      expect(g.players[0].battlefield.filter((c) => c.tapped)).toEqual([]);
+    });
+
+    it('takes back a Signet paid for by Sol Ring only while the {C} left over is unspent', () => {
+      let g = emptyGame((d) => {
+        put(d, 0, 'Test Signet');
+        put(d, 0, 'Sol Ring');
+      });
+      const signet = byName(g, 0, 'Test Signet')!.id;
+      g = run(g, { type: 'tapMana', card: signet });
+      expect(g.players[0].pool.map((m) => m.sym).sort()).toEqual(['C', 'U', 'W']);
+      const back = run(g, { type: 'untapMana', card: signet });
+      expect(back.players[0].pool).toEqual([]);
+      expect(back.players[0].battlefield.filter((c) => c.tapped)).toEqual([]);
+      // Once the {C} is spent, Sol Ring's tap can't be taken back, so neither can the Signet's.
+      const spent = produce(g, (d) => {
+        d.players[0].pool = d.players[0].pool.filter((m) => m.sym !== 'C');
+      });
+      expect(applyAction(spent, { type: 'untapMana', card: signet })).toBe(spent);
+    });
+
+    it("can't take back a Talisman's coloured mana: it dealt damage", () => {
+      let g = emptyGame((d) => put(d, 0, 'Talisman of Dominance'));
+      const talisman = byName(g, 0, 'Talisman of Dominance')!.id;
+      const colourless = run(g, { type: 'tapMana', card: talisman, ability: 0 });
+      expect(run(colourless, { type: 'untapMana', card: talisman }).players[0].pool).toEqual([]);
+      g = run(g, { type: 'tapMana', card: talisman, ability: 1, mana: ['B'] });
+      expect(g.players[0].life).toBe(39);
+      expect(applyAction(g, { type: 'untapMana', card: talisman })).toBe(g);
+    });
+
     it("a Signet can't pay its own {1}", () => {
       const g = emptyGame((d) => {
         put(d, 0, 'Test Signet');
@@ -320,8 +369,10 @@ describe('lands and mana from Oracle text', () => {
       g = run(g, { type: 'tapMana', card: byName(g, 0, 'Test Signet')!.id });
       expect(g.players[0].pool.map((m) => m.sym).sort()).toEqual(['U', 'W']);
       expect(byName(g, 0, 'Test Wastes')!.tapped).toBe(true);
-      // It can't be untapped: its cost was more than {T}.
-      expect(applyAction(g, { type: 'untapMana', card: byName(g, 0, 'Test Signet')!.id })).toBe(g);
+      // Taking it back untaps the land that paid its {1} as well.
+      g = run(g, { type: 'untapMana', card: byName(g, 0, 'Test Signet')!.id });
+      expect(g.players[0].pool).toEqual([]);
+      expect(g.players[0].battlefield.filter((c) => c.tapped)).toEqual([]);
     });
   });
 });

@@ -208,19 +208,19 @@ function shortlist(g: Game, pid: PlayerId, legal: TargetRef[], limit = Infinity)
 }
 
 /** Every way of choosing targets for `specs` (capped so wide boards stay cheap). */
-function targetChoices(g: Game, pid: PlayerId, specs: TargetSpec[], source: Card): (TargetRef | null)[][] {
+function targetChoices(g: Game, pid: PlayerId, specs: TargetSpec[], source: Card, x = 0): (TargetRef | null)[][] {
   let combos: (TargetRef | null)[][] = [[]];
   for (const spec of specs) {
     // "Any number of" targets (115.1d): none, each one alone, or all of them.
     if (spec.any) {
-      const legal = shortlist(g, pid, legalTargets(g, pid, spec, source), 4);
-      const all = legalTargets(g, pid, spec, source);
+      const legal = shortlist(g, pid, legalTargets(g, pid, spec, source, x), 4);
+      const all = legalTargets(g, pid, spec, source, x);
       const sets = [[], ...legal.map((t) => [t]), ...(all.length > 1 ? [all] : [])];
       combos = combos.flatMap((c) => sets.map((set) => [...c, ...set])).slice(0, 40);
       continue;
     }
     // With several targets to choose, fewer options each, so the combinations stay few.
-    const legal: (TargetRef | null)[] = shortlist(g, pid, legalTargets(g, pid, spec, source), specs.length > 1 ? 4 : 6);
+    const legal: (TargetRef | null)[] = shortlist(g, pid, legalTargets(g, pid, spec, source, x), specs.length > 1 ? 4 : 6);
     if (spec.optional || legal.length === 0) legal.push(null);
     // A target that must differ from an earlier one can't repeat it (115.3).
     const fits = (c: (TargetRef | null)[], t: TargetRef | null) => {
@@ -402,14 +402,17 @@ function candidateActions(g: Game, pid: PlayerId): { action: Action; spendsCard:
 
 /**
  * The values of X the bot tries for an ability with X in its cost (107.3a): every one from 1
- * up to the most it can pay, or six spread over that range when there are more. X = 0 is
- * left out: it pays nothing and does nothing.
+ * up to the most it can pay that gives the ability its targets ("with mana value X"), or six
+ * spread over those when there are more. X = 0 is left out: it pays nothing and does nothing.
  */
-function xChoices(g: Game, pid: PlayerId, c: Card, ref: AbilityRef): (number | undefined)[] {
+function xChoices(g: Game, pid: PlayerId, c: Card, ref: AbilityRef, specs: TargetSpec[]): (number | undefined)[] {
   if (!abilityHasX(g, c, ref)) return [undefined];
   const most = maxAbilityX(g, pid, c, ref);
-  if (most <= 6) return Array.from({ length: Math.max(0, most) }, (_, i) => i + 1);
-  return [...new Set(Array.from({ length: 6 }, (_, i) => Math.round((most * (i + 1)) / 6)))];
+  const xs = Array.from({ length: Math.max(0, most) }, (_, i) => i + 1).filter((x) =>
+    specs.every((spec) => spec.optional || spec.any || legalTargets(g, pid, spec, c, x).length > 0),
+  );
+  if (xs.length <= 6) return xs;
+  return [...new Set(Array.from({ length: 6 }, (_, i) => xs[Math.round((xs.length * (i + 1)) / 6) - 1]))];
 }
 
 /** The ways the bot considers activating ability `ref` of `c`: each X and set of targets, discarding the card it wants least. */
@@ -431,9 +434,8 @@ function activations(g: Game, pid: PlayerId, c: Card, ref: AbilityRef): Action[]
   // "Exile two cards from your graveyard": the ones the bot wants least.
   const k = ab?.cost.exileGraveyard ?? 0;
   const graveyard = k ? [...g.players[pid].graveyard].sort((a, b) => cardWant(g, pid, a) - cardWant(g, pid, b)).slice(0, k).map((x) => x.id) : undefined;
-  const targetSets = targetChoices(g, pid, specs, c);
-  return xChoices(g, pid, c, ref).flatMap((x) =>
-    targetSets.map((targets): Action => ({
+  return xChoices(g, pid, c, ref, specs).flatMap((x) =>
+    targetChoices(g, pid, specs, c, x).map((targets): Action => ({
       type: 'activate',
       card: c.id,
       ability,
@@ -493,7 +495,7 @@ function anyTargets(g: Game): Action {
   // "Any number of" targets: none, here.
   const targets = targetSpecs(g, item).filter((spec) => !spec.any).map((spec) => {
     if (spec.optional) return null;
-    const legal = legalTargets(g, g.priority, spec, item.card);
+    const legal = legalTargets(g, g.priority, spec, item.card, item.x);
     return legal.find((t) => !mine(t)) ?? legal[0] ?? null;
   });
   return { type: 'chooseTargets', targets };
@@ -510,7 +512,7 @@ function bestTargets(g: Game, pid: PlayerId, depth = 0): Action {
   let best = anyTargets(g);
   let bestScore = -Infinity;
   // New targets are legal for the item's controller (115.7d).
-  let options = targetChoices(g, d?.type === 'retarget' ? item.controller : pid, targetSpecs(g, item), item.card);
+  let options = targetChoices(g, d?.type === 'retarget' ? item.controller : pid, targetSpecs(g, item), item.card, item.x);
   if (d?.type === 'retarget') {
     // Changing targets (115.7a): every target becomes another one. Choosing new ones (115.7d): keeping them is an option.
     if (d.choice.change) {

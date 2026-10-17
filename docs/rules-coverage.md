@@ -256,8 +256,9 @@ are from the Comprehensive Rules in `docs/rules/`.
   the colour they want least. When a payment really happens, auto-pay also looks ahead:
   it picks the way to pay that leaves the most of your other cards castable this turn,
   counting instants and flash cards double. Bots skip this while they try moves out, and
-  use it for the move they make. A multicolour source
-  tapped by hand makes the colour your hand needs most. Bots play the land for the colour
+  use it for the move they make. Tapping a source by hand with a choice (a dual or tri
+  land, a Talisman, a filter land, Command Tower) opens a picker: you pick the ability and
+  the mana. Auto-pay still picks for you. Bots play the land for the colour
   they are shortest of.
 - **Mana abilities (605):** a permanent can have several, and they can cost life (119.4),
   deal damage, need a condition ("activate only if"), make colours worked out as they are
@@ -270,9 +271,11 @@ are from the Comprehensive Rules in `docs/rules/`.
   any colour; auto-pay spends lands first and Treasures last.
 - **Mana abilities with a mana cost (605.1a):** Signets ("{1}, {T}: Add {W}{U}") and
   filter lands ("{W/B}, {T}: Add {W}{W}, {W}{B}, or {B}{B}"). Auto-pay and bots use them
-  only when a payment can't be made without them, and never to pay their own cost.
+  only when a payment can't be made without them, and never to pay their own cost. By
+  hand, the cost is paid from your pool first, and auto-pay taps the rest.
 - **"Tap an untapped legendary creature you control: Add one mana"** (Relic of Legends):
-  by hand, click the Relic once it is tapped, then pick the creature and the colour. A
+  by hand, click the Relic and pick that ability, the creature and the colour. Click the
+  creature to take the mana back. A
   creature that just arrived can pay it (302.6). Auto-pay and bots use it like any other
   source, tapping such a creature only after lands and mana rocks.
 - **Special mana:** restricted mana that makes a spell uncounterable (106.6, Cavern of
@@ -328,7 +331,14 @@ are from the Comprehensive Rules in `docs/rules/`.
   control they gained ends and what they still control is exiled (800.4a).
 - **Copies of permanents (707):** Mockingbird enters as a copy of a creature, with the
   copy effect's exceptions (707.9b); the copy has the copied card's abilities, enters
-  abilities included, and mana cost.
+  abilities included, and mana cost. A permanent can also become a copy while it stays on
+  the battlefield (707.4, Likeness Looter): nothing triggers as if it entered, its counters,
+  status and other effects stay, and the latest copy effect replaces the earlier one. The
+  copy effect has its own timestamp, which static abilities it gives take (613.7a). Abilities
+  a copy effect adds as an exception, like "and this ability", are copied along (707.9a).
+- **X before targets (601.2b-c via 602.2b):** an activated ability's X is announced before
+  its targets, so a target can depend on it ("with mana value X"). The X shown first is the
+  highest that has a target.
 - **Replacement effects as a permanent enters** (614.1c, 614.12a), with a choice: Mox
   Diamond's discard, Cavern of Souls's and Roaming Throne's creature type (all of 205.3m),
   Mockingbird's copy. "Artifacts and creatures your opponents control enter tapped"
@@ -353,9 +363,14 @@ are from the Comprehensive Rules in `docs/rules/`.
   and a person chooses the order of their own when two or more have static abilities
   (613.7m; bots keep the listed order). "Other permanents you control have
   indestructible" covers noncreature permanents too, and a Vehicle crewed into a creature
-  gets "creatures you control" bonuses. A reconfigured Equipment stops being a creature
-  and loses its creature types (702.151b), and a creature type given to a noncreature
-  does nothing (205.3d). "Until your next turn" ends as that turn begins, or as the next
+  gets "creatures you control" bonuses. A permanent that loses a card type loses the
+  subtypes that went only with it, and gets them back if a later effect gives that card
+  type back (205.1a): a reconfigured Equipment stops being a creature and isn't a Cat
+  (702.151b), and one that loses the artifact type isn't Equipment. A subtype given to an
+  object without its card type does nothing: a noncreature isn't a Wizard, a nonland isn't
+  a Swamp (205.3d; every list of subtypes in 205.3 comes from the rules by
+  `npm run fetch-rules`). Types are whole words: a Pirate isn't a Rat, and Time Lord is one
+  creature type (205.3b). "Until your next turn" ends as that turn begins, or as the next
   player's would if you left the game (800.4m); "for as long as" ends when that object
   leaves.
 - **Untapping in other players' untap steps** (502.3, Unwinding Clock, Bender's
@@ -495,8 +510,15 @@ are from the Comprehensive Rules in `docs/rules/`.
   attached most recently go to the graveyard (704.5z); each attachment gets a new
   timestamp (613.7e). A Role that can't be attached isn't created.
 - **Changeling (702.73):** every creature type, in every zone (Black Market Connections'
-  Shapeshifter is a Wizard for Kuja). It is a characteristic-defining ability, so it
-  applies first in layer 4 (604.3, 613.3).
+  Shapeshifter is a Wizard for Kuja, and a search for a creature type finds a changeling
+  card in the library). It is a characteristic-defining ability, so it applies first in
+  layer 4 (604.3, 613.3). **Devoid (702.114)** likewise makes an object colorless in every
+  zone, first in layer 5, so "becomes black" still makes it black.
+- **Impending (702.176):** cast for its impending cost, the permanent enters with N time
+  counters and isn't a creature while it has one (a layer 4 effect, so it loses its
+  creature types too); at the beginning of its controller's end step, one is removed.
+  Cast for its mana cost, time counters put on it change nothing (`impending` in a card's
+  script).
 - **Transforming (701.27f):** a permanent's own ability transforms it only if it hasn't
   transformed since the ability went on the stack (Kuja).
 - **"When enchanted permanent dies or is put into exile, return that card"** (Kaya's
@@ -592,8 +614,8 @@ These are deliberate cuts for a prototype. The biggest ones come first.
   (700.2b) aren't supported. A copy's controller must pick legal new targets or keep all
   the old ones (707.10c allows keeping some). Copying abilities isn't supported yet.
 - **Layers (613) not built yet:** dependency between effects (613.8), effects that
-  remove abilities (layer 6), effects that set or change colour (layer 5), and copy
-  effects on a permanent already on the battlefield (layer 1).
+  remove abilities (layer 6), and effects that set or change colour (layer 5). No card
+  has a copy effect with a duration ("until end of turn") yet.
 - **Counters:** proliferate, shield, stun and other counters with their own rules
   (122.1c-j) do nothing special yet.
 - **Auras** can only enchant permanents, not players (702.5d).
@@ -634,8 +656,14 @@ These are deliberate cuts for a prototype. The biggest ones come first.
 - **Snow mana** {S} isn't supported.
 - **Phyrexian mana** is always paid with mana when the mana is there; you can't choose to
   pay life instead. Tapping lands by hand first lets you steer it.
-- **Tapping a Treasure by hand** sacrifices it at once, so Cancel can't take that mana
-  back (mana abilities can't be undone).
+- **Taking mana back:** a source tapped by hand can be clicked again to take its mana
+  back while all of that mana is unspent. This is a convenience, not a rule: mana
+  abilities can't be undone in paper Magic. It works only when using the ability changed
+  nothing but which permanents are tapped and what is in your pool. A Signet or filter
+  land can be taken back, and the mana or lands that paid its cost come back too. Not
+  when it paid life, dealt damage (painlands, a Talisman's coloured mana), sacrificed or
+  exiled something (a Treasure), discarded a card, or triggered an ability: those have
+  happened, and other players have seen them.
 - **Auto-pay's lookahead** checks your other cards at what they cost now, with commander
   tax and cost increases and reductions (601.2f), but with no kicker, X as 0 and no
   alternative cost. It doesn't foresee cost changes the spell being paid for will bring.
