@@ -232,8 +232,9 @@ A static ability (`static: (g, self, c) => ...`) says what it does to each perma
 `grant`, `setPower`/`setToughness` for "base power and toughness", `power`/`toughness` for
 "+N/+N", `switchPT`, …), or a list of them for a card with several abilities.
 `characteristics` in `layers.ts` applies every effect layer by layer (613.1), each layer
-in timestamp order (613.7), so a script doesn't think about order. Ask about a permanent
-through `g`, because another effect may have changed it: `isCreature(g, c)`,
+in timestamp order (613.7) unless one effect depends on another (613.8), so a script
+doesn't think about order. Ask about a permanent through `g`, because another effect may
+have changed it: `isCreature(g, c)`,
 `hasType(g, c, 'Artifact')`, `subtypesOf(g, c)`, `colorsOf(g, c)`, `stats(g, c)`. Inside a
 `static`, "creatures you control" needs `isCreature(g, c)`, while "permanents you control"
 needs no type check.
