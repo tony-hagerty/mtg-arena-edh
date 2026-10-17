@@ -127,7 +127,7 @@ describe('commander rules', () => {
     expect(g.players[0].exile.map((c) => c.id)).toEqual([lyra.id]);
   });
 
-  // No card in the pool bounces or tucks a permanent yet, so these call moveCard as one would.
+  // Set up outside an action, nobody can be asked, so these take it as a bot would.
   it('sends a bot commander headed for a hand or library to the command zone instead (903.9b)', () => {
     const g = emptyGame((d) => {
       moveCard(d, d.players[0].command[0], 'hand');
@@ -138,36 +138,64 @@ describe('commander rules', () => {
     expect(g.players[1].library.some((c) => c.isCommander)).toBe(false);
   });
 
-  it('asks a human whose commander goes to their hand, and lets them keep it there (903.9b)', () => {
+  /** Player 0, a human, has cast Lyra and holds Snapback ("Return target creature to its owner's hand") to bounce her. */
+  const bounced = () => {
     let g = emptyGame((d) => {
       d.players[0].isBot = false;
       d.players[0].you = true;
-      d.players[0].commanderCasts = [1];
       put(d, 0, 'Plains', 'battlefield', 5);
-      moveCard(d, d.players[0].command[0], 'hand');
+      put(d, 0, 'Island', 'battlefield', 2);
+      put(d, 0, 'Snapback', 'hand');
     });
-    // Any action lets the game check state, and the owner is asked.
-    g = run(g, { type: 'tapMana', card: byName(g, 0, 'Plains')!.id });
+    const lyra = g.players[0].command[0];
+    g = run(g, { type: 'cast', card: lyra.id });
+    return run(g, { type: 'cast', card: byName(g, 0, 'Snapback', 'hand')!.id, targets: [{ kind: 'card', id: lyra.id }] });
+  };
+
+  it('asks a human whose commander would go to their hand, as it moves, and lets them keep it there (903.9b)', () => {
+    let g = bounced();
+    // Asked before it goes anywhere: it is still on the battlefield, Snapback still resolving.
+    expect(g.decision).toMatchObject({ type: 'replacement', ask: { player: 0, options: [{ label: 'Command Zone' }, { label: 'Hand' }] } });
+    expect(byName(g, 0, 'Lyra Dawnbringer')).toBeDefined();
+    g = run(g, { type: 'replacement', option: 1 });
     const lyra = byName(g, 0, 'Lyra Dawnbringer', 'hand')!;
-    expect(g.decision).toEqual({ type: 'commanderZone', card: lyra.id, resume: 0 });
-    g = run(g, { type: 'commanderZone', toCommand: false });
-    expect(byName(g, 0, 'Lyra Dawnbringer', 'hand')?.id).toBe(lyra.id);
+    expect(lyra).toBeDefined();
+    expect(g.decision?.type).not.toBe('commanderZone');
+    expect(g.players[0].graveyard.map((c) => c.name)).toEqual(['Snapback']);
     // Cast from the hand, it costs its printed {3}{W}{W} with no tax (903.8).
-    expect(canCast(g, 0, byName(g, 0, 'Lyra Dawnbringer', 'hand')!)).toBe(true);
+    g = produce(g, (d) => {
+      for (const c of d.players[0].battlefield) c.tapped = false;
+    });
+    expect(canCast(g, 0, lyra)).toBe(true);
   });
 
-  it('lets a human send their commander from the library to the command zone (903.9b)', () => {
+  it('puts a human\'s commander into the command zone instead of their hand when they choose it (903.9b)', () => {
+    let g = run(bounced(), { type: 'replacement', option: 0 });
+    expect(g.players[0].command.map((c) => c.name)).toEqual(['Lyra Dawnbringer']);
+    expect(g.players[0].hand).toEqual([]);
+    expect(g.log.some((l) => l.text === 'Lyra Dawnbringer goes to the command zone instead.')).toBe(true);
+  });
+
+  it('lets a human send their commander headed for the library to the command zone (903.9b)', () => {
     let g = emptyGame((d) => {
       d.players[0].isBot = false;
       d.players[0].you = true;
-      put(d, 0, 'Plains');
-      moveCard(d, d.players[0].command[0], 'library');
+      d.players[0].hand.push(makeCard(d, 'Lyra Dawnbringer', 0, 'hand', { isCommander: true }));
+      d.players[0].command = [];
+      put(d, 0, 'Valakut Awakening', 'hand');
+      put(d, 0, 'Mountain', 'battlefield', 3);
     });
-    g = run(g, { type: 'tapMana', card: byName(g, 0, 'Plains')!.id });
-    expect(g.decision?.type).toBe('commanderZone');
-    g = run(g, { type: 'commanderZone', toCommand: true });
-    expect(g.players[0].command.map((c) => c.name)).toEqual(['Lyra Dawnbringer']);
+    const lyra = byName(g, 0, 'Lyra Dawnbringer', 'hand')!;
+    // "Put any number of cards from your hand on the bottom of your library, then draw that many plus one."
+    g = run(g, { type: 'cast', card: byName(g, 0, 'Valakut Awakening', 'hand')!.id });
+    expect(g.decision?.type).toBe('chooseCards');
+    g = run(g, { type: 'chooseCards', cards: [lyra.id] });
+    expect(g.decision).toMatchObject({ type: 'replacement', ask: { player: 0, options: [{ label: 'Command Zone' }, { label: 'Library' }] } });
+    g = run(g, { type: 'replacement', option: 0 });
+    expect(g.players[0].command.map((c) => c.id)).toEqual([lyra.id]);
     expect(g.players[0].library.some((c) => c.isCommander)).toBe(false);
+    // It was still put on the bottom as far as Valakut knows, so two cards are drawn.
+    expect(g.players[0].hand).toHaveLength(2);
   });
 
   it('eliminates a player at 21 combat damage from one commander', () => {
