@@ -1216,3 +1216,27 @@ describe('modes with their own targets and choices (700.2)', () => {
     expect(refusal('Creature — Elf', 'Choose one —\n• Draw a card.\n• You gain 2 life.')).toMatchObject({ reason: 'a modal ability of a permanent' });
   });
 });
+
+describe('mana that may be spent only on some spells (106.6)', () => {
+  it('reads "spend this mana only to cast a legendary spell, and that spell can\'t be countered"', () => {
+    expect(parse('Creature — Halfling', "{T}: Add one mana of any color. Spend this mana only to cast a legendary spell, and that spell can't be countered.")).toMatchObject({
+      ok: true,
+      script: { mana: { amount: 1, colors: 'any', legendary: true, uncounterable: true } },
+    });
+    expect(parse('Artifact', '{T}: Add {C}{C}. Spend this mana only to cast instant and sorcery spells.')).toMatchObject({ ok: true, script: { mana: { types: ['Instant', 'Sorcery'] } } });
+    teach('Test Plaza', 'Land', '{T}: Add {C}.\n{T}: Add one mana of any color. Spend this mana only to cast a legendary spell.');
+    teach('Test Prism', 'Land', '{T}: Add one mana of any color.');
+    // Its coloured mana can't pay for a spell that isn't legendary; unrestricted mana can.
+    const cast = (land: string) => {
+      const g = emptyGame((d) => {
+        put(d, 0, land);
+        put(d, 0, 'Plains');
+        put(d, 0, 'Two Drop', 'hand');
+      });
+      return applyAction(g, { type: 'cast', card: byName(g, 0, 'Two Drop', 'hand')!.id }) !== g;
+    };
+    expect(cast('Test Prism')).toBe(true);
+    expect(cast('Test Plaza')).toBe(false);
+    expect(refusal('Land', '{T}: Add one mana of any color. Spend this mana only to cast a spell with flying.')).not.toBeNull();
+  });
+});

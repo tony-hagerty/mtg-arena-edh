@@ -2035,6 +2035,15 @@ function manaEffect(text: string): ManaAbility | null {
     extra.instant = true;
     rest = rest.slice(0, m.index + 1);
   }
+  // "Spend this mana only to cast a legendary spell[, and that spell can't be countered]", "... instant and sorcery spells" (106.6).
+  if ((m = / spend this mana only to cast a legendary spell(, and that spell can't be countered)?\.$/.exec(rest))) {
+    extra.legendary = true;
+    if (m[1]) extra.uncounterable = true;
+    rest = rest.slice(0, m.index + 1);
+  } else if ((m = / spend this mana only to cast (instant and sorcery|creature|artifact) spells\.$/.exec(rest))) {
+    extra.types = m[1] === 'instant and sorcery' ? ['Instant', 'Sorcery'] : [capital(m[1])];
+    rest = rest.slice(0, m.index + 1);
+  }
   const base = baseMana(rest.trim());
   return base && { ...base, ...extra };
 }
