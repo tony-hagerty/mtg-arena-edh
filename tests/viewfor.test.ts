@@ -173,7 +173,7 @@ describe('viewFor and the log', () => {
 });
 
 describe('viewFor through whole games', () => {
-  it('never gives any player a hidden card’s id, at any point of a four-player game', () => {
+  it('never gives any player a hidden card’s id, at any point of a four-player game', { tags: ['game'] }, () => {
     let g = newGame({ seed: 31, seats: DECKS.slice(0, 4).map((deck) => ({ deck })) });
     let checked = 0;
     for (let i = 0; g.step !== 'gameOver' && i < 4000; i++) {
@@ -200,7 +200,7 @@ describe('viewFor through whole games', () => {
 });
 
 describe('the screen drawn from a player’s view', () => {
-  it('builds from a filtered game at every point of a game with one person', async () => {
+  it('builds from a filtered game at every point of a game with one person', { tags: ['game'] }, async () => {
     const { useStore } = await import('../src/ui/store');
     const { buildView } = await import('../src/ui/view');
     let g = newGame({ seed: 12, seats: [{ deck: DECKS[0], human: true }, ...DECKS.slice(1, 4).map((deck) => ({ deck }))] });
