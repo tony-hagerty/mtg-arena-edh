@@ -95,9 +95,28 @@ export interface LayerParts {
    * white"), and restrictions carried the same way (`CANT_ATTACK`).
    */
   keywords?: string[];
+  /**
+   * Layer 6: "loses all abilities" (113.10). It loses every ability it has at this point in
+   * layer 6: its own, and those that effects with earlier timestamps gave it (613.7). Effects
+   * with later ones can give it new abilities. Restrictions like `CANT_ATTACK` (113.12) and
+   * designations like harnessed (701.64b) aren't abilities, so they stay.
+   */
+  loseAll?: boolean;
+  /**
+   * Layer 6: "loses [ability]" (113.10b): these keyword abilities, in lower case, every
+   * instance of each. `'ward'` takes its ward abilities too, its own and given ones (702.21),
+   * and `'enchant'` its own enchant ability (702.5).
+   */
+  lose?: string[];
+  /** Layer 6: a ward ability it adds (702.21a): "have 'Ward—Pay 2 life'" (Hexing Squelcher). */
+  ward?: WardCost;
   /** Layer 6: a mana ability it adds (Rain of Filth). */
   mana?: ManaAbility;
-  /** Layer 6: a triggered ability it adds, entry `index` of card `from`'s `grants` (Malakir Rebirth). */
+  /**
+   * Layer 6: a triggered ability it adds, entry `index` of card `from`'s `grants`: Malakir
+   * Rebirth's until end of turn, or Isilu's "each other nontoken creature you control has
+   * persist" from a static ability (`grantOf`).
+   */
   grant?: { from: string; index: number };
   /** Layer 6: the activated abilities of these cards, by name (Agatha's Soul Cauldron). */
   activatedOf?: string[];
@@ -144,6 +163,15 @@ export interface Characteristics {
   keywords: string[];
   power: number;
   toughness: number;
+  /**
+   * Does it have the abilities of its copiable values (layer 6), the ones its script and
+   * printed keywords give it? False once it loses all abilities (`LayerParts.loseAll`).
+   */
+  own: boolean;
+  /** Abilities of its script it has lost one by one (`LayerParts.lose`), by script key: `'enchant'`, `'ward'`. */
+  lost: string[];
+  /** Ward abilities effects gave it (layer 6). */
+  wards: WardCost[];
   /** Mana abilities effects gave it (layer 6). */
   mana: ManaAbility[];
   /** Triggered abilities effects gave it (layer 6). */
@@ -156,14 +184,13 @@ export interface Characteristics {
 
 /**
  * A triggered ability one card gives another (613.1f): "Equipped creature has 'Whenever
- * ...'". The ability is the creature's own, so "this creature" means it. `applies` says
- * which permanents a permanent on the battlefield gives it to; one given until end of turn
- * is named by a `LayerParts.grant` instead.
+ * ...'". The ability is the creature's own, so "this creature" means it. An effect gives it
+ * with a `LayerParts.grant` naming it: a static ability (`grantOf`), or a resolved spell or
+ * ability until end of turn.
  */
 export interface GrantedTrigger {
   hook: TriggerHook;
   trigger: Trigger<never>;
-  applies?: (g: Game, self: Card, c: Card) => boolean;
 }
 
 /** What was chosen for a spell as it was cast (601.2b). */
@@ -661,6 +688,11 @@ export interface StackItem {
   granted?: { from: string; index: number };
   /** An activated ability its source has from another card (Agatha's Soul Cauldron): that card's name, whose script it runs. */
   borrowed?: string;
+  /**
+   * An activated ability's index in the list of the script it comes from: its source's own, or
+   * `borrowed`'s. It is that ability whatever its source loses or gains later (113.7a).
+   */
+  scriptIndex?: number;
   /** Permanents exiled to pay its costs (The Soul Stone), as they last were on the battlefield. */
   exiled?: Card[];
   /** Permanents sacrificed to pay its costs, as they last were on the battlefield, and their power then. */
@@ -971,6 +1003,8 @@ export interface Game {
   resolving: string | null;
   /** How many players have passed priority in a row (117.4). */
   passes: number;
+  /** Set once a resolved spell or ability gives a permanent an effect that takes abilities away (`LayerParts.loseAll`, `lose`). */
+  abilitiesLost?: true;
   /** A player who cast or activated with `hold`: auto-pass leaves them priority until they act again (117.3c). */
   holding: PlayerId | null;
   combat: Combat | null;
@@ -1627,6 +1661,13 @@ export interface CardScript extends Triggers {
   /** Triggered abilities this card gives other permanents (see `GrantedTrigger`). */
   grants?: GrantedTrigger[];
   /**
+   * One of its static abilities can make permanents lose abilities (`LayerParts.loseAll` or
+   * `lose`), like Humility's. The engine skips working out who lost what while no permanent
+   * on the battlefield has such an ability or effect, so it must say so: the layer system
+   * throws if a static ability without it removes abilities.
+   */
+  removesAbilities?: boolean;
+  /**
    * While this permanent is on the battlefield: is it a Roaming Throne for `source`? "If a
    * triggered ability of [a permanent] triggers, it triggers an additional time" (603.2d).
    */
@@ -1641,8 +1682,6 @@ export interface CardScript extends Triggers {
   attackTax?: (g: Game, self: Card, attacker: Card, defender: PlayerId, target: string | null) => string | null;
   /** Ward (702.21). */
   ward?: WardCost;
-  /** While this permanent is on the battlefield: the ward it gives permanent `c`, or null. */
-  grantsWard?: (g: Game, self: Card, c: Card) => WardCost | null;
   /** An action from an opening hand (103.6), like Gemstone Caverns's. It queues its own choices. */
   openingHand?: (g: Game, self: Card, pid: PlayerId) => void;
   /**
