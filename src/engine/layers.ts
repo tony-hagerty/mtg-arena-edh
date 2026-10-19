@@ -323,29 +323,36 @@ function apply(w: Working, p: LayerParts, l: Layer) {
 }
 
 /**
- * Is there anything on the battlefield that can take abilities away: an effect from a resolved
- * spell or ability, or a static ability that says it can (`CardScript.removesAbilities`)? While
- * there isn't, every permanent has its own abilities, and nothing needs working out.
- * It is asked for every ability looked at, so it looks only at names until a resolved effect
- * has taken abilities away in this game (`Game.abilitiesLost`).
+ * Is there a permanent on the battlefield with a static ability that can take abilities away
+ * (`CardScript.removesAbilities`), like Humility? It is asked for every ability looked at, so it
+ * looks only at names, and remembers the answer for a game that can't change.
  */
-export function removesAbilities(g: Game): boolean {
-  if (!g.abilitiesLost && !anyRemovingScript()) return false;
+export function staticRemoval(g: Game): boolean {
+  if (!anyRemovingScript()) return false;
   const isHeld = held?.g === g;
   const isFrozen = !isHeld && Object.isFrozen(g) && Object.isFrozen(g.players);
   const known = isHeld ? held!.removing : isFrozen ? removing.get(g) : undefined;
   if (known !== undefined) return known;
-  const any = battlefield(g).some((c) => mayRemove(c) || (g.abilitiesLost && c.continuous.some((e) => e.loseAll || e.lose)));
+  const any = battlefield(g).some(mayRemove);
   if (isHeld) held!.removing = any;
   else if (isFrozen) removing.set(g, any);
   return any;
 }
+
+/**
+ * Can permanent `c` have lost abilities? Only if a static ability on the battlefield can take
+ * them away, or an effect of a resolved spell or ability has (one is kept on the one permanent
+ * it affects, 611.2c, and is only looked for once one has taken abilities away in this game,
+ * `Game.abilitiesLost`). While it can't, it has its own abilities, and nothing needs working out.
+ */
+export const mayLoseAbilities = (g: Game, c: Card) =>
+  c.zone === 'battlefield' && ((!!g.abilitiesLost && c.continuous.some((e) => e.loseAll || e.lose)) || staticRemoval(g));
 const removing = new WeakMap<Game, boolean>();
 /** Does `c`'s script, on any face, have a static ability that can take abilities away? */
 const mayRemove = (c: Card) => (c.copy ? !!scriptFor(c).removesAbilities : namesOf(c).some(hasRemovingScript));
 
 /** Does permanent `c` have the abilities of its copiable values now (`Characteristics.own`)? */
-export const hasOwnAbilities = (g: Game, c: Card) => (c.lki ? c.lki.own !== false : c.zone !== 'battlefield' || !removesAbilities(g) || characteristics(g, c, '6').own);
+export const hasOwnAbilities = (g: Game, c: Card) => (c.lki ? c.lki.own !== false : !mayLoseAbilities(g, c) || characteristics(g, c, '6').own);
 
 /**
  * Does the ability entry `e` comes from exist as it would start to apply in layer `l` to `c`,
@@ -467,7 +474,7 @@ const tainted: boolean[] = [];
 /** Answers for games that can't change any more: Immer freezes every state it makes. */
 const frozen = new WeakMap<Game, WeakMap<Card, Result>>();
 /** Answers kept while a game doesn't change (`settled`). */
-let held: { g: Game; answers: WeakMap<Card, Result>; sources?: Sources; removing?: boolean } | null = null;
+let held: { g: Game; answers: WeakMap<Card, Result>; sources?: Sources; removing?: boolean; memos?: Map<string, Map<string, unknown>> } | null = null;
 
 interface Result {
   chars: Characteristics;
@@ -487,6 +494,18 @@ export function settled<T>(g: Game, fn: () => T): T {
   } finally {
     held = null;
   }
+}
+
+/**
+ * A place to keep other answers about `g` by card id while `settled` holds it unchanged, like
+ * the types of mana a land could produce. Null when it isn't held.
+ */
+export function heldMemo<T>(g: Game, kind: string): Map<string, T> | null {
+  if (held?.g !== g) return null;
+  held.memos ??= new Map();
+  let m = held.memos.get(kind);
+  if (!m) held.memos.set(kind, (m = new Map()));
+  return m as Map<string, T>;
 }
 
 /** Where answers about `g` are kept, if they can be. */
