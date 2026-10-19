@@ -162,7 +162,8 @@ hand, and **Exit** asks before leaving the game for the deck menu. The deck menu
 button and a volume slider for each of sound and music in its top-right corner. Sound,
 music and damage choices are saved in the browser.
 
-The music is ambient and made as it plays, so it never loops. It starts, fading in, with
+The music is made as it plays, so it never loops: a harp arpeggio over a slow chord walk, with
+a plucked bass, a soft frame drum and a melody coming and going as it builds and eases off. It starts, fading in, with
 your first click or key press (browsers keep a page silent until then), plays quietly on the
 deck menu and a little louder in a game, pauses while the window is hidden, and fades out
 when a game ends.
