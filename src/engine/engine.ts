@@ -1,7 +1,7 @@
 // Game setup, turn structure, priority, the stack and action handling. `applyAction` is
 // the only way a game changes: it returns a new Game, or the same object if the action
 // was illegal. Rule numbers in comments refer to docs/rules.
-import { produce } from 'immer';
+import { current, isDraft, produce } from 'immer';
 import { CREATURE_TYPES, DECKS, cardData, deckColors, deckLibrary, isCardName } from '../cards/db';
 import type { DeckDef } from '../cards/db';
 import {
@@ -1748,8 +1748,12 @@ function resolveTop(g: Game) {
   // Targets are checked again. Illegal ones are left alone, and if every target has
   // become illegal the spell or ability does nothing at all (608.2b).
   const specs = specsFor(targetSpecs(g, item), item.targets.length);
+  // Asked of a plain copy of the game (Immer's `current`), not through the draft: so far only
+  // passing priority has changed it, so the copy costs little, and the check reads every permanent.
+  const view = isDraft(g) ? current(g) : g;
+  const source = isDraft(card) ? current(card) : card;
   const targets = item.targets.map((t, i) =>
-    t && specs[i] && legalTargets(g, controller, specs[i], card, item.x).some((x) => sameRef(x, t)) ? t : null,
+    t && specs[i] && legalTargets(view, controller, specs[i], source, item.x).some((x) => sameRef(x, t)) ? t : null,
   );
   const fizzled = item.targets.some(Boolean) && !targets.some(Boolean);
   if (fizzled) log(g, `${label(card)} has no legal target left and does nothing.`, controller, [card]);
