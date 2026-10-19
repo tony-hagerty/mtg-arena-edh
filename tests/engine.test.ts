@@ -29,6 +29,7 @@ import {
   landFaces,
   createToken,
   draw,
+  enterTogether,
   maxHandSize,
   nextStop,
   canBlock,
@@ -1813,6 +1814,55 @@ describe('log', () => {
     expect(line.text).toBe(`${g.players[0].name} activates Bonesplitter targeting Elite Vanguard.`);
     expect(line.cards).toEqual(['Bonesplitter', 'Elite Vanguard']);
     expect(g.lastSpell).toMatchObject({ name: 'Bonesplitter', caster: 0, ability: 'activated' });
+  });
+});
+
+describe('the log line for a card coming back to the battlefield', () => {
+  const returns = (g: Game) => g.log.filter((l) => l.text.includes('to the battlefield')).map((l) => l.text);
+
+  it("says whose control a card from another player's graveyard comes back under (Reanimate, 110.2a)", () => {
+    let g = emptyGame((d) => {
+      put(d, 0, 'Swamp');
+      put(d, 0, 'Reanimate', 'hand');
+      put(d, 1, 'Serra Angel', 'graveyard');
+      put(d, 0, 'Elite Vanguard', 'graveyard');
+    });
+    const angel = byName(g, 1, 'Serra Angel', 'graveyard')!;
+    g = run(g, { type: 'cast', card: byName(g, 0, 'Reanimate', 'hand')!.id, targets: [{ kind: 'card', id: angel.id }] });
+    expect(byName(g, 0, 'Serra Angel')!.owner).toBe(1);
+    const line = g.log.find((l) => l.text.includes('returns to the battlefield'))!;
+    expect(line.text).toBe(`Serra Angel returns to the battlefield under ${g.players[0].name}'s control.`);
+    expect([line.player, line.cards]).toEqual([0, ['Serra Angel']]);
+  });
+
+  it('gives cards coming back together one line for each controller', () => {
+    let g = emptyGame((d) => {
+      put(d, 0, 'Serra Angel', 'graveyard');
+      put(d, 0, 'Elite Vanguard', 'exile');
+      put(d, 1, 'Mogg Fanatic', 'graveyard');
+    });
+    g = produce(g, (d) => {
+      const cards = [byName(d, 0, 'Serra Angel', 'graveyard')!, byName(d, 0, 'Elite Vanguard', 'exile')!, byName(d, 1, 'Mogg Fanatic', 'graveyard')!];
+      enterTogether(d, cards.map((card) => ({ card, opts: { controller: 0 } })));
+    });
+    expect(returns(g)).toEqual(['Serra Angel and Elite Vanguard return to the battlefield.', `Mogg Fanatic returns to the battlefield under ${g.players[0].name}'s control.`]);
+  });
+
+  it('adds nothing to a spell resolving or a land played, even one played from exile', () => {
+    let g = emptyGame((d) => {
+      put(d, 0, 'Mountain', 'battlefield', 3);
+      put(d, 0, 'Plains', 'battlefield', 4);
+      put(d, 0, "Jeska's Will", 'hand');
+      put(d, 0, 'Serra Angel', 'hand');
+      d.players[0].library = [];
+      put(d, 0, 'Plains', 'library');
+    });
+    g = run(g, { type: 'cast', card: byName(g, 0, "Jeska's Will", 'hand')!.id, modes: [1] });
+    g = run(g, { type: 'playLand', card: byName(g, 0, 'Plains', 'exile')!.id });
+    expect(g.log.some((l) => l.text.endsWith('plays Plains.'))).toBe(true);
+    g = run(g, { type: 'cast', card: byName(g, 0, 'Serra Angel', 'hand')!.id });
+    expect(byName(g, 0, 'Serra Angel')).toBeDefined();
+    expect(returns(g)).toEqual([]);
   });
 });
 

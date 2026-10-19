@@ -721,6 +721,8 @@ button {
   border-radius: 0.5em;
   background: #0d0f14;
   box-shadow: 0 0.35em 0.9em rgba(0, 0, 0, 0.8);
+  /* Its own stacking context, so the cards attached to it stay above the table (.tile-attached). */
+  isolation: isolate;
 }
 
 /* Side seats see their cards turned a quarter, so the box is tall instead of wide. */
@@ -898,44 +900,37 @@ button {
 }
 
 /*
-  An Aura or Equipment attached to this permanent (303.4b, 301.5a): tucked behind it,
-  each one's top strip showing above the last.
+  An Aura or Equipment attached to this permanent (303.4b, 301.5a): a card the size of the
+  face, turned with it and fanned out behind it toward the top of the face, so each one's
+  name bar and a band of its art show past the last. The tile is isolated (see .tile), so
+  z-index -1 puts them behind the face but never behind the table: without it an untapped
+  tile has no transform, so no stacking context, and they sank under the board's background.
+  They are children of the tile, so they tap, attack and glow with it.
 */
 .tile-attached {
+  --frame: var(--f-artifact);
   position: absolute;
-  left: 0.6em;
-  right: 0.6em;
-  top: calc(-1.6em * (var(--i) + 1));
-  height: 2.6em;
+  left: 50%;
+  top: 50%;
+  width: var(--tw);
+  aspect-ratio: 5 / 4;
+  translate: -50% -50%;
+  rotate: var(--face);
+  /*
+    After the turn, so "up" is the top of the face at every seat. Each one shows 2.3em more,
+    or less once there are more than three (--n), so the fan stays within 7em.
+  */
+  transform: translateY(calc(-1 * min(2.3em, 7em / var(--n)) * (var(--i) + 1)));
   z-index: -1;
-  display: flex;
-  align-items: flex-start;
-  gap: 0.4em;
-  padding: 0.25em 0.4em;
-  font: 600 0.95em 'Segoe UI', sans-serif;
-  white-space: nowrap;
-  overflow: hidden;
-  color: #fff;
-  background: #1a1d24;
-  border: 0.12em solid var(--frame);
-  border-radius: 0.45em 0.45em 0 0;
+  border-radius: 0.5em;
+  /* Shows if the art doesn't load. */
+  background: var(--frame);
+  box-shadow: 0 -0.2em 0.6em rgba(0, 0, 0, 0.7);
   cursor: pointer;
 }
 
-.tile-attached-art {
-  flex: none;
-  /* Shows if the art doesn't load. */
-  background-color: var(--frame);
-  width: 1.2em;
-  height: 1.2em;
-  border-radius: 50%;
-  background-size: cover;
-  background-position: center;
-}
-
-.tile-attached.glow-play,
-.tile-attached.glow-target {
-  border-color: #ffe45c;
+.tile-attached:hover {
+  outline: 0.15em solid var(--cyan);
 }
 
 .tile-sick {
@@ -1812,9 +1807,10 @@ button {
 /* ---------- log + controls ---------- */
 
 /*
-  Bottom-left corner: the buttons, with the log under them reaching down to the bottom
-  edge. The panel is anchored at the bottom, so with the log hidden the buttons sit in
-  the corner. Your piles start just right of it (see .me-zones).
+  Bottom-left corner: one bar, with the log under it reaching down to the bottom edge. The
+  bar is the log's top edge: its left half folds the log, its right half holds the game's
+  controls. The panel is anchored at the bottom, so with the log hidden the bar sits in the
+  corner. Your piles start just right of it (see .me-zones).
 */
 .log {
   position: absolute;
@@ -1825,78 +1821,280 @@ button {
 }
 
 .log-bar {
+  position: relative;
   display: flex;
+  align-items: stretch;
+  height: 3.6rem;
+  background: rgba(10, 12, 18, 0.86);
+  border: 0.1rem solid rgba(255, 255, 255, 0.14);
+  border-radius: 0.8rem;
+  box-shadow: 0 0.4rem 1.6rem rgba(0, 0, 0, 0.45);
+  transition: border-radius 0.2s;
+}
+
+/* Open, the bar and the lines are one panel. */
+.log.open .log-bar {
+  border-bottom-color: rgba(255, 255, 255, 0.07);
+  border-radius: 0.8rem 0.8rem 0 0;
+}
+
+.log-toggle {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0 1rem;
+  font: 600 1.2rem var(--sans, inherit);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: #b9c2d3;
+  background: none;
+  border: none;
+  border-radius: 0.8rem 0 0 0.8rem;
+}
+
+.log-toggle:hover,
+.log-toggle:focus-visible {
+  color: #fff;
+}
+
+.log-toggle .bar-icon {
+  transform: rotate(180deg);
+  transition: transform 0.2s;
+}
+
+.log.open .log-toggle .bar-icon {
+  transform: none;
+}
+
+.log-tools {
+  display: flex;
+  align-items: center;
+  gap: 0.2rem;
+  padding: 0 0.4rem;
+  border-left: 0.1rem solid rgba(255, 255, 255, 0.1);
+}
+
+.bar-button {
+  display: grid;
+  place-items: center;
+  width: 2.9rem;
+  height: 2.9rem;
+  padding: 0;
+  color: #b9c2d3;
+  background: none;
+  border: none;
+  border-radius: 0.6rem;
+}
+
+.bar-button:hover,
+.bar-button:focus-visible,
+.bar-button.on {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.bar-button.exit:hover,
+.bar-button.exit:focus-visible {
+  color: #ffb4a3;
+  background: rgba(224, 85, 58, 0.22);
+}
+
+.bar-icon {
+  width: 1.8rem;
+  height: 1.8rem;
+  fill: currentColor;
+  stroke: currentColor;
+  stroke-width: 0;
+}
+
+.log-toggle .bar-icon {
+  width: 1.5rem;
+  height: 1.5rem;
+}
+
+/* A button's name, shown above it on hover or keyboard focus. */
+.log-bar [data-tip] {
+  position: relative;
+}
+
+.log-bar [data-tip]::after {
+  content: attr(data-tip);
+  position: absolute;
+  bottom: calc(100% + 0.8rem);
+  left: 50%;
+  z-index: 2;
+  padding: 0.4rem 0.8rem;
+  font: 500 1.2rem var(--sans, inherit);
+  letter-spacing: normal;
+  text-transform: none;
+  white-space: nowrap;
+  color: #eef1f7;
+  background: #1a1e27;
+  border: 0.1rem solid #4a5366;
+  border-radius: 0.5rem;
+  opacity: 0;
+  pointer-events: none;
+  transform: translate(-50%, 0.3rem);
+  transition: opacity 0.12s, transform 0.12s;
+}
+
+.log-toggle[data-tip]::after {
+  left: 0;
+  transform: translate(0, 0.3rem);
+}
+
+/* The last buttons sit near the left edge of the board, so their names hang to the left. */
+.log-tools > :last-child[data-tip]::after,
+.log-tools > :last-child [data-tip]::after {
+  left: auto;
+  right: 0;
+  transform: translate(0, 0.3rem);
+}
+
+.log-bar [data-tip]:is(:hover, :focus-visible)::after {
+  opacity: 1;
+  transform: translate(-50%, 0);
+}
+
+.log-bar .log-toggle[data-tip]:is(:hover, :focus-visible)::after,
+.log-tools > :last-child[data-tip]:is(:hover, :focus-visible)::after {
+  transform: none;
+}
+
+/* No name over the gear while its popover is open. */
+.bar-button.on[data-tip]::after {
+  display: none;
+}
+
+/* The settings popover: above the bar, as wide as the log. */
+.log-popover {
+  position: absolute;
+  bottom: calc(100% + 0.8rem);
+  left: 0;
+  right: 0;
+  z-index: 3;
+  display: flex;
+  flex-direction: column;
+  gap: 1.2rem;
+  padding: 1.2rem 1.4rem 1.4rem;
+  background: rgba(16, 19, 27, 0.97);
+  border: 0.1rem solid #4a5366;
+  border-radius: 1rem;
+  box-shadow: 0 1rem 3rem rgba(0, 0, 0, 0.7);
+}
+
+.setting {
+  display: flex;
+  flex-direction: column;
   gap: 0.5rem;
 }
 
-/* Clips the lines while they fold open or shut. The gap under the buttons folds with them. */
-.log-body {
-  overflow: hidden;
+.setting-name {
+  font: 600 1.1rem var(--sans, inherit);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #8d97aa;
 }
 
-.log-body .log-lines {
-  margin-top: 0.6rem;
+.segmented {
+  display: flex;
+  padding: 0.2rem;
+  background: rgba(0, 0, 0, 0.35);
+  border: 0.1rem solid #2c3344;
+  border-radius: 0.7rem;
 }
 
-.log-bar button {
+.segmented button {
   flex: 1;
-  padding: 0.5rem 0.2rem;
-  font-size: 1.15rem;
-  color: #dfe6f3;
-  background: rgba(10, 12, 18, 0.75);
-  border: 0.1rem solid #5d6472;
+  padding: 0.45rem 0.4rem;
+  font-size: 1.25rem;
+  color: #b9c2d3;
+  background: none;
+  border: none;
   border-radius: 0.5rem;
 }
 
-.log-bar button:hover {
-  border-color: #cfd6e4;
+.segmented button:hover {
+  color: #fff;
+}
+
+.segmented button.on {
+  color: #1a1408;
+  font-weight: 700;
+  background: #ffdf9a;
 }
 
 /* ---------- sound ---------- */
 
-/* The menu's mute button and volume slider, in the top-right corner. In a game it's a log-bar button. */
-.menu-sound {
-  position: fixed;
-  top: 2rem;
-  right: 2.4rem;
+/* A mute button and volume slider: in the settings popover, and on the menu's top bar. */
+.sound-control {
   display: flex;
   gap: 0.8rem;
   align-items: center;
-  width: 24rem;
 }
 
-.menu-sound input {
+.sound-control input {
   flex: 1;
   min-width: 0;
   accent-color: #ffdf9a;
 }
 
-.menu-sound input:disabled {
+.sound-control input:disabled {
   opacity: 0.4;
 }
 
-.menu-sound button {
-  padding: 0.5rem 1rem;
-  font-size: 1.15rem;
+.sound-mute {
+  display: grid;
+  place-items: center;
+  width: 2.9rem;
+  height: 2.9rem;
+  padding: 0;
   color: #dfe6f3;
-  background: rgba(10, 12, 18, 0.75);
-  border: 0.1rem solid #5d6472;
-  border-radius: 0.5rem;
+  background: rgba(255, 255, 255, 0.06);
+  border: 0.1rem solid #4a5366;
+  border-radius: 0.6rem;
 }
 
-.menu-sound button:hover {
+.sound-mute:hover {
   border-color: #cfd6e4;
 }
 
+.sound-mute.off {
+  color: #8d97aa;
+}
+
+.sound-mute svg {
+  width: 1.8rem;
+  height: 1.8rem;
+  fill: currentColor;
+  stroke: currentColor;
+}
+
+.sound-level {
+  width: 3.6rem;
+  font-size: 1.2rem;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  color: #9aa4b8;
+}
+
+/* Clips the lines while they fold open or shut. */
+.log-body {
+  overflow: hidden;
+}
+
+/* Hangs from the bar's bottom edge: 3.6rem of bar and 32.6rem of lines keep the old height. */
 .log-lines {
   height: 32.6rem;
   padding: 0.6rem 0.9rem;
   overflow-y: auto;
   font-size: 1.2rem;
   line-height: 1.45;
-  background: rgba(8, 10, 16, 0.66);
-  border: 0.1rem solid rgba(255, 255, 255, 0.1);
-  border-radius: 0.8rem;
+  background: rgba(8, 10, 16, 0.72);
+  border: 0.1rem solid rgba(255, 255, 255, 0.14);
+  border-top: none;
+  border-radius: 0 0 0.8rem 0.8rem;
   scrollbar-width: thin;
   scrollbar-color: #5d6472 transparent;
 }
@@ -1912,6 +2110,18 @@ button {
   margin-top: 0.9rem;
   font-weight: 700;
   color: #fff;
+}
+
+/* What a resolving spell or ability did: the lines flash gold once as they appear. */
+.log-line.resolved {
+  animation: log-resolved 1.6s ease-out;
+}
+
+@keyframes log-resolved {
+  from {
+    color: #fff;
+    background: rgba(255, 210, 122, 0.35);
+  }
 }
 
 /* A card named in the log: hover it for the full card. */
@@ -2078,6 +2288,58 @@ button {
   box-shadow:
     0 0 4rem 0.8rem rgba(255, 210, 122, 0.6),
     0 1rem 3rem #000;
+}
+
+/* ---------- cards moving between zones (Flights.tsx) ---------- */
+
+/* Over the table and its panels, under the modals. The copies only show a move: the pointer goes through them. */
+.flights {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 45;
+}
+
+.flight {
+  position: absolute;
+  translate: -50% -50%;
+}
+
+.flight :is(img, .text-card),
+.flight .card-back {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  border-radius: 4.75% / 3.5%;
+  box-shadow: 0 0.8rem 2rem rgba(0, 0, 0, 0.8);
+}
+
+/* A spell or ability resolving glows like the top of the stack as it goes. */
+.flight.resolving :is(img, .text-card) {
+  box-shadow:
+    0 0 0 0.25rem #ffe9a8,
+    0 0 3rem 0.8rem rgba(255, 210, 122, 0.85),
+    0 0.8rem 2rem #000;
+}
+
+/* A ring flaring once over a permanent: a token appearing, or the source of an ability that resolved. */
+.flare {
+  position: absolute;
+  translate: -50% -50%;
+  border-radius: 0.8rem;
+}
+
+.flare.resolve {
+  box-shadow:
+    0 0 0 0.3rem #ffe9a8,
+    0 0 2.6rem 1rem rgba(255, 210, 122, 0.8);
+}
+
+.flare.token {
+  box-shadow:
+    0 0 0 0.3rem #fff,
+    0 0 2.6rem 1rem rgba(160, 220, 255, 0.8);
 }
 
 .spell-caster {
@@ -2476,54 +2738,269 @@ button {
 
 /* ---------- menu ---------- */
 
+/* Every menu screen: the title screen and the screens it opens (paste, host, join, saved games, the waiting room). */
 .menu {
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  background: radial-gradient(circle at 50% 25%, #2c3548, #0b0d13 75%);
+  isolation: isolate;
+  background: radial-gradient(circle at 50% 20%, #2c3548, #0b0d13 75%);
 }
 
 .menu h1 {
   margin: 0;
-  font: 700 8rem var(--serif);
+  font: 700 6.6rem var(--serif);
+  letter-spacing: 0.02em;
   color: #ffdf9a;
-  text-shadow: 0 0.4rem 2rem #000;
+  text-shadow: 0 0.4rem 2.4rem rgba(0, 0, 0, 0.9);
 }
 
 .menu-sub {
-  margin: 1rem 0 2.4rem;
-  font-size: 2.2rem;
-  color: #cfd6e4;
+  margin: 0.6rem 0 0;
+  font-size: 1.5rem;
+  letter-spacing: 0.32em;
+  text-transform: uppercase;
+  color: #aab3c5;
 }
 
-/* The decks: starter decks, then pasted ones. Rows wrap, and the shelf scrolls once they
-   don't fit, so the seats and buttons below stay on screen. The padding leaves room for
-   the hover lift. */
+/* The title screen: the name across the top, the decks in the middle, the table to their right. */
+.title-screen {
+  justify-content: center;
+  gap: 3.2rem;
+  padding: 4rem 6rem 4.4rem;
+}
+
+.title-screen > :not(.menu-backdrop) {
+  position: relative;
+  z-index: 1;
+}
+
+.menu-top {
+  display: flex;
+  justify-content: center;
+  width: 100%;
+}
+
+.menu-heading {
+  text-align: center;
+}
+
+/* A thin gold rule under the subtitle. */
+.menu-heading::after {
+  content: '';
+  display: block;
+  width: 28rem;
+  height: 0.15rem;
+  margin: 1.4rem auto 0;
+  background: linear-gradient(90deg, transparent, #d2aa42, transparent);
+}
+
+/* The mute buttons and volume sliders for sound and music, top right. */
+.menu-sound {
+  display: grid;
+  gap: 0.5rem;
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 26rem;
+  padding: 0.8rem 1.2rem;
+  background: rgba(12, 14, 20, 0.6);
+  border: 0.1rem solid rgba(255, 255, 255, 0.1);
+  border-radius: 1rem;
+}
+
+/* The deck you point at, blurred and dimmed behind everything, tinted with its colours. */
+.menu-backdrop {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.menu-backdrop-art {
+  position: absolute;
+  inset: -4rem;
+  background-position: center 30%;
+  background-size: cover;
+  filter: blur(2.4rem) saturate(1.15) brightness(0.5);
+  opacity: 0.7;
+  animation: backdrop-in 0.5s ease-out;
+}
+
+.menu-backdrop::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(ellipse at 50% 35%, color-mix(in srgb, var(--deck) 16%, transparent), transparent 60%),
+    linear-gradient(180deg, rgba(11, 13, 19, 0.35), rgba(11, 13, 19, 0.92) 85%);
+}
+
+@keyframes backdrop-in {
+  from {
+    opacity: 0;
+  }
+}
+
+.menu-main {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 40rem;
+  gap: 4rem;
+  flex: 0 1 auto;
+  min-height: 0;
+  width: min(100%, 180rem);
+}
+
+/* The decks: starter decks, then pasted ones and the paste tile. Rows wrap, and the shelf
+   scrolls once they don't fit. The padding leaves room for the hover lift. */
 .deck-shelf {
   display: flex;
   flex-direction: column;
-  gap: 2.4rem;
-  /* Four tiles to a row. */
-  width: min(100%, 147.2rem);
-  max-height: 62rem;
-  padding: 1.2rem 2rem 1.6rem;
+  gap: 2.8rem;
+  min-height: 0;
+  padding: 1rem 1.6rem 1.6rem;
   overflow-y: auto;
   scrollbar-color: #4a5366 transparent;
 }
 
-.deck-section h2 {
+.deck-section h2,
+.menu-panel h2 {
   margin: 0 0 1.2rem;
-  font: 600 1.6rem var(--sans, inherit);
-  letter-spacing: 0.12em;
+  font: 600 1.4rem var(--sans, inherit);
+  letter-spacing: 0.16em;
   text-transform: uppercase;
   color: #8d97aa;
 }
 
 .deck-list {
   display: grid;
-  grid-template-columns: repeat(auto-fill, 34rem);
+  grid-template-columns: repeat(auto-fill, minmax(29rem, 1fr));
   gap: 2.4rem;
+}
+
+/* The table: seats, playing with friends, watching. */
+.menu-side {
+  display: flex;
+  flex-direction: column;
+  gap: 2rem;
+  min-height: 0;
+  padding-top: 1rem;
+  overflow-y: auto;
+}
+
+.menu-panel {
+  padding: 1.8rem 2rem 2rem;
+  background: rgba(12, 14, 20, 0.72);
+  border: 0.1rem solid rgba(255, 255, 255, 0.1);
+  border-radius: 1.4rem;
+  box-shadow: 0 1rem 3rem rgba(0, 0, 0, 0.35);
+}
+
+.menu-hint {
+  margin: -0.4rem 0 1.4rem;
+  font-size: 1.45rem;
+  line-height: 1.4;
+  color: #9aa4b8;
+}
+
+.opponents {
+  display: flex;
+  flex-direction: column;
+  gap: 0.8rem;
+}
+
+/* Seat number, who plays it, its deck. */
+.opponent-seat {
+  display: grid;
+  grid-template-columns: 2.8rem minmax(0, 1fr) minmax(0, 1.3fr);
+  align-items: center;
+  gap: 0.8rem;
+}
+
+.opponent-n {
+  display: grid;
+  place-items: center;
+  width: 2.8rem;
+  height: 2.8rem;
+  font: 700 1.4rem var(--serif);
+  color: #1a1408;
+  background: #ffdf9a;
+  border-radius: 50%;
+}
+
+.opponent-seat.empty .opponent-n {
+  color: #8d97aa;
+  background: #2c3344;
+}
+
+.opponents select,
+.paste-title input {
+  min-width: 0;
+  padding: 0.6rem 0.8rem;
+  font: inherit;
+  font-size: 1.45rem;
+  color: #fff;
+  background: #1a1e27;
+  border: 0.15rem solid #4a5366;
+  border-radius: 0.8rem;
+}
+
+.opponents select:disabled {
+  opacity: 0.45;
+}
+
+.menu-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+}
+
+.menu-action {
+  padding: 1.1rem 1rem;
+  font-size: 1.6rem;
+  color: #eef1f7;
+  background: #1a1e27;
+  border: 0.15rem solid #4a5366;
+  border-radius: 1rem;
+  transition: border-color 0.15s, background 0.15s;
+}
+
+.menu-action.wide {
+  grid-column: span 2;
+}
+
+.menu-action:hover {
+  background: #232937;
+  border-color: #ffdf9a;
+}
+
+.menu-count {
+  display: inline-block;
+  min-width: 2.2rem;
+  margin-left: 0.4rem;
+  padding: 0 0.6rem;
+  font-size: 1.3rem;
+  color: #1a1408;
+  background: #ffdf9a;
+  border-radius: 1.1rem;
+}
+
+.menu-watch {
+  padding: 1.2rem;
+  font-size: 1.6rem;
+  letter-spacing: 0.04em;
+  color: #9fb4d8;
+  background: none;
+  border: 0.15rem solid rgba(159, 180, 216, 0.35);
+  border-radius: 1rem;
+  transition: color 0.15s, border-color 0.15s;
+}
+
+.menu-watch:hover {
+  color: #fff;
+  border-color: #cfd6e4;
 }
 
 .deck-slot {
@@ -2554,7 +3031,7 @@ button {
 .deck-banner {
   position: relative;
   display: flex;
-  height: 13rem;
+  height: 11.5rem;
   background: linear-gradient(160deg, color-mix(in srgb, var(--deck) 55%, #1a1e27), #1a1e27);
 }
 
@@ -2610,19 +3087,6 @@ button {
   -webkit-line-clamp: 2;
 }
 
-.watch {
-  margin-top: 3.5rem;
-  font-size: 1.9rem;
-  color: #9fb4d8;
-  text-decoration: underline;
-  background: none;
-  border: none;
-}
-
-.watch:hover {
-  color: #fff;
-}
-
 .deck.broken {
   opacity: 0.6;
 }
@@ -2646,35 +3110,58 @@ button {
   border-color: #e0553a;
 }
 
-.opponents {
-  display: flex;
+/* The last tile in "Your decks": paste a list to add one. */
+.deck.deck-paste {
   align-items: center;
-  gap: 1.2rem;
-  margin-top: 2.4rem;
-  font-size: 1.8rem;
-  color: #cfd6e4;
+  justify-content: center;
+  gap: 0.6rem;
+  min-height: 20rem;
+  padding: 2rem;
+  text-align: center;
+  background: rgba(12, 14, 20, 0.45);
+  border: 0.25rem dashed #4a5366;
 }
 
-.opponent-seat {
+.deck.deck-paste:hover {
+  border-color: #ffdf9a;
+  box-shadow: 0 1.4rem 3.6rem rgba(0, 0, 0, 0.6);
+}
+
+.deck-paste-plus {
+  display: grid;
+  place-items: center;
+  width: 5.6rem;
+  height: 5.6rem;
+  font: 300 4.4rem/1 var(--serif);
+  color: #ffdf9a;
+  border: 0.2rem solid currentColor;
+  border-radius: 50%;
+}
+
+.deck-paste .deck-blurb {
+  min-height: 0;
+}
+
+/* The screens the title screen opens: its name over the screen's title, in one panel. */
+.menu-frame {
   display: flex;
   flex-direction: column;
-  gap: 0.6rem;
+  align-items: center;
+  max-height: 100%;
+  padding: 3.2rem 4rem 3.6rem;
+  overflow-y: auto;
+  background: rgba(12, 14, 20, 0.72);
+  border: 0.1rem solid rgba(255, 255, 255, 0.1);
+  border-radius: 1.8rem;
+  box-shadow: 0 2rem 6rem rgba(0, 0, 0, 0.5);
 }
 
-.opponents select,
-.paste-title input {
-  padding: 0.6rem 1rem;
-  font: inherit;
-  font-size: 1.7rem;
-  color: #fff;
-  background: #1a1e27;
-  border: 0.15rem solid #4a5366;
-  border-radius: 0.8rem;
-}
-
-.menu-actions {
-  display: flex;
-  gap: 4rem;
+.menu-kicker {
+  margin: 0 0 0.4rem;
+  font: 600 1.3rem var(--sans, inherit);
+  letter-spacing: 0.32em;
+  text-transform: uppercase;
+  color: #8d97aa;
 }
 
 /* ---------- paste a deck ---------- */
@@ -2689,7 +3176,7 @@ button {
   display: flex;
   gap: 3rem;
   width: 150rem;
-  height: 80rem;
+  height: 76rem;
 }
 
 .paste-text {
@@ -3060,9 +3547,8 @@ button {
 
 /* Why the last table ended, on the deck menu. */
 .menu-error {
-  width: 100rem;
-  margin-top: 2rem;
-  font-size: 1.7rem;
+  margin: 0;
+  font-size: 1.5rem;
 }
 
 /* Saved table games. */
@@ -3143,4 +3629,73 @@ button {
 .tile.phased-out {
   outline: 0.12em dashed rgba(180, 200, 255, 0.7);
   cursor: default;
+}
+
+/* ---------- error screen (ErrorScreen.tsx) ---------- */
+
+.crash {
+  display: grid;
+  place-items: center;
+  background: radial-gradient(110rem 60rem at 50% 40%, #1a1d26, #05060a 75%);
+  user-select: text;
+}
+
+.crash-box {
+  width: min(120rem, calc(100vw - 4rem));
+  max-height: calc(100vh - 4rem);
+  overflow-y: auto;
+  padding: 3.5rem 5rem 4rem;
+  background: radial-gradient(circle at 50% 0%, #3a2a2a, #0d0f14 75%);
+  border: 0.25rem solid #8a6c6c;
+  border-radius: 2.5rem;
+  box-shadow: 0 2rem 8rem #000;
+}
+
+.crash-box h1 {
+  margin: 0;
+  font: 700 5.5rem var(--serif);
+  color: #ffdf9a;
+  text-align: center;
+}
+
+.crash-box h2 {
+  margin: 2rem 0 0.6rem;
+  font-size: 1.6rem;
+  color: #aab3c5;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+}
+
+.crash-box p {
+  margin: 1rem 0;
+  font-size: 1.9rem;
+  color: #d4dbe9;
+  text-align: center;
+}
+
+.crash-error {
+  margin: 1.5rem 0 0;
+  padding: 1.4rem 1.8rem;
+  font-size: 1.6rem;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: #ffb3a3;
+  background: rgba(0, 0, 0, 0.45);
+  border-radius: 1rem;
+}
+
+.crash-log {
+  margin: 0;
+  padding: 1rem 1.8rem 1rem 4.5rem;
+  font-size: 1.5rem;
+  line-height: 1.5;
+  color: #cfd6e4;
+  background: rgba(0, 0, 0, 0.3);
+  border-radius: 1rem;
+}
+
+.crash-box p.crash-where {
+  margin: 2rem 0 2.5rem;
+  font-size: 1.6rem;
+  color: #aab3c5;
 }

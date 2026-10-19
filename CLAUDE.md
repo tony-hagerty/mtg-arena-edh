@@ -28,7 +28,8 @@ Read first:
   (`117.3c`), and quote the clause a script implements next to its code.
 - Size the UI in `rem` (see "Sizing the UI" in `docs/developing.md`). All styling is in
   `src/ui/styles.css`.
-- Sounds are synthesized in `src/ui/synth.ts`. There are no sound files.
+- Sounds are synthesized in `src/ui/synth.ts`, the music in `src/ui/music.ts`. There are no
+  sound files.
 - When behaviour changes, update the doc that describes it: `docs/rules-coverage.md` for
   rules, `docs/how-to-play.md` for the interface, `docs/developing.md` for the layout and
   the script reference.

@@ -2,4 +2,5 @@
 // (http.ts). The launcher runs it beside the game's files; `npm run dev` runs it too.
 export { GameHost, type Schedule } from './host';
 export { handleGameApi, json, readJson } from './http';
+export { errorLine, handleErrorReport } from './report';
 export { Refused, type GameService } from './service';

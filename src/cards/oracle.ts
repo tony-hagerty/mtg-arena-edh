@@ -19,6 +19,7 @@ import {
   destroy,
   draw,
   exile,
+  exileAll,
   finishEnter,
   gainLife,
   hasType,
@@ -26,10 +27,8 @@ import {
   isCreature,
   isLand,
   isPlaneswalker,
-  log,
   loseLife,
   mill,
-  moveCard,
   opponentsOf,
   prowess,
   extort,
@@ -263,15 +262,13 @@ function effect(clause: string, env: Env, who: Subject | null): { effect: Effect
     const n = amount(m[1], env, clause);
     return done({ targets: [], run: (g, ctx) => simultaneously(g, () => opponentsOf(g, ctx.you).forEach((o) => void damagePlayer(g, ctx.self, o.id, amountOf(ctx, n)))) });
   }
-  // "Exile target player's graveyard": every card in it (406.2).
+  // "Exile target player's graveyard": every card in it (406.2), as one event (603.2c).
   if (rest === "exile target player's graveyard") {
     return done({
       targets: [targetSpec('target player')!],
       run: (g, ctx, i) => {
         const p = refPlayer(g, ctx.targets[i]);
-        if (!p || !p.graveyard.length) return;
-        log(g, `${says(p, 'exiles')} ${their(p)} graveyard.`, p.id, [...p.graveyard]);
-        for (const c of [...p.graveyard]) moveCard(g, c, 'exile');
+        if (p) exileAll(g, [...p.graveyard], `${says(p, 'exiles')} ${their(p)} graveyard.`, p.id);
       },
     });
   }

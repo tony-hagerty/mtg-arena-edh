@@ -12,7 +12,7 @@ import type { IncomingMessage, Server, ServerResponse } from 'node:http';
 import { resolve } from 'node:path';
 import { getAsset, isSea } from 'node:sea';
 import { findEdge, openDefaultBrowser, openEdge, showError } from './edge';
-import { GameHost } from '../server/game';
+import { GameHost, handleErrorReport } from '../server/game';
 import { APP_VERSION, handleApi, Lobby } from '../server/lobby';
 import { checkHost } from '../server/net';
 import { createLifetime } from './lifetime';
@@ -129,7 +129,8 @@ async function main() {
   // The game server: it holds the whole game and gives each window its own player's view,
   // and the lobby, for tables of friends.
   lobby = new Lobby(new GameHost(), { checkHost: (port) => checkHost(port), saves: paths.saves });
-  const api = (req: IncomingMessage, res: ServerResponse, path: string) => handleApi(lobby!, req, res, path);
+  // Errors in the game window go to this log too (server/game/report.ts): with no console, it's where a crash can be read.
+  const api = (req: IncomingMessage, res: ServerResponse, path: string) => handleErrorReport(req, res, path, log) || handleApi(lobby!, req, res, path);
   for (let port = PORT; port < PORT + TRIES; port++) {
     const candidate = makeServer({ files, pages, hello: { app: 'arena-edh', data: paths.data }, api });
     if (await listen(candidate, port)) {

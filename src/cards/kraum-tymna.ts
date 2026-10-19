@@ -14,6 +14,8 @@ import {
   enterBattlefield,
   findCard,
   shuffle,
+  simultaneously,
+  toGraveyards,
   finishEnter,
   gainControl,
   isLand,
@@ -38,7 +40,9 @@ import {
   devotion,
   discard,
   discardAtRandom,
+  discardHand,
   draw,
+  exileAll,
   extraTurn,
   hasName,
   hasType,
@@ -548,7 +552,8 @@ registerScripts({
   'Wheel of Fortune': {
     // Each player discards their hand, then each draws seven, the active player first (121.2c).
     onResolve: (g) => {
-      for (const pid of turnOrder(g, g.active)) for (const c of [...g.players[pid].hand]) discard(g, c);
+      // Every hand at once (701.9a).
+      simultaneously(g, () => turnOrder(g, g.active).forEach((pid) => discardHand(g, pid)));
       for (const pid of turnOrder(g, g.active)) draw(g, pid, 7);
     },
   },
@@ -588,20 +593,17 @@ registerScripts({
       named: (g, { you, name }) => {
         const lib = g.players[you].library;
         const exiled = lib.slice(0, 6);
-        for (const c of exiled) moveCard(g, c, 'exile');
-        if (exiled.length) log(g, `${says(g.players[you], 'exiles')} ${exiled.map(label).join(', ')}.`, you, exiled);
-        const rest: Card[] = [];
-        while (lib.length) {
-          const c = lib[0];
-          if (hasName(c, name)) {
-            log(g, `${says(g.players[you], 'reveals')} ${label(c)} and puts it into ${their(g.players[you])} hand.`, you, [c]);
-            moveCard(g, c, 'hand');
-            break;
-          }
-          rest.push(c);
-          moveCard(g, c, 'exile');
+        exileAll(g, exiled, `${says(g.players[you], 'exiles')} ${exiled.map(label).join(', ')}.`, you);
+        // "Then reveal cards from the top of your library until you reveal the named card. Put
+        // that card into your hand and exile all other cards revealed this way." Together.
+        const found = lib.findIndex((c) => hasName(c, name));
+        const rest = found < 0 ? [...lib] : lib.slice(0, found);
+        if (found >= 0) {
+          const c = lib[found];
+          log(g, `${says(g.players[you], 'reveals')} ${label(c)} and puts it into ${their(g.players[you])} hand.`, you, [c]);
+          moveCard(g, c, 'hand');
         }
-        if (rest.length) log(g, `${says(g.players[you], 'exiles')} ${rest.length} more card${rest.length === 1 ? '' : 's'}.`, you);
+        exileAll(g, rest, `${says(g.players[you], 'exiles')} ${rest.length} more card${rest.length === 1 ? '' : 's'}.`, you);
       },
     },
   },
@@ -649,8 +651,7 @@ export function mayCast(g: Game, pid: PlayerId, cards: Card[], opts: { play?: bo
 /** Exiles the top `n` cards of a player's library face up, and returns them. */
 export function exileTop(g: Game, pid: PlayerId, n: number): Card[] {
   const cards = g.players[pid].library.slice(0, n);
-  for (const c of cards) moveCard(g, c, 'exile');
-  if (cards.length) log(g, `${says(g.players[pid], 'exiles')} ${cards.map(label).join(', ')} from the top of ${their(g.players[pid])} library.`, pid, cards);
+  exileAll(g, cards, `${says(g.players[pid], 'exiles')} ${cards.map(label).join(', ')} from the top of ${their(g.players[pid])} library.`, pid);
   return cards;
 }
 
@@ -695,14 +696,9 @@ registerScripts({
   },
   'Mnemonic Betrayal': {
     onResolve: (g, { self, you }) => {
-      // "Exile all opponents' graveyards."
-      const exiled: Card[] = [];
-      for (const o of opponentsOf(g, you)) {
-        const cards = [...o.graveyard];
-        for (const c of cards) moveCard(g, c, 'exile');
-        if (cards.length) log(g, `${o.name}'s graveyard is exiled: ${cards.map(label).join(', ')}.`, you, cards);
-        exiled.push(...cards);
-      }
+      // "Exile all opponents' graveyards." All of them as one event (603.2c).
+      const cards = opponentsOf(g, you).flatMap((o) => [...o.graveyard]);
+      const exiled = exileAll(g, cards, `${cards.length === 1 ? "An opponent's graveyard is" : "All opponents' graveyards are"} exiled: ${cards.map(label).join(', ')}.`, you);
       // "You may cast spells from among those cards this turn, and mana of any type can be spent to cast them."
       mayCast(g, you, exiled, { anyMana: true });
       // "At the beginning of the next end step, if any of those cards remain exiled, return them to their owners' graveyards."
@@ -717,7 +713,7 @@ registerScripts({
     delayed: {
       return: (g, { data }) => {
         const cards = betrayed(g, data);
-        for (const c of cards) moveCard(g, c, 'graveyard');
+        toGraveyards(g, cards);
         if (cards.length) log(g, `${cards.map(label).join(', ')} ${cards.length === 1 ? 'returns' : 'return'} to ${cards.length === 1 ? "its owner's graveyard" : "their owners' graveyards"}.`, undefined, cards);
       },
     },
@@ -1146,10 +1142,7 @@ registerScripts({
     ],
     onResolve: (g, { self, you, targets }) => {
       const c = refGraveyard(g, targets[0]);
-      if (c) {
-        log(g, `${label(c)} returns to the battlefield.`, you, [c]);
-        enterBattlefield(g, c, { controller: you });
-      }
+      if (c) enterBattlefield(g, c, { controller: you });
       // "If this spell was cast from a graveyard, you may copy this spell and may choose a new
       // target for the copy." A copy wasn't cast (707.10), so it can't copy itself again.
       if (self.cast?.from === 'graveyard') ask(g, you, { text: "Copy Sevinne's Reclamation? You may choose a new target for the copy.", yes: 'Copy', no: "Don't Copy", then: 'copy' });
