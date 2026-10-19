@@ -64,6 +64,8 @@ src/ui/         App.tsx               menu or game screen; GameScreen.tsx lays t
                 sound.ts              plays the interface sounds: clicks, hand cards, game moves
                 synth.ts              how each sound is made (Web Audio, no sound files)
                 game-sounds.ts        which sound a change of game state makes (gameSound)
+                zone-moves.ts         which cards changed zones between two games (zoneMoves)
+                Flights.tsx           cards flying between zones, drawn from that diff
                 SoundControl.tsx      the menu's volume slider and the in-game Sound button
                 fullscreen.ts, rem.ts Alt+Enter fullscreen; the root font-size as a hook
                 util.ts               small helpers: class names, deck colours, hover props
@@ -319,7 +321,10 @@ ability already on the stack, which exists apart from its source (113.7a).
 | `addEffect` | an effect until end of turn |
 | `delay` with `delayed[key]` | a delayed trigger (603.7) |
 | `extraTurn`, `winGame`, `loseGame` | as named |
-| `mill`, `discard`, `surveil` | as named |
+| `mill`, `discard`, `discardHand`, `surveil` | as named |
+| `exileAll(g, cards, text?, pid?)` | exiles several cards from anywhere as one event and logs once, so "whenever one or more cards are put into exile" triggers once (603.2c). Never `moveCard` cards into exile in a loop |
+| `toGraveyards(g, cards)`, `destroyMany`, `dieMany` | several cards to graveyards as one event |
+| `simultaneously(g, fn)` | runs `fn` as one event: "each opponent loses 1 life" in it triggers "whenever one or more players lose life" once |
 | `gainControl` | changes control |
 | `copyOf` | copies a permanent |
 | `becomeCopy(g, card, copyOf(x))` | a permanent becomes a copy while it stays (707.4) |

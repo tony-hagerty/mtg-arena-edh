@@ -13,6 +13,7 @@ import type { Hover } from './store';
 import { type Seat, cx, deckColor, faceUp, hoverProps, seatOf } from './util';
 import { STEP_NAMES, activateFromHand, cancel, clickStackItem, pickAbility, pickMana, pickTapCreature, pickManaDiscard, pickManaSacrifice, pickFace, pickMode, playHandCard, setAbilityX, setChoices, shiftDivision, exileForMana, plotCard, useView } from './view';
 import type { AbilityOption, Btn } from './view';
+import { leftStack, newGame } from './zone-moves';
 
 // ---------- phase tracker + buttons (bottom right) ----------
 
@@ -583,6 +584,21 @@ function LogText({ entry }: { entry: Pick<LogEntry, 'text' | 'cards'> }) {
   );
 }
 
+/**
+ * The log lines a stack item resolving wrote (608.2): every line added by a change that took
+ * something off the stack. They flash once as they appear, so a resolve is seen in the log too.
+ */
+function useResolvedLines(g: Game) {
+  const seen = useRef({ g, lines: new Set<number>() });
+  const was = seen.current.g;
+  if (was !== g) {
+    if (newGame(was, g)) seen.current.lines = new Set();
+    else if (leftStack(was, g).length) for (let i = was.log.length; i < g.log.length; i++) seen.current.lines.add(i);
+    seen.current.g = g;
+  }
+  return seen.current.lines;
+}
+
 /** The log bar's icons: 24-unit boxes, drawn in the button's text colour. */
 const BAR_ICONS = {
   chevron: <path d="M6 9.5 12 15.5 18 9.5" fill="none" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" />,
@@ -707,6 +723,7 @@ export function LogPanel() {
   const human = useStore((s) => s.human);
   const tableGame = useStore((s) => s.tableGame);
   const lines = useRef<HTMLDivElement>(null);
+  const resolved = useResolvedLines(g);
   useEffect(() => {
     lines.current?.scrollTo({ top: lines.current.scrollHeight });
   }, [g.log.length, show]);
@@ -753,7 +770,7 @@ export function LogPanel() {
                 const line = human !== null && l.private?.players.includes(human) ? l.private : l;
                 const color = l.player === undefined ? '#fff' : deckColor(g.players[l.player].colors);
                 return (
-                  <div key={start + i} className={cx('log-line', l.text.startsWith('Turn ') && 'turn')} style={{ '--deck': color } as CSSProperties}>
+                  <div key={start + i} className={cx('log-line', l.text.startsWith('Turn ') && 'turn', resolved.has(start + i) && 'resolved')} style={{ '--deck': color } as CSSProperties}>
                     <LogText entry={line} />
                   </div>
                 );
@@ -825,7 +842,8 @@ function hoverData(hover: Hover): CardData | null {
 function cardAt(game: Game | null, at: Element | null) {
   const el = at?.closest<HTMLElement>('[data-card]');
   const card = el && game && findCard(game, el.dataset.card!);
-  return el && card ? { name: card.name, d: data(card), el } : null;
+  // The viewer's cards are shown big already (see `ZoneViewer`).
+  return el && card ? { name: card.name, d: data(card), el, ...(el.closest('.viewer') && { pinOnly: true }) } : null;
 }
 
 /**
@@ -872,8 +890,8 @@ export function Preview() {
     useStore.setState({ hover: cardAt(game, document.elementFromPoint(pointer.current.x, pointer.current.y)) });
   }, [game, hover]);
 
-  // A hand card zooms itself, so it only gets the pinned preview.
-  const d = pinned ?? (hover && !hover.hand ? hoverData(hover) : null);
+  // A hand card zooms itself, and the viewer's cards are big already: they only get the pinned preview.
+  const d = pinned ?? (hover && !hover.pinOnly ? hoverData(hover) : null);
   const rem = parseFloat(getComputedStyle(document.documentElement).fontSize);
   const gap = 1.5 * rem;
   if (pinned) {
@@ -921,6 +939,7 @@ export function StackPanel() {
           <div
             key={item.id}
             data-stack={item.id}
+            data-stack-card={item.kind === 'spell' ? item.card.id : undefined}
             className={cx('stack-item', i === g.stack.length - 1 && !paying && 'top', targetStack.has(item.id) && 'targetable')}
             onClick={() => clickStackItem(item.id)}
             title={triggerText(item)}
@@ -935,7 +954,7 @@ export function StackPanel() {
         );
       })}
       {paying && (
-        <div key={`paying-${paying.card.id}`} className="stack-item top paying" {...hoverProps(data(paying.card))}>
+        <div key={`paying-${paying.card.id}`} data-paying={paying.card.id} className="stack-item top paying" {...hoverProps(data(paying.card))}>
           <CardImage d={data(paying.card)} alt={label(paying.card)} draggable={false} />
           <span className="stack-tag">Pay to {paying.kind === 'spell' ? 'cast' : 'activate'}</span>
         </div>
@@ -1076,6 +1095,9 @@ export function ZoneViewer() {
                 key={c.id}
                 d={data(c)}
                 alt={data(c).name}
+                data-card={c.id}
+                // Already big: no hover preview, but right-click pins one like a card on the table.
+                {...hoverProps(data(c), { pinOnly: true })}
                 className={cx(castable && 'glow-play')}
                 title={castable ? `Cast ${data(c).name}` : undefined}
                 draggable={false}

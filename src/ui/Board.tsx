@@ -5,6 +5,7 @@ import { cardData } from '../cards/db';
 import { COMMANDER_DAMAGE, attachmentsOf, creaturesOf, data, isCreature, isHidden, isLand, permanent } from '../engine';
 import type { Card, ManaSym, Player } from '../engine';
 import { HandBack, HandCard, HiddenHandCard, Permanent } from './Card';
+import { Flights } from './Flights';
 import { CardImage } from './TextCard';
 import { useRem } from './rem';
 import { useStore } from './store';
@@ -80,7 +81,8 @@ function BackRow({ player, width, max, className, split }: { player: Player; wid
   const stacks = new Map<string, Card[]>();
   const order = (c: Card) => Number(floating(player, c)) * 2 + Number(c.tapped);
   for (const c of [...lands].sort((a, b) => a.name.localeCompare(b.name) || order(b) - order(a))) {
-    const key = `${c.name}|${c.tapped}|${floating(player, c)}`;
+    // An enchanted land stands alone, so what is attached to it shows (see `Permanent`).
+    const key = attachmentsOf(g, c).length ? c.id : `${c.name}|${c.tapped}|${floating(player, c)}`;
     stacks.set(key, [...(stacks.get(key) ?? []), c]);
   }
   const landUnits = [...stacks.values()].reduce((n, s) => n + 1 + 0.14 * (s.length - 1), 0);
@@ -231,7 +233,6 @@ function CastCrown({ player, c, name, index }: { player: Player; c: Card | undef
   return (
     <motion.button
       key={c?.id ?? `away:${name}`}
-      layoutId={c?.id}
       data-card={c?.id}
       className={cx('avatar-crown', index > 0 && 'second', glow && `glow-${glow}`, !c && 'away')}
       aria-disabled={!c}
@@ -259,10 +260,13 @@ function FaceUpPile({ player, zone }: { player: Player; zone: 'graveyard' | 'exi
   return (
     <div
       className={cx('pile', zone, !top && 'empty', castable && 'glow-play')}
+      data-pile={`${player.id}-${zone}`}
       title={`${name}: ${cards.length} cards${top ? ' — click to view' : ''}`}
-      onClick={() => top && useStore.setState({ viewer: { pid: player.id, zone } })}
+      // The viewer covers the pile, so its preview goes with it.
+      onClick={() => top && useStore.setState({ viewer: { pid: player.id, zone }, hover: null })}
     >
-      {top && (faceUp(top, v.me) ? <CardImage d={data(top)} alt="" draggable={false} /> : <div className="card-back" />)}
+      {/* Keyed by the card, so the preview moves on when a new card lands on top. */}
+      {top && (faceUp(top, v.me) ? <CardImage key={top.id} d={data(top)} alt="" draggable={false} data-card={top.id} {...hoverProps(data(top))} /> : <div className="card-back" />)}
       <i className={`ms ms-${zone}`} />
       <span className="count">{cards.length}</span>
     </div>
@@ -301,7 +305,7 @@ function OpponentHand({ player, span }: { player: Player; span: number }) {
   const before = usePrevious({ hand: Math.min(player.hand.length, 12), library: player.library.length });
   const drew = shown > before.hand && player.library.length < before.library;
   return (
-    <div className="opp-hand" title={`${player.hand.length} cards in hand`}>
+    <div className="opp-hand" data-hand-of={player.id} title={`${player.hand.length} cards in hand`}>
       <div className="opp-fan" ref={fanEl}>
         {Array.from({ length: shown }, (_, i) => (
           <HandBack
@@ -398,7 +402,7 @@ export function PlayerField({ player }: { player: Player }) {
       <div className="me-zones">
         <Piles player={player} />
       </div>
-      <div className="hand">
+      <div className="hand" data-hand-of={player.id}>
         {hand.map((c, i) => {
           const d = drawn.includes(c.id) ? drawn.indexOf(c.id) : undefined;
           // Watching the bots, nobody sits at the bottom, so that seat's hand is hidden too (`viewFor`).
@@ -406,6 +410,8 @@ export function PlayerField({ player }: { player: Player }) {
           return <HandCard key={c.id} card={c} index={i} total={hand.length} drawn={d} onMove={(to) => moveCard(i, to)} />;
         })}
       </div>
+      {/* Cards moving between zones, drawn over the whole table. */}
+      <Flights />
     </>
   );
 }

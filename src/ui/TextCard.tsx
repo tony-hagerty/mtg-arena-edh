@@ -57,13 +57,17 @@ interface FaceProps {
   className?: string;
   title?: string;
   onClick?: MouseEventHandler<HTMLElement>;
+  /** For the preview (`hoverProps`), and `cardAt`, which finds the card under the pointer by it. */
+  onMouseEnter?: MouseEventHandler<HTMLElement>;
+  onMouseLeave?: MouseEventHandler<HTMLElement>;
+  'data-card'?: string;
 }
 
 /** A whole card drawn from its text: name and mana cost, type line, rules text, and P/T, loyalty or defense. */
-export function TextCard({ d, className, title, onClick }: { d: CardData } & FaceProps) {
+export function TextCard({ d, className, ...face }: { d: CardData } & FaceProps) {
   const corner = cornerOf(d);
   return (
-    <div className={cx('text-card', `frame-${frameOf(d)}`, className)} title={title} onClick={onClick} role="img" aria-label={d.name}>
+    <div className={cx('text-card', `frame-${frameOf(d)}`, className)} {...face} role="img" aria-label={d.name}>
       <div className="text-card-face">
         <div className="text-card-head">
           <span className="text-card-name">{d.name}</span>
