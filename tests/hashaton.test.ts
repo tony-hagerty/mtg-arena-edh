@@ -831,3 +831,55 @@ describe('Sphinx of the Second Sun', () => {
     expect(byName(g, 0, 'Plains')!.tapped).toBe(false);
   });
 });
+
+describe('Rona', () => {
+  it('untaps when you cast a legendary spell, loots, and transforms as a sorcery', () => {
+    let g = emptyGame((d) => {
+      human(d);
+      put(d, 0, 'Rona, Herald of Invasion');
+      put(d, 0, 'Vohar, Vodalian Desecrator', 'hand');
+      put(d, 0, 'Island', 'battlefield', 2);
+      put(d, 0, 'Swamp', 'battlefield', 6);
+      top(d, 0, plenty());
+    });
+    const rona = byName(g, 0, 'Rona, Herald of Invasion')!;
+    g = settle(run(g, { type: 'activate', card: rona.id, activated: 0 }), (x) => (x.decision?.type === 'chooseCards' ? pick(byName(x, 0, 'Plains', 'hand')!.id) : null));
+    expect(byName(g, 0, 'Rona, Herald of Invasion')!.tapped).toBe(true);
+    g = settle(run(g, cast(g, 'Vohar, Vodalian Desecrator')));
+    expect(byName(g, 0, 'Rona, Herald of Invasion')!.tapped).toBe(false);
+    g = settle(run(g, { type: 'activate', card: rona.id, activated: 1 }));
+    const back = byName(g, 0, 'Rona, Herald of Invasion')!;
+    expect(back.face).toBe(1);
+    expect(stats(g, back).power).toBe(5);
+  });
+
+  it("Tolarian Obliterator: a source that damages it makes its controller exile a card at random, which you may play", () => {
+    const setup = (inHand: string) =>
+      emptyGame((d) => {
+        human(d);
+        put(d, 0, 'Rona, Herald of Invasion').face = 1;
+        put(d, 1, 'Psychic Frog');
+        put(d, 1, inHand, 'hand');
+        top(d, 1, plenty());
+        d.active = 1;
+        d.priority = 1;
+      });
+    for (const [inHand, where] of [
+      ['Plains', 'battlefield'],
+      ['Monument to Endurance', 'battlefield'],
+    ] as const) {
+      let g = setup(inHand);
+      while (g.step !== 'attackers') g = run(g, pass);
+      g = run(g, { type: 'declareAttack', card: byName(g, 1, 'Psychic Frog')!.id, defender: 0 }, pass);
+      while (g.step !== 'blockers' || g.priority !== 0) g = run(g, pass);
+      g = run(g, { type: 'declareBlock', blocker: byName(g, 0, 'Rona, Herald of Invasion')!.id, attacker: byName(g, 1, 'Psychic Frog')!.id });
+      g = until(g, (x) => x.decision?.type === 'ask' || x.decision?.type === 'cast');
+      if (g.decision?.type === 'ask') g = run(g, { type: 'answer', yes: true });
+      else g = run(g, { type: 'cast', card: byName(g, 1, inHand, 'exile')!.id, targets: [] });
+      g = settle(g);
+      const it = g.players[0][where].find((c) => c.name === inHand)!;
+      expect(it.owner).toBe(1);
+      expect(it.controller).toBe(0);
+    }
+  });
+});

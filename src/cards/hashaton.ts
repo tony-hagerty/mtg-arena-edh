@@ -68,6 +68,8 @@ import {
   madness,
   miracle,
   hasSuspend,
+  offerCast,
+  rand,
 } from '../engine/rules';
 import type { Card, CardScript, Game, Mode, PlayerId, TargetRef, TargetSpec, TokenSpec } from '../engine/types';
 import { cardData } from './db';
@@ -598,6 +600,49 @@ registerScripts({
         log(g, `${label(c)} is put into its owner's library third from the top.`, c.owner, [c]);
         putThirdFromTop(g, c);
       }
+    },
+  },
+  'Rona, Herald of Invasion': {
+    // "Whenever you cast a legendary spell, untap Rona."
+    onCast: {
+      when: (g, { self, card, caster }) => caster === self.controller && hasType(g, card, 'Legendary'),
+      resolve: (g, { self }) => {
+        const me = still(g, self);
+        if (me) me.tapped = false;
+      },
+      text: 'Whenever you cast a legendary spell, untap Rona.',
+    },
+    activated: [
+      // "{T}: Draw a card, then discard a card."
+      { cost: { tap: true }, text: 'Draw a card, then discard a card.', resolve: (g, { you }) => loot(g, you) },
+      // "{5}{B/P}: Transform Rona. Activate only as a sorcery." Only if it hasn't transformed since (701.27f).
+      { cost: { mana: '{5}{B/P}' }, sorcery: true, text: 'Transform Rona.', resolve: (g, { self }) => transform(g, permanent(g, self.id), self) },
+    ],
+  },
+  'Rona, Tolarian Obliterator': {
+    // Trample is the engine's. "Whenever a source deals damage to Rona, that source's controller
+    // exiles a card from their hand at random. If it's a land card, you may put it onto the
+    // battlefield under your control. Otherwise, you may cast it without paying its mana cost."
+    // The source's controller as it dealt the damage; the spell is cast as this resolves (608.2g).
+    onDamage: {
+      when: (_g, { self, card }) => card?.id === self.id,
+      resolve: (g, { you, source }) => {
+        const hand = g.players[source.controller].hand;
+        if (g.players[source.controller].lost || !hand.length) return;
+        const c = hand[Math.floor(rand(g) * hand.length)];
+        log(g, `${says(g.players[source.controller], 'exiles')} ${label(c)} from ${their(g.players[source.controller])} hand at random.`, source.controller, [c]);
+        moveCard(g, c, 'exile');
+        if (c.zone !== 'exile') return;
+        if (isLand(g, c)) ask(g, you, { text: `Put ${label(c)} onto the battlefield under your control?`, yes: 'Put It Onto the Battlefield', no: "Don't", then: 'ronaLand', data: { id: c.id, moves: c.moves } });
+        else offerCast(g, you, c, { free: true, text: `You may cast ${label(c)} without paying its mana cost.` });
+      },
+      text: "Whenever a source deals damage to Rona, that source's controller exiles a card from their hand at random. If it's a land card, you may put it onto the battlefield under your control. Otherwise, you may cast it without paying its mana cost.",
+    },
+    then: {
+      ronaLand: (g, { you, yes, data: d }) => {
+        const c = g.players.flatMap((p) => p.exile).find((x) => x.id === d.id && x.moves === d.moves);
+        if (yes && c) enterBattlefield(g, c, { controller: you });
+      },
     },
   },
   "Serra's Emissary": {
