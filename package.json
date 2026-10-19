@@ -15,7 +15,8 @@
     "card-requests": "node scripts/card-requests.mjs",
     "build:single": "tsc --noEmit && vite build --mode single",
     "build:exe": "npm run build && tsc -p launcher && node scripts/build-exe.mjs",
-    "launcher": "tsc -p launcher && node scripts/build-exe.mjs --bundle-only && node dist-exe/launcher.cjs"
+    "launcher": "tsc -p launcher && node scripts/build-exe.mjs --bundle-only && node dist-exe/launcher.cjs",
+    "profile-game": "node scripts/profile-game.mjs"
   },
   "dependencies": {
     "immer": "^11.1.21",
