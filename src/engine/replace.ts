@@ -121,6 +121,9 @@ function builtIn(g: Game, ev: ReplaceEvent, add: (id: string, name: string, r: R
       // everything on a player prevents all damage to them (702.16j).
       if (ev.card && protectedFrom(g, ev.card, ev.source)) add(`${ev.card.id}~protection`, `${label(ev.card)}'s protection`, { instead: { ...ev, amount: 0 } });
       if (ev.player !== undefined && playerProtected(g, ev.player)) add(`p${ev.player}~protection`, 'protection from everything', { instead: { ...ev, amount: 0 } });
+      // Protection a permanent gives a player, like Serra's Emissary's "You ... have protection from the chosen card type" (702.16e).
+      const pid = ev.player;
+      if (pid !== undefined) for (const x of battlefield(g)) if (abilitiesOf(g, x).protectsPlayer?.(g, x, pid, ev.source)) add(`p${pid}~protection~${x.id}`, `protection from ${label(x)}`, { instead: { ...ev, amount: 0 } });
       return;
     }
     case 'move': {

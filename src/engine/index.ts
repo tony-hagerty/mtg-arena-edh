@@ -4,6 +4,7 @@ import '../cards/pairs';
 import '../cards/yshtola';
 import '../cards/ketramose';
 import '../cards/kuja';
+import '../cards/hashaton';
 import '../cards/oracle'; // parsed scripts for cards without a hand script, so after them
 
 export * from './types';

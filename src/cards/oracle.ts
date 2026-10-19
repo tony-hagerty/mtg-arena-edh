@@ -10,6 +10,8 @@ import {
   ask,
   bounce,
   chooseToDiscard,
+  cycling,
+  typecycling,
   createToken,
   creaturesOf,
   damagePlayer,
@@ -638,10 +640,10 @@ function cardLine(text: string, original: string, script: CardScript, then: NonN
     script.alternativeCosts = [...(script.alternativeCosts ?? []), alt];
     return true;
   }
-  // Cycling [cost] (702.29a): "[Cost], Discard this card: Draw a card", activated from the hand.
-  if ((m = /^cycling ((?:\{[0-9wubrgc]\})+)$/.exec(text))) {
-    const mana = m[1].toUpperCase();
-    const ab: ActivatedAbility = { cost: { mana, discardSelf: true }, fromHand: true, text: `Cycling ${mana}`, resolve: (g, ctx) => draw(g, ctx.you) };
+  // Cycling [cost] (702.29a), or basic land typecycling (702.29e), activated from the hand.
+  if ((m = /^(plains|island|swamp|mountain|forest)?cycling ((?:\{[0-9wubrgc]\})+)$/.exec(text))) {
+    const mana = m[2].toUpperCase();
+    const ab = m[1] ? typecycling(m[1][0].toUpperCase() + m[1].slice(1), mana) : cycling(mana);
     const had = script.activated ? (Array.isArray(script.activated) ? script.activated : [script.activated]) : [];
     script.activated = [...had, ab];
     return true;

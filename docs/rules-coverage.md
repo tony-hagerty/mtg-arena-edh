@@ -151,6 +151,8 @@ are from the Comprehensive Rules in `docs/rules/`.
   and the ordering window and the stack (on hover) say which one it is.
 - **Delayed triggers (603.7), extra turns** (500.7, the newest first), and effects that
   make a player win (104.2b) or lose (104.3e) the game.
+- **Additional phases (500.8):** Sphinx of the Second Sun's additional beginning phase
+  after your postcombat main phase: untap, upkeep and draw steps, then the ending phase.
 - **Choices partway through resolving (608.2d):** any player can be asked yes or no ("you
   may ...", or "... unless that player pays {1}", where that player chooses first,
   118.12a), to pick from a few cards (Thassa's Oracle), or to name a card (201.3).
@@ -202,6 +204,13 @@ are from the Comprehensive Rules in `docs/rules/`.
   creatures' toughness and never pay all their life), and alternative costs such as
   "cast without paying its mana cost" (118.9). Commander tax applies to alternative
   costs too (118.9d).
+- **Sacrificing several permanents as a cost:** "Sacrifice two other artifacts and/or
+  creatures" (Mondrak) asks for that many when the ability is activated; bots give up
+  their cheapest.
+- **Madness (702.35):** a card with madness you discard is exiled instead, and its
+  trigger lets you cast it from exile for its madness cost, or else it goes to your
+  graveyard. **Miracle (702.94):** the first card you draw in a turn can be revealed if it
+  has miracle, and its trigger lets you cast it from your hand for its miracle cost.
 - **Pitch costs (118.9):** an alternative cost can exile a card from your hand, like Force
   of Will's blue card. You pick the card after the targets; bots give up the card they
   want least.
@@ -262,8 +271,8 @@ are from the Comprehensive Rules in `docs/rules/`.
   they are shortest of.
 - **Mana abilities (605):** a permanent can have several, and they can cost life (119.4),
   deal damage, need a condition ("activate only if"), make colours worked out as they are
-  used (Fellwar Stone and Exotic Orchard check what opponents' lands could produce,
-  106.7), or work from a hand (Simian Spirit Guide: click it in your hand, or pick "Exile
+  used (Fellwar Stone and Exotic Orchard check what opponents' lands could produce, and
+  Reflecting Pool what your lands could produce, 106.7), or work from a hand (Simian Spirit Guide: click it in your hand, or pick "Exile
   it for mana" in the cast panel). Auto-pay uses free sources first, then painful ones,
   then ones that are sacrificed. Rituals add mana as they resolve. A permanent can skip
   its untap (502.3), and "whenever this becomes tapped" triggers.
@@ -299,7 +308,17 @@ are from the Comprehensive Rules in `docs/rules/`.
   keyword (122.1b). Tiles show them ("+2", "-1", "3 charge").
 - **Auras (303.4, 702.5):** the spell targets what it will enchant; one whose target is
   gone goes to the graveyard. An Aura on something it can't enchant, or on nothing, goes
-  to the graveyard (704.5m). "Can't attack" and "can't block" work (Pacifism).
+  to the graveyard (704.5m). "Can't attack" and "can't block" work (Pacifism). An Aura
+  can enchant a card in a graveyard (Animate Dead's "enchant creature card in a
+  graveyard"); that card leaving the graveyard leaves the Aura on nothing (303.4c). An
+  effect can give an Aura a new enchant ability (Animate Dead's "enchant creature put onto
+  the battlefield with this Aura"), and every enchant ability it has must allow what it
+  enchants (702.5c).
+- **Exile "until this leaves the battlefield" (610.3):** Hostage Taker's card comes back
+  as soon as Hostage Taker leaves, and isn't exiled at all if Hostage Taker left first
+  (610.3c). Several come back at the same time when their exilers leave together.
+- **Monstrosity (701.37):** puts its +1/+1 counters on only if the permanent isn't
+  monstrous yet; a permanent stops being monstrous when it leaves.
 - **Equipment (301.5, 702.6):** equip at sorcery speed to a creature you control; it
   falls off a permanent that stops being a creature, and stays on the battlefield
   (704.5n). Attaching an Equipment to the creature it is already on does nothing
@@ -509,7 +528,17 @@ are from the Comprehensive Rules in `docs/rules/`.
   for an event that hits several players at once: "each opponent loses 1 life", combat
   damage, extort.
 - **Trigger doubling (603.2d):** Roaming Throne's "triggers an additional time", even for
-  a creature that died alongside it (603.10a).
+  a creature that died alongside it (603.10a). Elesh Norn, Mother of Machines does it for
+  abilities of your permanents that a permanent entering causes to trigger, and stops
+  such abilities of your opponents' permanents from triggering at all.
+- **Protection for a player (702.16):** Serra's Emissary's "You ... have protection from
+  the chosen card type": damage from such sources is prevented and spells and abilities
+  from them can't target you.
+- **Suspend (702.62):** a card that gains suspend (Delay's countered spell) loses a time
+  counter in each of its owner's upkeeps; when the last is removed, its owner may cast it
+  without paying its mana cost, and a creature spell cast this way has haste.
+- **Maximum hand size (402.2):** effects that change it, like Jin-Gitaxias, Progress
+  Tyrant's "Each opponent's maximum hand size is reduced by seven", down to 0.
   Harmonic Prodigy does it for a Shaman's or another Wizard's triggered abilities.
 - **Damage that is doubled or increased (614.1a):** Furnace of Rath, Trance Kuja (a
   Wizard you control), Collective Inferno (sources you control of the chosen type), and
@@ -637,13 +666,14 @@ These are deliberate cuts for a prototype. The biggest ones come first.
 - **Layers (613) not built yet:** effects that set or change colour (layer 5). No card has
   a copy effect with a duration ("until end of turn") yet. In layer 6: "can't have
   [ability]" (113.11); effects that give a permanent an ability other than a keyword, ward,
-  or a triggered, activated or mana ability (such as a static ability, or Animate Dead's
-  new enchant ability); losing a keyword ability the card's script carries, other than ward
+  enchant, or a triggered, activated or mana ability (such as a static ability); losing a keyword ability the card's script carries, other than ward
   and enchant (the layer system refuses it); and abilities of cards that aren't on the
   battlefield (Yixlid Jailer).
 - **Counters:** proliferate, shield, stun and other counters with their own rules
   (122.1c-j) do nothing special yet.
-- **Auras** can only enchant permanents, not players (702.5d).
+- **Auras** can only enchant permanents and cards in graveyards, not players (702.5d). An
+  Aura put onto the battlefield without being cast isn't given something to enchant
+  (303.4f), so it goes to the graveyard; no card in the pool does this yet.
 - **Sieges:** a defeated Siege's back face is always cast ("you may" is free upside); a
   back face that needs targets gets the first legal ones. The protector is announced with
   the spell rather than chosen as it enters. Only Siege battles exist in print; others
