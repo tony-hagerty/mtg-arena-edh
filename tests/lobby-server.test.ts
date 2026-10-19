@@ -40,12 +40,17 @@ const noRouter = async (port: number): Promise<HostCheck> => ({ kind: 'manual', 
 
 const choice = (deck: DeckDef, cards: CardData[] = []): DeckChoice => ({ deck, cards });
 
-/** Waits until `ok` holds, giving the connections time to deliver. */
+/**
+ * Waits until `ok` holds, giving the connections time to deliver: two seconds at most. It
+ * looks again every millisecond, since a whole game waits like this for every move.
+ */
 async function until(ok: () => boolean, what = 'the other program') {
-  for (let i = 0; i < 400; i++) {
+  const deadline = Date.now() + 2000;
+  while (Date.now() < deadline) {
     if (ok()) return;
-    await new Promise((r) => setTimeout(r, 5));
+    await new Promise((r) => setTimeout(r, 1));
   }
+  if (ok()) return;
   throw new Error(`timed out waiting for ${what}`);
 }
 
