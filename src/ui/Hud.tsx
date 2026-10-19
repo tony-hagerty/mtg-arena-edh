@@ -886,7 +886,7 @@ function cardAt(game: Game | null, at: Element | null) {
   const el = at?.closest<HTMLElement>('[data-card]');
   const card = el && game && findCard(game, el.dataset.card!);
   // The viewer's cards are shown big already (see `ZoneViewer`).
-  return el && card ? { name: card.name, d: data(card), el, ...(el.closest('.viewer') && { pinOnly: true }) } : null;
+  return el && card ? { name: card.name, d: data(card), el, ...(el.closest('.viewer') && { pinOnly: true }), ...(card.textless && { textless: true }) } : null;
 }
 
 /**
@@ -899,6 +899,8 @@ export function Preview() {
   const game = useStore((s) => s.game);
   /** The card kept up by a right-click. */
   const [pinned, setPinned] = useState<CardData | null>(null);
+  /** The pinned card is played without its rules text. */
+  const [pinnedTextless, setPinnedTextless] = useState(false);
   const pointer = useRef({ x: -1, y: -1 });
   const shown = useRef<{ left: number; top: number; width: number } | null>(null);
 
@@ -919,7 +921,10 @@ export function Preview() {
     const onMenu = (e: MouseEvent) => {
       const hover = useStore.getState().hover;
       const d = hover && hoverData(hover);
-      if (d) setPinned(d);
+      if (d) {
+        setPinned(d);
+        setPinnedTextless(!!hover?.textless);
+      }
       if (hover || (e.target as Element).closest('.preview-backdrop, .preview')) e.preventDefault();
     };
     window.addEventListener('contextmenu', onMenu);
@@ -959,6 +964,7 @@ export function Preview() {
       {d && shown.current && (
         <div className={cx('preview', pinned && 'pinned')} key={`${d.name}-${!!pinned}`} style={shown.current}>
           <CardImage d={d} alt={d.name} />
+          {(pinned ? pinnedTextless : hover?.textless) && <div className="preview-textless">No rules text here: the game can't read this card yet, so it plays as a plain card.</div>}
         </div>
       )}
     </>
@@ -986,7 +992,7 @@ export function StackPanel() {
             className={cx('stack-item', i === g.stack.length - 1 && !paying && 'top', targetStack.has(item.id) && 'targetable')}
             onClick={() => clickStackItem(item.id)}
             title={triggerText(item)}
-            {...hoverProps(data(item.card))}
+            {...hoverProps(data(item.card), { textless: item.kind === 'spell' && item.card.textless })}
           >
             <CardImage d={data(item.card)} alt={label(item.card)} draggable={false} />
             <span className="stack-tag">

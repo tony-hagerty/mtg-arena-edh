@@ -2,7 +2,8 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import type { CSSProperties, ReactNode } from 'react';
 import { DECKS, cardData, deckColors } from '../cards/db';
 import type { DeckDef } from '../cards/db';
-import { checkList, norm, savedDeckIssues } from '../cards/decklist';
+import { checkList, deckAsList, norm, poolName, savedDeckIssues, savedDeckState } from '../cards/decklist';
+import type { DeckState, RefusedCard } from '../cards/decklist';
 import { clearFetchedCards, fetchCards, fetchedCount, requestFor } from '../cards/fetched';
 import { downloadRequests, keptRequests, reportRequests, writesFile } from './card-requests';
 import { type SeatPlayer, useStore } from './store';
@@ -15,20 +16,33 @@ type MenuScreen = 'decks' | 'paste' | 'host' | 'join' | 'saves';
 
 export function Menu() {
   const [screen, setScreen] = useState<MenuScreen>('decks');
+  /** A saved deck reopened in the paste screen to swap the cards the game can't play yet. */
+  const [editing, setEditing] = useState<DeckDef | null>(null);
   const table = useStore((s) => s.table);
   const atTable = !!table && table.role !== 'none';
-  const back = () => setScreen('decks');
+  const back = () => {
+    setEditing(null);
+    setScreen('decks');
+  };
   // Leaving a table comes back to the decks, not to the form that opened it.
   useEffect(() => {
     if (atTable) back();
   }, [atTable]);
   // At a table, the waiting room stays up until the game starts or this person leaves.
   if (atTable) return <WaitingRoom table={table} />;
-  if (screen === 'paste') return <PasteDeck close={back} />;
+  if (screen === 'paste') return <PasteDeck key={editing?.id ?? 'new'} close={back} editing={editing} />;
   if (screen === 'host') return <HostTable close={back} />;
   if (screen === 'join') return <JoinTable close={back} />;
   if (screen === 'saves' && table) return <SavedGames table={table} close={back} />;
-  return <DeckMenu go={setScreen} />;
+  return (
+    <DeckMenu
+      go={setScreen}
+      edit={(deck) => {
+        setEditing(deck);
+        setScreen('paste');
+      }}
+    />
+  );
 }
 
 /**
@@ -36,7 +50,7 @@ export function Menu() {
  * paste another; the table beside them: who sits in the other seats, and the ways to play
  * with friends or watch. The hovered deck's art fills the background.
  */
-function DeckMenu({ go }: { go: (screen: MenuScreen) => void }) {
+function DeckMenu({ go, edit }: { go: (screen: MenuScreen) => void; edit: (deck: DeckDef) => void }) {
   const start = useStore((s) => s.start);
   // Hosting and joining need the Windows program (or `npm run dev`): a file opened from disk has no lobby.
   const lobby = useStore((s) => s.lobby);
@@ -60,14 +74,14 @@ function DeckMenu({ go }: { go: (screen: MenuScreen) => void }) {
       </header>
       <main className="menu-main">
         <div className="deck-shelf" role="group" aria-label="Pick a deck to play">
-          <DeckSection title="Starter decks" decks={DECKS.map((deck) => ({ deck, issues: [] }))} play={start} hover={setFocus} />
-          <DeckSection title="Your decks" decks={saved.map((deck) => ({ deck, issues: savedDeckIssues(deck) }))} play={start} hover={setFocus} pasted>
+          <DeckSection title="Starter decks" decks={DECKS.map((deck) => ({ deck }))} play={start} hover={setFocus} />
+          <DeckSection title="Your decks" decks={saved.map((deck) => ({ deck, state: savedDeckState(deck) }))} play={start} hover={setFocus} edit={edit} pasted>
             <button className="deck deck-paste" onClick={() => go('paste')}>
               <span className="deck-paste-plus" aria-hidden="true">
                 +
               </span>
               <span className="deck-title">Paste a deck list</span>
-              <span className="deck-blurb">An Arena, Moxfield or MTGO export, or a plain list</span>
+              <span className="deck-blurb">An Arena, Moxfield, Archidekt, MTGO or TappedOut export, or a plain list</span>
             </button>
           </DeckSection>
         </div>
@@ -123,13 +137,16 @@ function DeckSection({
   decks,
   play,
   hover,
+  edit,
   pasted,
   children,
 }: {
   title: string;
-  decks: { deck: DeckDef; issues: string[] }[];
+  /** Each deck, and for a pasted one what stops it being played (`savedDeckState`). */
+  decks: { deck: DeckDef; state?: DeckState }[];
   play: (deck: DeckDef) => void;
   hover: (deck: DeckDef) => void;
+  edit?: (deck: DeckDef) => void;
   pasted?: boolean;
   children?: ReactNode;
 }) {
@@ -137,8 +154,8 @@ function DeckSection({
     <section className="deck-section">
       <h2>{title}</h2>
       <div className="deck-list">
-        {decks.map(({ deck, issues }) => (
-          <DeckTile key={deck.id} deck={deck} issues={issues} play={() => play(deck)} hover={() => issues.length === 0 && hover(deck)} pasted={pasted} />
+        {decks.map(({ deck, state }) => (
+          <DeckTile key={deck.id} deck={deck} state={state} play={() => play(deck)} hover={() => !state?.issues.length && !state?.unplayable.length && hover(deck)} edit={edit && (() => edit(deck))} pasted={pasted} />
         ))}
         {children}
       </div>
@@ -146,15 +163,33 @@ function DeckSection({
   );
 }
 
-/** A deck on the menu. A pasted deck can be deleted, and is greyed out if a newer card pool can't play it. */
-function DeckTile({ deck, issues, play, hover, pasted }: { deck: DeckDef; issues: string[]; play: () => void; hover: () => void; pasted?: boolean }) {
+/** "1 card" or "3 cards". */
+const cards = (n: number) => (n === 1 ? '1 card' : `${n} cards`);
+
+/**
+ * A deck on the menu. A pasted deck can be deleted. It is greyed out if a newer card pool
+ * can't play it, or if it was saved with cards the game can't play yet: then **Swap them**
+ * opens it in the paste screen with those cards at the top. One that plays some cards
+ * without their rules text says how many.
+ */
+function DeckTile({ deck, state, play, hover, edit, pasted }: { deck: DeckDef; state?: DeckState; play: () => void; hover: () => void; edit?: () => void; pasted?: boolean }) {
   const remove = useStore((s) => s.deleteDeck);
-  const broken = issues.length > 0;
+  const issues = state?.issues ?? [];
+  const waiting = state?.unplayable.length ?? 0;
+  const textless = state?.textless.length ?? 0;
+  const broken = issues.length > 0 || waiting > 0;
   // A deck's colours are its commanders' colour identity (903.4, 702.124c).
   const colors = broken ? [] : deckColors(deck);
   const color = broken ? '#4a5366' : deckColor(colors);
+  const blurb = issues.length
+    ? `Can't be played: ${issues[0]}`
+    : waiting
+      ? `${cards(waiting)} the game can't play yet`
+      : textless
+        ? `${cards(textless)} ${textless === 1 ? 'plays' : 'play'} without ${textless === 1 ? 'its' : 'their'} text`
+        : deck.blurb;
   return (
-    <div className="deck-slot">
+    <div className={cx('deck-slot', waiting > 0 && !issues.length && 'deck-waiting')}>
       <button className={cx('deck', broken && 'broken')} onClick={play} onPointerEnter={hover} onFocus={hover} disabled={broken} style={{ '--deck': color } as CSSProperties} title={deck.commanders.join(' & ')}>
         {/* Each commander's art crop; partners split the banner. */}
         <div className="deck-banner">
@@ -168,9 +203,14 @@ function DeckTile({ deck, issues, play, hover, pasted }: { deck: DeckDef; issues
         <div className="deck-info">
           <div className="deck-title">{deck.title}</div>
           <div className="deck-commander">{deck.commanders.join(' & ')}</div>
-          <div className="deck-blurb">{broken ? `Can't be played: ${issues[0]}` : deck.blurb}</div>
+          <div className={cx('deck-blurb', !broken && textless > 0 && 'deck-textless')}>{blurb}</div>
         </div>
       </button>
+      {pasted && broken && edit && (
+        <button className="deck-fix" onClick={edit} title="Open this deck in the paste screen, with the cards to swap at the top">
+          {waiting && !issues.length ? 'Swap them' : 'Open the list'}
+        </button>
+      )}
       {pasted && (
         <button
           className="deck-delete"
@@ -272,16 +312,23 @@ const DEBOUNCE = 800;
 /**
  * The paste screen: a text box, the list as read, a commander picker and every problem. Save
  * is enabled once there are none. Cards the game doesn't have are fetched from Scryfall and
- * scripted from their Oracle text; one it can't read is listed with the clause, and written
- * down for Claude to script later (docs/card-requests.json).
+ * scripted from their Oracle text; one it can't read is listed with the clause, grouped with
+ * others that stumble on the same wording, and written down for Claude to script later
+ * (docs/card-requests.json). For each, the player chooses: play it without its rules text,
+ * or swap it. Cards left to swap don't stop the deck being saved; it waits on the menu until
+ * they are. `editing` is a saved deck reopened from the menu: its list comes back with those
+ * cards at the top, and saving replaces it.
  */
-function PasteDeck({ close }: { close: () => void }) {
+function PasteDeck({ close, editing }: { close: () => void; editing: DeckDef | null }) {
   const save = useStore((s) => s.saveDeck);
   const version = useStore((s) => s.cardsVersion);
   const cardsChanged = useStore((s) => s.cardsChanged);
-  const [text, setText] = useState('');
-  const [title, setTitle] = useState('');
+  const [text, setText] = useState(() => (editing ? deckAsList(editing, savedDeckState(editing).unplayable) : ''));
+  const [title, setTitle] = useState(editing?.title ?? '');
   const [picked, setPicked] = useState<string[] | null>(null);
+  /** Cards the player chose to play without their rules text, by card-pool name. */
+  const [textless, setTextless] = useState<string[]>(editing?.textless ?? []);
+  const [id] = useState(() => editing?.id ?? `pasted-${Date.now()}`);
   const [fetching, setFetching] = useState<Fetching>(NO_FETCH);
   const [kept, setKept] = useState(() => keptRequests().cards.length);
   /** Names asked for on this screen (compared as `norm` does), so each is fetched once unless retried. */
@@ -300,7 +347,7 @@ function PasteDeck({ close }: { close: () => void }) {
           ? "isn't a card Scryfall knows by this name. Check the spelling"
           : "isn't in the card pool";
   // `version` and `fetching` change what the check sees: new cards, and why the rest are missing.
-  const check = useMemo(() => checkList(text, picked, title, `pasted-${Date.now()}`, why), [text, picked, title, version, fetching]);
+  const check = useMemo(() => checkList(text, picked, title, id, why, textless), [text, picked, title, version, fetching, textless]);
   const count = [...check.list.commanders, ...check.list.cards].reduce((n, e) => n + e.count, 0);
 
   const run = (names: string[]) => {
@@ -330,10 +377,10 @@ function PasteDeck({ close }: { close: () => void }) {
 
   // Fetched cards the game can't play are written down, once each per screen.
   const names = [...new Set([...check.parts.commanders, ...check.parts.cards])];
-  const refused = names.flatMap((n) => requestFor(n) ?? []);
-  const refusedKey = refused.map((r) => r.name).join('\n');
+  const requests = names.flatMap((n) => requestFor(n) ?? []);
+  const refusedKey = requests.map((r) => r.name).join('\n');
   useEffect(() => {
-    const fresh = refused.filter((r) => !reported.current.has(r.name));
+    const fresh = requests.filter((r) => !reported.current.has(r.name));
     if (!fresh.length) return;
     fresh.forEach((r) => reported.current.add(r.name));
     reportRequests(fresh);
@@ -347,6 +394,20 @@ function PasteDeck({ close }: { close: () => void }) {
     // Cards already added stay until the page reloads.
     window.location.reload();
   };
+
+  const playTextless = (name: string, on: boolean) => setTextless((t) => (on ? [...t.filter((n) => n !== name), name] : t.filter((n) => n !== name)));
+  /** Takes every line naming this card out of the list, so another can be pasted in its place. */
+  const swap = (name: string) => {
+    const lines = new Set([...check.list.commanders, ...check.list.cards].filter((e) => poolName(e.name) === name).map((e) => e.line));
+    setText((t) =>
+      t
+        .split(/\r?\n/)
+        .filter((_, i) => !lines.has(i + 1))
+        .join('\n'),
+    );
+    playTextless(name, false);
+  };
+  const chosen = check.refused.filter((r) => r.textless);
 
   // A third pick replaces the first: at most two commanders, and only partners pair (702.124).
   const toggle = (name: string) => {
@@ -399,18 +460,28 @@ function PasteDeck({ close }: { close: () => void }) {
               </div>
             </div>
           )}
-          <ul className={cx('paste-problems', !check.problems.length && 'ok')}>
-            {check.problems.length ? check.problems.map((p, i) => <li key={i}>{p}</li>) : <li>Ready to save: a legal Commander deck.</li>}
+          <ul className={cx('paste-problems', !check.problems.length && (check.leftover.length ? 'waiting' : 'ok'))}>
+            {check.problems.length ? (
+              check.problems.map((p, i) => <li key={i}>{p}</li>)
+            ) : check.leftover.length ? (
+              <li>
+                Can be saved, but {cards(check.leftover.length)} below {check.leftover.length === 1 ? 'needs' : 'need'} a choice first: the deck waits on the menu until then.
+              </li>
+            ) : (
+              <li>Ready to save: a legal Commander deck{chosen.length ? `, with ${cards(chosen.length)} played without ${chosen.length === 1 ? 'its' : 'their'} rules text` : ''}.</li>
+            )}
           </ul>
-          {refused.length > 0 && (
+          {check.leftover.length > 0 && <RefusedList cards={check.leftover} playTextless={(n) => playTextless(n, true)} swap={swap} />}
+          {chosen.length > 0 && <TextlessList cards={chosen} undo={(n) => playTextless(n, false)} />}
+          {requests.length > 0 && (
             <p className="paste-note">
-              A card the game can't read yet can't be played: replace it with another. {writesFile ? 'It is written down in docs/card-requests.json' : 'Download the report and add it to the project'} so
-              Claude can script it later.
+              {writesFile ? 'Cards the game can\'t read are written down in docs/card-requests.json' : 'Download the report and add it to the project'} so Claude can script them
+              later.
             </p>
           )}
           <p className="paste-note">
-            Cards the game doesn't have are fetched from Scryfall and kept in this browser, so the deck works offline. Set codes, collector numbers and foil marks
-            are ignored.
+            Cards the game doesn't have are fetched from Scryfall and kept in this browser, so the deck works offline. Set codes, collector numbers, foil marks
+            and category headings are ignored.
           </p>
           <div className="paste-buttons">
             {stored > 0 && (
@@ -436,16 +507,84 @@ function PasteDeck({ close }: { close: () => void }) {
             <button
               className="btn btn-go small"
               disabled={!check.deck}
+              title={check.deck && !check.ready ? 'Saved greyed out on the menu, to finish later' : undefined}
               onClick={() => {
                 save(check.deck!);
                 close();
               }}
             >
-              <span className="btn-label">Save Deck</span>
+              <span className="btn-label">{check.deck && !check.ready ? 'Save for Later' : 'Save Deck'}</span>
             </button>
           </div>
         </div>
       </div>
     </MenuFrame>
+  );
+}
+
+/** Refused cards in groups that share a heading, in the order each group first appears. */
+function groups(list: RefusedCard[]): RefusedCard[][] {
+  const by = new Map<string, RefusedCard[]>();
+  for (const r of list) by.set(r.group, [...(by.get(r.group) ?? []), r]);
+  return [...by.values()];
+}
+
+/**
+ * The cards the game can't read yet, grouped by the wording it stumbled on, each with its
+ * Oracle line and the choice: play it without its rules text, or swap it for another card.
+ * A commander, or a card the engine can't frame as a vanilla card, can only be swapped.
+ */
+function RefusedList({ cards: list, playTextless, swap }: { cards: RefusedCard[]; playTextless: (name: string) => void; swap: (name: string) => void }) {
+  return (
+    <section className="paste-refused" aria-label="Cards the game can't read yet">
+      <h3>The game can't read {list.length === 1 ? 'this card' : `these ${list.length} cards`} yet</h3>
+      <p className="paste-note">Play each without its rules text tonight, or swap it for another card.</p>
+      {groups(list).map((group) => (
+        <div key={group[0].group} className="refused-group">
+          <div className="refused-clause">{group[0].heading}</div>
+          {group.map((r) => (
+            <div key={r.name} className="refused-card">
+              <div className="refused-name">{r.name}</div>
+              <div className="refused-line">{r.line}</div>
+              <div className="refused-choice">
+                {r.noTextless === null ? (
+                  <button className="chip" onClick={() => playTextless(r.name)} title="It plays with its name, cost, types, power and toughness and the keywords the game knows. The rest of its text does nothing.">
+                    Play without its rules text
+                  </button>
+                ) : (
+                  <span className="refused-why">Can't play without its text: {r.noTextless}.</span>
+                )}
+                <button className="chip" onClick={() => swap(r.name)} title="Take it out of the list, to paste another card in">
+                  Swap it out
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      ))}
+    </section>
+  );
+}
+
+/** The cards the player chose to play without their rules text, with the text the game can't read, and Undo. */
+function TextlessList({ cards: list, undo }: { cards: RefusedCard[]; undo: (name: string) => void }) {
+  return (
+    <section className="paste-textless" aria-label="Played without their rules text">
+      <h3>Played without {list.length === 1 ? 'its' : 'their'} rules text</h3>
+      <p className="paste-note">Each plays as a plain card: its name, cost, types, power and toughness, and the keywords the game knows. The text the game can't read does nothing.</p>
+      {list.map((r) => (
+        <div key={r.name} className="refused-card">
+          <div className="refused-name">
+            {r.name} <span className="textless-badge">no text</span>
+          </div>
+          <div className="refused-line">Can't read: {r.line}</div>
+          <div className="refused-choice">
+            <button className="chip" onClick={() => undo(r.name)}>
+              Undo
+            </button>
+          </div>
+        </div>
+      ))}
+    </section>
   );
 }
