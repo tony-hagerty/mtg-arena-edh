@@ -14,6 +14,7 @@
     "fetch-rules": "node scripts/fetch-rules.mjs",
     "parse-report": "node scripts/parse-report.mjs",
     "card-requests": "node scripts/card-requests.mjs",
+    "recheck-requests": "node scripts/recheck-requests.mjs",
     "build:single": "tsc --noEmit && vite build --mode single",
     "build:exe": "npm run build && tsc -p launcher && node scripts/build-exe.mjs",
     "launcher": "tsc -p launcher && node scripts/build-exe.mjs --bundle-only && node dist-exe/launcher.cjs"
