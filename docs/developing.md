@@ -66,7 +66,9 @@ src/ui/         App.tsx               menu or game screen; GameScreen.tsx lays t
                 game-sounds.ts        which sound a change of game state makes (gameSound)
                 music.ts              plays the background music (Web Audio: harp, bass, drum, reverb)
                 music-score.ts        the music's notes from a seed, and when it plays (musicLevel)
-                SoundControl.tsx      the menu's sound and music sliders, the in-game Sound and Music buttons
+                zone-moves.ts         which cards changed zones between two games (zoneMoves)
+                Flights.tsx           cards flying between zones, drawn from that diff
+                SoundControl.tsx      mute buttons and volume sliders for sound and music
                 fullscreen.ts, rem.ts Alt+Enter fullscreen; the root font-size as a hook
                 util.ts               small helpers: class names, deck colours, hover props
                 styles.css            all styling
@@ -125,7 +127,8 @@ window only talks to the program on its own computer: `connectLobby` (src/ui/lob
 streams `LobbyState` from `/api/lobby/events` and POSTs requests (host, join, deck,
 ready, table, start, leave); a refusal comes back as a reason in plain words, which the
 screen shows. A page with no lobby (a build opened from disk) gets no Host or Join
-buttons. The menu shows the waiting room while `LobbyState.role` isn't `none`. Once
+buttons. The menu shows the waiting room while `LobbyState.role` isn't `none`. Its screens, like the paste screen, sit in `MenuFrame`
+(`src/ui/LobbyScreen.tsx`), the panel that matches the title screen. Once
 `started` is true, the store (`onLobby`) plays the game through the game server as
 `yourSeat` alone: it streams only that seat, never passes the screen, and never starts a
 game itself (the host's Play Again asks the lobby to start the next one). Leaving that game leaves the table (for the host, that closes it), and the
@@ -152,7 +155,9 @@ fixed spot on a 192 × 108 grid.
 
 1. Add its name to a deck in `src/cards/decklists.json`. A deck lists `commanders` (one,
    or two partners), `basics` as a map like `{ "Forest": 18, "Island": 17 }`, and
-   `cards`, one of each.
+   `cards`, one of each. `"offMenu": true` keeps a finished deck off the menu (its cards
+   stay in the pool and tests can still play it, from `ALL_DECKS`); `"wip": true` marks
+   one still being built.
 2. Run `npm run fetch-cards` to pull its data and art from Scryfall. Behind an HTTPS
    proxy (as in a Claude Code cloud session) run `NODE_USE_ENV_PROXY=1 npm run fetch-cards`:
    Node's `fetch` ignores the proxy otherwise.
@@ -318,7 +323,10 @@ ability already on the stack, which exists apart from its source (113.7a).
 | `addEffect` | an effect until end of turn |
 | `delay` with `delayed[key]` | a delayed trigger (603.7) |
 | `extraTurn`, `winGame`, `loseGame` | as named |
-| `mill`, `discard`, `surveil` | as named |
+| `mill`, `discard`, `discardHand`, `surveil` | as named |
+| `exileAll(g, cards, text?, pid?)` | exiles several cards from anywhere as one event and logs once, so "whenever one or more cards are put into exile" triggers once (603.2c). Never `moveCard` cards into exile in a loop |
+| `toGraveyards(g, cards)`, `destroyMany`, `dieMany` | several cards to graveyards as one event |
+| `simultaneously(g, fn)` | runs `fn` as one event: "each opponent loses 1 life" in it triggers "whenever one or more players lose life" once |
 | `gainControl` | changes control |
 | `copyOf` | copies a permanent |
 | `becomeCopy(g, card, copyOf(x))` | a permanent becomes a copy while it stays (707.4) |

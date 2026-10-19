@@ -38,6 +38,7 @@ import {
   dealDamage,
   destroy,
   draw,
+  exileAll,
   hasType,
   isColor,
   isCreature,
@@ -470,4 +471,6 @@ registerScripts({
         ? { instead: { ...ev, amount: ev.amount - 1 } }
         : null,
   },
+  // "Exile all creatures." One event (603.2c).
+  'Final Judgment': { onResolve: (g) => void exileAll(g, allCreatures(g), 'All creatures are exiled.') },
 });
