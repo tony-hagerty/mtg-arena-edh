@@ -9,6 +9,8 @@
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
     "test": "vitest run",
+    "test:quick": "vitest run --exclude \"tests/simulation/**\" --tags-filter=\"!game\"",
+    "test:games": "vitest run --tags-filter=game",
     "fetch-cards": "node scripts/fetch-cards.mjs",
     "fetch-corpus": "node scripts/fetch-corpus.mjs",
     "fetch-rules": "node scripts/fetch-rules.mjs",
@@ -17,7 +19,8 @@
     "recheck-requests": "node scripts/recheck-requests.mjs",
     "build:single": "tsc --noEmit && vite build --mode single",
     "build:exe": "npm run build && tsc -p launcher && node scripts/build-exe.mjs",
-    "launcher": "tsc -p launcher && node scripts/build-exe.mjs --bundle-only && node dist-exe/launcher.cjs"
+    "launcher": "tsc -p launcher && node scripts/build-exe.mjs --bundle-only && node dist-exe/launcher.cjs",
+    "profile-game": "node scripts/profile-game.mjs"
   },
   "dependencies": {
     "immer": "^11.1.21",

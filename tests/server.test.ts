@@ -91,7 +91,7 @@ describe('the game host', () => {
     expect(clock.queue.length).toBe(1);
   });
 
-  it('plays a whole game with two people and two bots', () => {
+  it('plays a whole game with two people and two bots', { tags: ['game'] }, () => {
     const { host, clock } = setup();
     const last: Record<number, ViewMessage> = {};
     for (const seat of [0, 2]) host.watch(seat, (m) => (last[seat] = m));
