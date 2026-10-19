@@ -54,6 +54,7 @@ const LAYER_OF: Record<keyof LayerParts, Layer> = {
   mana: '6',
   grant: '6',
   activatedOf: '6',
+  enchantOf: '6',
   flags: '6',
   setPower: '7b',
   setToughness: '7b',
@@ -204,6 +205,7 @@ function start(c: Card): Working {
     mana: [],
     grants: [],
     activatedOf: [],
+    enchantOf: [],
     flags: [],
     version: 0,
   };
@@ -279,6 +281,7 @@ function apply(w: Working, p: LayerParts, l: Layer) {
         w.mana = [];
         w.grants = [];
         w.activatedOf = [];
+        w.enchantOf = [];
       }
       if (p.lose) {
         for (const k of p.lose) {
@@ -287,6 +290,7 @@ function apply(w: Working, p: LayerParts, l: Layer) {
         // Every instance of it (113.10b).
         w.keywords = w.keywords.filter((k) => !p.lose!.includes(k));
         if (p.lose.includes('ward')) w.wards = [];
+        if (p.lose.includes('enchant')) w.enchantOf = [];
         const scripted = p.lose.filter((k) => SCRIPTED.includes(k) && !w.lost.includes(k));
         if (scripted.length) w.lost = [...w.lost, ...scripted];
       }
@@ -295,6 +299,7 @@ function apply(w: Working, p: LayerParts, l: Layer) {
       if (p.mana) w.mana = [...w.mana, p.mana];
       if (p.grant) w.grants = [...w.grants, p.grant];
       if (p.activatedOf) addAll((w.activatedOf = [...w.activatedOf]), p.activatedOf);
+      if (p.enchantOf) addAll((w.enchantOf = [...w.enchantOf]), [p.enchantOf]);
       if (p.flags) addAll((w.flags = [...w.flags]), p.flags);
       break;
     case '7a':

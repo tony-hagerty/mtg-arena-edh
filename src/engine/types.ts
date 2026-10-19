@@ -121,6 +121,11 @@ export interface LayerParts {
   /** Layer 6: the activated abilities of these cards, by name (Agatha's Soul Cauldron). */
   activatedOf?: string[];
   /**
+   * Layer 6: an enchant ability it gains (702.5a), card `enchantOf`'s `givesEnchant`: Animate
+   * Dead's "enchant creature put onto the battlefield with this Aura".
+   */
+  enchantOf?: string;
+  /**
    * Layer 6: abilities its script reads by name instead of the engine, like harnessed
    * (701.64b) or an ability a Saga's chapter gave it (`hasFlag`).
    */
@@ -178,6 +183,8 @@ export interface Characteristics {
   grants: { from: string; index: number }[];
   /** Cards whose activated abilities it has from effects (layer 6). */
   activatedOf: string[];
+  /** The cards whose `givesEnchant` it has as an enchant ability from effects (layer 6), by name. */
+  enchantOf: string[];
   /** Abilities its script reads by name (`LayerParts.flags`). */
   flags: string[];
 }
@@ -1614,9 +1621,15 @@ export interface CardScript extends Triggers {
   changesDamage?: (g: Game, self: Card, source: Card, to: { player?: PlayerId; card?: Card }, combat: boolean) => DamageChange | null;
   /**
    * An Aura's enchant ability (702.5): what it can be attached to. It is also the Aura
-   * spell's target (303.4a). Its `who` is from the Aura's controller's side.
+   * spell's target (303.4a). Its `who` is from the Aura's controller's side. A `'graveyard
+   * card'` one enchants a card in a graveyard (Animate Dead).
    */
   enchant?: TargetSpec;
+  /**
+   * An enchant ability one of its effects gives it (`LayerParts.enchantOf`), like Animate
+   * Dead's "enchant creature put onto the battlefield with this Aura". Its `filter` gets the Aura as `source`.
+   */
+  givesEnchant?: TargetSpec;
   /**
    * Its activated abilities (602): one, or a list in printed order when it has several
    * (Deathrite Shaman). An action or stack item names one by its index (`activated`).

@@ -1,9 +1,9 @@
 // The Hashaton deck's hand scripts and the rules they needed: the clauses that could go wrong.
 import { produce } from 'immer';
 import { describe, expect, it } from 'vitest';
-import { applyAction, applyBotAction, botAction, canBlock, colorsOf, counterCount, createToken, has, isCreature, makeCard, manaAbilities, maxHandSize, stats, subtypesOf, hasType } from '../src/engine';
+import { applyAction, applyBotAction, botAction, bounce, canBlock, destroy, colorsOf, counterCount, createToken, has, isCreature, makeCard, manaAbilities, maxHandSize, moveCard, stats, canEnchant, subtypesOf, hasType } from '../src/engine';
 import type { Action, Game, PlayerId, TargetRef } from '../src/engine';
-import { byName, emptyGame, put, run } from './helpers';
+import { byName, emptyGame, put, run, runWith } from './helpers';
 import './fixtures';
 
 const pass = { type: 'pass' } as const;
@@ -945,5 +945,93 @@ describe('Curious Colossus', () => {
     });
     const late = g.players[1].battlefield.at(-1)!;
     expect(stats(g, late).power).toBe(4);
+  });
+});
+
+describe('Animate Dead', () => {
+  const setup = () =>
+    emptyGame((d) => {
+      human(d);
+      put(d, 0, 'Animate Dead', 'hand');
+      put(d, 0, 'Swamp', 'battlefield', 2);
+      put(d, 1, 'Serra Angel', 'graveyard');
+    });
+  const aura = (g: Game) => byName(g, 0, 'Animate Dead');
+  /** Casts it on Serra Angel, every player passing by hand, until it has resolved and its enters ability waits on the stack. */
+  const resolveAura = (g: Game) => {
+    g = runWith({ autoPass: false }, g, cast(g, 'Animate Dead', { targets: [card(byName(g, 1, 'Serra Angel', 'graveyard')!)] }));
+    for (let i = 0; i < 8 && !aura(g); i++) g = applyAction(g, pass, { autoPass: false });
+    return g;
+  };
+
+  it("returns a creature card from any graveyard under your control, enchanted, with -1/-0, and can't be moved to another creature", () => {
+    let g = setup();
+    // It resolves attached to the card in the graveyard; its enters ability waits on the stack.
+    g = resolveAura(g);
+    expect(g.stack.map((x) => x.card.name)).toEqual(['Animate Dead']);
+    expect(aura(g)!.attachedTo).toBe(byName(g, 1, 'Serra Angel', 'graveyard')!.id);
+    g = settle(g);
+    const angel = byName(g, 0, 'Serra Angel')!;
+    expect(angel.owner).toBe(1);
+    expect(aura(g)!.attachedTo).toBe(angel.id);
+    const s = stats(g, angel);
+    expect([s.power, s.toughness]).toEqual([3, 4]);
+    // It lost "enchant creature card in a graveyard": it can enchant only that creature now.
+    const other = produce(g, (d) => {
+      put(d, 0, 'Serra Angel');
+    });
+    expect(canEnchant(other, aura(other)!, other.players[0].battlefield.at(-1)!)).toBe(false);
+    expect(canEnchant(other, aura(other)!, byName(other, 0, 'Serra Angel')!)).toBe(true);
+  });
+
+  it("makes that creature's controller sacrifice it when the Aura leaves", () => {
+    let g = setup();
+    g = settle(run(g, cast(g, 'Animate Dead', { targets: [card(byName(g, 1, 'Serra Angel', 'graveyard')!)] })));
+    g = settle(produce(g, (d) => destroy(d, aura(d))));
+    expect(byName(g, 0, 'Serra Angel')).toBeUndefined();
+    expect(byName(g, 1, 'Serra Angel', 'graveyard')).toBeDefined();
+    expect(byName(g, 0, 'Animate Dead', 'graveyard')).toBeDefined();
+  });
+
+  it('goes to the graveyard when the creature leaves, and its leaves ability then does nothing to the new object', () => {
+    let g = setup();
+    g = settle(run(g, cast(g, 'Animate Dead', { targets: [card(byName(g, 1, 'Serra Angel', 'graveyard')!)] })));
+    g = settle(applyAction(produce(g, (d) => bounce(d, byName(d, 0, 'Serra Angel'))), pass));
+    expect(byName(g, 0, 'Animate Dead', 'graveyard')).toBeDefined();
+    expect(byName(g, 1, 'Serra Angel', 'hand')).toBeDefined();
+  });
+
+  it('does nothing if the card leaves the graveyard before its enters ability resolves', () => {
+    let g = setup();
+    g = resolveAura(g);
+    // In response, the card is exiled: the Aura is on nothing and goes to the graveyard (303.4c, 704.5m).
+    g = produce(g, (d) => {
+      moveCard(d, byName(d, 1, 'Serra Angel', 'graveyard')!, 'exile');
+    });
+    g = settle(g);
+    expect(byName(g, 0, 'Animate Dead', 'graveyard')).toBeDefined();
+    expect(byName(g, 1, 'Serra Angel', 'exile')).toBeDefined();
+    expect(g.players[0].battlefield.some((c) => c.name === 'Serra Angel')).toBe(false);
+  });
+  it("attaches once a creature with a choice as it enters has entered, and can't if that gives it protection from the Aura", () => {
+    for (const type of ['Artifact', 'Enchantment']) {
+      let g = emptyGame((d) => {
+        human(d);
+        put(d, 0, 'Animate Dead', 'hand');
+        put(d, 0, 'Swamp', 'battlefield', 2);
+        put(d, 0, "Serra's Emissary", 'graveyard');
+      });
+      g = run(g, cast(g, 'Animate Dead', { targets: [card(byName(g, 0, "Serra's Emissary", 'graveyard')!)] }));
+      g = settle(g, (x) => (x.decision?.type === 'name' ? { type: 'name', name: type } : null));
+      if (type === 'Artifact') {
+        expect(aura(g)!.attachedTo).toBe(byName(g, 0, "Serra's Emissary")!.id);
+        expect(stats(g, byName(g, 0, "Serra's Emissary")!).power).toBe(6);
+      } else {
+        // Protection from enchantments: it can't be attached (702.16c, 701.3b), so it goes to the
+        // graveyard (704.5m) and its leaves ability sacrifices the creature.
+        expect(byName(g, 0, 'Animate Dead', 'graveyard')).toBeDefined();
+        expect(byName(g, 0, "Serra's Emissary", 'graveyard')).toBeDefined();
+      }
+    }
   });
 });

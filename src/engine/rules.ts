@@ -2114,6 +2114,8 @@ function shiftCard(g: Game, c: Card, to: Zone) {
   c.deathtouched = false;
   c.counters = {};
   c.attachedTo = null; // leaving the battlefield also unattaches it
+  // A card that leaves a graveyard is a new object (400.7): an Aura on it (Animate Dead) is on nothing now (303.4c).
+  if (from === 'graveyard') for (const x of battlefield(g)) if (x.attachedTo === c.id) x.attachedTo = null;
   c.transformed = undefined;
   c.loyaltyTurn = 0; // a new object with no memory of its last one (400.7)
   c.protector = null;
@@ -3233,20 +3235,51 @@ export function removeCounters(c: Card, n: number, kind = '+1/+1') {
 }
 
 /**
+ * The enchant abilities Aura `aura` has (702.5): its own, unless it lost it, then any that
+ * effects gave it (layer 6). Only a resolved effect gives one (Animate Dead's), so only an
+ * Aura with such an effect needs its layers worked out.
+ */
+function enchantsOf(g: Game, aura: Card): TargetSpec[] {
+  const own = abilitiesOf(g, aura).enchant;
+  const gained = aura.zone === 'battlefield' && aura.continuous.some((e) => e.enchantOf) ? characteristics(g, aura, '6').enchantOf.map((name) => scriptOf(name).givesEnchant!) : [];
+  return own ? [own, ...gained] : gained;
+}
+
+/**
  * Can Aura `aura` be attached to `host`? The host must be another permanent on the
- * battlefield that its enchant ability allows (702.5a, 303.4d). An Aura that is itself
- * a creature can't enchant anything. An Aura on the battlefield that has lost its enchant
- * ability has nothing saying what it can't enchant (303.4c, 702.5a), so it stays on what it's on.
+ * battlefield, or a card in a graveyard for an Aura like Animate Dead, that every one of its
+ * enchant abilities allows (702.5a, 702.5c, 303.4d). An Aura that is itself a creature can't
+ * enchant anything. An Aura on the battlefield that has lost its enchant ability has nothing
+ * saying what it can't enchant (303.4c, 702.5a), so it stays on what it's on.
  */
 export function canEnchant(g: Game, aura: Card, host: Card | undefined): boolean {
-  if (!host || host.zone !== 'battlefield' || host.id === aura.id || isCreature(g, aura)) return false;
-  const spec = abilitiesOf(g, aura).enchant;
-  if (!spec) return aura.zone === 'battlefield' && !!scriptFor(aura).enchant && !protectedFrom(g, host, aura);
+  if (!host || (host.zone !== 'battlefield' && host.zone !== 'graveyard') || host.id === aura.id || isCreature(g, aura)) return false;
+  const specs = enchantsOf(g, aura);
+  if (!specs.length) return aura.zone === 'battlefield' && !!scriptFor(aura).enchant && (host.zone === 'graveyard' || !protectedFrom(g, host, aura));
+  return specs.every((spec) => enchantAllows(g, spec, aura, host));
+}
+
+/** Does enchant ability `spec` of `aura` allow it to enchant `host`? */
+function enchantAllows(g: Game, spec: TargetSpec, aura: Card, host: Card): boolean {
+  if (spec.type === 'graveyard card') {
+    // "Enchant creature card in a graveyard": `who` is whose graveyard, as for its target. A
+    // card's protection doesn't work there (113.6), so it doesn't stop it (702.16c).
+    if (host.zone !== 'graveyard') return false;
+    if (spec.who === 'you' ? host.owner !== aura.controller : spec.who === 'opponent' && host.owner === aura.controller) return false;
+    return spec.filter?.(g, host, aura, 0) ?? true;
+  }
+  if (host.zone !== 'battlefield') return false;
   if (spec.type === 'creature' && !isCreature(g, host)) return false;
   if (spec.who === 'you' && host.controller !== aura.controller) return false;
   if (spec.who === 'opponent' && host.controller === aura.controller) return false;
   if (protectedFrom(g, host, aura)) return false; // 702.16c
   return spec.filter?.(g, host, aura, 0) ?? true;
+}
+
+/** What Aura or Equipment `c` is attached to: a permanent, or for an Aura like Animate Dead a card in a graveyard. */
+export function attachedObject(g: Game, c: Card): Card | undefined {
+  if (!c.attachedTo) return undefined;
+  return permanent(g, c.attachedTo) ?? g.players.flatMap((p) => p.graveyard).find((x) => x.id === c.attachedTo);
 }
 
 /** Can Equipment `eq` stay attached to `host`? Only to a creature on the battlefield, and not itself (301.5c). */
@@ -4075,7 +4108,7 @@ export function checkState(g: Game) {
     const loose: Card[] = [];
     let fell = false;
     for (const { c, aura } of kinds) {
-      if (aura && !canEnchant(g, c, c.attachedTo ? permanent(g, c.attachedTo) : undefined)) loose.push(c);
+      if (aura && !canEnchant(g, c, attachedObject(g, c))) loose.push(c);
       else if (c.attachedTo && !aura && !canEquip(g, c, permanent(g, c.attachedTo))) {
         c.attachedTo = null;
         changed = fell = true;
