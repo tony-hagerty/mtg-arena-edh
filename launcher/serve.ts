@@ -26,6 +26,8 @@ export function filesFromDir(dir: string): Files {
 export interface PageWatcher {
   pageOpened(): void;
   pageClosed(): void;
+  /** A second copy of the program is about to open a window on this one (`probe` with `opening`). */
+  pageExpected?(): void;
 }
 
 /** What `/__launcher/hello` answers, so a second copy of the program can find the first. */
@@ -80,7 +82,10 @@ export function makeServer({ files, pages, hello, api }: ServeOptions): Server {
     if (!reading && req.headers.origin !== `http://${req.headers.host}`) return send(res, 403, 'text/plain', 'Forbidden');
     if (api?.(req, res, path)) return;
     if (!reading) return send(res, 405, 'text/plain', 'Method not allowed');
-    if (path === '__launcher/hello') return send(res, 200, TYPES.json, JSON.stringify(hello));
+    if (path === '__launcher/hello') {
+      if (new URL(req.url ?? '/', 'http://x').searchParams.has('opening')) pages.pageExpected?.();
+      return send(res, 200, TYPES.json, JSON.stringify(hello));
+    }
     if (path === '__launcher/alive') return alive(req, res, pages);
 
     const file = path === '' ? 'index.html' : path;
@@ -143,10 +148,13 @@ export function listen(server: Server, port: number): Promise<boolean> {
   });
 }
 
-/** Asks whatever holds 127.0.0.1:port whether it's this program, and which data folder it uses. */
-export function probe(port: number): Promise<Hello | undefined> {
+/**
+ * Asks whatever holds 127.0.0.1:port whether it's this program, and which data folder it
+ * uses. `opening` also tells it a window is about to open on it, so it doesn't quit first.
+ */
+export function probe(port: number, opening = false): Promise<Hello | undefined> {
   return new Promise((resolve) => {
-    const req = request({ host: '127.0.0.1', port, path: '/__launcher/hello', timeout: 2000 }, (res) => {
+    const req = request({ host: '127.0.0.1', port, path: `/__launcher/hello${opening ? '?opening' : ''}`, timeout: 2000 }, (res) => {
       let body = '';
       res.setEncoding('utf8');
       res.on('data', (chunk) => (body += chunk));

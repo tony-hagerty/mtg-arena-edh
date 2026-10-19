@@ -8,6 +8,10 @@
 //
 // While our Edge is running, closed pages alone never quit the program: a page that Edge
 // puts to sleep, or one reloading slowly, must not take the game down with it.
+//
+// A second copy of the program (the .exe double-clicked while this one is in its last
+// seconds) opens a window on this one and exits. It says so first (`pageExpected`), so the
+// program waits for that page as it would for its first one instead of quitting under it.
 
 export interface LifetimeOptions {
   quit: () => void;
@@ -22,6 +26,8 @@ export interface Lifetime {
   pageClosed(): void;
   /** The Edge process the program started has exited (or none could be started). */
   browserExited(): void;
+  /** Another copy of the program is opening a window on this one: wait for its page. */
+  pageExpected(): void;
 }
 
 export function createLifetime({ quit, graceMs = 3_000, startupMs = 30_000 }: LifetimeOptions): Lifetime {
@@ -49,6 +55,11 @@ export function createLifetime({ quit, graceMs = 3_000, startupMs = 30_000 }: Li
     },
     browserExited() {
       exited = true;
+      check();
+    },
+    pageExpected() {
+      // Back to the startup wait: the page is on its way, however slowly Edge starts.
+      seen = false;
       check();
     },
   };

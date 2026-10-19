@@ -75,7 +75,8 @@ function openWindow(url: string, lifetime?: Lifetime) {
     return lifetime?.browserExited();
   }
   log(`Opening ${url} in ${edge}`);
-  const child = openEdge(edge, url, paths.edge);
+  // Without a lifetime this copy is about to exit, and Edge must outlive it.
+  const child = openEdge(edge, url, paths.edge, !lifetime);
   child.on('error', (err) => {
     log(`Edge failed to start (${err.message}); opening the default browser.`);
     openDefaultBrowser(url);
@@ -124,6 +125,10 @@ async function main() {
       log(`Game page closed (${--open} open)`);
       lifetime.pageClosed();
     },
+    pageExpected() {
+      log('Another copy is opening a window here; waiting for it.');
+      lifetime.pageExpected();
+    },
   };
 
   // The game server: it holds the whole game and gives each window its own player's view,
@@ -141,12 +146,15 @@ async function main() {
       if (flag('--no-window')) return;
       return openWindow(url, lifetime);
     }
-    // Already running from this folder (the .exe double-clicked twice): open another
-    // window on that one and leave it in charge.
-    const other = await probe(port);
+    // Already running from this folder (the .exe double-clicked twice, or again right
+    // after closing the window, while that copy is still in its last seconds): open another
+    // window on that one and leave it in charge. The probe tells it the window is coming.
+    const window = !flag('--no-window');
+    const other = await probe(port, window);
     if (other && samePath(other.data, paths.data)) {
       log(`Already running on port ${port}; opening another window.`);
-      if (!flag('--no-window')) openWindow(`http://127.0.0.1:${port}/`);
+      if (window) openWindow(`http://127.0.0.1:${port}/`);
+      // A moment for Edge to fail to start, if it will; the window itself outlives this copy.
       return setTimeout(() => process.exit(0), 1000);
     }
   }
