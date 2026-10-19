@@ -10,12 +10,14 @@ import { byName, emptyGame, put, run } from './helpers';
 /**
  * Every card id in a player's hidden zones that `viewer` shouldn't see, in the full game:
  * all but what a choice in front of them shows them (their library while they search it,
- * the cards they pick from, the card they may cast).
+ * the cards they pick from, the card they may cast, the card the choice is for).
  */
 function secretIds(g: Game, viewer: PlayerId | null): string[] {
   const d = viewer !== null && g.priority === viewer ? g.decision : null;
   const searching = d?.type === 'chooseCards' && d.choice.kind === 'search';
   const shown = new Set(d?.type === 'chooseCards' && 'cards' in d.choice ? d.choice.cards : d?.type === 'cast' ? [d.choice.card] : []);
+  // The card a choice is for, like a fetched shock land asking as it enters.
+  if (d && 'choice' in d && 'script' in d.choice && d.choice.script) shown.add(d.choice.script);
   return g.players.flatMap((p) => [
     ...(searching && p.id === viewer ? [] : p.library.map((c) => c.id).filter((id) => !shown.has(id))),
     ...(p.id === viewer ? [] : p.hand.map((c) => c.id)),
@@ -132,6 +134,26 @@ describe('viewFor while a choice shows hidden cards', () => {
 });
 
 describe('viewFor and the log', () => {
+  it('shows a fetched shock land, asking as it enters, to the player it asks (614.12a)', () => {
+    // At a table, the "pay 2 life?" window drew the land from the seat's view, where it was
+    // still a hidden library card, and the screen went blank.
+    let g = emptyGame((d) => {
+      d.players[0].library = [];
+      put(d, 0, 'Polluted Delta');
+      put(d, 0, 'Blood Crypt', 'library');
+    });
+    g = run(g, { type: 'activate', card: byName(g, 0, 'Polluted Delta')!.id });
+    g = run(g, { type: 'chooseCards', cards: [byName(g, 0, 'Blood Crypt', 'library')!.id] });
+    const d = g.decision;
+    if (d?.type !== 'ask' || !d.choice.script) throw new Error('no question as it enters');
+    const land = d.choice.script;
+    const mine = viewFor(g, 0);
+    expect(mine.players[0].library.find((c) => c.id === land)?.name).toBe('Blood Crypt');
+    expect(mine.decision).toEqual(d);
+    // Nobody else learns where it was.
+    expect(strings(viewFor(g, 1)).has(land)).toBe(false);
+  });
+
   it('shows the card a search found only to the searcher (701.23e)', () => {
     let g = emptyGame((d) => {
       d.players[0].isBot = false;

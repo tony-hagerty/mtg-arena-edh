@@ -37,6 +37,7 @@ src/net/        protocol.ts           what the game window and game server send 
                 lobby.ts              what the window and the lobby send each other
 server/game/    host.ts               the game server: the whole game, bots, each seat's view
                 http.ts               its web endpoints (/api/game/...)
+                report.ts             the window's errors, one line each in the launcher's log
                 service.ts            which game the endpoints play: this computer's, or a host's
 server/lobby/   table.ts              the host's table: seats, decks, ready, starting the game
                 hosting.ts            hosting: friends' TLS connections, the join code
@@ -49,6 +50,8 @@ server/net/                           reaching the host: TLS identity, join code
 launcher/                             the Windows program: serves the game, opens Edge, logs
                                       to ArenaEDH-data/launcher.log (see launcher/README.md)
 src/ui/         App.tsx               menu or game screen; GameScreen.tsx lays the game out
+                ErrorScreen.tsx       what shows instead of a blank page when drawing throws
+                crash.ts              sends the window's errors to the program's log
                 store.ts              Zustand store (game + what the player is selecting)
                 remote.ts             the window's connection to the game server
                 lobby.ts              the window's connection to the lobby; the name you play under

@@ -179,3 +179,17 @@ The log is bottom-left, under one bar; point at a button on it (or tab to it) fo
 
 The deck menu has the same mute button and volume slider in its top-right corner. Sound
 and damage choices are saved in the browser.
+
+## If the game crashes
+
+If something goes wrong while the screen is being drawn, an error screen takes the place
+of the table instead of a blank page. It shows the error and the game's last few log
+lines. **Copy Details** copies everything to paste into a message, and **Leave to Menu**
+leaves the game the same way **Exit** does (at a table, you leave the table and the others
+play on).
+
+The Windows program also writes every error to its log: `launcher.log` in the
+`ArenaEDH-data` folder beside `ArenaEDH.exe`, one line per error with the program's build,
+the turn and step, and where in the code it happened. To report a crash, send the copied
+details (or `launcher.log`) and a few words on what was happening: the card that was cast
+or the button that was pressed. At a table, the log is on each player's own computer.
