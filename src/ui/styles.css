@@ -2780,8 +2780,10 @@ button {
   background: linear-gradient(90deg, transparent, #d2aa42, transparent);
 }
 
-/* The mute button and volume slider, top right. */
+/* The mute buttons and volume sliders for sound and music, top right. */
 .menu-sound {
+  display: grid;
+  gap: 0.5rem;
   position: absolute;
   top: 0;
   right: 0;

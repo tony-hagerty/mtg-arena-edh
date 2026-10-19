@@ -7,7 +7,7 @@ import type { CardData, Game, LogEntry, PlayerId, Step, StopKind } from '../engi
 import { CardImage, ManaCost } from './TextCard';
 import { useRem } from './rem';
 import { play } from './sound';
-import { SoundControl } from './SoundControl';
+import { MusicControl, SoundControl } from './SoundControl';
 import { useStore } from './store';
 import type { Hover } from './store';
 import { type Seat, cx, deckColor, faceUp, hoverProps, seatOf } from './util';
@@ -695,6 +695,10 @@ function GameSettings() {
             <div className="setting">
               <span className="setting-name">Sound</span>
               <SoundControl />
+            </div>
+            <div className="setting">
+              <span className="setting-name">Music</span>
+              <MusicControl />
             </div>
             {human !== null && (
               <div className="setting" title={DAMAGE_TIP}>
