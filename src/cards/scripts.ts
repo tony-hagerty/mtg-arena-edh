@@ -13,9 +13,11 @@ import {
   ask,
   battlefield,
   bounce,
+  chooseNumber,
   choosePlayer,
   chooseToDiscard,
   counter,
+  counterCount,
   createToken,
   creaturesOf,
   damageCard,
@@ -29,6 +31,7 @@ import {
   discardHand,
   draw,
   enterBattlefield,
+  enterTogether,
   exile,
   exileAll,
   gainLife,
@@ -36,6 +39,7 @@ import {
   isColor,
   isCreature,
   isLand,
+  isPermanentCard,
   isPlaneswalker,
   label,
   log,
@@ -57,11 +61,14 @@ import {
   says,
   search,
   searchBasic,
+  shuffle,
+  shuffleSearched,
+  simultaneously,
   stats,
   subtypesOf,
   tap,
+  their,
   turnOrder,
-  simultaneously,
 } from '../engine/rules';
 import type { Card, CardScript, Ctx, Game, ManaSym, PlayerId, TargetSpec } from '../engine/types';
 
@@ -964,6 +971,124 @@ registerScripts({
       return: (g, { data }) => {
         const c = g.players.flatMap((p) => p.exile).find((x) => sameCard(x, { id: data.id as string, moves: data.moves as number }));
         if (c) enterBattlefield(g, c, { controller: c.owner, tapped: true });
+      },
+    },
+  },
+});
+
+// ---------- staples from the parse report's corpus (its top 100) that the parser can't read ----------
+
+const BASIC_TYPES = ['Plains', 'Island', 'Swamp', 'Mountain', 'Forest'];
+
+registerScripts({
+  Brainstorm: {
+    // "Draw three cards, then put two cards from your hand on top of your library in any order."
+    onResolve: (g, { you }) => {
+      draw(g, you, 3);
+      const hand = g.players[you].hand;
+      const n = Math.min(2, hand.length);
+      if (n) pickCards(g, you, hand, { min: n, max: n, ordered: true, text: 'put two cards from your hand on top of your library, the first on top', button: 'Put on Top', then: 'top', data: { bot: 'discard' } });
+    },
+    then: {
+      // In the order chosen, the first picked ending on top (401.4).
+      top: (g, { chooser, picked }) => {
+        [...picked].reverse().forEach((c) => putOnTop(g, c));
+        log(g, `${says(g.players[chooser], 'puts')} ${picked.length === 1 ? 'a card' : `${picked.length} cards`} on top of ${their(g.players[chooser])} library.`, chooser);
+      },
+    },
+  },
+  'Chaos Warp': {
+    targets: [{ type: 'permanent', label: 'target permanent' }],
+    onResolve: (g, { targets }) => {
+      const c = refCard(g, targets[0]);
+      if (!c) return;
+      // "The owner of target permanent shuffles it into their library" (701.24a): a token ceases to exist (111.7).
+      const owner = g.players[c.owner];
+      log(g, `${says(owner, 'shuffles')} ${label(c)} into ${their(owner)} library.`, owner.id, [c]);
+      moveCard(g, c, 'library');
+      shuffle(g, owner.library);
+      // "... then reveals the top card of their library. If it's a permanent card, they put it onto the battlefield."
+      const top = owner.library[0];
+      if (!top) return;
+      log(g, `${says(owner, 'reveals')} ${label(top)}.`, owner.id, [top]);
+      if (isPermanentCard(g, top)) enterBattlefield(g, top);
+    },
+  },
+  'Arcane Denial': {
+    targets: [anySpell],
+    onResolve: (g, { self, you, targets }) => {
+      const item = refStack(g, targets[0]);
+      if (!item) return;
+      const controller = item.controller;
+      counter(g, targets[0]);
+      // "Its controller may draw up to two cards at the beginning of the next turn's upkeep. You draw a card at the
+      // beginning of the next turn's upkeep." Two delayed triggered abilities (603.7), whether or not it was countered.
+      delay(g, self, you, { key: 'theyDraw', step: 'upkeep', data: { player: controller } });
+      delay(g, self, you, { key: 'youDraw', step: 'upkeep' });
+    },
+    delayed: {
+      theyDraw: (g, { data }) => {
+        const p = data.player as PlayerId;
+        if (!g.players[p].lost) chooseNumber(g, p, { text: 'Draw up to two cards (Arcane Denial).', min: 0, max: 2, then: 'denialDraw' });
+      },
+      youDraw: (g, { you }) => draw(g, you),
+    },
+    then: { denialDraw: (g, { chooser, n }) => draw(g, chooser, n) },
+    botChoice: { denialDraw: () => ({ type: 'chooseNumber', n: 2 }) },
+  },
+  'The One Ring': {
+    // "When The One Ring enters, if you cast it, you gain protection from everything until your next turn." (603.4, 702.16j)
+    onEnter: {
+      when: (_g, { self }) => !!self.cast,
+      resolve: (g, { self, you }) => {
+        if (!self.cast) return;
+        addEffect(g, { kind: 'protection', player: you, ends: { nextTurnOf: you } });
+        log(g, `Until ${their(g.players[you])} next turn, ${g.players[you].you ? 'you have' : `${g.players[you].name} has`} protection from everything.`, you);
+      },
+    },
+    // "At the beginning of your upkeep, you lose 1 life for each burden counter on The One Ring." As it last was, if it left.
+    onUpkeep: { when: yourTurnStep, resolve: (g, { self, you }) => void loseLife(g, you, counterCount(stillThere(g, self) ?? self, 'burden')) },
+    // "{T}: Put a burden counter on The One Ring, then draw a card for each burden counter on The One Ring."
+    activated: {
+      cost: { tap: true },
+      text: 'Put a burden counter on The One Ring, then draw a card for each burden counter on it.',
+      resolve: (g, { self, you }) => {
+        const ring = stillThere(g, self);
+        if (ring) addCounters(g, ring, 1, 'burden');
+        draw(g, you, counterCount(ring ?? self, 'burden'));
+      },
+    },
+  },
+  'Myriad Landscape': {
+    entersTapped: true,
+    mana: { amount: 1, colors: ['C'] },
+    // "{2}, {T}, Sacrifice this land: Search your library for up to two basic land cards that share a land type, put
+    // them onto the battlefield tapped, then shuffle." One search (701.23h): a basic land, then one sharing a type with it.
+    activated: {
+      cost: { mana: '{2}', tap: true, sacrifice: true },
+      text: 'Search your library for up to two basic land cards that share a land type, put them onto the battlefield tapped, then shuffle.',
+      resolve: (g, { you }) => {
+        const lib = g.players[you].library;
+        const basics = lib.filter((c) => hasType(g, c, 'Basic') && isLand(g, c));
+        if (!lib.length) return shuffleSearched(g, you);
+        pickCards(g, you, lib, { min: 0, max: 1, pickable: basics, text: 'search for a basic land card (up to two that share a land type)', button: 'Take', then: 'first' });
+      },
+    },
+    then: {
+      first: (g, { you, picked }) => {
+        const [a] = picked;
+        if (!a) return shuffleSearched(g, you);
+        const types = subtypesOf(g, a).filter((t) => BASIC_TYPES.includes(t));
+        const lib = g.players[you].library;
+        const fits = lib.filter((c) => c.id !== a.id && hasType(g, c, 'Basic') && isLand(g, c) && subtypesOf(g, c).some((t) => types.includes(t)));
+        pickCards(g, you, lib, { min: 0, max: 1, pickable: fits, text: 'search for a second basic land card that shares a land type with it', button: 'Take', then: 'second', data: { first: a.id } });
+      },
+      second: (g, { you, picked, data }) => {
+        const lib = g.players[you].library;
+        const cards = [data.first as string, picked[0]?.id].map((id) => lib.find((c) => c.id === id)).filter((c): c is Card => !!c);
+        log(g, `${says(g.players[you], 'searches')} ${their(g.players[you])} library for ${cards.map(label).join(' and ')}.`, you, cards);
+        enterTogether(g, cards.map((card) => ({ card, opts: { tapped: true } })));
+        shuffleSearched(g, you);
       },
     },
   },
