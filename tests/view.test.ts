@@ -13,6 +13,13 @@ import { parseCard } from '../src/cards/oracle';
 import { cardData } from '../src/cards/db';
 import type { Game } from '../src/engine';
 import { byName, emptyGame, put } from './helpers';
+import { REFUSED_CARDS } from './refused-cards';
+import { DECKS } from '../src/cards/db';
+import type { DeckDef } from '../src/cards/db';
+import { checkList, deckAsList, savedDeckIssues, savedDeckState } from '../src/cards/decklist';
+import { playedDeck, playsWithoutText } from '../src/cards/support';
+import { addCards } from '../src/cards/fetched';
+import { tableOf } from '../src/ui/store';
 
 /** Starts the store on a game where player 0 is the human. */
 function play(setup: (g: Game) => void) {
@@ -885,5 +892,117 @@ describe('the error screen’s details (ErrorScreen.tsx)', () => {
     expect(text).toContain('Seraphine casts Kaya’s Ghostform.');
     // A page opened from disk has no program to write a log: the error screen is all there is.
     expect(await reportError('render', new Error('boom'))).toBe(null);
+  });
+});
+
+describe('pasting a deck with cards the game can\'t read (the paste screen and the store)', () => {
+  const black = DECKS.find((d) => d.id === 'black')!;
+  const { hound, wisp, lord, ninja } = REFUSED_CARDS;
+  /** The black deck as a list, with its last cards swapped for these. */
+  const list = (swaps: string[], commander = black.commanders[0]) => {
+    const cards = [...black.cards.slice(0, black.cards.length - swaps.length), ...swaps];
+    const basics = Object.entries(black.basics).map(([n, k]) => `${k} ${n}`);
+    return ['Commander', `1 ${commander}`, '', 'Deck', ...basics, ...cards.map((c) => `1 ${c}`)].join('\n');
+  };
+
+  it('lists a refused card with its clause and Oracle line, grouped with others that stumble on the same wording', () => {
+    const check = checkList(list([hound.name, wisp.name, ninja.name]), null, '', 'pasted-t');
+    expect(check.problems).toEqual([]);
+    expect(check.refused.map((r) => r.name)).toEqual([hound.name, wisp.name, ninja.name]);
+    const [h, w, n] = check.refused;
+    expect(h.heading).toMatch(/^“Whenever this card becomes the target of a spell/);
+    expect(h.line).toBe(hound.oracleText.split('\n')[1]);
+    // The same wording on two cards is one group.
+    expect(w.group).toBe(h.group);
+    expect(n.group).not.toBe(h.group);
+    // A keyword that changes how it is played: it can only be swapped.
+    expect(h.noTextless).toBeNull();
+    expect(n.noTextless).toBe('its keyword "ninjutsu" changes how it is played');
+  });
+
+  it('saves a deck with refused cards left over, marked, and it waits on the menu with them listed first', () => {
+    const check = checkList(list([hound.name, wisp.name]), null, '', 'pasted-t');
+    expect(check.deck).not.toBeNull();
+    expect(check.ready).toBe(false);
+    expect(check.leftover.map((r) => r.name)).toEqual([hound.name, wisp.name]);
+    const deck = check.deck!;
+    expect(deck.textless).toBeUndefined();
+    expect(savedDeckState(deck)).toEqual({ issues: [], unplayable: [hound.name, wisp.name], textless: [] });
+    expect(savedDeckIssues(deck)[0]).toMatch(/^Testing Gloom Hound: the game can't read/);
+    // A deck that waits can't be seated, and doesn't fill an opponent's seat.
+    expect(tableOf(null, { ...useStore.getState().settings, opponents: [deck.id, null, null] }, [deck]).map((s) => s.deck.id)).not.toContain(deck.id);
+    // Reopened from the menu, the cards to swap are at the top of the deck.
+    const text = deckAsList(deck, savedDeckState(deck).unplayable);
+    expect(text.split('\n').slice(0, 6)).toEqual(['Commander', `1 ${black.commanders[0]}`, '', 'Deck', `1 ${hound.name}`, `1 ${wisp.name}`]);
+    const again = checkList(text, null, deck.title, deck.id).deck!;
+    expect({ ...again, cards: [...again.cards].sort() }).toEqual({ ...deck, cards: [...deck.cards].sort() });
+  });
+
+  it('plays a refused card without its rules text by choice: saved with the deck, played by the engine, reversible', () => {
+    const check = checkList(list([hound.name, wisp.name]), null, '', 'pasted-t', undefined, [hound.name, wisp.name]);
+    expect(check.ready).toBe(true);
+    expect(check.refused.every((r) => r.textless)).toBe(true);
+    const deck = check.deck!;
+    expect(deck.textless).toEqual([hound.name, wisp.name]);
+    expect(savedDeckState(deck)).toEqual({ issues: [], unplayable: [], textless: [hound.name, wisp.name] });
+    expect(savedDeckIssues(deck)).toEqual([]);
+    useStore.getState().saveDeck(deck);
+    expect(useStore.getState().savedDecks.find((d) => d.id === deck.id)?.textless).toEqual([hound.name, wisp.name]);
+    // The game starts with those cards flagged, and only those.
+    useStore.getState().start(deck);
+    const mine = [...game().players[0].library, ...game().players[0].hand];
+    expect(mine.filter((c) => c.textless).map((c) => c.name).sort()).toEqual([hound.name, wisp.name]);
+    expect(mine.filter((c) => !c.textless).every((c) => c.name !== hound.name)).toBe(true);
+    useStore.getState().quit();
+    // Undone on the paste screen: back to a card to swap.
+    const undone = checkList(deckAsList(deck), null, deck.title, deck.id, undefined, [wisp.name]);
+    expect(undone.leftover.map((r) => r.name)).toEqual([hound.name]);
+    expect(undone.deck!.textless).toEqual([wisp.name]);
+    useStore.getState().deleteDeck(deck.id);
+  });
+
+  it("never plays a commander without its text, nor a card the engine can't frame", () => {
+    const blackNoJudith = list([lord.name, ninja.name], lord.name).replace(`1 ${black.commanders[0]}\n`, `1 ${lord.name}\n`);
+    const check = checkList(blackNoJudith, null, '', 'pasted-t', undefined, [lord.name, ninja.name]);
+    const byCard = Object.fromEntries(check.refused.map((r) => [r.name, r]));
+    expect(byCard[lord.name]).toMatchObject({ commander: true, textless: false, noTextless: "it's the commander, and a commander's text is the deck" });
+    expect(byCard[ninja.name]).toMatchObject({ textless: false });
+    expect(check.deck?.textless).toBeUndefined();
+    // Even a hand-edited saved deck can't do it.
+    const forged: DeckDef = { ...black, id: 'forged', commanders: [lord.name], textless: [lord.name, ninja.name] };
+    expect(playsWithoutText(forged, lord.name)).toBe(false);
+    expect(playsWithoutText(forged, ninja.name)).toBe(false);
+    expect(playedDeck(forged).textless).toBeUndefined();
+  });
+
+  it('plays the card with its own text again once the game can read it', () => {
+    // A card of its own, since this test gives it a script for good.
+    const later = { ...hound, name: 'Testing Gloom Later', oracleText: hound.oracleText.replaceAll(hound.name, 'Testing Gloom Later') };
+    addCards([later], { [later.name]: 'legal' });
+    const deck: DeckDef = { ...black, id: 'later', cards: [...black.cards.slice(1), later.name], textless: [later.name] };
+    expect(playedDeck(deck).textless).toEqual([later.name]);
+    // A newer parser, or a hand script, reads it.
+    registerScripts({ [later.name]: {} });
+    expect(playsWithoutText(deck, later.name)).toBe(false);
+    expect(playedDeck(deck).textless).toBeUndefined();
+    expect(savedDeckState(deck).textless).toEqual([]);
+  });
+
+  it('a textless card on the table shows its note in the hover preview, and the log says so once', () => {
+    play((d) => {
+      put(d, 0, 'Swamp', 'battlefield', 4);
+      d.players[0].hand.push({ ...put(d, 0, hound.name, 'library'), zone: 'hand', textless: true });
+      d.players[0].library.pop();
+    });
+    const c = byName(game(), 0, hound.name, 'hand')!;
+    expect(c.textless).toBe(true);
+    playHandCard(c);
+    press(); // Pay
+    const tile = byName(game(), 0, hound.name)!;
+    expect(tile.textless).toBe(true);
+    expect(game().log.filter((l) => l.text.includes("(its rules text doesn't work here)"))).toHaveLength(1);
+    const el = {} as HTMLElement;
+    hoverProps(data(tile), { textless: tile.textless }).onMouseEnter({ currentTarget: el } as MouseEvent<HTMLElement>);
+    expect(useStore.getState().hover).toMatchObject({ name: hound.name, textless: true });
   });
 });
