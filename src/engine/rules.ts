@@ -1,6 +1,7 @@
 // Queries and effect primitives. Everything here either reads a Game or mutates an
 // Immer draft of one; turn structure and action handling live in engine.ts.
 import { CREATURE_TYPES, cardData } from '../cards/db';
+import { current, isDraft } from 'immer';
 import { anyGrantFor, scriptOf } from './registry';
 import { characteristics, hasOwnAbilities, heldMemo, mayLoseAbilities, settled, staticRemoval, typesOf } from './layers';
 import { replace, whileArriving } from './replace';
@@ -2296,8 +2297,16 @@ export function tap(g: Game, c: Card) {
   trigger(g, c, 'onTapped', {});
 }
 
-/** A copy of a card as it is right now, for an ability or event to remember (113.7a, 603.10a). */
-export const snapshot = (c: Card): Card => ({ ...c, continuous: c.continuous.map((e) => ({ ...e })), counters: { ...c.counters } });
+/**
+ * A copy of a card as it is right now, for an ability or event to remember (113.7a, 603.10a).
+ * Inside `produce` it copies from `current(c)`, the card as a plain object, so the copy
+ * doesn't read every property through the draft's proxy (it is taken of the whole
+ * battlefield each time a permanent dies).
+ */
+export const snapshot = (draft: Card): Card => {
+  const c = isDraft(draft) ? current(draft) : draft;
+  return { ...c, continuous: c.continuous.map((e) => ({ ...e })), counters: { ...c.counters } };
+};
 
 /**
  * Permanent `c` is leaving the battlefield: its abilities waiting or on the stack go on
