@@ -882,7 +882,7 @@ function canPayActivation(g: Game, pid: PlayerId, c: Card, activated: number, x:
   if (ab.cost.crew && crewPower(g, pid, c, crewOptions(g, pid, c)) < ab.cost.crew) return false;
   if (ab.cost.counters && counterCount(c, ab.cost.counters.kind) < ab.cost.counters.n) return false;
   if (ab.cost.discard && discardOptions(g, pid, c, ab.cost.discardFilter).length < ab.cost.discard) return false;
-  if (ab.cost.sacrificeOne && !activationSacrificeOptions(g, pid, c, activated).length) return false;
+  if (ab.cost.sacrificeOne && activationSacrificeOptions(g, pid, c, activated).length < (ab.cost.sacrificeCount ?? 1)) return false;
   if (ab.cost.exileOne && !activationExileOptions(g, pid, c, activated).length) return false;
   if (ab.cost.exileGraveyard && g.players[pid].graveyard.length < ab.cost.exileGraveyard) return false;
   // The source can't also make the mana if tapping, sacrificing or exiling it is part of the cost.
@@ -1179,6 +1179,7 @@ function beginTurn(g: Game, pid: PlayerId, extra?: ExtraTurn) {
     p.drawn = 0;
     p.lifeLost = 0;
     p.lifeGained = 0;
+    p.attackedWith = [];
   }
   // Effects that last "until your next turn" end as that turn begins (611.2a), and those of a
   // player who has left the game as their turn would have begun (800.4m).
@@ -1425,6 +1426,8 @@ function attackersDeclared(g: Game) {
     log(g, `${says(g.players[g.active], 'pays')} ${costText(cost)} to attack.`, g.active);
   }
   log(g, `${says(g.players[g.active], 'attacks')}: ${names.join(', ')}.`, g.active, attackers);
+  const p = g.players[g.active];
+  p.attackedWith = [...new Set([...(p.attackedWith ?? []), ...combat.attacks.map((a) => a.id)])];
   for (const a of combat.attacks) {
     const c = permanent(g, a.id)!;
     trigger(g, c, 'onAttack', { defender: a.defender, target: a.target });
@@ -2229,9 +2232,9 @@ function act(g: Game, a: Action): boolean {
       // "Discard a card": exactly that many other cards from the hand.
       const discarding = (a.discard ?? []).map((id) => discardOptions(g, pid, c, ab.cost.discardFilter).find((x) => x.id === id));
       if (discarding.length !== (ab.cost.discard ?? 0) || discarding.some((x) => !x) || new Set(a.discard).size !== discarding.length) return false;
-      // "Sacrifice a creature": exactly one that fits.
+      // "Sacrifice a creature": exactly one that fits, or as many different ones as it says.
       const sacrificing = (a.sacrifice ?? []).map((id) => activationSacrificeOptions(g, pid, c, a.activated).find((x) => x.id === id));
-      if (sacrificing.length !== (ab.cost.sacrificeOne ? 1 : 0) || sacrificing.some((x) => !x)) return false;
+      if (sacrificing.length !== (ab.cost.sacrificeOne ? (ab.cost.sacrificeCount ?? 1) : 0) || sacrificing.some((x) => !x) || new Set(a.sacrifice).size !== sacrificing.length) return false;
       // "Exile a creature you control": exactly one that fits (The Soul Stone).
       const exiling = (a.exile ?? []).map((id) => activationExileOptions(g, pid, c, a.activated).find((x) => x.id === id));
       if (exiling.length !== (ab.cost.exileOne ? 1 : 0) || exiling.some((x) => !x)) return false;

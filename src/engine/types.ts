@@ -456,6 +456,8 @@ export interface Player {
   lifeLost: number;
   /** Life this player has gained this turn (119.3). */
   lifeGained?: number;
+  /** The creatures this player has attacked with this turn, in any combat (Temple of Civilization). */
+  attackedWith?: string[];
   /**
    * Permanents that phased out while this player controlled them (702.26). They are treated as
    * though they don't exist, so they aren't on the battlefield list, and phase back in during
@@ -1411,6 +1413,8 @@ export interface ActivatedAbility {
     counters?: { kind: string; n: number };
     /** "Sacrifice a creature:": one permanent its controller controls that fits, chosen as it is activated. */
     sacrificeOne?: TargetSpec;
+    /** "Sacrifice two other artifacts and/or creatures" (Mondrak): how many different ones fit `sacrificeOne`. One if left out. */
+    sacrificeCount?: number;
     /** "Spend only black mana on X" (Crypt Rats): each X in `mana` is paid with mana of this colour. */
     xColor?: ManaSym;
     /** "Exile this [permanent]" (Relic of Progenitus). */

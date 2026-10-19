@@ -272,8 +272,8 @@ function handAbility(g: Game, me: PlayerId, card: Card): AbilityRef | undefined 
 function sacrificeNeeds(t: Targeting): { spec: TargetSpec; alt: number | undefined; optional: boolean }[] {
   const card = findCard(S().game!, t.cardId);
   // An ability's "Sacrifice a creature" cost (Goblin Bombardment).
-  const one = card && activatedOf(t, card)?.cost.sacrificeOne;
-  if (one) return [{ spec: one, alt: undefined, optional: false }];
+  const cost = card && activatedOf(t, card)?.cost;
+  if (cost?.sacrificeOne) return Array.from({ length: cost.sacrificeCount ?? 1 }, () => ({ spec: cost.sacrificeOne!, alt: undefined, optional: false }));
   if (!card || t.mode !== 'cast') return [];
   const script = scriptFor(asSpell(card, t.choices.face));
   const alt = t.choices.alt === undefined ? undefined : script.alternativeCosts?.[t.choices.alt];

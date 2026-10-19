@@ -62,8 +62,11 @@ import {
   landColors,
   nameCard,
   protectionFromType,
+  firstDrawInDrawStep,
+  transform,
 } from '../engine/rules';
-import type { Card, CardScript, Game, Mode, PlayerId, TargetRef, TargetSpec } from '../engine/types';
+import type { Card, CardScript, Game, Mode, PlayerId, TargetRef, TargetSpec, TokenSpec } from '../engine/types';
+import { cardData } from './db';
 import { exileTop } from './kraum-tymna';
 import { payThreeLand } from './ketramose';
 import { isOpponent } from './yshtola';
@@ -74,6 +77,12 @@ import { isOpponent } from './yshtola';
 const still = (g: Game, ref: { id: string; moves: number }) => {
   const c = permanent(g, ref.id);
   return sameCard(c, ref) ? c : undefined;
+};
+
+/** "Creature tokens" about to be created: a creature as the effect creating them describes them (a copy as what it copies). */
+const isCreatureToken = (t: TokenSpec) => {
+  const d = cardData(t.copy?.name ?? t.key);
+  return (d.faces?.[t.copy?.face ?? 0]?.typeLine ?? d.typeLine).includes('Creature');
 };
 
 const isInstantOrSorcery = (g: Game, c: Card) => hasType(g, c, 'Instant') || hasType(g, c, 'Sorcery');
@@ -372,6 +381,22 @@ registerScripts({
       text: 'Whenever this creature deals damage to an opponent, draw a card, then discard a card.',
     },
   },
+  'Mondrak, Glory Dominus': {
+    // "If one or more tokens would be created under your control, twice that many of those
+    // tokens are created instead." (614.1a) Whatever the effect says about them, like
+    // "tapped", is true of the extra ones too.
+    replaces: (_g, self, ev) => (ev.kind === 'tokens' && ev.player === self.controller ? { instead: { ...ev, tokens: ev.tokens.map((t) => ({ ...t, count: t.count * 2 })) } } : null),
+    // "{1}{W/P}{W/P}, Sacrifice two other artifacts and/or creatures: Put an indestructible
+    // counter on Mondrak." (107.4f, 122.1b)
+    activated: {
+      cost: { mana: '{1}{W/P}{W/P}', sacrificeOne: { type: 'permanent', who: 'you', label: 'two other artifacts and/or creatures', filter: (g, c, self) => c.id !== self.id && (hasType(g, c, 'Artifact') || isCreature(g, c)) }, sacrificeCount: 2 },
+      text: 'Put an indestructible counter on Mondrak.',
+      resolve: (g, { self }) => {
+        const me = still(g, self);
+        if (me) addCounters(g, me, 1, 'indestructible');
+      },
+    },
+  },
   'Moonshaker Cavalry': {
     // "When this creature enters, creatures you control gain flying and get +X/+X until end of
     // turn, where X is the number of creatures you control." X and the creatures are fixed as it resolves (611.2c).
@@ -394,6 +419,14 @@ registerScripts({
       text: 'Whenever a creature token you control enters, put a +1/+1 counter on this creature.',
     },
   },
+  'Notion Thief': {
+    // Flash is the engine's. "If an opponent would draw a card except the first one they draw
+    // in each of their draw steps, instead that player skips that draw and you draw a card." (614.11)
+    replaces: (g, self, ev) =>
+      ev.kind === 'draw' && isOpponent(g, self.controller, ev.player) && !ev.firstInDrawStep
+        ? { instead: { kind: 'draw', player: self.controller, firstInDrawStep: firstDrawInDrawStep(g, self.controller) } }
+        : null,
+  },
   'Ob Nixilis, the Ascended': {
     // "When Ob Nixilis enters, destroy all tapped creatures your opponents control. You gain 1
     // life for each creature destroyed this way." Only those that went to the graveyard were destroyed.
@@ -410,6 +443,37 @@ registerScripts({
         if ((g.players[you].lifeGained ?? 0) > 0) createToken(g, you, 'Angel 4/4 flying');
       },
       text: 'At the beginning of each end step, if you gained life this turn, create a 4/4 white Angel creature token with flying.',
+    },
+  },
+  'Ojer Taq, Deepest Foundation': {
+    // "If one or more creature tokens would be created under your control, three times that
+    // many of those tokens are created instead." Creature tokens as the effect creating them
+    // describes them, a copy's by what it copies.
+    replaces: (_g, self, ev) =>
+      ev.kind === 'tokens' && ev.player === self.controller && ev.tokens.some(isCreatureToken)
+        ? { instead: { ...ev, tokens: ev.tokens.map((t) => (isCreatureToken(t) ? { ...t, count: t.count * 3 } : t)) } }
+        : null,
+    // "When Ojer Taq dies, return it to the battlefield tapped and transformed under its
+    // owner's control." A card that isn't a transforming double-faced card, like a Clone
+    // copying it, stays in the graveyard (712.14a); a token ceases to exist (111.7).
+    onDies: {
+      resolve: (g, { self }) => {
+        const card = g.players[self.owner].graveyard.find((x) => x.id === self.id && x.moves === self.moves + 1);
+        if (card && cardData(card.name).layout === 'transform') enterBattlefield(g, card, { controller: card.owner, face: 1, tapped: true });
+      },
+      text: "When Ojer Taq dies, return it to the battlefield tapped and transformed under its owner's control.",
+    },
+  },
+  'Temple of Civilization': {
+    // "{T}: Add {W}." "{2}{W}, {T}: Transform this land. Activate only if you attacked with
+    // three or more creatures this turn and only as a sorcery."
+    mana: { amount: 1, colors: ['W'] },
+    activated: {
+      cost: { mana: '{2}{W}', tap: true },
+      sorcery: true,
+      when: (g, self) => (g.players[self.controller].attackedWith ?? []).length >= 3,
+      text: 'Transform this land.',
+      resolve: (g, { self }) => transform(g, permanent(g, self.id), self),
     },
   },
   'Overlord of the Balemurk': {
