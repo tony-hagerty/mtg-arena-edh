@@ -52,10 +52,25 @@ move to another folder or a USB stick together.
 | Path             | What                                                                      |
 | ---------------- | ------------------------------------------------------------------------- |
 | `edge/`          | Edge's profile. Saved decks, settings and fetched cards are in its storage |
-| `launcher.log`   | What the launcher did, and any error. Cleared once it passes 1 MB          |
+| `launcher.log`   | What the launcher did, and any error, the game window's too. Cleared once it passes 1 MB |
 | `saves/`         | A copy of each table game this player is in, to carry on if the host goes |
 
 `launcher/paths.ts` also names `cards/` for the game server to come.
+
+### When the game crashes
+
+The game window sends each error it hits to the program (`POST /api/game/error`,
+`server/game/report.ts`), which writes one line to `launcher.log`:
+
+```
+2026-10-19T12:00:00.000Z Page error (render) 0.2.1-ab12cd turn 7 main1: Error: Unknown card: Wizard | at cardData (...) | at SpellFlash (...)
+```
+
+`render` is an error while drawing the screen (the window shows the error screen, with
+Copy Details and Leave to Menu); `error` and `rejection` are any other error nothing
+caught. Ask whoever saw a crash for `ArenaEDH-data/launcher.log` beside their `ArenaEDH.exe`,
+or for what Copy Details put on their clipboard. Under `npm run dev` the same lines go to
+the dev server's terminal, and a page opened from disk only shows the error screen.
 
 ## First run
 

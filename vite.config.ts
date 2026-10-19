@@ -59,7 +59,11 @@ function gameServer(): Plugin {
           // The dev server keeps its saved games out of the repository.
           saves: join(tmpdir(), 'arena-edh-dev-saves'),
         });
-        return { handle: (req: IncomingMessage, res: ServerResponse, path: string) => lobby.handleApi(it, req, res, path) as boolean };
+        // The page's errors (server/game/report.ts) go to this terminal, where the launcher would write its log.
+        const report = (line: string) => server.config.logger.error(line, { timestamp: true });
+        return {
+          handle: (req: IncomingMessage, res: ServerResponse, path: string) => (game.handleErrorReport(req, res, path, report) || lobby.handleApi(it, req, res, path)) as boolean,
+        };
       };
       server.middlewares.use((req, res, next) => {
         const path = decodeURIComponent(new URL(req.url ?? '/', 'http://x').pathname).slice(1);
