@@ -34,7 +34,8 @@ Read first:
   rules, `docs/how-to-play.md` for the interface, `docs/developing.md` for the layout and
   the script reference.
 - Generated, never edited by hand: `src/cards/cards.generated.json` and
-  `tests/fixtures.generated.json` (`npm run fetch-cards`); `src/cards/creature-types.json`,
+  `tests/fixtures.generated.json` (`npm run fetch-cards`); `tests/parser-corpus.generated.json`
+  (`npm run fetch-corpus`); `src/cards/creature-types.json`,
   `src/cards/subtypes.json` and `docs/rules/` (`npm run fetch-rules`). Behind the cloud
   session's HTTPS proxy, run `NODE_USE_ENV_PROXY=1 npm run fetch-cards`.
 

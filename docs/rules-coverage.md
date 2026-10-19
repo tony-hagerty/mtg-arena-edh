@@ -753,54 +753,115 @@ These are deliberate cuts for a prototype. The biggest ones come first.
 ### Scripts from Oracle text
 
 `src/cards/oracle.ts` reads common, regular Oracle wording into a script, for cards with
-no hand script. It matches each ability, clause by clause, against a short list of
-templates and builds the script from the helpers in `rules.ts`. One clause it can't read
-refuses the whole card, naming the clause: it never guesses. Hand scripts always win.
+no hand script. It matches each ability, clause by clause, against a list of templates and
+builds the script from the helpers in `rules.ts`. One clause it can't read refuses the whole
+card, naming the clause: it never guesses. Hand scripts always win.
 
-- **Abilities:** "When this enters", "When this dies", "Whenever this attacks" and
-  "Whenever you cast a [noncreature] spell" (603.1), prowess (702.108a), extort
-  (702.101a) and job select (702.182a); delve, rebound and paradigm lines are the
-  engine's; activated
-  abilities (602) with `{T}`, mana (with `{X}`, 107.3a), "Pay N life" (119.4), "Discard
-  a card", "Sacrifice this" and "Sacrifice a/another [creature, artifact, land,
-  permanent]" costs, and "Activate only as a sorcery"; cycling (702.29a); mana abilities
-  "{T}: Add {G}", "{C}{C}", "{W} or {B}", "{W}, {U}, or {B}", "one mana of any color",
-  "three mana of any one color", "{1}, {T}: Add {W}{U}" (Signets) and "{W/B}, {T}: Add
-  {W}{W}, {W}{B}, or {B}{B}" (filter lands), with "This deals 1 damage to you" or
-  "Activate only if you control a Plains or a Swamp" (605); "[Other] [Soldier] creatures you control get
-  +N/+N [and have flying]" and "... have haste" (613); instants and sorceries.
-- **Lines about the card itself:** "This land enters tapped", "... unless you control two
-  or more other lands / two or more basic lands / a basic land / an Island or a Swamp",
-  "... unless you have two or more opponents", "... unless your opponents control eight
-  or more lands" (614.1c); "As this land enters, you may pay 2 life. If you don't, it
-  enters tapped" (614.12a); "This spell can't be countered"; "You have no maximum hand
-  size" (402.2); "[Colour] spells you cast cost {N} less to cast" (601.2f); "If you
-  control a commander, you may cast this spell without paying its mana cost" (118.9);
-  "As an additional cost to cast this spell, discard a card / pay N life" (118.8).
-- **Effects:** draw, gain or lose life, mill, surveil, deal damage, "deals N damage to
-  each opponent", destroy, exile, "exile target player's graveyard", return to its
-  owner's hand, create a token listed in `decklists.json`, put +1/+1 counters (on a
-  target, on this, or on each creature you control), "gets +N/+N until end of turn",
-  "creatures you control gain [keyword] until end of turn", "draw N, then discard N",
-  search for a basic land, a land card, a "[basic type] or [basic type] card" or any card,
-  "each opponent loses N life". Clauses join with "and" ("you draw a card and you lose 1
-  life"); a subject carried over is the same target ("target player draws two cards and
-  loses 2 life"). An effect that waits for a choice (a search, a discard, surveil) can be
-  followed only by another choice or a "you may", so nothing happens out of order.
-- **Targets (115):** "any target", "target player/opponent", "target player or
-  planeswalker", and "target [non-type, colour, basic or nonbasic words] creature /
-  permanent / artifact / enchantment / land / planeswalker / artifact or enchantment /
-  creature or enchantment / creature or planeswalker [you control / an opponent controls /
-  you don't control]".
-- **"You may" (608.2d)** asks the player each time; the rest of the ability waits for the
-  answer.
-- **Refused:** anything else, including modal text, "instead", "for each", conditions,
-  X outside a cost, other triggers, and cards with faces. A fetched card it refuses can't
-  be played: it is never played as a stand-in.
-- `npm run parse-report` prints, for the pool, the cards it scripts on its own (92 of 263
-  with rules text today) and every refusal grouped by reason. A test plays a sample of
-  55 pool cards with the parsed script and with the hand script and checks the table
-  ends the same, and another reads every requested card the parser was taught.
+- **Reading a card:** reminder text is dropped, and an ability word or flavor word in front
+  of a line ("Landfall —", "Channel —", "Sell Contraband —") is a label with no rules meaning
+  (207.2c, 207.2d). A card with faces (modal double-faced, transforming, split, Adventure) is
+  read face by face, one script per face name (712, 709, 715); one face it can't read refuses
+  the card. Several abilities on one event become a list on the hook, each triggering on its
+  own (603.2).
+- **Triggers (603):** "When this enters / dies / leaves the battlefield", "Whenever this
+  attacks / blocks / becomes tapped / deals combat damage to a player", "enters or attacks",
+  "attacks or blocks", "enters or dies"; "At the beginning of your upkeep / each upkeep / each
+  opponent's upkeep / your end step / each end step / combat on your turn / your first main
+  phase / each of your postcombat main phases / your draw step"; "Whenever a / another [kind of
+  permanent] enters / dies / attacks" (landfall among them), "this or another creature dies",
+  "a creature or planeswalker you control dies"; "Whenever equipped or enchanted creature
+  attacks / dies / deals damage"; "Whenever a creature you control deals combat damage to a
+  player"; "Whenever you gain life / draw a card / discard a card / sacrifice a permanent",
+  "an opponent draws / loses life / searches their library / casts a spell", "a player draws /
+  sacrifices a permanent"; "Whenever you cast a [kind of] spell", magecraft's "cast or copy"
+  (207.2c); prowess (702.108a), extort (702.101a), job select (702.182a), afterlife
+  (702.135a). An intervening "if" (603.4) is checked as it triggers and as it resolves.
+  "That player", "that much" and "that creature" are the event's; "it" in a trigger about
+  another object is that object. Modal triggered abilities ("choose one —", 603.3c).
+- **Activated abilities (602):** costs of {T}, mana with {X} (107.3a), "Pay N life" (119.4),
+  "Discard a card", "Discard this card" (channel, bloodrush: from the hand), "Sacrifice this",
+  "Sacrifice a / another / N [kind of permanent]", "Exile this", "Exile a creature you
+  control", "Exile N cards from your graveyard", "Remove a counter from this"; "Activate only
+  as a sorcery / during your turn / if [condition]"; "This ability costs {1} less for each
+  legendary creature you control"; cycling and basic landcycling (702.29), equip (702.6a),
+  crew (702.122a).
+- **Mana abilities (605):** "{T}: Add {G}", "{C}{C}", "{B}{B}{B}", "{W} or {B}", "{W}, {U},
+  or {B}", "one mana of any color", "in your commander's color identity", "that a land an
+  opponent controls could produce", "three mana of any one color", Signets ("{1}, {T}: Add
+  {W}{U}") and filter lands, with costs of "Pay 1 life", "Sacrifice this", "Sacrifice a
+  creature", "Discard a card", "Tap an untapped [legendary] creature you control" or "Exile
+  this card from your hand", and "This deals 1 damage to you", "Activate only if [condition]"
+  or "Activate only as an instant". A mana ability that does anything else is refused.
+- **Spells:** instants and sorceries; modal spells ("Choose one / two / one or both / one or
+  more / up to N —", 700.2) and spree (702.172), each mode with its own targets; kicker with
+  "if this spell was kicked" (702.33); flashback (702.34), escape (702.138), overload, read
+  again with "each" for "target" (702.96b); additional costs of a discard, life or a
+  sacrifice (118.8); alternative costs of life, a card exiled from the hand or a sacrifice,
+  with a condition (118.9); "this spell costs {1} less for each ..." or "{X} less, where X
+  is ..." (601.2f); "can't be countered".
+- **Effects:** draw, discard (each player chooses, in APNAP order, 101.4), gain or lose life
+  (a number, "that much", "equal to its power", "for each ..."), mill, scry (701.22) and surveil
+  (701.25), "look at the top N, put K into your hand and the rest on the bottom", put them back
+  in any order, search for a card, a basic land, named basic types, several cards, a card with
+  mana value X or less, into the hand, onto the battlefield, into the graveyard or on top
+  (701.23), Cultivate's split; damage to targets, groups and players as one event (120); destroy,
+  exile, return to hand, tap and untap targets or groups; "they can't be regenerated" (nothing
+  here regenerates); counters (122); "gets +N/+N and gains [keyword] until end of turn", "can't
+  block / can't be blocked this turn", "protection from the color of your choice"; fight
+  (701.14), "deals damage equal to its power"; counter a spell, "unless its controller pays
+  {N}", "exile it instead"; copy a spell (707.10); return a card from a graveyard to the hand or
+  battlefield, put one on top of a library; sacrifices of the player's choice (701.21a); tokens;
+  populate, investigate, mana that stays until end of turn, an extra turn (with "you lose the
+  game" at its end), "you may cast spells this turn as though they had flash", "can't cast
+  spells this turn", "untap up to N lands"; choices made as it resolves ("return a land you
+  control to its owner's hand", "put a land card from your hand onto the battlefield").
+- **Order and memory:** effects happen in printed order (608.2c): a choice partway through (a
+  discard, a search, scry, a payment) waits, and the rest goes on once it is made. "You may"
+  asks the player it names (608.2d); "you may pay {N}. If you do, ..." asks with the cost;
+  "[effect] unless that player pays {N}" asks that player first (118.12a). An effect remembers
+  the object it acted on as it last was ("its controller", "its power", "that card's mana
+  value", 608.2h), the group it acted on ("tap those creatures"), the life lost and damage
+  dealt ("you gain life equal to the life lost this way"), and X: "where X is ...", the cost's
+  X, or a permanent's own X in its "enters" ability (107.3m).
+- **Targets and groups (115):** "any target", players and opponents, "two target players",
+  "up to one / two", "one or two", "two", "any number of" (115.1d), "another target", lists of
+  kinds ("artifact, creature, or planeswalker"), with words in front (colours, "non-", basic,
+  legendary, token, tapped, attacking or blocking, creature types) and after ("you control", "an
+  opponent controls", "with flying", "with power 4 or greater", "with mana value 3 or less");
+  spells ("target noncreature spell", "spell or nonland permanent"), abilities, and cards in
+  graveyards. Groups ("each creature you don't control", "all artifacts and enchantments",
+  "creatures you control", "attacking creatures") are the objects as the effect starts (611.2c).
+  Three or more targets that must all be different are refused: the engine keeps only one
+  pair apart (see Known simplifications).
+- **Tokens (111):** a token listed in `decklists.json` is used when the words match, so its
+  art shows; otherwise the text's description ("a 2/2 black Zombie Knight creature token with
+  menace") is made into a token on the fly, keyed like the listed ones ("Zombie Knight 2/2
+  menace B"), and a quoted ability on it ("It has 'Sacrifice this token: Add {C}.'") is read by
+  the parser itself. An X/X token is refused.
+- **Statics and lines about the card:** "[other] [kind] creatures / permanents you control get
+  +N/+N, have [keywords], have 'Ward—Pay N life.'", "Enchant [kind]" with "enchanted creature
+  gets / has / can't block" (702.5), "equipped creature gets / has / can't be blocked"; "this
+  gets +1/+1 for each ...", base power and toughness from a count (604.3); "can't be blocked",
+  "attacks each combat if able"; ward (702.21); "each land is a Swamp in addition" (305.7);
+  enters tapped, unless [a condition], with N counters, paying 2 or 3 life, or revealing a land
+  card (614.1c, 614.12a); no maximum hand size, "doesn't untap", "skip your draw step";
+  "[kind] spells you cast cost {1} less / more"; "creatures your opponents control enter
+  tapped"; "you may cast spells as though they had flash"; "spells you control can't be
+  countered"; "untap [this / all artifacts you control] during each other player's untap step";
+  token and counter doubling and Hardened Scales (614.1a); Propaganda's attack tax (508.1g);
+  "during your turn, your opponents can't cast spells or activate abilities".
+- **Refused:** anything else, including "instead" effects it has no template for, conditions it
+  can't read, X outside a cost, and cards whose rules the engine doesn't have (playing lands
+  from a graveyard, an extra land each turn, copies). A fetched card it refuses can't be
+  played: it is never played as a stand-in.
+- `npm run parse-report` prints the cards it scripts on its own and every refusal: for the
+  pool (324 of 519 cards with rules text, 62%) and for a corpus of the 600 most-played
+  Commander cards (`tests/parser-corpus.generated.json`: 401 of 590, 68%), whose refusals it
+  groups by opening words and by shape, biggest first. A test plays about 190 pool cards with
+  the parsed script and with the hand script and checks the table ends the same; others play
+  each template on a made-up card and check a near miss is refused.
+  `npm run recheck-requests` takes the requested cards the parser now reads out of
+  `docs/card-requests.json`.
 
 ### Bots
 
@@ -817,7 +878,8 @@ refuses the whole card, naming the clause: it never guesses. Hand scripts always
 - They don't try Underworld Breach loops.
 - A bot never announces X = 0 for an ability with X in its cost: it pays nothing and, for
   the current cards, does nothing.
-- A bot always says yes to a parsed "you may" effect.
+- A bot always says yes to a parsed "you may" effect, keeps every card on top when a parsed
+  card has it scry or surveil, and untaps its own lands for a parsed "untap up to N lands".
 
 ### Features tested only with extra cards
 

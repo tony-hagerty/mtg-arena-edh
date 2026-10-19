@@ -82,6 +82,10 @@ tests/                                Vitest: card coverage, rules, the UI casti
                 fixtures.ts           scripts for cards not in the pool yet, for testing
                 fixture-cards.json    their names; fetch-cards writes their data to
                                       fixtures.generated.json
+                parser-corpus.generated.json
+                                      the Oracle text of the 600 most-played Commander
+                                      cards, which the parse report scores the parser on
+                                      (npm run fetch-corpus; never edited by hand)
 public/         cursor.png            the mouse cursor, and cursor-down.png while a
                                       button is held (see Credits)
 docs/rules/     INDEX.md              official Comprehensive Rules, one file per rule
@@ -179,7 +183,18 @@ matches.
 A card pasted in a deck doesn't need to be in the pool: the app fetches it (see
 [Commander and decks](rules-coverage.md#commander-and-decks)). The ones it can't play are listed in
 `docs/card-requests.json`; run `/script-requested-cards` in Claude Code to add parser
-templates or hand scripts for them. A hand script in `src/cards/scripts.ts` works for a
+templates or hand scripts for them, then `npm run recheck-requests` to take out the ones the
+parser now reads.
+
+**Widening the parser.** `npm run parse-report` scores the parser alone on the pool and on a
+corpus of real staples, `tests/parser-corpus.generated.json` (the 600 most-played Commander
+cards by EDHREC rank, from `npm run fetch-corpus`). For the corpus it groups the refused
+clauses by their opening words and by shape (the card's name, numbers and mana symbols set
+aside), biggest group first: that is the to-do list. A template in `src/cards/oracle.ts` is a
+regular expression and the helper that builds what it does, in the list for its kind of line
+(effects, costs, static and card lines, trigger events); each reads its wording exactly and
+refuses anything near it, and each gets a made-up card test, a game test and a near-miss test
+in `tests/oracle.test.ts`. A hand script in `src/cards/scripts.ts` works for a
 fetched card too, since the card is matched to it by name.
 
 ### Script reference
