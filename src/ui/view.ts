@@ -604,8 +604,8 @@ export function buildView(): View {
                     ? `${who} may cast a spell`
                     : deciding === 'retarget'
                       ? `${who} is choosing new targets`
-                      : deciding === 'orderDamage'
-                        ? `${who} is ordering damage effects`
+                      : deciding === 'replacement'
+                        ? `${who} is choosing how replacement effects apply`
             : g.priority === g.active
               ? `${who}'s turn`
               : `${who} may respond`;

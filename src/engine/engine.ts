@@ -125,8 +125,6 @@ import {
   settleEntering,
   orderEntering,
   flashbackCost,
-  NeedsOrder,
-  withOrderAnswers,
   tokenCopy,
   canChangeTargets,
   hasType,
@@ -136,6 +134,7 @@ import {
 } from './rules';
 import type { EnterOpts } from './rules';
 import { settled } from './layers';
+import { NeedsChoice, replace, withReplacementAnswers } from './replace';
 import type {
   AbilityRef,
   Action,
@@ -1286,12 +1285,13 @@ function beginStep(g: Game, step: Step) {
       fireDelayed(g, 'upkeep');
       break;
     case 'draw':
+      g.players[pid].drawnBeforeDrawStep = g.players[pid].drawn;
       draw(g, pid, 1); // 504.1
       broadcast(g, 'onDrawStep', { player: pid }); // 504.2
       break;
     case 'main1':
       // The active player puts a lore counter on each of their Sagas (714.3c).
-      for (const c of p.battlefield) if (isSaga(g, c) && scriptFor(c).chapters?.length) addCounters(g, c, 1, 'lore');
+      for (const c of p.battlefield) if (isSaga(g, c) && scriptFor(c).chapters?.length) addCounters(g, c, 1, 'lore', { by: 'rule' });
       broadcast(g, 'onPrecombatMain', { player: pid }); // 505.1a
       fireDelayed(g, 'main1');
       break;
@@ -1347,10 +1347,7 @@ function nextStep(g: Game) {
         log(g, `${says(g.players[g.active], 'skips')} ${their(g.players[g.active])} first draw step.`, g.active);
         return beginStep(g, 'main1');
       }
-      if (g.players[g.active].battlefield.some((c) => scriptFor(c).skipDrawStep)) {
-        log(g, `${says(g.players[g.active], 'skips')} ${their(g.players[g.active])} draw step.`, g.active);
-        return beginStep(g, 'main1');
-      }
+      if (replace(g, { kind: 'begin', player: g.active, what: 'drawStep' }).kind === 'none') return beginStep(g, 'main1');
       return beginStep(g, 'draw');
     case 'attackers':
       // With no attackers, the declare blockers and combat damage steps are skipped (508.8).
@@ -1392,11 +1389,7 @@ function cleanup(g: Game) {
   while (g.extraTurns.length) {
     const extra = g.extraTurns.pop()!;
     if (g.players[extra.player].lost) continue;
-    const skip = battlefield(g).find((x) => scriptFor(x).skipsExtraTurn?.(g, x, extra.player));
-    if (skip) {
-      log(g, `${says(g.players[extra.player], 'skips')} an extra turn (${label(skip)}).`, extra.player, [skip]);
-      continue;
-    }
+    if (replace(g, { kind: 'begin', player: extra.player, what: 'extraTurn' }).kind === 'none') continue;
     return beginTurn(g, extra.player, extra);
   }
   beginTurn(g, nextLiving(g, g.active));
@@ -2019,7 +2012,8 @@ function activateLoyalty(g: Game, pid: PlayerId, c: Card, i: number, a: Extract<
   if (!targetsOk(g, pid, c, specs, targets) || a.crew?.length) return false;
   const x = a.x ?? 0;
   const change = loyaltyChange(ab, x);
-  if (change > 0) c.counters.loyalty = loyaltyOf(c) + change;
+  // Putting loyalty counters on is a cost: effects that change what effects put on don't apply (606.4, 614.16).
+  if (change > 0) addCounters(g, c, change, 'loyalty', { by: 'cost' });
   else removeCounters(c, -change, 'loyalty');
   c.loyaltyTurn = g.turn;
   const item: StackItem = { id: `s${g.nextId++}`, kind: 'activated', controller: pid, card: snapshot(c), targets, ability: i, ...(ab.cost === '-X' && { x }) };
@@ -2523,7 +2517,7 @@ function act(g: Game, a: Action): boolean {
     }
 
     // Handled by `applyAction`, which applies the stopped action again.
-    case 'orderDamage':
+    case 'replacement':
       return false;
 
     case 'assignDamage': {
@@ -2634,11 +2628,11 @@ export interface ApplyOptions {
 }
 
 export function applyAction(g: Game, a: Action, { autoPass = true, stops, simulate }: ApplyOptions = {}): Game {
-  // A person ordering replacement effects (616.1): the action they stopped is applied again
-  // from where it began, with their answer.
-  if (g.decision?.type === 'orderDamage') {
+  // A person choosing about replacement effects (616.1): the action they stopped is applied
+  // again from where it began, with their answer.
+  if (g.decision?.type === 'replacement') {
     const r = g.replay;
-    if (a.type !== 'orderDamage' || !r || !g.decision.order.options[a.option] || g.priority !== g.decision.order.player) return g;
+    if (a.type !== 'replacement' || !r || !g.decision.ask.options[a.option] || g.priority !== g.decision.ask.player) return g;
     const before = produce(g, (d) => {
       d.decision = r.decision;
       d.priority = r.priority;
@@ -2646,24 +2640,24 @@ export function applyAction(g: Game, a: Action, { autoPass = true, stops, simula
     });
     return attempt(before, r.action, r.autoPass, r.stops as ApplyOptions['stops'], [...r.answers, a.option], simulate);
   }
-  if (a.type === 'orderDamage') return g;
+  if (a.type === 'replacement') return g;
   return attempt(g, a, autoPass, stops, [], simulate);
 }
 
-/** Applies `a`, with these answers to the order questions it asks (`NeedsOrder`); stops to ask the next one. */
+/** Applies `a`, with these answers to the replacement questions it asks (`NeedsChoice`); stops to ask the next one. */
 function attempt(g: Game, a: Action, autoPass: boolean, stops: ApplyOptions['stops'], answers: number[], simulate?: boolean): Game {
   const run = () =>
     produce(g, (draft) => {
       if (act(draft, a)) settle(draft, autoPass, stops);
     });
   try {
-    // A bot trying a move out can't ask anyone: the order that deals the least damage is taken.
-    return withOrderAnswers(simulate ? null : answers, () => (simulate ? withoutLookahead(run) : run()));
+    // A bot trying a move out can't ask anyone: each choice goes the way a bot would take it.
+    return withReplacementAnswers(simulate ? null : answers, () => (simulate ? withoutLookahead(run) : run()));
   } catch (e) {
-    if (!(e instanceof NeedsOrder)) throw e;
+    if (!(e instanceof NeedsChoice)) throw e;
     return produce(g, (d) => {
       d.replay = { action: a, autoPass, stops, answers, decision: g.decision, priority: g.priority };
-      d.decision = { type: 'orderDamage', order: e.choice };
+      d.decision = { type: 'replacement', ask: e.choice };
       d.priority = e.choice.player;
     });
   }

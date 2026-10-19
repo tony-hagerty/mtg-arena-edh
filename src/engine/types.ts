@@ -329,8 +329,7 @@ export interface Card {
   cast: CastInfo | null;
   /**
    * A commander that may still go to the command zone: put into a graveyard or exile since
-   * state-based actions were last checked (903.9a), or a human's just put into a hand or
-   * library (903.9b).
+   * state-based actions were last checked (903.9a).
    */
   mayReturn: boolean;
   /**
@@ -451,6 +450,8 @@ export interface Player {
   noncreatureSpellsCast: number;
   /** Cards this player has drawn this turn (121.1). */
   drawn: number;
+  /** `drawn` as their latest draw step began, so the first card drawn in it can be told apart (504.1, Notion Thief). */
+  drawnBeforeDrawStep?: number;
   /** Life this player has lost this turn, from damage (119.2), paying life (119.4) or an effect (119.3). */
   lifeLost: number;
   /** Life this player has gained this turn (119.3). */
@@ -829,6 +830,87 @@ export interface Mulligans {
   opened?: boolean;
 }
 
+/** How a replacement effect changes an amount of damage (614.1a): doubled, or plus N. */
+export interface DamageChange {
+  times?: number;
+  plus?: number;
+}
+
+/** Tokens of one kind an event would create (111.2): `count` of token `key`, or of a copy of something (`copy`, 707.2). */
+export interface TokenSpec {
+  key: string;
+  count: number;
+  copy?: CopyInfo | null;
+}
+
+/**
+ * An event that replacement and prevention effects can change (614, 615), as it would
+ * happen. `replace` in replace.ts applies every effect that applies to it and returns the
+ * event that happens instead, which the caller carries out.
+ *  damage   - `source` would deal `amount` damage to player `player` or permanent `card` (120).
+ *  move     - card `card` would be put from its zone into `to` (400.6), a commander maybe into the command zone.
+ *  draw     - `player` would draw a card (121.1). `firstInDrawStep`: it would be the first
+ *             card they draw in their own draw step (Notion Thief's exception).
+ *  tokens   - tokens would be created under `player`'s control (111.2).
+ *  counters - `n` counters of kind `counter` would be put on permanent `card` (122.6), by an
+ *             effect, as it enters (`entering`), or not by an effect (`by`): as a cost (a loyalty
+ *             ability's, 606.4) or by a turn-based action (a Saga's lore counter, 714.3b).
+ *  gainLife - `player` would gain `amount` life (119.10).
+ *  enter    - permanent `card` would enter the battlefield (614.1c-d, 614.12), tapped or not,
+ *             with these counters. Counters it enters with are then put on it as a `counters` event (616.1g).
+ *  begin    - `player` would begin an extra turn (500.7) or their draw step (614.10).
+ *  none     - replaced with nothing: skipped (614.10), or all the damage prevented (615.6).
+ *             `was` is the event it replaced.
+ */
+export type ReplaceEvent =
+  | { kind: 'damage'; source: Card; player?: PlayerId; card?: Card; amount: number; combat: boolean }
+  | { kind: 'move'; card: Card; to: Zone }
+  | { kind: 'draw'; player: PlayerId; firstInDrawStep: boolean }
+  | { kind: 'tokens'; player: PlayerId; tokens: TokenSpec[] }
+  | { kind: 'counters'; card: Card; counter: string; n: number; entering?: boolean; by?: 'cost' | 'rule' }
+  | { kind: 'gainLife'; player: PlayerId; amount: number }
+  | { kind: 'enter'; card: Card; tapped: boolean; counters: Record<string, number> }
+  | { kind: 'begin'; player: PlayerId; what: 'extraTurn' | 'drawStep' }
+  | { kind: 'none'; was: ReplaceEvent };
+
+/**
+ * One replacement or prevention effect that would apply to an event: the event that happens
+ * `instead` (614.1). Each applies at most once to an event and to whatever replaces it (614.5).
+ */
+export interface Replacement {
+  instead: ReplaceEvent;
+  /** What to call it when a player is asked, or in the log. Left out, its permanent's name. */
+  name?: string;
+  /**
+   * Its place in the order of 616.1a-d: 0 a self-replacement effect (614.15), 1 one that
+   * changes under whose control an object enters, 2 one that makes it enter as a copy, 3 one
+   * that makes it enter with its back face up. One of the lowest there is must be applied
+   * first. Left out, any order (616.1e).
+   */
+  tier?: 0 | 1 | 2 | 3;
+  /**
+   * "You may": `player` decides whether it is applied. `yes` and `no` label the choice, and
+   * `text` asks it. A bot applies it unless `bot` is false.
+   */
+  optional?: { player: PlayerId; text: string; yes: string; no: string; bot?: boolean };
+  /** It may apply again to the event it made (903.9b, an exception to 614.5). */
+  again?: boolean;
+  /** Logged when it is applied. */
+  log?: { text: string; player: PlayerId; cards?: Card[] };
+}
+
+/**
+ * A person chooses which of the replacement and prevention effects that would change an
+ * event applies next (616.1), or whether to apply an optional one. Each option says what it
+ * leads to. The action that was being carried out is done again with the answer once it is
+ * given (`Game.replay`).
+ */
+export interface ReplacementChoice {
+  player: PlayerId;
+  text: string;
+  options: { label: string; sub: string }[];
+}
+
 /**
  * A choice the game is waiting on that isn't a player using priority. `Game.priority`
  * names the player who makes it.
@@ -847,31 +929,15 @@ export interface Mulligans {
  *  number        - a player chooses a number (see `NumberChoice`)
  *  cast          - a player may cast a card while a spell resolves (see `CastChoice`)
  *  retarget      - a player may choose new targets for a spell or ability (see `RetargetChoice`)
- *  commanderZone - a player's commander was put into their graveyard, exile, hand or
- *                  library, and they choose whether it goes to the command zone (903.9).
+ *  replacement   - a player chooses which replacement effect applies next, or whether an
+ *                  optional one does (see `ReplacementChoice`)
+ *  commanderZone - a player's commander was put into their graveyard or exile, and they
+ *                  choose whether it goes to the command zone (903.9a).
  *                  `resume` is the player who gets priority afterwards.
  */
-/** How a replacement effect changes an amount of damage (614.1a): doubled, or plus N. */
-export interface DamageChange {
-  times?: number;
-  plus?: number;
-}
-
-/**
- * A person chooses the order of replacement effects that change damage they or their
- * permanent would be dealt (616.1), when the order changes the amount. Each option is an
- * order and the damage it leads to. The action that was being carried out is done again with
- * the answer once it is given (`Game.replay`).
- */
-export interface OrderDamageChoice {
-  player: PlayerId;
-  text: string;
-  options: { order: string[]; amount: number }[];
-}
-
 export type Decision =
   | { type: 'mulligan' | 'attackers' | 'blockers' | 'discard' }
-  | { type: 'orderDamage'; order: OrderDamageChoice }
+  | { type: 'replacement'; ask: ReplacementChoice }
   | { type: 'targets'; item: StackItem; resume: PlayerId }
   /** A player chooses the modes of their modal triggered ability as it goes on the stack (603.3c). */
   | { type: 'triggerModes'; item: StackItem; resume: PlayerId }
@@ -937,9 +1003,10 @@ export interface Game {
    * `ready` are the cards whose way of entering is settled; `waiting` are the ids still asked.
    */
   /**
-   * An action stopped partway to ask a person to order replacement effects (616.1): it is
-   * applied again from this state with `answers`, plus the new one, once they answer. The
-   * decision and priority it stopped from are restored first.
+   * An action stopped partway to ask a person about replacement effects (616.1): which applies
+   * next, or whether to apply an optional one. It is applied again from this state with
+   * `answers`, plus the new one, once they answer. The decision and priority it stopped from
+   * are restored first.
    */
   replay?: { action: Action; autoPass: boolean; stops?: unknown; answers: number[]; decision: Decision | null; priority: PlayerId };
   entering?: {
@@ -1007,8 +1074,8 @@ export type Action =
   | { type: 'answer'; yes: boolean }
   /** Answers a `name` decision with a card name (or a creature type). */
   | { type: 'name'; name: string }
-  /** Answers an `orderDamage` decision: the index of the order chosen. */
-  | { type: 'orderDamage'; option: number }
+  /** Answers a `replacement` decision: the index of the option chosen. */
+  | { type: 'replacement'; option: number }
   /** Answers a `triggerModes` decision: the modes, as indexes in printed order (700.2). */
   | { type: 'chooseModes'; modes: number[] }
   /** Answers a `number` decision: the number, or null to choose none if it allows that. */
@@ -1470,9 +1537,9 @@ export interface CardScript extends Triggers {
   /**
    * While this permanent is on the battlefield: a replacement effect that changes how much
    * damage `source` would deal to a player or permanent (614.1a): it deals double (`times: 2`,
-   * Furnace of Rath) or that much plus N (`plus`, Torbran). Null if it doesn't apply. When
-   * several apply, the player being dealt damage, or the permanent's controller, chooses the
-   * order (616.1).
+   * Furnace of Rath) or that much plus N (`plus`, Torbran). Null if it doesn't apply. Like
+   * every replacement effect, it is applied by `replace` (replace.ts): when several apply, the
+   * player being dealt damage, or the permanent's controller, chooses the order (616.1).
    */
   changesDamage?: (g: Game, self: Card, source: Card, to: { player?: PlayerId; card?: Card }, combat: boolean) => DamageChange | null;
   /**
@@ -1512,6 +1579,19 @@ export interface CardScript extends Triggers {
   grantsConvoke?: (g: Game, self: Card, spell: Card, caster: PlayerId) => boolean;
   /** While this permanent is on the battlefield: may `pid` spend mana as though it were mana of any colour to activate an ability of `source` (Agatha's Soul Cauldron)? */
   anyColorFor?: (g: Game, self: Card, pid: PlayerId, source: Card) => boolean;
+  /**
+   * While this permanent is on the battlefield: the replacement and prevention effects of its
+   * static abilities (614, 615) that would apply to event `ev`, as the event that happens
+   * instead (`Replacement.instead`), or null. Asked again as other effects change the event,
+   * so it sees the event as changed so far (616.1f); each applies once (614.5). A general
+   * effect doesn't apply to its own permanent entering (614.12). The hooks below for one kind
+   * of event (`changesDamage`, `preventsDamage`, `entersTappedFor`, `skipDrawStep`,
+   * `skipsExtraTurn`) are shorthand for this.
+   * "If one or more tokens would be created under your control, twice that many of those tokens are created instead":
+   *   replaces: (g, self, ev) => ev.kind === 'tokens' && ev.player === self.controller
+   *     ? { instead: { ...ev, tokens: ev.tokens.map((t) => ({ ...t, count: t.count * 2 })) } } : null
+   */
+  replaces?: (g: Game, self: Card, ev: ReplaceEvent) => Replacement | Replacement[] | null;
   /** While this permanent is on the battlefield: does `pid` skip the extra turn they would begin (614.10, Trouble in Pairs)? */
   skipsExtraTurn?: (g: Game, self: Card, pid: PlayerId) => boolean;
   /** "No more than N creatures can attack this permanent each combat": a restriction on declaring attackers (508.1c). */
