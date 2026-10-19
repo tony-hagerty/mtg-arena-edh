@@ -6,7 +6,7 @@ import { cardData, registerCards } from '../src/cards/db';
 import { needsScript, parseCard, scriptCards } from '../src/cards/oracle';
 import { parseResults } from '../src/cards/oracle-report';
 import { activatedAt, applyAction, applyBotAction, botAction, castCost, hasScript, isCreature, isLand, legalTargets, makeCard, manaAbilities, permanent, scriptOf, spellTargets, stats } from '../src/engine';
-import type { Action, ActivatedAbility, Card, CardData, CardScript, Game, TargetRef, TargetSpec } from '../src/engine';
+import type { Action, ActivatedAbility, Card, CardData, CardScript, Ctx, Game, TargetRef, TargetSpec } from '../src/engine';
 import { registerScripts } from '../src/engine/registry';
 import fixtureData from './fixtures.generated.json';
 import { byName, emptyGame, put, run } from './helpers';
