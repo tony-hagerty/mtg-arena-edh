@@ -754,7 +754,7 @@
     {
       "id": "hashaton",
       "title": "Hashaton, Scarab's Fist",
-      "blurb": "",
+      "blurb": "Esper reanimator: discard big creatures, and Hashaton turns each one into a 4/4 Zombie copy.",
       "pilot": "Samut",
       "commanders": [
         "Hashaton, Scarab's Fist"
@@ -856,8 +856,7 @@
         "Vohar, Vodalian Desecrator",
         "Watery Grave",
         "Witch Enchanter"
-      ],
-      "wip": true
+      ]
     }
   ],
   "tokens": {
