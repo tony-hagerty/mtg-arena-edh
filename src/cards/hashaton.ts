@@ -66,6 +66,7 @@ import {
   transform,
   monstrosity,
   madness,
+  miracle,
 } from '../engine/rules';
 import type { Card, CardScript, Game, Mode, PlayerId, TargetRef, TargetSpec, TokenSpec } from '../engine/types';
 import { cardData } from './db';
@@ -406,6 +407,18 @@ registerScripts({
       resolve: (g, { you }) => loot(g, you),
       text: 'Whenever this creature deals damage to an opponent, draw a card, then discard a card.',
     },
+  },
+  'Metamorphosis Fanatic': {
+    // Lifelink is the engine's. "When this creature enters, return up to one target creature
+    // card from your graveyard to the battlefield with a lifelink counter on it." It enters with
+    // the counter (122.6).
+    targets: [{ ...creatureCardInYourGraveyard('up to one target creature card from your graveyard'), optional: true }],
+    onEnter: (g, { you, targets }) => {
+      const c = refGraveyard(g, targets[0]);
+      if (c) enterBattlefield(g, c, { controller: you, counters: { lifelink: 1 } });
+    },
+    // "Miracle {1}{B}" (702.94a)
+    alternativeCosts: [miracle('{1}{B}')],
   },
   'Mondrak, Glory Dominus': {
     // "If one or more tokens would be created under your control, twice that many of those
