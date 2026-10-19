@@ -14,8 +14,10 @@ export const isHidden = (c: Card) => c.name === HIDDEN;
 
 /**
  * The cards in `viewer`'s hidden zones that a choice in front of them lets them look at:
- * their whole library while they search it (701.23a), the cards they pick from, or the
- * card they may cast.
+ * their whole library while they search it (701.23a), the cards they pick from, the card
+ * they may cast, or the card the choice is for (`script`): one entering the battlefield
+ * from their library or hand that asks as it enters (614.12a, a fetched shock land), or
+ * one in their opening hand (103.6). The choice names that card already.
  */
 function lookingAt(g: Game, viewer: PlayerId): Set<string> | 'library' {
   const d = g.decision;
@@ -23,6 +25,7 @@ function lookingAt(g: Game, viewer: PlayerId): Set<string> | 'library' {
   if (d.type === 'chooseCards' && d.choice.kind === 'search') return 'library';
   if (d.type === 'chooseCards' && (d.choice.kind === 'pick' || d.choice.kind === 'legend')) return new Set(d.choice.cards);
   if (d.type === 'cast') return new Set([d.choice.card]);
+  if ('choice' in d && 'script' in d.choice && d.choice.script) return new Set([d.choice.script]);
   return new Set();
 }
 
