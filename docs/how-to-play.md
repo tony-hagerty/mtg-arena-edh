@@ -66,6 +66,12 @@ The full guide to the game's screens and controls. For a quick start, see the
   is there and you could respond, the game stops for you: cast an instant or use an
   ability, or press **Resolve** to let it happen. The newest thing on the stack happens
   first.
+- Cards fly to where they go: from a hand to the stack, from the stack to the battlefield
+  or the graveyard, from the battlefield to a graveyard or exile pile, back to a hand or
+  the command zone. A spell or ability that resolves glows gold as it leaves the stack, an
+  ability flies back into the permanent it came from, and the log lines it wrote flash
+  gold. A new token flares as it appears. At a higher **Speed** the flights are quicker,
+  and with your system set to reduce motion cards just appear where they go.
 - With the stack empty, the game passes for you except at your **stops**. The tracker in
   the bottom right shows them:
 
