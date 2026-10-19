@@ -8,7 +8,71 @@ html {
   font-size: min(calc(100vw / 192), calc(100vh / 108));
 }
 
+/*
+  Design tokens. Everything on the table is drawn from these; pickers and modals inherit them.
+
+  Surfaces   --board, --board-deep   the table and its darkest edge
+             --panel                 translucent panels over the table (log, prompt, counts)
+             --panel-solid           the same, opaque (behind a card that hasn't loaded)
+             --raised, --raised-hi   buttons and chips on a panel, and their lit face
+             --sunken                wells cut into a panel (segmented controls, tracks)
+  Text       --text, --text-soft, --text-muted, --text-faint, --text-card (on a card frame)
+  Accent     --gold, --gold-light, --gold-deep, --gold-glow: the game's own gold, for
+             headings, the commander and what is happening now
+  Actions    --play (cyan: can be played), --target (yellow: can be chosen), --attack,
+             --block, --danger, each with a -glow for halos; --buff and --hurt on P/T
+  Lines      --line, --line-soft (hairlines on panels), --edge, --edge-light (control borders)
+  Shadows    --shadow-sm, --shadow-md, --shadow-lg, --shadow-xl
+  Radii      --r-sm, --r-md, --r-lg, --r-pill
+  Frames     --f-W ... --f-land: the card frame colours, also each deck's seat colour
+*/
 :root {
+  --board: #10161f;
+  --board-deep: #05070b;
+  --panel: rgba(10, 12, 18, 0.88);
+  --panel-solid: #0d0f14;
+  --raised: #1d222c;
+  --raised-hi: #2a3140;
+  --sunken: rgba(0, 0, 0, 0.35);
+
+  --text: #eef1f7;
+  --text-soft: #cfd6e4;
+  --text-muted: #9aa4b8;
+  --text-faint: #596171;
+  --text-card: #f6f1e4;
+
+  --gold: #d2aa42;
+  --gold-light: #ffdf9a;
+  --gold-deep: #8a6a2c;
+  --gold-glow: rgba(255, 210, 122, 0.6);
+
+  --play: #39e3ff;
+  --play-glow: rgba(57, 227, 255, 0.7);
+  --target: #ffe45c;
+  --target-glow: rgba(255, 228, 92, 0.85);
+  --attack: #ff9a2e;
+  --attack-glow: rgba(255, 122, 26, 0.9);
+  --block: #7cbcff;
+  --block-glow: rgba(124, 188, 255, 0.8);
+  --danger: #ff5a4a;
+  --buff: #73d4ff;
+  --hurt: #ff7466;
+
+  --line: rgba(255, 255, 255, 0.12);
+  --line-soft: rgba(255, 255, 255, 0.06);
+  --edge: #4a5366;
+  --edge-light: #aeb7c8;
+
+  --shadow-sm: 0 0.2rem 0.6rem rgba(0, 0, 0, 0.75);
+  --shadow-md: 0 0.5rem 1.4rem rgba(0, 0, 0, 0.8);
+  --shadow-lg: 0 1rem 3rem rgba(0, 0, 0, 0.7);
+  --shadow-xl: 0 2rem 8rem #000;
+
+  --r-sm: 0.6rem;
+  --r-md: 1rem;
+  --r-lg: 1.6rem;
+  --r-pill: 99rem;
+
   --f-W: #e3d9ae;
   --f-U: #4a90d2;
   --f-B: #8a6cc4;
@@ -17,8 +81,9 @@ html {
   --f-gold: #d2aa42;
   --f-artifact: #93a0af;
   --f-land: #8a765c;
-  --cyan: #39e3ff;
-  --orange: #ff9a2e;
+  /* Older names, still used by the menu screens. */
+  --cyan: var(--play);
+  --orange: var(--attack);
   --serif: 'Palatino Linotype', 'Book Antiqua', Palatino, Georgia, serif;
   /* Arena-style arrow (cursor.png, see README credits). Its tip is the top-left pixel. */
   --cursor: url('./cursor.png') 0 0, auto;
@@ -42,7 +107,7 @@ body {
   margin: 0;
   overflow: clip;
   background: #05060a;
-  color: #eef1f7;
+  color: var(--text);
   font-family: 'Segoe UI', system-ui, sans-serif;
   user-select: none;
 }
@@ -62,23 +127,56 @@ button {
 
 /* ---------- table ---------- */
 
+/*
+  The table: dark slate with a fine grain and a slow mottle, lit from above, darker toward
+  the edges. It stays quiet so the cards are what you look at. Seats are mats laid on it
+  (.seat-mat below). The vignette is part of the background, so it never dims a card.
+*/
 .board {
+  --grain: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='220' height='220'%3E%3Cfilter id='g'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 .07 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23g)'/%3E%3C/svg%3E");
+  --mottle: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='1000' height='1000'%3E%3Cfilter id='m'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.004' numOctaves='3' seed='7' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 .5 0 0 0 0 .6 0 0 0 0 .78 0 0 0 .16 -.05'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23m)'/%3E%3C/svg%3E");
   background:
-    linear-gradient(180deg, rgba(14, 9, 5, 0.85), transparent 14rem),
-    radial-gradient(34rem 30rem at 0% 36%, rgba(255, 150, 40, 0.34), transparent 70%),
-    radial-gradient(34rem 30rem at 100% 30%, rgba(255, 150, 40, 0.3), transparent 70%),
-    radial-gradient(110rem 55rem at 50% 62%, rgba(150, 175, 215, 0.2), transparent 70%),
-    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cg fill='none' stroke='%23aab6cc' stroke-opacity='.15' stroke-width='3'%3E%3Cpath d='M0 80 80 0 160 80 80 160Z'/%3E%3Cpath d='M40 80 80 40 120 80 80 120Z'/%3E%3Cpath d='M0 0h160v160H0z'/%3E%3Cpath d='M80 0v40M80 120v40M0 80h40M120 80h40'/%3E%3C/g%3E%3C/svg%3E")
-      0 0 / 16rem 16rem,
-    #1b2029;
+    /* the vignette */
+    radial-gradient(ellipse 78% 72% at 50% 46%, transparent 50%, rgba(1, 2, 5, 0.5) 82%, rgba(1, 2, 5, 0.82)),
+    /* light from above */
+    radial-gradient(ellipse 55% 46% at 50% 42%, rgba(196, 214, 245, 0.07), transparent 75%),
+    var(--grain) 0 0 / 22rem 22rem,
+    var(--mottle) center / cover no-repeat,
+    radial-gradient(ellipse 110% 95% at 50% 42%, #17202d, var(--board) 48%, #080b11);
 }
 
-.board::after {
+/*
+  A seat's mat: a slightly darker cloth running off the player's own edge of the table,
+  faintly outlined, with their deck colour washing in from that edge and a thin lit rim
+  along it. While it is their turn, the rim and the wash turn gold. Drawn under the cards.
+*/
+.seat-mat,
+.opp::before {
   content: '';
   position: absolute;
-  inset: 0;
   pointer-events: none;
-  box-shadow: inset 0 0 22rem 6rem rgba(0, 0, 0, 0.75);
+  border: 0.1rem solid color-mix(in srgb, var(--deck) 10%, rgba(255, 255, 255, 0.035));
+  border-radius: 2.6rem;
+  background:
+    var(--rim) no-repeat,
+    linear-gradient(var(--inward), color-mix(in srgb, var(--deck) 13%, transparent), transparent 50%),
+    rgba(0, 2, 6, 0.16);
+  box-shadow: inset 0 0 2.4rem rgba(0, 0, 0, 0.22);
+  --rim-color: color-mix(in srgb, var(--deck) 75%, #fff);
+  transition: border-color 0.4s, box-shadow 0.4s;
+}
+
+.seat-mat.active,
+.opp.active::before {
+  --rim-color: #ffd58a;
+  border-color: rgba(255, 205, 120, 0.2);
+  background:
+    var(--rim) no-repeat,
+    linear-gradient(var(--inward), rgba(255, 178, 72, 0.13), rgba(255, 178, 72, 0.03) 55%, transparent 75%),
+    rgba(0, 2, 6, 0.12);
+  box-shadow:
+    inset 0 0 2.4rem rgba(0, 0, 0, 0.2),
+    0 0 2.4rem rgba(255, 170, 60, 0.07);
 }
 
 /* ---------- opponents (left, top and right edges) ---------- */
@@ -127,19 +225,20 @@ button {
   --inward: 270deg;
 }
 
-.opp::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  background: linear-gradient(var(--inward), color-mix(in srgb, var(--deck) 20%, transparent), transparent 60%);
-  /* fade out toward the neighbouring seats instead of ending in a hard line */
-  mask-image: linear-gradient(calc(var(--inward) + 90deg), transparent, #000 15%, #000 85%, transparent);
-  transition: background 0.4s;
+/* Each mat runs 2rem off its edge of the screen, so only its inner corners are rounded. */
+.seat-top::before {
+  inset: -2rem 1.2rem -1rem;
+  --rim: radial-gradient(46% 0.8rem at 50% 2rem, var(--rim-color), transparent);
 }
 
-.opp.active::before {
-  background: linear-gradient(var(--inward), rgba(255, 165, 55, 0.4), rgba(255, 165, 55, 0.08) 75%, transparent);
+.seat-left::before {
+  inset: 0.8rem -0.4rem 0.8rem -2rem;
+  --rim: radial-gradient(0.8rem 46% at 2rem 50%, var(--rim-color), transparent);
+}
+
+.seat-right::before {
+  inset: 0.8rem -2rem 0.8rem -0.4rem;
+  --rim: radial-gradient(0.8rem 46% at calc(100% - 2rem) 50%, var(--rim-color), transparent);
 }
 
 .opp.lost > :not(.defeated) {
@@ -255,18 +354,21 @@ button {
   margin-top: 3rem;
 }
 
+/* How many cards a pile or hand holds: a small raised pill on its corner. */
 .count {
   position: absolute;
-  right: -0.6rem;
-  bottom: -0.6rem;
-  min-width: 2.2rem;
-  padding: 0 0.4rem;
-  font: 700 1.3rem/2rem 'Segoe UI', sans-serif;
+  right: -0.7rem;
+  bottom: -0.7rem;
+  min-width: 2.4rem;
+  padding: 0 0.5rem;
+  font: 700 1.35rem/2.1rem 'Segoe UI', sans-serif;
+  font-variant-numeric: tabular-nums;
   text-align: center;
-  color: #fff;
-  background: rgba(8, 10, 16, 0.9);
-  border: 0.1rem solid #aeb7c8;
-  border-radius: 1.1rem;
+  color: var(--text);
+  background: linear-gradient(180deg, #2a303b, #0d0f14);
+  border: 0.1rem solid var(--edge-light);
+  border-radius: var(--r-pill);
+  box-shadow: var(--shadow-sm);
   z-index: 3;
 }
 
@@ -285,22 +387,33 @@ button {
   translate: 0 -50%;
 }
 
+/*
+  The back of every card: libraries, opponents' hands, cards flying face down. A dark field,
+  a gold double rule and a compass mark, drawn as one SVG so it is crisp at any size.
+*/
 .card-back {
+  --card-back: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 63 88' preserveAspectRatio='none'%3E %3Cdefs%3E %3CradialGradient id='f' cx='50%25' cy='45%25' r='70%25'%3E%3Cstop offset='0' stop-color='%23232c3d'/%3E%3Cstop offset='.6' stop-color='%23121722'/%3E%3Cstop offset='1' stop-color='%23080a0f'/%3E%3C/radialGradient%3E %3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0' stop-color='%23f6dd94'/%3E%3Cstop offset='.5' stop-color='%23d2aa42'/%3E%3Cstop offset='1' stop-color='%238a6a2c'/%3E%3C/linearGradient%3E %3C/defs%3E %3Crect width='63' height='88' fill='url%28%23f%29'/%3E %3Cg fill='none' stroke='%23d2aa42'%3E %3Ccircle cx='31.5' cy='44' r='21' stroke-opacity='.08' stroke-width='.5'/%3E %3Ccircle cx='31.5' cy='44' r='27' stroke-opacity='.06' stroke-width='.5'/%3E %3Ccircle cx='31.5' cy='44' r='33' stroke-opacity='.045' stroke-width='.5'/%3E %3C/g%3E %3Crect x='4.2' y='4.2' width='54.6' height='79.6' rx='2.2' fill='none' stroke='url%28%23g%29' stroke-width='.75'/%3E %3Crect x='6' y='6' width='51' height='76' rx='1.4' fill='none' stroke='%23d2aa42' stroke-opacity='.45' stroke-width='.3'/%3E %3Cpath d='M31.5 1.9 33.8 4.2 31.5 6.5 29.2 4.2Z M31.5 81.5 33.8 83.8 31.5 86.1 29.2 83.8Z' fill='url%28%23g%29'/%3E %3Ccircle cx='31.5' cy='44' r='11.5' fill='%230b0e14' fill-opacity='.55' stroke='url%28%23g%29' stroke-width='.7'/%3E %3Ccircle cx='31.5' cy='44' r='9.4' fill='none' stroke='%23d2aa42' stroke-opacity='.5' stroke-width='.25'/%3E %3Cpath d='M31.5 31.5 33.4 42.1 44 44 33.4 45.9 31.5 56.5 29.6 45.9 19 44 29.6 42.1Z' fill='url%28%23g%29'/%3E %3Cpath d='M31.5 37.6 32.5 43 37.9 44 32.5 45 31.5 50.4 30.5 45 25.1 44 30.5 43Z' fill='%230b0e14' fill-opacity='.35'/%3E %3C/svg%3E");
   aspect-ratio: 5 / 7;
-  border-radius: 0.4rem;
-  border: 0.2rem solid #140b05;
-  background:
-    radial-gradient(ellipse 40% 52% at center, #d9a04a 0 60%, transparent 62%),
-    radial-gradient(ellipse 62% 74% at center, #7a431a 0 96%, transparent 100%), #2e1709;
-  box-shadow: 0 0.2rem 0.5rem rgba(0, 0, 0, 0.7);
+  border-radius: 4.75% / 3.5%;
+  background: var(--card-back) center / 100% 100% no-repeat, #0b0e14;
+  box-shadow:
+    inset 0 0 0 0.1rem rgba(0, 0, 0, 0.8),
+    var(--shadow-sm);
 }
 
 /* ---------- zones: library, graveyard, exile ---------- */
 
+/*
+  Each pile is a card-sized place: the library a deck of backs whose edges thicken with its
+  size (--depth, from Board.tsx), the graveyard its top card with a worn, darkened edge,
+  exile its top card washed out and ringed in pale blue. Empty, a pile is a quiet outline
+  with its zone's icon. At the side seats the cards in them turn like the permanents.
+*/
 .pile {
   position: relative;
   width: var(--pile-w);
   aspect-ratio: 5 / 7;
+  border-radius: 0.5rem;
 }
 
 /* At the side seats, cards in the piles are turned like permanents (see .tile). */
@@ -311,7 +424,8 @@ button {
 }
 
 .pile .card-back,
-.pile :is(img, .text-card) {
+.pile :is(img, .text-card),
+.pile:not(.empty)::after {
   position: absolute;
   left: 50%;
   top: 50%;
@@ -321,38 +435,80 @@ button {
   rotate: var(--face);
 }
 
+/* The library: card edges stacked under the top card, more of them the fuller it is. */
 .pile.library .card-back {
+  --d: calc(0.1rem + var(--depth, 1) * 0.12rem);
   box-shadow:
-    0.2rem 0.2rem 0 #140b05,
-    0.4rem 0.4rem 0 #2e1709,
-    0 0.4rem 0.9rem rgba(0, 0, 0, 0.8);
+    inset 0 0 0 0.1rem rgba(0, 0, 0, 0.8),
+    0.04rem var(--d) 0 #2d333e,
+    0.08rem calc(var(--d) * 2) 0 #0c0f15,
+    0.12rem calc(var(--d) * 3) 0 #2d333e,
+    0.16rem calc(var(--d) * 4) 0 #0c0f15,
+    0 calc(var(--d) * 4 + 0.3rem) 0.9rem rgba(0, 0, 0, 0.75);
 }
 
-.pile.graveyard,
-.pile.exile {
-  border-radius: 0.4rem;
+.pile.library.empty .card-back {
+  visibility: hidden;
+}
+
+/* The library's back says what it is; its icon shows only when it is empty. */
+.pile.library:not(.empty) > .ms {
+  display: none;
 }
 
 .pile.graveyard :is(img, .text-card),
 .pile.exile :is(img, .text-card) {
-  border-radius: 0.4rem;
-  filter: saturate(0.5) brightness(0.8);
+  border-radius: 4.75% / 3.5%;
 }
 
-/* Exiled cards look washed out and ringed in pale blue, so the pile isn't mistaken for the graveyard. */
-.pile.exile :is(img, .text-card) {
-  filter: saturate(0.25) brightness(1.05) contrast(0.85);
+/* The graveyard: the top card a little faded and browned, with worn, darkened edges. */
+.pile.graveyard :is(img, .text-card) {
+  filter: sepia(0.25) saturate(0.7) brightness(0.82);
+  box-shadow: var(--shadow-sm);
+}
+
+.pile.graveyard.many :is(img, .text-card) {
   box-shadow:
-    0 0 0 0.15rem rgba(190, 215, 255, 0.75),
-    0 0 0.9rem rgba(150, 190, 255, 0.5);
+    0.12rem 0.18rem 0 #1b1712,
+    0.22rem 0.34rem 0 #0b0a08,
+    var(--shadow-sm);
 }
 
+.pile.graveyard:not(.empty)::after {
+  content: '';
+  pointer-events: none;
+  border-radius: 4.75% / 3.5%;
+  background:
+    var(--grain) 0 0 / 6rem 6rem,
+    radial-gradient(ellipse 75% 70% at 50% 48%, transparent 50%, rgba(36, 20, 8, 0.45) 82%, rgba(14, 8, 3, 0.8));
+  box-shadow: inset 0 0 0 0.08rem rgba(70, 48, 26, 0.6);
+}
+
+/* Exile: washed out, cooled and ringed in pale blue, so the pile isn't mistaken for the graveyard. */
+.pile.exile :is(img, .text-card) {
+  filter: grayscale(0.75) brightness(1.02) contrast(0.85);
+  box-shadow:
+    0 0 0 0.15rem rgba(180, 210, 255, 0.8),
+    0 0 1rem rgba(130, 180, 255, 0.5);
+}
+
+.pile.exile:not(.empty)::after {
+  content: '';
+  pointer-events: none;
+  border-radius: 4.75% / 3.5%;
+  background: linear-gradient(170deg, rgba(160, 200, 255, 0.24), rgba(90, 140, 230, 0.12));
+  mix-blend-mode: screen;
+}
+
+/* An empty pile: a quiet outline holding its zone's icon. */
 .pile.empty {
-  border: 0.15rem dashed rgba(255, 255, 255, 0.3);
+  background: rgba(0, 0, 0, 0.18);
+  border: 0.1rem solid rgba(255, 255, 255, 0.09);
+  box-shadow: inset 0 0.2rem 0.6rem rgba(0, 0, 0, 0.35);
 }
 
 .pile.exile.empty {
-  border-color: rgba(190, 215, 255, 0.4);
+  border-color: rgba(180, 210, 255, 0.16);
 }
 
 /* The zone's icon: a faint mark filling an empty pile, a small corner badge once it holds cards. */
@@ -361,20 +517,25 @@ button {
   inset: 0;
   display: grid;
   place-items: center;
-  font-size: calc(var(--pile-w) * 0.5);
-  color: rgba(255, 255, 255, 0.3);
+  font-size: calc(var(--pile-w) * 0.42);
+  color: rgba(255, 255, 255, 0.2);
   pointer-events: none;
 }
 
+.pile.exile.empty > .ms {
+  color: rgba(180, 210, 255, 0.24);
+}
+
 .pile:not(.empty) > .ms {
-  inset: -0.5rem auto auto -0.5rem;
-  width: 1.7em;
-  height: 1.7em;
-  font-size: calc(var(--pile-w) * 0.24);
-  color: #fff;
-  background: rgba(8, 10, 16, 0.9);
-  border: 0.1rem solid #aeb7c8;
+  inset: -0.6rem auto auto -0.6rem;
+  width: 1.75em;
+  height: 1.75em;
+  font-size: max(1.1rem, calc(var(--pile-w) * 0.22));
+  color: var(--text);
+  background: linear-gradient(180deg, #2a303b, #0d0f14);
+  border: 0.1rem solid var(--edge-light);
   border-radius: 50%;
+  box-shadow: var(--shadow-sm);
   z-index: 3;
 }
 
@@ -396,10 +557,14 @@ button {
   border-radius: 50%;
   background-size: cover;
   background-position: center 20%;
-  border: 0.3rem solid #232832;
+  /* A dark bezel, the deck's colour as a ring around it, and a fine dark line outside that. */
+  border: 0.3rem solid #15181f;
   box-shadow:
-    0 0 0 0.2rem var(--deck),
-    0 0.5rem 1.4rem rgba(0, 0, 0, 0.85);
+    inset 0 0 0 0.08rem rgba(255, 255, 255, 0.12),
+    inset 0 -1rem 1.6rem rgba(0, 0, 0, 0.35),
+    0 0 0 0.22rem var(--deck),
+    0 0 0 0.32rem rgba(0, 0, 0, 0.7),
+    0 0.6rem 1.6rem rgba(0, 0, 0, 0.85);
   transition: box-shadow 0.2s;
 }
 
@@ -443,17 +608,31 @@ button {
   margin-top: calc(var(--av) * -0.2);
   padding: 0 0.8rem;
   font: 700 calc(var(--av) * 0.3) / 1.25 var(--serif);
+  font-variant-numeric: lining-nums;
   text-align: center;
-  background: linear-gradient(#444c5c, #1a1e26);
-  border: 0.15rem solid #aab3c5;
-  border-radius: 2rem;
-  box-shadow: 0 0.3rem 0.8rem rgba(0, 0, 0, 0.8);
+  text-shadow: 0 0.1rem 0.25rem #000;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.14), transparent 45%),
+    linear-gradient(#3b4250, #14171d);
+  border: 0.15rem solid var(--edge-light);
+  border-radius: var(--r-pill);
+  box-shadow:
+    inset 0 -0.2rem 0.4rem rgba(0, 0, 0, 0.4),
+    var(--shadow-md);
+  transition: border-color 0.4s, color 0.4s;
+}
+
+/* Whose turn it is: the life plate's rim and figures turn gold, with the rays behind the portrait. */
+.avatar.active .avatar-life {
+  color: var(--gold-light);
+  border-color: var(--gold);
 }
 
 .avatar-name {
   z-index: 2;
-  margin-top: 0.2rem;
-  font: 600 1.35rem var(--serif);
+  margin-top: 0.3rem;
+  font: 600 1.45rem var(--serif);
+  letter-spacing: 0.02em;
   white-space: nowrap;
   text-shadow: 0 0.1rem 0.4rem #000, 0 0 0.6rem #000;
 }
@@ -465,8 +644,8 @@ button {
 
 .avatar.targetable .avatar-art {
   box-shadow:
-    0 0 0 0.35rem #ffe45c,
-    0 0 2rem 0.5rem rgba(255, 228, 92, 0.8);
+    0 0 0 0.35rem var(--target),
+    0 0 2rem 0.5rem var(--target-glow);
   animation: breathe 1s ease-in-out infinite;
 }
 
@@ -496,9 +675,9 @@ button {
   display: grid;
   place-items: center;
   border-radius: calc(var(--badge) / 2);
-  border: 0.15rem solid var(--f-gold);
+  border: 0.15rem solid var(--gold);
   background: radial-gradient(circle at 50% 30%, #3a3324, #14161c 70%);
-  box-shadow: 0 0.3rem 0.7rem rgba(0, 0, 0, 0.85);
+  box-shadow: var(--shadow-sm);
 }
 
 .avatar-crown {
@@ -507,7 +686,7 @@ button {
   padding: 0;
   /* The glow-* highlights are sized in em. */
   font-size: calc(var(--badge) * 0.3);
-  color: var(--f-gold);
+  color: var(--gold);
 }
 
 /* The glyph itself is drawn bigger than the em the glows are measured in. */
@@ -518,7 +697,7 @@ button {
 
 .avatar-crown.glow-play,
 .avatar-crown.glow-picked {
-  color: #ffe08a;
+  color: var(--gold-light);
 }
 
 .avatar-crown.away {
@@ -566,6 +745,12 @@ button {
   z-index: 3;
 }
 
+/* At the top seat the hand is on the portrait's right, so the badges hang on its left. */
+.seat-top .cmd-dmg {
+  left: auto;
+  right: calc(100% + 0.5rem);
+}
+
 .seat-left .cmd-dmg,
 .seat-right .cmd-dmg {
   left: 50%;
@@ -582,7 +767,7 @@ button {
   border-radius: 50%;
   background-size: cover;
   background-position: center 20%;
-  border: 0.15rem solid var(--f-gold);
+  border: 0.15rem solid var(--gold);
 }
 
 .cmd-dmg b {
@@ -642,17 +827,43 @@ button {
   gap: 0.8rem 0.5rem;
 }
 
-/* Stacked cards overlap along the row, whichever way the row runs. */
+/*
+  Stacked cards overlap along the row, whichever way the row runs, each showing a tenth of
+  its width past the next (PILE_STEP in Board.tsx). The cards under the top one are a step
+  darker and each casts a shadow onto the one under it, so the pile shows its depth.
+*/
 .stack .tile + .tile {
-  margin-left: calc(var(--tw) * -0.86);
+  margin-left: calc(var(--tw) * -0.9);
 }
 
 .seat-left .stack .tile + .tile {
-  margin: calc(var(--tw) * -0.86) 0 0;
+  margin: calc(var(--tw) * -0.9) 0 0;
 }
 
 .seat-right .stack .tile + .tile {
-  margin: 0 0 calc(var(--tw) * -0.86);
+  margin: 0 0 calc(var(--tw) * -0.9);
+}
+
+.stack .tile + .tile {
+  box-shadow:
+    -0.25em 0 0.35em rgba(0, 0, 0, 0.6),
+    0 0.45em 1em rgba(0, 0, 0, 0.5);
+}
+
+.seat-left .stack .tile + .tile {
+  box-shadow:
+    0 -0.25em 0.35em rgba(0, 0, 0, 0.6),
+    0.45em 0 1em rgba(0, 0, 0, 0.5);
+}
+
+.seat-right .stack .tile + .tile {
+  box-shadow:
+    0 0.25em 0.35em rgba(0, 0, 0, 0.6),
+    -0.45em 0 1em rgba(0, 0, 0, 0.5);
+}
+
+.stack > .tile:not(:last-child) > .tile-face {
+  filter: brightness(0.78);
 }
 
 .opp-back {
@@ -674,6 +885,16 @@ button {
   position: absolute;
 }
 
+/* Your mat: between the side seats, from your creatures down past the bottom edge. */
+.me-mat {
+  left: 37.7rem;
+  right: 37.7rem;
+  top: calc(100% - 54.4rem);
+  bottom: -2rem;
+  --inward: 0deg;
+  --rim: radial-gradient(46% 0.8rem at 50% calc(100% - 2rem), var(--rim-color), transparent);
+}
+
 /* Stays between the side seats, which reach down past its top edge. */
 .me-front {
   left: 37.5rem;
@@ -687,8 +908,8 @@ button {
   This row is below the side seats, so it can run wider than the creatures.
 */
 .me-back {
-  left: 30rem;
-  right: 30rem;
+  left: 37.7rem;
+  right: 37.7rem;
   bottom: 26.5rem;
   height: 11.5rem;
 }
@@ -696,6 +917,50 @@ button {
 /* .row.me-back, not .me-back: the gap has to beat the one set on .row.back above. */
 .row.me-back {
   gap: 28rem;
+}
+
+/*
+  A crowded back row goes onto two lines (BackRow decides). It becomes a two-line grid that
+  fills one slot across at a time, so the lines always split evenly however wide the window
+  is. Opponents' rows go as a whole, lands then the rest; each side of yours goes on its
+  own, your lands against the avatar.
+*/
+.row.back.two-rows {
+  display: grid;
+  grid-template-rows: auto auto;
+  grid-auto-flow: column;
+  justify-content: center;
+  align-content: center;
+  align-items: center;
+  gap: 0.6rem 1.2rem;
+}
+
+.seat-left .row.back.two-rows,
+.seat-right .row.back.two-rows {
+  grid-template-rows: none;
+  grid-template-columns: auto auto;
+  grid-auto-flow: row;
+}
+
+.row.back.two-rows > :is(.lands, .others) {
+  display: contents;
+}
+
+.me-back :is(.lands, .others).two-rows {
+  display: grid;
+  grid-template-rows: auto auto;
+  grid-auto-flow: column;
+  align-content: center;
+  align-items: center;
+  gap: 0.6rem 1.2rem;
+}
+
+.me-back .lands.two-rows {
+  justify-content: end;
+}
+
+.me-back .others.two-rows {
+  justify-content: start;
 }
 
 .me-back .lands,
@@ -710,17 +975,32 @@ button {
 
 /* ---------- permanents ---------- */
 
+/*
+  A permanent is drawn as a small card: a bevelled frame in its frame colour, the art set
+  into it with a soft inner shadow, a name bar across the top, and a P/T box on the bottom
+  right corner. Sizes are in em, and the tile's font-size is a tenth of its width (--tw),
+  so everything scales with the tile; the text has a floor in rem so it stays readable on
+  the smallest tiles. Around the edges, with room kept for each: the pile count (top left),
+  counters (right, below the name), the summoning-sick mark (left, below the name), keyword
+  icons (bottom left) and the P/T box (bottom right). The ability mark sits in the name bar.
+*/
+
 /* The tile is the upright box a permanent takes up on screen: it glows, tilts and is clicked. */
 .tile {
   --frame: var(--f-artifact);
+  /* How thick the frame is around the art. */
+  --bezel: 0.26em;
+  /* The name bar's text size: a tenth of the tile, but never below 1.05rem. */
+  --name-size: max(0.9em, 1.05rem);
   position: relative;
   flex: none;
   width: var(--tw);
   aspect-ratio: 5 / 4;
   font-size: calc(var(--tw) / 10);
-  border-radius: 0.5em;
-  background: #0d0f14;
-  box-shadow: 0 0.35em 0.9em rgba(0, 0, 0, 0.8);
+  border-radius: 0.55em;
+  box-shadow:
+    0 0.12em 0.2em rgba(0, 0, 0, 0.55),
+    0 0.45em 1em rgba(0, 0, 0, 0.6);
   /* Its own stacking context, so the cards attached to it stay above the table (.tile-attached). */
   isolation: isolate;
 }
@@ -732,8 +1012,9 @@ button {
   aspect-ratio: 4 / 5;
 }
 
-/* The card itself, centred in the tile and turned with everything on it. */
-.tile-face {
+/* The card itself, centred in the tile and turned with everything on it. The frame is its background. */
+.tile-face,
+.tile-attached {
   position: absolute;
   left: 50%;
   top: 50%;
@@ -741,8 +1022,14 @@ button {
   aspect-ratio: 5 / 4;
   translate: -50% -50%;
   rotate: var(--face);
+  border-radius: 0.55em;
+  background:
+    linear-gradient(155deg, rgba(255, 255, 255, 0.32), transparent 28%, transparent 62%, rgba(0, 0, 0, 0.42)),
+    var(--frame);
+  box-shadow:
+    inset 0 0 0 0.05em rgba(0, 0, 0, 0.65),
+    inset 0 0.07em 0 0.05em rgba(255, 255, 255, 0.22);
 }
-
 
 .frame-W { --frame: var(--f-W); }
 .frame-U { --frame: var(--f-U); }
@@ -752,18 +1039,23 @@ button {
 .frame-gold { --frame: var(--f-gold); }
 .frame-land { --frame: var(--f-land); }
 
+/* The art, set into the frame: a dark keyline, and shade at the top and bottom so the name and icons read over it. */
 .tile-art {
   position: absolute;
-  inset: 0;
-  border-radius: 0.5em;
-  border: 0.22em solid color-mix(in srgb, var(--frame) 70%, #000);
+  inset: var(--bezel);
+  border-radius: 0.34em;
+  background-color: var(--panel-solid);
   background-size: cover;
   background-position: center 22%;
+  box-shadow:
+    inset 0 0 0 0.06em rgba(0, 0, 0, 0.75),
+    inset 0 0.3em 0.7em rgba(0, 0, 0, 0.35),
+    inset 0 -1.6em 1.6em -0.6em rgba(0, 0, 0, 0.55);
 }
 
 /* A tile whose art didn't load shows its type line and rules text instead (TextCard.tsx). */
 .tile-text {
-  padding: 1.85em 0.5em 0.4em;
+  padding: calc(var(--name-size) * 1.6 + 0.2em) 0.5em 0.4em;
   overflow: hidden;
   color: #e8e2d0;
   font-family: var(--serif);
@@ -785,63 +1077,82 @@ button {
   white-space: pre-line;
 }
 
+/* Your commander: a gold keyline inside the frame. */
 .tile.commander .tile-art {
-  border-color: var(--f-gold);
+  box-shadow:
+    inset 0 0 0 0.12em var(--gold),
+    inset 0 0.3em 0.7em rgba(0, 0, 0, 0.35),
+    inset 0 -1.6em 1.6em -0.6em rgba(0, 0, 0, 0.55);
 }
 
+/* The name bar: a plate in the frame colour across the top of the art. */
 .tile-name {
   position: absolute;
-  inset: 0.22em 0.22em auto 0.22em;
+  inset: var(--bezel) var(--bezel) auto;
   padding: 0 0.45em;
-  font: 600 0.92em/1.5em var(--serif);
-  color: #f6f1e4;
+  font: 600 var(--name-size) / 1.55 var(--serif);
+  color: var(--text-card);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  background: linear-gradient(90deg, color-mix(in srgb, var(--frame) 60%, #000), rgba(8, 10, 14, 0.85));
-  border-radius: 0.3em 0.3em 0 0;
+  text-shadow: 0 0.06em 0.12em #000;
+  background: linear-gradient(180deg, color-mix(in srgb, var(--frame) 46%, #262a33), color-mix(in srgb, var(--frame) 30%, #0b0c10));
+  border-radius: 0.3em 0.3em 0.12em 0.12em;
+  box-shadow:
+    inset 0 0.06em 0 rgba(255, 255, 255, 0.2),
+    0 0.08em 0 rgba(0, 0, 0, 0.6),
+    0 0.12em 0.3em rgba(0, 0, 0, 0.45);
+}
+
+/* Room for the ability mark at the bar's right end. */
+.tile-face:has(.tile-ability) > .tile-name {
+  padding-right: 1.3em;
 }
 
 .tile-name .crown {
-  color: var(--f-gold);
+  color: var(--gold);
   margin-right: 0.3em;
 }
 
+/* Power and toughness (or loyalty, or defense): a raised box on the corner, like a card's. */
 .tile-pt {
   position: absolute;
-  right: -0.35em;
-  bottom: -0.35em;
-  padding: 0 0.45em;
-  font: 700 1.75em/1.3em var(--serif);
+  right: -0.3em;
+  bottom: -0.3em;
+  min-width: 2.3em;
+  padding: 0 0.32em;
+  font: 700 max(1.7em, 1.5rem) / 1.25 var(--serif);
+  text-align: center;
   color: #fff;
-  background: linear-gradient(#333843, #14161b);
-  border: 0.07em solid #b3bccd;
+  text-shadow: 0 0.06em 0.1em #000;
+  background: linear-gradient(180deg, #414754, #181b22 70%);
+  border: 0.06em solid color-mix(in srgb, var(--frame) 55%, #e4e8ef);
   border-radius: 0.3em;
-  box-shadow: 0 0.1em 0.3em rgba(0, 0, 0, 0.8);
+  box-shadow:
+    inset 0 0.06em 0 rgba(255, 255, 255, 0.25),
+    0 0.1em 0.3em rgba(0, 0, 0, 0.85);
   /* Above .tile-tapmark, so tapping dims the card but not its P/T, loyalty or defense. */
   z-index: 1;
 }
 
 .tile-pt.buffed {
-  color: #73d4ff;
+  color: var(--buff);
 }
 
 .tile-pt.hurt {
-  color: #ff7466;
+  color: var(--hurt);
 }
 
 /* A planeswalker's loyalty (306.5c): a shield, where a creature's P/T goes. */
 .tile-pt.tile-loyalty {
-  min-width: 1.3em;
-  text-align: center;
+  min-width: 1.5em;
   border-radius: 0.2em 0.2em 50% 50%;
   background: linear-gradient(#4a4f5c, #1b1d24);
 }
 
 /* A battle's defense (310.4c). */
 .tile-pt.tile-defense {
-  min-width: 1.3em;
-  text-align: center;
+  min-width: 1.5em;
   color: #ffd27a;
   background: linear-gradient(#5c3b2a, #24150e);
   border-color: #d9a066;
@@ -854,12 +1165,16 @@ button {
   text-align: center;
 }
 
+/* Keyword icons along the bottom, wrapping upward rather than into the P/T box. */
 .tile-keywords {
   position: absolute;
-  left: 0.3em;
-  bottom: 0.3em;
+  left: calc(var(--bezel) + 0.15em);
+  bottom: calc(var(--bezel) + 0.15em);
+  max-width: calc(100% - 4.6em);
   display: flex;
+  flex-wrap: wrap-reverse;
   gap: 0.15em;
+  font-size: max(1em, 0.95rem);
 }
 
 .tile-keywords i {
@@ -867,36 +1182,43 @@ button {
   height: 1.5em;
   display: grid;
   place-items: center;
-  font-size: 1.05em;
+  font-size: 1em;
   color: #fff;
-  background: rgba(8, 10, 16, 0.85);
-  border: 0.06em solid #b3bccd;
+  background: radial-gradient(circle at 50% 35%, #2a303b, #0b0d12 75%);
+  border: 0.06em solid var(--edge-light);
   border-radius: 50%;
+  box-shadow: 0 0.06em 0.18em rgba(0, 0, 0, 0.8);
 }
 
+/* Counters (122): pills on the right edge, below the name bar. */
 .tile-counters {
   position: absolute;
-  right: -0.5em;
-  top: 1.5em;
-  min-width: 1.9em;
-  padding: 0 0.3em;
-  font: 700 1.25em/1.9em 'Segoe UI', sans-serif;
-  text-align: center;
-  background: radial-gradient(circle at 35% 30%, #7ec8ff, #1d5fb8);
-  border: 0.08em solid #fff;
-  border-radius: 1em;
-}
-
-.tile-counters {
+  right: -0.45em;
+  top: 30%;
   display: flex;
   flex-direction: column;
+  gap: 0.2em;
+  font: 700 max(1.2em, 1.1rem) / 1.6 'Segoe UI', sans-serif;
   /* Above .tile-tapmark, like the P/T box, so a tapped card's counters stay readable. */
   z-index: 1;
 }
 
+.tile-counters span {
+  min-width: 1.7em;
+  padding: 0 0.35em;
+  text-align: center;
+  color: #fff;
+  text-shadow: 0 0.05em 0.1em rgba(0, 0, 0, 0.6);
+  background: radial-gradient(circle at 35% 30%, #7ec8ff, #1d5fb8);
+  border: 0.07em solid rgba(255, 255, 255, 0.9);
+  border-radius: var(--r-pill);
+  box-shadow: 0 0.08em 0.25em rgba(0, 0, 0, 0.7);
+}
+
 /* -1/-1 counters (122.1a) */
 .tile-counters .minus {
-  color: #ffb3a8;
+  color: #ffd0c8;
+  background: radial-gradient(circle at 35% 30%, #ff8a78, #a8261a);
 }
 
 /*
@@ -909,49 +1231,66 @@ button {
 */
 .tile-attached {
   --frame: var(--f-artifact);
-  position: absolute;
-  left: 50%;
-  top: 50%;
-  width: var(--tw);
-  aspect-ratio: 5 / 4;
-  translate: -50% -50%;
-  rotate: var(--face);
   /*
-    After the turn, so "up" is the top of the face at every seat. Each one shows 2.3em more,
-    or less once there are more than three (--n), so the fan stays within 7em.
+    After the turn, so "up" is the top of the face at every seat. Each one shows 2.2em more,
+    or less once there are more than three (--n), so the fan stays within 6.6em.
   */
-  transform: translateY(calc(-1 * min(2.3em, 7em / var(--n)) * (var(--i) + 1)));
+  transform: translateY(calc(-1 * min(2.2em, 6.6em / var(--n)) * (var(--i) + 1)));
   z-index: -1;
-  border-radius: 0.5em;
-  /* Shows if the art doesn't load. */
-  background: var(--frame);
-  box-shadow: 0 -0.2em 0.6em rgba(0, 0, 0, 0.7);
+  box-shadow:
+    inset 0 0 0 0.05em rgba(0, 0, 0, 0.65),
+    inset 0 0.07em 0 0.05em rgba(255, 255, 255, 0.22),
+    0 -0.15em 0.5em rgba(0, 0, 0, 0.6);
   cursor: pointer;
 }
 
-.tile-attached:hover {
-  outline: 0.15em solid var(--cyan);
+/* Under the host, they read a step darker, so the host stays in front. */
+.tile-attached > .tile-art {
+  filter: brightness(0.8);
 }
 
+.tile-attached:hover {
+  outline: 0.15em solid var(--play);
+}
+
+.tile-attached:hover > .tile-art {
+  filter: none;
+}
+
+/* Summoning sick (302.6): a moon in a dark disc on the left, below the name. */
 .tile-sick {
   position: absolute;
-  left: 0.35em;
-  top: 1.6em;
-  font-size: 1.6em;
-  color: #fff;
-  opacity: 0.85;
-  filter: drop-shadow(0 0 0.15em #000);
+  left: -0.35em;
+  top: 30%;
+  width: 1.6em;
+  height: 1.6em;
+  display: grid;
+  place-items: center;
+  font-size: max(1.15em, 1.1rem);
+  color: #cfe3ff;
+  background: radial-gradient(circle at 50% 35%, #2f3a52, #0c1019 75%);
+  border: 0.07em solid #7f93b8;
+  border-radius: 50%;
+  box-shadow: 0 0.08em 0.25em rgba(0, 0, 0, 0.7);
+  z-index: 1;
 }
 
+/* The art of a creature that can't attack or tap yet is a little cooler and flatter. */
+.tile.sick .tile-art {
+  filter: saturate(0.7) brightness(0.92);
+}
+
+/* Has an activated ability: a gold diamond at the right end of the name bar. */
 .tile-ability {
   position: absolute;
-  right: 0.5em;
-  top: 2em;
-  width: 0.9em;
-  height: 0.9em;
+  right: calc(var(--bezel) + 0.5em);
+  top: calc(var(--bezel) + var(--name-size) * 0.775);
+  width: 0.75em;
+  height: 0.75em;
+  translate: 0 -50%;
   transform: rotate(45deg);
-  background: #ffd76a;
-  box-shadow: 0 0 0.4em #000;
+  background: linear-gradient(135deg, #fff1bf, #e4b546 55%, #9a7420);
+  box-shadow: 0 0 0.25em rgba(0, 0, 0, 0.9);
 }
 
 /* Turning a card pushes its counters and P/T toward the next card: keep them on top of it. */
@@ -959,29 +1298,38 @@ button {
   z-index: 1;
 }
 
+/* Tapped (701.26): turned, and the art dims and greys so it reads as used at a glance. */
+.tile.tapped .tile-art {
+  filter: saturate(0.45) brightness(0.72);
+}
+
 .tile-tapmark {
   position: absolute;
   inset: 0;
-  border-radius: 0.5em;
-  background: rgba(6, 8, 14, 0.55);
+  border-radius: 0.55em;
+  background: rgba(6, 8, 14, 0.38);
 }
 
+/* A pile's count: use the whole pile with it. */
 .tile-badge {
   position: absolute;
   left: -0.7em;
-  top: -0.9em;
-  padding: 0 0.4em;
-  font: 700 1.3em/1.4em 'Segoe UI', sans-serif;
-  background: rgba(8, 10, 16, 0.9);
-  border: 0.08em solid #fff;
-  border-radius: 0.3em;
+  top: -0.8em;
+  padding: 0 0.45em;
+  font: 700 max(1.3em, 1.2rem) / 1.45 'Segoe UI', sans-serif;
+  color: var(--text);
+  background: linear-gradient(180deg, #2a303b, #0d0f14);
+  border: 0.08em solid var(--edge-light);
+  border-radius: var(--r-pill);
+  box-shadow: 0 0.1em 0.3em rgba(0, 0, 0, 0.8);
   z-index: 2;
 }
 
 /* The badge uses the whole pile, so it lights up on its own when the pointer is on it. */
 .tile-badge:hover {
-  background: var(--cyan);
   color: #05060a;
+  background: var(--play);
+  border-color: #fff;
 }
 
 /* ---------- cards drawn as text, when an image doesn't load (TextCard.tsx) ---------- */
@@ -994,7 +1342,7 @@ button {
   container-type: inline-size;
   overflow: hidden;
   border-radius: 4.75% / 3.5%;
-  background: #0d0f14;
+  background: var(--panel-solid);
 }
 
 .text-card-face {
@@ -1007,7 +1355,7 @@ button {
   border-radius: inherit;
   font-family: var(--serif);
   text-align: left;
-  color: #f6f1e4;
+  color: var(--text-card);
   background: linear-gradient(170deg, color-mix(in srgb, var(--frame) 22%, #11141a), #0b0d12 60%);
 }
 
@@ -1089,7 +1437,7 @@ button {
   font-weight: 700;
   line-height: 1.3;
   background: linear-gradient(#333843, #14161b);
-  border: 0.4cqw solid #b3bccd;
+  border: 0.4cqw solid var(--edge-light);
   border-radius: 2cqw;
 }
 
@@ -1099,14 +1447,14 @@ button {
 .glow-attack,
 .glow-block {
   box-shadow:
-    0 0 0 0.25em var(--cyan),
-    0 0 1.4em 0.3em rgba(57, 227, 255, 0.7);
+    0 0 0 0.25em var(--play),
+    0 0 1.4em 0.3em var(--play-glow);
 }
 
 .glow-target {
   box-shadow:
-    0 0 0 0.3em #ffe45c,
-    0 0 1.8em 0.4em rgba(255, 228, 92, 0.85);
+    0 0 0 0.3em var(--target),
+    0 0 1.8em 0.4em var(--target-glow);
   animation: breathe 1s ease-in-out infinite;
 }
 
@@ -1118,20 +1466,20 @@ button {
 
 .glow-discard {
   box-shadow:
-    0 0 0 0.25em #ff5a4a,
+    0 0 0 0.25em var(--danger),
     0 0 1.4em 0.3em rgba(255, 90, 74, 0.7);
 }
 
 .tile.blocking {
   box-shadow:
-    0 0 0 0.3em #7cbcff,
-    0 0 1.6em 0.4em rgba(124, 188, 255, 0.8);
+    0 0 0 0.3em var(--block),
+    0 0 1.6em 0.4em var(--block-glow);
 }
 
 .tile.attacking {
   box-shadow:
-    0 0 0 0.3em var(--orange),
-    0 0 1.9em 0.5em rgba(255, 122, 26, 0.9);
+    0 0 0 0.3em var(--attack),
+    0 0 1.9em 0.5em var(--attack-glow);
 }
 
 /* ---------- the human's side (bottom) ---------- */
@@ -1179,8 +1527,8 @@ button {
   gap: 0.7rem;
   padding: 0.45rem 0.55rem;
   font: 700 1.8rem/1 'Segoe UI', sans-serif;
-  background: rgba(8, 10, 16, 0.75);
-  border: 0.1rem solid #5d6472;
+  background: var(--panel);
+  border: 0.1rem solid var(--edge);
   border-radius: 2rem;
 }
 
@@ -1201,13 +1549,14 @@ button {
 }
 
 /*
-  Library, graveyard and exile, just right of the log and its buttons (.log ends at 26.6rem).
-  They end at 48.2rem, clear of the hand until it holds a dozen cards.
+  Library, graveyard and exile, just right of the log and its buttons (.log ends at 27rem),
+  on the same bottom line as the log and the controls' plate. They end at 49.4rem, clear of
+  the hand until it holds a dozen cards.
 */
 .me-zones {
   position: absolute;
-  left: 28.2rem;
-  bottom: 2.2rem;
+  left: 29.4rem;
+  bottom: 2rem;
   display: flex;
   align-items: flex-end;
   gap: 1rem;
@@ -1234,7 +1583,7 @@ button {
   position: relative;
   font-size: 1.4rem;
   border-radius: 0.75rem;
-  box-shadow: 0 0.4rem 1.2rem rgba(0, 0, 0, 0.8);
+  box-shadow: var(--shadow-md);
   transform-style: preserve-3d;
 }
 
@@ -1254,7 +1603,7 @@ button {
 .hand-card.armed {
   box-shadow:
     0 0 0 0.3rem #fff,
-    0 0 2.6rem 0.9rem var(--cyan);
+    0 0 2.6rem 0.9rem var(--play);
 }
 
 /* The mana cost, enlarged and riding on the card's top-right corner like Arena shows it.
@@ -1293,10 +1642,10 @@ button {
   display: flex;
   flex-direction: column;
   gap: 0.8rem;
-  background: rgba(10, 12, 18, 0.92);
-  border: 0.15rem solid var(--f-gold);
+  background: var(--panel);
+  border: 0.15rem solid var(--gold);
   border-radius: 1.2rem;
-  box-shadow: 0 0.8rem 2rem rgba(0, 0, 0, 0.8);
+  box-shadow: var(--shadow-lg);
   z-index: 21;
 }
 
@@ -1309,7 +1658,7 @@ button {
 .cast-label {
   min-width: 6rem;
   font: 600 1.7rem var(--serif);
-  color: #ffdf9a;
+  color: var(--gold-light);
 }
 
 .cast-x {
@@ -1323,8 +1672,8 @@ button {
   padding: 0.4rem 1.2rem;
   font: 600 1.6rem 'Segoe UI', sans-serif;
   color: #fff;
-  background: #262c38;
-  border: 0.15rem solid #4a5366;
+  background: var(--raised);
+  border: 0.15rem solid var(--edge);
   border-radius: 0.8rem;
 }
 
@@ -1340,7 +1689,7 @@ button {
 }
 
 :is(.cast-options, .damage-split, .paste-commanders) .chip.on {
-  border-color: var(--f-gold);
+  border-color: var(--gold);
   background: #3a3324;
 }
 
@@ -1387,9 +1736,13 @@ button {
 
 .damage-name small {
   font-size: 1.3rem;
-  color: #c3cad8;
+  color: var(--text-soft);
 }
 
+/*
+  The prompt: a band across the middle of the table in the same plate as the controls, a
+  gold hairline above and below fading out at the ends.
+*/
 .prompt {
   position: absolute;
   left: 0;
@@ -1397,140 +1750,209 @@ button {
   top: calc(50% - 11rem);
   width: fit-content;
   margin: 0 auto;
-  padding: 0.5rem 9rem;
+  padding: 0.6rem 9rem 0.7rem;
   font: 600 2.2rem var(--serif);
+  color: var(--text);
   text-shadow: 0 0.15rem 0.3rem #000;
-  background: linear-gradient(90deg, transparent, rgba(0, 0, 0, 0.85) 22%, rgba(0, 0, 0, 0.85) 78%, transparent);
+  background: linear-gradient(90deg, transparent, rgba(12, 15, 22, 0.92) 18%, rgba(12, 15, 22, 0.92) 82%, transparent);
+  border-block: 0.1rem solid;
+  border-image: linear-gradient(90deg, transparent, rgba(210, 170, 66, 0.7) 25%, rgba(255, 223, 154, 0.85) 50%, rgba(210, 170, 66, 0.7) 75%, transparent) 1;
   pointer-events: none;
   z-index: 20;
 }
 
+/*
+  The controls in the bottom-right corner, one plate: the big button at the bottom and
+  biggest, above it the turn and step, and above that the turn strip with the seat dial
+  beside it. While paying, a row with Hold priority and the second button sits between.
+*/
 .action-bar {
   position: absolute;
-  right: 2.6rem;
-  bottom: 2.6rem;
-  width: 27rem;
+  right: 2rem;
+  bottom: 2rem;
+  width: 34rem;
   display: flex;
   flex-direction: column;
-  gap: 0.9rem;
+  gap: 1rem;
+  padding: 1.2rem 1.2rem 1.3rem;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.04), transparent 40%),
+    linear-gradient(180deg, rgba(24, 29, 39, 0.94), rgba(9, 11, 16, 0.95));
+  border: 0.1rem solid var(--line);
+  border-radius: 2rem;
+  box-shadow:
+    inset 0 0.1rem 0 rgba(255, 223, 154, 0.12),
+    var(--shadow-lg);
   z-index: 25;
+}
+
+/* A short gold rule on the plate's top edge, like the menu's headings. */
+.action-bar::before {
+  content: '';
+  position: absolute;
+  left: 25%;
+  right: 25%;
+  top: -0.1rem;
+  height: 0.15rem;
+  background: linear-gradient(90deg, transparent, var(--gold), transparent);
+  pointer-events: none;
+}
+
+.action-row {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.action-row .btn {
+  flex: 1;
 }
 
 /* Keep priority after paying (117.3c). */
 .hold-toggle {
-  align-self: flex-end;
+  flex: none;
+  margin-left: auto;
   display: flex;
   align-items: center;
-  gap: 0.6rem;
-  padding: 0.3rem 0.9rem;
+  gap: 0.7rem;
+  height: 4.4rem;
+  padding: 0 1.2rem;
   font: 600 1.4rem 'Segoe UI', sans-serif;
-  color: #cfd6e4;
-  background: rgba(12, 14, 20, 0.85);
-  border: 0.15rem solid #4a5366;
-  border-radius: 0.8rem;
+  color: var(--text-soft);
+  background: var(--sunken);
+  border: 0.1rem solid var(--line);
+  border-radius: var(--r-md);
+  transition: color 0.15s, border-color 0.15s, background 0.15s;
+}
+
+.hold-toggle:hover {
+  color: var(--text);
+  border-color: var(--edge-light);
 }
 
 .hold-toggle.on {
-  color: #ffe08a;
-  border-color: var(--f-gold);
+  color: var(--gold-light);
+  background: rgba(210, 170, 66, 0.1);
+  border-color: rgba(210, 170, 66, 0.6);
 }
 
 .hold-box {
-  width: 1.6rem;
-  height: 1.6rem;
+  width: 1.7rem;
+  height: 1.7rem;
   display: grid;
   place-items: center;
   border: 0.15rem solid currentColor;
-  border-radius: 0.3rem;
+  border-radius: 0.35rem;
   font-size: 1.2rem;
 }
 
+.hold-toggle.on .hold-box {
+  color: #1a1206;
+  background: var(--gold-light);
+  border-color: var(--gold-light);
+}
+
+/* The tracker: the seat dial, then the turn strip with the turn and step under it. */
 .phases {
   --phase: #ffc163;
-  --phase-glow: var(--orange);
+  --phase-glow: var(--attack);
   position: relative;
   display: flex;
   align-items: center;
-  justify-content: center;
-  gap: 0.8rem;
+  gap: 1rem;
   text-align: center;
 }
 
 .phase-main {
   position: relative;
+  flex: 1;
+  min-width: 0;
 }
 
+/* The turn strip: one segment per part of the turn, the current one lit. */
 .phase-pips {
   display: flex;
-  justify-content: center;
-  align-items: center;
-  gap: 0.4rem;
-  height: 3.6rem;
+  align-items: stretch;
+  height: 3.8rem;
+  padding: 0.3rem;
+  background: var(--sunken);
+  border: 0.1rem solid var(--line-soft);
+  border-radius: var(--r-pill);
+  box-shadow: inset 0 0.15rem 0.4rem rgba(0, 0, 0, 0.5);
 }
 
 .pip-btn {
   position: relative;
+  flex: 1;
   display: flex;
   justify-content: center;
   align-items: center;
-  width: 2.6rem;
-  height: 3.6rem;
   padding: 0;
   background: none;
   border: none;
-  border-radius: 0.6rem;
+  border-radius: var(--r-pill);
+  transition: background 0.2s;
 }
 
 .phases.editable .pip-btn:hover,
 .pip-btn.open {
-  background: rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.07);
+}
+
+/* The current part of the turn. */
+.pip-btn:has(.pip.on) {
+  background: radial-gradient(ellipse 70% 90% at 50% 50%, color-mix(in srgb, var(--phase) 30%, transparent), color-mix(in srgb, var(--phase) 8%, transparent));
+  box-shadow: inset 0 0 0 0.1rem color-mix(in srgb, var(--phase) 55%, transparent);
 }
 
 .pip {
-  width: 1.9rem;
-  height: 1.9rem;
-  fill: #596171;
+  width: 1.8rem;
+  height: 1.8rem;
+  fill: var(--text-faint);
   transition: transform 0.2s, fill 0.2s;
 }
 
 .phases.editable .pip-btn:hover .pip:not(.on) {
-  fill: #8a93a5;
+  fill: var(--edge-light);
 }
 
 .pip.on {
   fill: var(--phase);
-  transform: scale(1.5);
-  filter: drop-shadow(0 0 0.6rem var(--phase-glow));
+  transform: scale(1.25);
+  filter: drop-shadow(0 0 0.5rem var(--phase-glow));
 }
 
-/* A stop: a ring for "stop if you can act", a dot for "always stop". */
+/* A stop, under its segment: a ring for "stop if you can act", a dot for "always stop". */
 .stop-mark {
   position: absolute;
-  left: calc(50% - 0.35rem);
-  bottom: -0.2rem;
-  width: 0.7rem;
-  height: 0.7rem;
+  left: calc(50% - 0.3rem);
+  bottom: 0.1rem;
+  width: 0.6rem;
+  height: 0.6rem;
   border-radius: 50%;
 }
 
 .stop-mark.stop-ifAble {
-  border: 0.15rem solid var(--phase);
+  border: 0.12rem solid color-mix(in srgb, var(--phase) 80%, transparent);
 }
 
 .stop-mark.stop-always {
-  background: var(--phase);
-  box-shadow: 0 0 0.4rem var(--phase-glow);
+  background: color-mix(in srgb, var(--phase) 85%, transparent);
 }
 
+/* The turn and step: second only to the big button. */
 .phase-label {
-  margin-top: 0.5rem;
-  font-size: 1.25rem;
-  color: #d4dbe9;
+  margin-top: 0.7rem;
+  font: 600 1.5rem var(--serif);
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
   text-shadow: 0 0.1rem 0.3rem #000;
 }
 
 .phases.editable .phase-label {
-  color: color-mix(in srgb, var(--phase) 45%, #d4dbe9);
+  color: color-mix(in srgb, var(--phase) 35%, var(--text));
 }
 
 /* Full control is on (Ctrl+Shift): small, but plain to see. Clicking turns it off. */
@@ -1540,7 +1962,7 @@ button {
   font: 700 1rem 'Segoe UI', sans-serif;
   letter-spacing: 0.08rem;
   text-transform: uppercase;
-  vertical-align: 0.15rem;
+  vertical-align: 0.2rem;
   color: #1a1206;
   background: #ffc163;
   border: none;
@@ -1553,16 +1975,17 @@ button {
 .step-split {
   position: absolute;
   left: 50%;
-  bottom: calc(100% + 0.6rem);
+  bottom: calc(100% + 0.8rem);
   transform: translateX(-50%);
   display: flex;
   gap: 0.4rem;
   padding: 0.5rem;
-  background: rgba(10, 14, 22, 0.92);
-  border: 0.1rem solid color-mix(in srgb, var(--phase) 50%, transparent);
-  border-radius: 1rem;
-  box-shadow: 0 0.5rem 1.4rem rgba(0, 0, 0, 0.7);
+  background: linear-gradient(180deg, rgba(24, 29, 39, 0.97), rgba(9, 11, 16, 0.97));
+  border: 0.1rem solid color-mix(in srgb, var(--phase) 45%, transparent);
+  border-radius: var(--r-md);
+  box-shadow: var(--shadow-md);
   white-space: nowrap;
+  z-index: 1;
 }
 
 .step-btn {
@@ -1570,10 +1993,10 @@ button {
   padding: 0.6rem 1rem 1rem;
   font-size: 1.2rem;
   font-weight: 600;
-  color: #d4dbe9;
+  color: var(--text-soft);
   background: rgba(255, 255, 255, 0.06);
   border: 0.1rem solid transparent;
-  border-radius: 0.6rem;
+  border-radius: var(--r-sm);
 }
 
 .step-btn:hover:not(:disabled) {
@@ -1586,28 +2009,27 @@ button {
 }
 
 .step-btn:disabled {
-  color: #596171;
+  color: var(--text-faint);
 }
 
 /*
   Whose turns the stops are for: a dial laid out like the table, one quarter per seat.
-  Each quarter is a whole button, so the target is the wedge, not just its arrow. It hangs
-  off the left of the action bar so the pips stay centred over the buttons below.
+  Each quarter is a whole button, so the target is the wedge, not just its arrow. It sits
+  at the left of the tracker, beside the strip.
 */
 .seat-arrows {
-  position: absolute;
-  right: calc(100% + 1.2rem);
-  top: calc(50% - 3.6rem);
-  width: 7.2rem;
-  height: 7.2rem;
+  position: relative;
+  flex: none;
+  width: 6rem;
+  height: 6rem;
   border-radius: 50%;
   overflow: hidden;
-  background: radial-gradient(circle at 50% 35%, #2b3140, #10141c 75%);
+  background: radial-gradient(circle at 50% 35%, #272d3a, #0c0f15 75%);
   box-shadow:
-    inset 0 0.2rem 0.3rem rgba(255, 255, 255, 0.12),
-    inset 0 -0.4rem 0.7rem rgba(0, 0, 0, 0.55),
-    0 0 0 0.15rem #3a4150,
-    0 0.5rem 1.4rem rgba(0, 0, 0, 0.75);
+    inset 0 0.15rem 0.25rem rgba(255, 255, 255, 0.1),
+    inset 0 -0.3rem 0.6rem rgba(0, 0, 0, 0.55),
+    0 0 0 0.1rem var(--line),
+    0 0.3rem 0.8rem rgba(0, 0, 0, 0.6);
 }
 
 /* The diagonal seams between quarters, and the hub where they meet. Drawn over the buttons, never clickable. */
@@ -1622,19 +2044,19 @@ button {
 .seat-arrows::before {
   inset: 0;
   background:
-    linear-gradient(45deg, transparent calc(50% - 0.16rem), #07090d calc(50% - 0.05rem), rgba(255, 255, 255, 0.1) calc(50% + 0.06rem), transparent calc(50% + 0.16rem)),
-    linear-gradient(-45deg, transparent calc(50% - 0.16rem), #07090d calc(50% - 0.05rem), rgba(255, 255, 255, 0.1) calc(50% + 0.06rem), transparent calc(50% + 0.16rem));
+    linear-gradient(45deg, transparent calc(50% - 0.14rem), #07090d calc(50% - 0.04rem), rgba(255, 255, 255, 0.08) calc(50% + 0.05rem), transparent calc(50% + 0.14rem)),
+    linear-gradient(-45deg, transparent calc(50% - 0.14rem), #07090d calc(50% - 0.04rem), rgba(255, 255, 255, 0.08) calc(50% + 0.05rem), transparent calc(50% + 0.14rem));
 }
 
 .seat-arrows::after {
-  left: calc(50% - 0.85rem);
-  top: calc(50% - 0.85rem);
-  width: 1.7rem;
-  height: 1.7rem;
+  left: calc(50% - 0.7rem);
+  top: calc(50% - 0.7rem);
+  width: 1.4rem;
+  height: 1.4rem;
   border-radius: 50%;
   background: radial-gradient(circle at 40% 35%, #4a5263, #171b24 70%);
   box-shadow:
-    0 0 0 0.15rem #3a4150,
+    0 0 0 0.12rem var(--edge),
     0 0.2rem 0.5rem rgba(0, 0, 0, 0.8);
   transition: box-shadow 0.2s ease-out;
 }
@@ -1642,7 +2064,7 @@ button {
 /* A seat is picked: the hub's ring takes that player's colour (--phase is set to it). */
 .seat-arrows:has(.on)::after {
   box-shadow:
-    0 0 0 0.15rem var(--phase),
+    0 0 0 0.12rem var(--phase),
     0 0 0.8rem color-mix(in srgb, var(--phase) 60%, transparent),
     0 0.2rem 0.5rem rgba(0, 0, 0, 0.8);
 }
@@ -1682,9 +2104,9 @@ button {
 }
 
 .seat-arrow svg {
-  width: 2.4rem;
-  height: 2.4rem;
-  margin: 0.45rem;
+  width: 2rem;
+  height: 2rem;
+  margin: 0.35rem;
   fill: color-mix(in srgb, var(--deck) 40%, #2a303b);
   /* A stroke in the fill colour rounds the arrowhead's corners. */
   stroke: color-mix(in srgb, var(--deck) 40%, #2a303b);
@@ -1695,8 +2117,8 @@ button {
 
 /* Whose turn it is now. */
 .seat-arrow.active svg {
-  fill: color-mix(in srgb, var(--deck) 70%, #2a303b);
-  stroke: color-mix(in srgb, var(--deck) 70%, #2a303b);
+  fill: color-mix(in srgb, var(--deck) 75%, #2a303b);
+  stroke: color-mix(in srgb, var(--deck) 75%, #2a303b);
 }
 
 .seat-arrow:hover:not(:disabled),
@@ -1790,18 +2212,39 @@ button {
 }
 
 .btn-plain {
-  background: rgba(10, 12, 18, 0.78);
-  border: 0.2rem solid #cfd6e4;
-  box-shadow: 0 0.5rem 1.4rem rgba(0, 0, 0, 0.8);
+  background: var(--panel);
+  border: 0.2rem solid var(--edge-light);
+  box-shadow: var(--shadow-md);
 }
 
 .btn:disabled {
-  border-color: #5d6472;
-  color: #aab3c5;
+  border-color: var(--edge);
+  color: var(--text-muted);
 }
 
 .btn:disabled .btn-label {
   font-size: 2rem;
+}
+
+/* In the plate, the big button spans it and gets a fine gold rim; elsewhere (the modals) buttons are as above. */
+.action-bar .btn {
+  width: 100%;
+  border-radius: 1.4rem;
+}
+
+.action-bar > .btn {
+  height: 6.6rem;
+  box-shadow:
+    inset 0 0 0 0.1rem rgba(255, 240, 200, 0.35),
+    inset 0 0.25rem 0.3rem rgba(255, 255, 255, 0.4),
+    inset 0 -0.5rem 0.7rem rgba(0, 0, 0, 0.3),
+    0 0 0 0.1rem rgba(0, 0, 0, 0.6),
+    0 0.4rem 1.2rem rgba(0, 0, 0, 0.6);
+}
+
+.action-bar .btn.small {
+  height: 4.4rem;
+  padding: 0 1.6rem;
 }
 
 /* ---------- log + controls ---------- */
@@ -1814,8 +2257,8 @@ button {
 */
 .log {
   position: absolute;
-  left: 1.6rem;
-  bottom: 1.6rem;
+  left: 2rem;
+  bottom: 2rem;
   width: 25rem;
   z-index: 20;
 }
@@ -1825,8 +2268,8 @@ button {
   display: flex;
   align-items: stretch;
   height: 3.6rem;
-  background: rgba(10, 12, 18, 0.86);
-  border: 0.1rem solid rgba(255, 255, 255, 0.14);
+  background: var(--panel);
+  border: 0.1rem solid var(--line);
   border-radius: 0.8rem;
   box-shadow: 0 0.4rem 1.6rem rgba(0, 0, 0, 0.45);
   transition: border-radius 0.2s;
@@ -1847,7 +2290,7 @@ button {
   font: 600 1.2rem var(--sans, inherit);
   letter-spacing: 0.14em;
   text-transform: uppercase;
-  color: #b9c2d3;
+  color: var(--text-soft);
   background: none;
   border: none;
   border-radius: 0.8rem 0 0 0.8rem;
@@ -1872,7 +2315,7 @@ button {
   align-items: center;
   gap: 0.2rem;
   padding: 0 0.4rem;
-  border-left: 0.1rem solid rgba(255, 255, 255, 0.1);
+  border-left: 0.1rem solid var(--line);
 }
 
 .bar-button {
@@ -1881,7 +2324,7 @@ button {
   width: 2.9rem;
   height: 2.9rem;
   padding: 0;
-  color: #b9c2d3;
+  color: var(--text-soft);
   background: none;
   border: none;
   border-radius: 0.6rem;
@@ -1929,9 +2372,9 @@ button {
   letter-spacing: normal;
   text-transform: none;
   white-space: nowrap;
-  color: #eef1f7;
-  background: #1a1e27;
-  border: 0.1rem solid #4a5366;
+  color: var(--text);
+  background: var(--raised);
+  border: 0.1rem solid var(--edge);
   border-radius: 0.5rem;
   opacity: 0;
   pointer-events: none;
@@ -1978,10 +2421,10 @@ button {
   flex-direction: column;
   gap: 1.2rem;
   padding: 1.2rem 1.4rem 1.4rem;
-  background: rgba(16, 19, 27, 0.97);
-  border: 0.1rem solid #4a5366;
+  background: var(--panel);
+  border: 0.1rem solid var(--edge);
   border-radius: 1rem;
-  box-shadow: 0 1rem 3rem rgba(0, 0, 0, 0.7);
+  box-shadow: var(--shadow-lg);
 }
 
 .setting {
@@ -1994,14 +2437,14 @@ button {
   font: 600 1.1rem var(--sans, inherit);
   letter-spacing: 0.12em;
   text-transform: uppercase;
-  color: #8d97aa;
+  color: var(--text-muted);
 }
 
 .segmented {
   display: flex;
   padding: 0.2rem;
-  background: rgba(0, 0, 0, 0.35);
-  border: 0.1rem solid #2c3344;
+  background: var(--sunken);
+  border: 0.1rem solid var(--edge);
   border-radius: 0.7rem;
 }
 
@@ -2009,7 +2452,7 @@ button {
   flex: 1;
   padding: 0.45rem 0.4rem;
   font-size: 1.25rem;
-  color: #b9c2d3;
+  color: var(--text-soft);
   background: none;
   border: none;
   border-radius: 0.5rem;
@@ -2022,7 +2465,7 @@ button {
 .segmented button.on {
   color: #1a1408;
   font-weight: 700;
-  background: #ffdf9a;
+  background: var(--gold-light);
 }
 
 /* ---------- sound ---------- */
@@ -2050,18 +2493,18 @@ button {
   width: 2.9rem;
   height: 2.9rem;
   padding: 0;
-  color: #dfe6f3;
+  color: var(--text-soft);
   background: rgba(255, 255, 255, 0.06);
-  border: 0.1rem solid #4a5366;
+  border: 0.1rem solid var(--edge);
   border-radius: 0.6rem;
 }
 
 .sound-mute:hover {
-  border-color: #cfd6e4;
+  border-color: var(--edge-light);
 }
 
 .sound-mute.off {
-  color: #8d97aa;
+  color: var(--text-muted);
 }
 
 .sound-mute svg {
@@ -2076,7 +2519,7 @@ button {
   font-size: 1.2rem;
   font-variant-numeric: tabular-nums;
   text-align: right;
-  color: #9aa4b8;
+  color: var(--text-muted);
 }
 
 /* Clips the lines while they fold open or shut. */
@@ -2092,7 +2535,7 @@ button {
   font-size: 1.2rem;
   line-height: 1.45;
   background: rgba(8, 10, 16, 0.72);
-  border: 0.1rem solid rgba(255, 255, 255, 0.14);
+  border: 0.1rem solid var(--line);
   border-top: none;
   border-radius: 0 0 0.8rem 0.8rem;
   scrollbar-width: thin;
@@ -2102,7 +2545,7 @@ button {
 .log-line {
   margin: 0.25rem 0;
   padding-left: 0.7rem;
-  color: #d0d7e5;
+  color: var(--text-soft);
   border-left: 0.25rem solid var(--deck);
 }
 
@@ -2126,7 +2569,7 @@ button {
 
 /* A card named in the log: hover it for the full card. */
 .log-card {
-  color: #eef1f7;
+  color: var(--text);
   text-decoration: underline dashed rgba(238, 241, 247, 0.55);
   text-decoration-thickness: 0.1rem;
   text-underline-offset: 0.25rem;
@@ -2163,7 +2606,7 @@ button {
 }
 
 .line-block {
-  stroke: #7cbcff;
+  stroke: var(--block);
   filter: drop-shadow(0 0 0.5rem #2f7fe0);
 }
 
@@ -2182,7 +2625,7 @@ button {
 }
 
 .head-block {
-  fill: #7cbcff;
+  fill: var(--block);
 }
 
 /* The stack sits where spells flash. Each card overlaps the one before it, so the top of the stack is in front. */
@@ -2247,8 +2690,8 @@ button {
 
 .stack-item.targetable :is(img, .text-card) {
   box-shadow:
-    0 0 0 0.35rem #ffe45c,
-    0 0 2rem 0.5rem rgba(255, 228, 92, 0.8),
+    0 0 0 0.35rem var(--target),
+    0 0 2rem 0.5rem var(--target-glow),
     0 0.6rem 1.6rem #000;
   animation: breathe 1s ease-in-out infinite;
 }
@@ -2312,7 +2755,7 @@ button {
   width: 100%;
   height: 100%;
   border-radius: 4.75% / 3.5%;
-  box-shadow: 0 0.8rem 2rem rgba(0, 0, 0, 0.8);
+  box-shadow: var(--shadow-lg);
 }
 
 /* A spell or ability resolving glows like the top of the stack as it goes. */
@@ -2402,7 +2845,7 @@ button {
 
 /* Hides the whole table while the screen passes to the next person. */
 .modal.handoff {
-  background: #0d0f14;
+  background: var(--panel-solid);
   z-index: 200;
 }
 
@@ -2411,8 +2854,8 @@ button {
   max-height: 92rem;
   padding: 2rem 3rem 3rem;
   overflow-y: auto;
-  background: rgba(14, 17, 24, 0.95);
-  border: 0.15rem solid #5d6472;
+  background: var(--panel);
+  border: 0.15rem solid var(--edge);
   border-radius: 1.5rem;
 }
 
@@ -2469,9 +2912,9 @@ button {
 .picker-fold {
   padding: 0.6rem 1.6rem;
   font-size: 1.5rem;
-  color: #d4dbe9;
+  color: var(--text-soft);
   background: rgba(255, 255, 255, 0.06);
-  border: 0.1rem solid #5d6472;
+  border: 0.1rem solid var(--edge);
   border-radius: 2rem;
 }
 
@@ -2482,7 +2925,7 @@ button {
 .picker-hint {
   margin: -0.6rem 0 1.8rem;
   font-size: 1.7rem;
-  color: #c3cad8;
+  color: var(--text-soft);
 }
 
 .picker-cards {
@@ -2507,7 +2950,7 @@ button {
 }
 
 .picker-card.can {
-  box-shadow: 0 0 0 0.25rem var(--cyan), 0 0 1.6rem rgba(57, 227, 255, 0.55);
+  box-shadow: 0 0 0 0.25rem var(--play), 0 0 1.6rem rgba(57, 227, 255, 0.55);
 }
 
 .picker-card.can:hover {
@@ -2515,7 +2958,7 @@ button {
 }
 
 .picker-card.picked {
-  box-shadow: 0 0 0 0.35rem var(--orange), 0 0 2.2rem rgba(255, 154, 46, 0.8);
+  box-shadow: 0 0 0 0.35rem var(--attack), 0 0 2.2rem rgba(255, 154, 46, 0.8);
   transform: translateY(-0.8rem);
 }
 
@@ -2544,8 +2987,8 @@ button {
   padding: 0.2rem 1rem;
   font: 700 2rem var(--serif);
   color: #fff;
-  background: rgba(8, 10, 16, 0.9);
-  border: 0.15rem solid #cfd6e4;
+  background: var(--panel);
+  border: 0.15rem solid var(--edge-light);
   border-radius: 1.6rem;
 }
 
@@ -2567,7 +3010,7 @@ button {
   font-size: 1.4rem;
   line-height: 1.3;
   text-align: center;
-  color: #c3cad8;
+  color: var(--text-soft);
 }
 
 .picker-move {
@@ -2581,7 +3024,7 @@ button {
   font-size: 1.8rem;
   color: #fff;
   background: rgba(255, 255, 255, 0.08);
-  border: 0.15rem solid #8a93a5;
+  border: 0.15rem solid var(--edge-light);
   border-radius: 1.8rem;
 }
 
@@ -2614,13 +3057,13 @@ button {
   font: 600 2rem var(--serif);
   color: #fff;
   background: rgba(255, 255, 255, 0.06);
-  border: 0.15rem solid #8a93a5;
+  border: 0.15rem solid var(--edge-light);
   border-radius: 1rem;
 }
 
 .name-input:focus {
   outline: none;
-  border-color: var(--cyan);
+  border-color: var(--play);
   box-shadow: 0 0 1.2rem rgba(57, 227, 255, 0.45);
 }
 
@@ -2633,8 +3076,8 @@ button {
   padding: 1.2rem 3rem;
   font: 600 2rem var(--serif);
   color: #fff;
-  background: rgba(14, 17, 24, 0.95);
-  border: 0.2rem solid var(--cyan);
+  background: var(--panel);
+  border: 0.2rem solid var(--play);
   border-radius: 3rem;
   box-shadow: 0 0 2rem rgba(57, 227, 255, 0.5);
 }
@@ -2642,28 +3085,28 @@ button {
 .game-over {
   padding: 4rem 9rem 5rem;
   text-align: center;
-  background: radial-gradient(circle at 50% 0%, #3a2a2a, #0d0f14 75%);
+  background: radial-gradient(circle at 50% 0%, #3a2a2a, var(--panel-solid) 75%);
   border: 0.25rem solid #8a6c6c;
   border-radius: 2.5rem;
-  box-shadow: 0 2rem 8rem #000;
+  box-shadow: var(--shadow-xl);
 }
 
 .game-over.won {
-  background: radial-gradient(circle at 50% 0%, #4a3a16, #0d0f14 75%);
-  border-color: var(--f-gold);
+  background: radial-gradient(circle at 50% 0%, #4a3a16, var(--panel-solid) 75%);
+  border-color: var(--gold);
 }
 
 .game-over h1 {
   margin: 0;
   font: 700 9rem var(--serif);
-  color: #ffdf9a;
+  color: var(--gold-light);
   text-shadow: 0 0.4rem 1.5rem #000;
 }
 
 .game-over p {
   margin: 1rem 0 3rem;
   font-size: 2.2rem;
-  color: #d4dbe9;
+  color: var(--text-soft);
 }
 
 .game-over-buttons {
@@ -2687,10 +3130,10 @@ button {
   max-width: 56rem;
   padding: 3.5rem 5rem 4rem;
   text-align: center;
-  background: radial-gradient(circle at 50% 0%, #2a3040, #0d0f14 75%);
-  border: 0.2rem solid #5d6472;
+  background: radial-gradient(circle at 50% 0%, #2a3040, var(--panel-solid) 75%);
+  border: 0.2rem solid var(--edge);
   border-radius: 2rem;
-  box-shadow: 0 2rem 8rem #000;
+  box-shadow: var(--shadow-xl);
 }
 
 .confirm h2 {
@@ -2702,7 +3145,7 @@ button {
 .confirm p {
   margin: 1rem 0 3rem;
   font-size: 1.8rem;
-  color: #c6cedd;
+  color: var(--text-soft);
 }
 
 .confirm-buttons {
@@ -2720,7 +3163,7 @@ button {
   margin: 0 auto;
   padding: 1rem 2.5rem;
   font: 600 2rem var(--serif);
-  background: rgba(8, 10, 16, 0.88);
+  background: var(--panel);
   border: 0.15rem solid #8a6c6c;
   border-radius: 1rem;
   z-index: 60;
@@ -2731,8 +3174,8 @@ button {
   padding: 0.5rem 1.5rem;
   font-size: 1.5rem;
   color: #fff;
-  background: #2f3644;
-  border: 0.1rem solid #aab3c5;
+  background: var(--raised);
+  border: 0.1rem solid var(--edge-light);
   border-radius: 0.6rem;
 }
 
