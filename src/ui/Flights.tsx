@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import type { CSSProperties } from 'react';
 import { createPortal } from 'react-dom';
 import { MotionGlobalConfig, motion, useReducedMotion } from 'motion/react';
 import { data } from '../engine';
@@ -44,6 +45,13 @@ interface Flight {
   fade: boolean;
   /** The real card, hidden until this lands. */
   hidden: HTMLElement | null;
+  /**
+   * It lands on a battlefield tile, which looks nothing like the card: instead of vanishing
+   * on landing, the copy folds into the tile's art while the tile fades in under it.
+   */
+  morph: boolean;
+  /** The fold is under way (`.flight-card.settling`). */
+  settling?: boolean;
 }
 
 /** A ring that flares once over a card: a token appearing, an ability's source as the ability resolves. */
@@ -53,8 +61,16 @@ interface Flare {
   y: number;
   w: number;
   h: number;
+  /** How far the card under it is turned (deg): a tapped tile lies at an angle. */
+  turn: number;
   kind: 'token' | 'resolve';
 }
+
+/** How far a tapped tile is turned (deg). Keep in step with `rotate` in Card.tsx `Permanent`. */
+const TAPPED_TILT = 8;
+
+/** The turn a tile adds to whatever is drawn over it: tapped, it lies at an angle, and so does anything attached to it. */
+const tilt = (el: HTMLElement) => (el.closest('.tile')?.classList.contains('tapped') ? TAPPED_TILT : 0);
 
 const q = (sel: string) => document.querySelector<HTMLElement>(sel);
 
@@ -138,7 +154,7 @@ function plan(prev: Game, next: Game, me: PlayerId | null, spots: Map<string, Sp
   const flare = (key: string, el: HTMLElement, kind: Flare['kind']) => {
     const r = el.getBoundingClientRect();
     const [w, h] = el.offsetWidth ? [el.offsetWidth, el.offsetHeight] : [r.width, r.height];
-    flares.push({ key, x: r.left + r.width / 2, y: r.top + r.height / 2, w, h, kind });
+    flares.push({ key, x: r.left + r.width / 2, y: r.top + r.height / 2, w, h, turn: tilt(el), kind });
   };
   for (const m of zoneMoves(prev, next)) {
     // A token appearing (111.1): nothing to fly from, so it flares where it lands.
@@ -151,9 +167,12 @@ function plan(prev: Game, next: Game, me: PlayerId | null, spots: Map<string, Sp
     const at = elementAt(m.to, m.card.id);
     if (!from || !at || flights.length >= MAX_FLIGHTS) continue;
     const [el, exact] = at;
-    const to = spotOf(el, false, rem);
+    // A tile entering tapped already lies at its angle (Card.tsx sets no other rotation to start from), so the copy lands at that angle too.
+    const to = { ...spotOf(el, false, rem), turn: spotOf(el, false, rem).turn + (exact ? tilt(el) : 0) };
     // A pile already shows the card on top, so only a card that is itself drawn somewhere waits hidden.
     const hides = exact && m.to.zone !== 'graveyard' && m.to.zone !== 'exile' && m.to.zone !== 'library';
+    // A permanent's tile, or the strip of one entering attached to another (an Aura): both show the card's art, so the copy folds into either.
+    const onTile = el.classList.contains('tile') || el.classList.contains('tile-attached');
     flights.push({
       key: `${m.card.id}-${next.log.length}`,
       card: m.card.id,
@@ -164,6 +183,7 @@ function plan(prev: Game, next: Game, me: PlayerId | null, spots: Map<string, Sp
       resolve: m.from?.zone === 'stack',
       fade: !exact,
       hidden: hides ? el : null,
+      morph: exact && m.to.zone === 'battlefield' && onTile,
     });
   }
   for (const item of leftStack(prev, next)) {
@@ -173,19 +193,23 @@ function plan(prev: Game, next: Game, me: PlayerId | null, spots: Map<string, Sp
     if (!source) continue;
     const from = items.get(item.id);
     if (from && flights.length < MAX_FLIGHTS) {
-      flights.push({ key: `item-${item.id}`, card: item.id, d: data(item.card), from, to: { ...spotOf(source, false, rem), turn: from.turn }, delay: 0, resolve: true, fade: true, hidden: null });
+      flights.push({ key: `item-${item.id}`, card: item.id, d: data(item.card), from, to: { ...spotOf(source, false, rem), turn: from.turn }, delay: 0, resolve: true, fade: true, hidden: null, morph: false });
     }
     if (source.classList.contains('tile')) flare(`resolve-${item.id}`, source, 'resolve');
   }
   return { flights, flares };
 }
 
-const reveal = (f: Flight) => f.hidden?.style.removeProperty('visibility');
+const reveal = (f: Flight) => {
+  f.hidden?.style.removeProperty('visibility');
+  f.hidden?.style.removeProperty('--settle');
+  f.hidden?.classList.remove('landing');
+};
 
 /**
  * Draws the flights. Mounted once with the table. A new change while cards are still flying
- * lands them at once, so fast bots never pile up a queue of moves; the Speed button shortens
- * every flight too. Nothing flies for people who ask for less motion (`reducedMotion="user"`)
+ * lands only the ones it moves again, so fast bots never pile up a queue of moves for one
+ * card while a card already landing finishes; the Speed button shortens every flight too. Nothing flies for people who ask for less motion (`reducedMotion="user"`)
  * or with `motionConfig.skipAnimations` set.
  */
 export function Flights() {
@@ -209,18 +233,29 @@ export function Flights() {
   useLayoutEffect(() => {
     const was = pending;
     pending = null;
-    // Whatever was still flying lands now.
-    live.current.forEach(reveal);
-    live.current = [];
-    setFlights([]);
-    setFlares([]);
-    if (!game || !was || reduced || MotionGlobalConfig.skipAnimations) return;
+    // A flight whose card moves again lands now (its new flight starts from the copy), as
+    // does one whose destination left the screen. The rest fly on: a bot passing priority
+    // half a second after its spell resolved mustn't cut the card's landing short.
     const rem = parseFloat(getComputedStyle(document.documentElement).fontSize);
+    const moving = new Set(game && was ? zoneMoves(was.prev, game).map((m) => m.card.id) : []);
+    // A destination that is gone, or that the change moved along its row (a token appearing beside it): the copy would land in the wrong place.
+    const stale = (el: HTMLElement, to: Spot) => {
+      if (!document.contains(el)) return true;
+      const now = spotOf(el, false, rem);
+      return Math.abs(now.x - to.x) > 1 || Math.abs(now.y - to.y) > 1;
+    };
+    const flying = live.current.filter((f) => !moving.has(f.card) && (!f.hidden || !stale(f.hidden, f.to)));
+    for (const f of live.current) if (!flying.includes(f)) reveal(f);
+    if (!game || !was || reduced || MotionGlobalConfig.skipAnimations) {
+      live.current = flying;
+      setFlights(flying);
+      return;
+    }
     const next = plan(was.prev, game, useStore.getState().human, was.spots, was.items, rem);
     for (const f of next.flights) f.hidden?.style.setProperty('visibility', 'hidden');
-    live.current = next.flights;
-    setFlights(next.flights);
-    setFlares(next.flares);
+    live.current = [...flying, ...next.flights];
+    setFlights(live.current);
+    setFlares((all) => [...all, ...next.flares]);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [game]);
 
@@ -228,9 +263,18 @@ export function Flights() {
   useEffect(() => () => live.current.forEach(reveal), []);
 
   const time = 0.5 / Math.sqrt(speed);
+  const settleTime = 0.45 / Math.sqrt(speed);
   const land = (f: Flight) => {
     reveal(f);
-    setFlights((all) => all.filter((x) => x !== f));
+    setFlights((all) => all.filter((x) => x.key !== f.key));
+  };
+  // Landed on a tile: the tile shows and fades in (.tile.landing) while the copy folds into it.
+  const settle = (f: Flight) => {
+    if (!f.hidden) return land(f);
+    f.hidden.style.setProperty('--settle', `${settleTime}s`);
+    f.hidden.classList.add('landing');
+    f.hidden.style.removeProperty('visibility');
+    setFlights((all) => all.map((x) => (x.key === f.key ? { ...x, settling: true } : x)));
   };
   return createPortal(
     <div className="flights">
@@ -255,11 +299,13 @@ export function Flights() {
               opacity: f.fade ? [1, 1, 0] : 1,
             }}
             transition={{ duration: time * (1 + hold), delay: f.delay / Math.sqrt(speed), times: [0, hold / (1 + hold), 1], ease: [0.3, 0.7, 0.3, 1] }}
-            onAnimationComplete={() => land(f)}
+            onAnimationComplete={() => (f.morph ? settle(f) : land(f))}
           >
-            {/* The back is under the face too, so a card whose image is still loading isn't an empty frame. */}
-            <div className="card-back" />
-            {f.d && <CardImage d={f.d} alt="" draggable={false} />}
+            <div className={f.settling ? 'flight-card settling' : 'flight-card'} style={{ '--settle': `${settleTime}s` } as CSSProperties} onAnimationEnd={() => f.settling && land(f)}>
+              {/* The back is under the face too, so a card whose image is still loading isn't an empty frame. */}
+              <div className="card-back" />
+              {f.d && <CardImage d={f.d} alt="" draggable={false} />}
+            </div>
           </motion.div>
         );
       })}
@@ -268,8 +314,8 @@ export function Flights() {
           key={f.key}
           className={`flare ${f.kind}`}
           style={{ left: f.x, top: f.y, width: f.w, height: f.h }}
-          initial={{ opacity: 0.9, scale: 0.9 }}
-          animate={{ opacity: 0, scale: 1.25 }}
+          initial={{ opacity: 0.9, scale: 0.9, rotate: f.turn }}
+          animate={{ opacity: 0, scale: 1.25, rotate: f.turn }}
           transition={{ duration: 0.7 / Math.sqrt(speed), ease: 'easeOut', delay: f.kind === 'resolve' ? time * 1.3 : 0.15 }}
           onAnimationComplete={() => setFlares((all) => all.filter((x) => x !== f))}
         />

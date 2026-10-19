@@ -1,7 +1,7 @@
 // Opens the game in a Microsoft Edge app window: a plain window with the normal title bar
 // and no tabs or address bar. Every Windows 10 and 11 PC has Edge, so nothing is installed.
 import { execFileSync, spawn } from 'node:child_process';
-import type { ChildProcess } from 'node:child_process';
+import type { ChildProcess, SpawnOptions } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 
@@ -45,8 +45,18 @@ export function edgeArgs(url: string, profile: string): string[] {
   ];
 }
 
-export function openEdge(edge: string, url: string, profile: string): ChildProcess {
-  return spawn(edge, edgeArgs(url, profile), { stdio: 'ignore', windowsHide: false });
+/**
+ * Opens the game window. Node on Windows puts a child it started in a job that ends with
+ * the parent (libuv's `uv_spawn`), so Edge closes with the program: right while the program
+ * runs, but a copy that only opens a window on a running program and exits (main.ts) would
+ * take its own window down with it. `outlive` starts Edge detached, outside that job.
+ */
+export function openEdge(edge: string, url: string, profile: string, outlive = false): ChildProcess {
+  return spawn(edge, edgeArgs(url, profile), edgeSpawnOptions(outlive));
+}
+
+export function edgeSpawnOptions(outlive: boolean): SpawnOptions {
+  return { stdio: 'ignore', windowsHide: false, detached: outlive };
 }
 
 /** Last resort with no Edge: the default browser. Its storage isn't in the program's folder. */

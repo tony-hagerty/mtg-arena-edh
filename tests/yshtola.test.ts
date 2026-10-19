@@ -490,6 +490,27 @@ describe('protection and returning from death', () => {
 });
 
 describe('Roaming Throne', () => {
+  it("has ward {2} (702.21a): an opponent's Mortify is countered unless they pay", () => {
+    let g = humanGame((d) => {
+      d.active = 1;
+      d.priority = 1;
+      put(d, 0, 'Roaming Throne');
+      put(d, 1, 'Swamp', 'battlefield', 5);
+      put(d, 1, 'Plains', 'battlefield', 1);
+      put(d, 1, 'Mortify', 'hand');
+      d.players[1].isBot = false;
+    });
+    g = run(g, cast(g, 'Mortify', { targets: [card(byName(g, 0, 'Roaming Throne')!)] }, 'hand', 1));
+    // The ward trigger resolves first: pay {2} or Mortify is countered.
+    for (let i = 0; i < 20 && g.decision?.type !== 'ask'; i++) g = applyAction(g, pass);
+    expect(g.decision?.type).toBe('ask');
+    expect(g.priority).toBe(1);
+    g = run(g, { type: 'answer', yes: false });
+    for (let i = 0; i < 20 && g.stack.length; i++) g = applyAction(g, pass);
+    expect(byName(g, 0, 'Roaming Throne')).toBeDefined();
+    expect(byName(g, 1, 'Mortify', 'graveyard')).toBeDefined();
+  });
+
   it('is the chosen type, and doubles triggers of other creatures of that type you control (603.2d)', () => {
     let g = humanGame((d) => {
       put(d, 0, 'Roaming Throne', 'hand');

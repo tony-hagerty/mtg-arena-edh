@@ -5,7 +5,8 @@ import type { Server } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { edgeArgs } from '../launcher/edge';
+import type { Mock } from 'vitest';
+import { edgeArgs, edgeSpawnOptions } from '../launcher/edge';
 import { createLifetime } from '../launcher/lifetime';
 import { pathsFor } from '../launcher/paths';
 import { filesFromDir, listen, makeServer, probe } from '../launcher/serve';
@@ -61,6 +62,31 @@ describe('lifetime', () => {
     expect(quit).toHaveBeenCalledOnce();
   });
 
+  it('waits for a window another copy announced, instead of quitting under it', () => {
+    const { quit, life } = setup();
+    life.pageOpened();
+    life.pageClosed();
+    life.browserExited();
+    vi.advanceTimersByTime(2000);
+    life.pageExpected();
+    vi.advanceTimersByTime(29_999);
+    expect(quit).not.toHaveBeenCalled();
+    life.pageOpened();
+    vi.advanceTimersByTime(600_000);
+    expect(quit).not.toHaveBeenCalled();
+    life.pageClosed();
+    vi.advanceTimersByTime(3000);
+    expect(quit).toHaveBeenCalledOnce();
+  });
+
+  it('quits if the announced window never comes', () => {
+    const { quit, life } = setup();
+    life.browserExited();
+    life.pageExpected();
+    vi.advanceTimersByTime(30_000);
+    expect(quit).toHaveBeenCalledOnce();
+  });
+
   it('counts each open window', () => {
     const { quit, life } = setup();
     life.browserExited();
@@ -85,6 +111,13 @@ describe('paths', () => {
     expect(args).toContain('--app=http://127.0.0.1:47180/');
     expect(args).toContain('--user-data-dir=D:\\ArenaEDH-data\\edge');
   });
+
+  // Node on Windows ends a child with its parent unless it is detached (libuv's job object):
+  // a copy that opens a window on a running program and exits must not take Edge with it.
+  it('starts Edge detached only when the program is about to exit', () => {
+    expect(edgeSpawnOptions(false).detached).toBe(false);
+    expect(edgeSpawnOptions(true).detached).toBe(true);
+  });
 });
 
 describe('server', () => {
@@ -101,7 +134,7 @@ describe('server', () => {
     server = undefined;
   });
 
-  async function start(pages = { pageOpened: vi.fn(), pageClosed: vi.fn() }) {
+  async function start(pages: { pageOpened: Mock; pageClosed: Mock; pageExpected?: Mock } = { pageOpened: vi.fn(), pageClosed: vi.fn() }) {
     server = makeServer({ files: filesFromDir(dir), pages, hello: { app: 'arena-edh', data: 'D:\\data' } });
     expect(await listen(server, 0)).toBe(true);
     const port = (server.address() as { port: number }).port;
@@ -147,6 +180,14 @@ describe('server', () => {
   it('answers a second copy of the program', async () => {
     const { port } = await start();
     expect(await probe(port)).toEqual({ app: 'arena-edh', data: 'D:\\data' });
+  });
+
+  it('is told when a second copy is about to open a window on it', async () => {
+    const { port, pages } = await start({ pageOpened: vi.fn(), pageClosed: vi.fn(), pageExpected: vi.fn() });
+    expect(await probe(port)).toEqual({ app: 'arena-edh', data: 'D:\\data' });
+    expect(pages.pageExpected).not.toHaveBeenCalled();
+    expect(await probe(port, true)).toEqual({ app: 'arena-edh', data: 'D:\\data' });
+    expect(pages.pageExpected).toHaveBeenCalledOnce();
   });
 
   it('counts game windows by their open connection', async () => {

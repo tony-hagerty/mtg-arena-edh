@@ -27,7 +27,7 @@ import {
   triggerModeOptions,
   triggerOf,
 } from '../engine';
-import type { Action, AskChoice, Card, CardChoice, CastChoice, DamageAssignment, DamageRoom, Game, NameChoice, NumberChoice, PlayerChoice, ReplacementChoice, PlayerId, StackItem } from '../engine';
+import type { Action, AskChoice, Card, CardChoice, CastChoice, DamageAssignment, DamageRoom, Game, NameChoice, NumberChoice, PlayerChoice, ReplacementChoice, PlayerId, StackItem, Zone } from '../engine';
 import { CardImage, ManaCost } from './TextCard';
 import { useStore } from './store';
 import { cx, hoverProps } from './util';
@@ -62,13 +62,18 @@ interface PickerProps {
   stackCopies?: boolean;
   /** The buttons along the bottom, given the cards picked so far (by id, in the order picked). */
   buttons: (picked: string[]) => PickerButton[];
+  /**
+   * Which group a card belongs in: where it is, say. With cards from more than one group, each
+   * group sits under its own heading, so a Mountain in the hand isn't taken for one on the table.
+   */
+  groupOf?: (c: Card) => string;
 }
 
 /**
  * A window of cards to pick from. It can be folded away to look at the table, but not
  * closed: the game is waiting on the choice.
  */
-export function CardPicker({ title, hint, cards, selectable = () => false, max = 0, numbered, stackCopies, buttons }: PickerProps) {
+export function CardPicker({ title, hint, cards, selectable = () => false, max = 0, numbered, stackCopies, buttons, groupOf }: PickerProps) {
   const [picked, setPicked] = useState<string[]>([]);
   const [folded, setFolded] = useState(false);
   if (folded) {
@@ -81,7 +86,7 @@ export function CardPicker({ title, hint, cards, selectable = () => false, max =
   // One tile per card, or per name with `stackCopies`.
   const tiles: Card[][] = [];
   for (const c of cards) {
-    const same = stackCopies && tiles.find((t) => t[0].name === c.name && selectable(t[0]) === selectable(c));
+    const same = stackCopies && tiles.find((t) => t[0].name === c.name && selectable(t[0]) === selectable(c) && (!groupOf || groupOf(t[0]) === groupOf(c)));
     if (same) same.push(c);
     else tiles.push([c]);
   }
@@ -95,6 +100,28 @@ export function CardPicker({ title, hint, cards, selectable = () => false, max =
     else if (free && picked.length < max) setPicked([...picked, free]);
     else setPicked(picked.filter((id) => !ids.includes(id)));
   };
+  const drawTile = (tile: Card[]) => {
+    const c = tile[0];
+    const can = selectable(c);
+    const n = picked.indexOf(c.id);
+    const count = tile.filter((x) => picked.includes(x.id)).length;
+    return (
+      <button
+        key={c.id}
+        className={cx('picker-card', can && 'can', count > 0 && 'picked', !can && max > 0 && 'dim')}
+        // Not `disabled`: a disabled button gets no mouse events, so hovering it would show no preview.
+        aria-disabled={!can}
+        onClick={() => toggle(tile)}
+        {...hoverProps(c.name)}
+      >
+        <CardImage d={data(c)} alt={label(c)} draggable={false} />
+        {numbered && n >= 0 && <span className="picker-num">{n + 1}</span>}
+        {tile.length > 1 && <span className="picker-count">×{tile.length}</span>}
+      </button>
+    );
+  };
+  // The groups, in the order the cards come: a heading each when there is more than one.
+  const groups = groupOf ? [...new Set(tiles.map((t) => groupOf(t[0])))] : [];
   return (
     <div className="modal">
       <div className="viewer picker">
@@ -105,27 +132,15 @@ export function CardPicker({ title, hint, cards, selectable = () => false, max =
           </button>
         </div>
         {hint && <p className="picker-hint">{withMana(hint)}</p>}
-        <div className="viewer-cards picker-cards">
-          {tiles.map((tile) => {
-            const c = tile[0];
-            const can = selectable(c);
-            const n = picked.indexOf(c.id);
-            const count = tile.filter((x) => picked.includes(x.id)).length;
-            return (
-              <button
-                key={c.id}
-                className={cx('picker-card', can && 'can', count > 0 && 'picked', !can && max > 0 && 'dim')}
-                // Not `disabled`: a disabled button gets no mouse events, so hovering it would show no preview.
-                aria-disabled={!can}
-                onClick={() => toggle(tile)}
-                {...hoverProps(c.name)}
-              >
-                <CardImage d={data(c)} alt={label(c)} draggable={false} />
-                {numbered && n >= 0 && <span className="picker-num">{n + 1}</span>}
-                {tile.length > 1 && <span className="picker-count">×{tile.length}</span>}
-              </button>
-            );
-          })}
+        <div className={cx('viewer-cards picker-cards', groups.length > 1 && 'grouped')}>
+          {groups.length > 1
+            ? groups.map((name) => (
+                <section key={name} className="picker-group">
+                  <h3>{name}</h3>
+                  <div className="picker-group-cards">{tiles.filter((t) => groupOf!(t[0]) === name).map(drawTile)}</div>
+                </section>
+              ))
+            : tiles.map(drawTile)}
         </div>
         <div className="picker-buttons">
           {buttons(picked).map((b) => (
@@ -160,6 +175,15 @@ function MulliganPicker({ g, me }: { g: Game; me: PlayerId }) {
       ]}
     />
   );
+}
+
+const ZONE_NAMES: Record<Zone, string> = { hand: 'hand', battlefield: 'battlefield', graveyard: 'graveyard', exile: 'exile', library: 'library', command: 'command zone' };
+
+/** Where a card is, as a heading for a window that offers cards from several places: "Your hand", "Mortis's graveyard". */
+function zoneName(g: Game, c: Card, me: PlayerId): string {
+  if (c.zone === 'stack') return 'On the stack';
+  const owner = c.zone === 'battlefield' ? c.controller : c.owner;
+  return `${owner === me ? 'Your' : `${g.players[owner].name}'s`} ${ZONE_NAMES[c.zone]}`;
 }
 
 function ChoicePicker({ g, choice }: { g: Game; choice: CardChoice }) {
@@ -216,6 +240,7 @@ function ChoicePicker({ g, choice }: { g: Game; choice: CardChoice }) {
         selectable={(c) => valid.has(c.id)}
         max={max}
         numbered={choice.ordered}
+        groupOf={(c) => zoneName(g, c, choice.player)}
         buttons={(picked) => [
           { label: choice.button, sub: max > 1 ? `${picked.length} of ${max}` : undefined, tone: 'go', disabled: picked.length < min, onClick: () => choose(picked) },
         ]}
