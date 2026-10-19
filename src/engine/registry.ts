@@ -10,6 +10,8 @@ const STATIC = new Set<string>();
 const REMOVING = new Set<string>();
 /** For each trigger hook, the names whose scripts can give other permanents an ability on it (`CardScript.grants`). */
 const GRANTED = new Map<string, Set<string>>();
+/** For each property of a script (a trigger hook, `doublesTriggers`, ...), the names whose scripts have it. */
+const HAVING = new Map<string, Set<string>>();
 
 export function registerScripts(scripts: Record<string, CardScript>) {
   Object.assign(SCRIPTS, scripts);
@@ -19,6 +21,12 @@ export function registerScripts(scripts: Record<string, CardScript>) {
     if (s.removesAbilities) REMOVING.add(name);
     else REMOVING.delete(name);
     for (const names of GRANTED.values()) names.delete(name);
+    for (const names of HAVING.values()) names.delete(name);
+    for (const [key, value] of Object.entries(s)) {
+      if (value === undefined) continue;
+      if (!HAVING.has(key)) HAVING.set(key, new Set());
+      HAVING.get(key)!.add(name);
+    }
     for (const { hook } of s.grants ?? []) {
       if (!GRANTED.has(hook)) GRANTED.set(hook, new Set());
       GRANTED.get(hook)!.add(name);
@@ -28,6 +36,8 @@ export function registerScripts(scripts: Record<string, CardScript>) {
 
 export const hasStaticScript = (name: string) => STATIC.has(name);
 export const hasRemovingScript = (name: string) => REMOVING.has(name);
+/** Does the script registered under `name` have property `key` (a trigger hook, `doublesTriggers`, ...)? */
+export const scriptHas = (name: string, key: string) => HAVING.get(key)?.has(name) ?? false;
 /** Can any script give a permanent a triggered ability on `hook`? */
 export const anyGrantFor = (hook: string) => (GRANTED.get(hook)?.size ?? 0) > 0;
 /** Can any script take abilities away? */

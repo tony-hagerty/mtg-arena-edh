@@ -214,6 +214,11 @@ app as in the tests. What keeps it fast, and what to keep in mind when changing 
   for good.
 - **A bot's trial moves** (`simulate`, `withoutLookahead`) skip auto-pay's lookahead and the
   log.
+- **The registry knows which names have what.** `registerScripts` notes, for every property
+  of a script (each trigger hook, `doublesTriggers`, `grants`), which names have it, so an
+  event offered to every permanent skips the ones that can't have the ability by name alone
+  (`mayHaveScript`). Register scripts only through `registerScripts`, and don't add to a
+  script after registering it.
 
 ## Adding a card
 

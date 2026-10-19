@@ -3,7 +3,7 @@
 import { CREATURE_TYPES, cardData } from '../cards/db';
 import { current, isDraft } from 'immer';
 import { anyGrantFor, scriptOf } from './registry';
-import { characteristics, hasOwnAbilities, heldMemo, inBase, mayLoseAbilities, settled, staticRemoval, typesOf, untouched } from './layers';
+import { characteristics, hasOwnAbilities, heldMemo, inBase, mayHaveScript, mayLoseAbilities, settled, staticRemoval, typesOf, untouched } from './layers';
 import { replace, whileArriving } from './replace';
 import type {
   ActivatedAbility,
@@ -2356,7 +2356,7 @@ export function trigger<H extends TriggerHook>(g: Game, source: Card, hook: H, e
   // Nothing to look at: its card has no ability on this event, and no card can give it one.
   // Its abilities now are its card's less any it lost (613.1f), so it can't have gained one.
   // Asked of every permanent for every event, so this keeps the layers out of most of them.
-  if (!scriptFor(source)[hook] && !anyGrantFor(hook)) return;
+  if (!anyGrantFor(hook) && !(mayHaveScript(source, hook) && scriptFor(source)[hook])) return;
   const raw = abilitiesOf(g, source)[hook] as Trigger<object> | Trigger<object>[] | undefined;
   const own = (Array.isArray(raw) ? raw : raw ? [raw] : []).map((t, i) => ({ t, extra: Array.isArray(raw) ? { trigger: i } : {} }));
   // Abilities other cards give it (613.1f), until end of turn or while they apply.
@@ -2383,7 +2383,7 @@ export function trigger<H extends TriggerHook>(g: Game, source: Card, hook: H, e
  * abilities ... to trigger".
  */
 export function triggerTimes(g: Game, source: Card, hook: TriggerHook): number {
-  const w = watchers ?? watchersNow(g);
+  const w = watchers?.() ?? watchersNow(g);
   if (w.suppressors.some((x) => abilitiesOf(g, x).suppressesTriggers!(g, x, source, hook))) return 0;
   return 1 + w.doublers.filter((x) => abilitiesOf(g, x).doublesTriggers!(g, x, source, hook)).length;
 }
@@ -2409,15 +2409,15 @@ interface Watchers {
   suppressors: Card[];
 }
 
-/** While `broadcast` asks every permanent about one event: the `Watchers`, found once for all of them. */
-let watchers: Watchers | null = null;
+/** While `broadcast` asks every permanent about one event: the `Watchers`, found once for all of them when first needed. */
+let watchers: (() => Watchers) | null = null;
 
 function watchersNow(g: Game): Watchers {
   const all = lookBack ?? battlefield(g);
   // Its card has the ability before abilitiesOf asks whether it lost it (613.1f).
   return {
-    doublers: all.filter((x) => scriptFor(x).doublesTriggers && abilitiesOf(g, x).doublesTriggers),
-    suppressors: all.filter((x) => scriptFor(x).suppressesTriggers && abilitiesOf(g, x).suppressesTriggers),
+    doublers: all.filter((x) => mayHaveScript(x, 'doublesTriggers') && scriptFor(x).doublesTriggers && abilitiesOf(g, x).doublesTriggers),
+    suppressors: all.filter((x) => mayHaveScript(x, 'suppressesTriggers') && scriptFor(x).suppressesTriggers && abilitiesOf(g, x).suppressesTriggers),
   };
 }
 
@@ -2491,7 +2491,9 @@ export function broadcast<H extends BroadcastHook>(g: Game, hook: H, event: Trig
   // Triggering only puts abilities in `Game.triggers`, which no characteristic depends on.
   settled(g, () => {
     const outer = watchers;
-    watchers = watchersNow(g);
+    // Only a permanent whose ability triggers asks who doubles or stops it (triggerTimes).
+    let found: Watchers | undefined;
+    watchers = () => (found ??= watchersNow(g));
     try {
       for (const c of battlefield(g)) trigger(g, c, hook, event);
       for (const p of g.players) for (const c of p.graveyard) if (scriptFor(c).fromGraveyard?.includes(hook)) trigger(g, c, hook, event);
