@@ -152,7 +152,7 @@ describe('a table of friends', () => {
     expect(host.state().seats[2]).toMatchObject({ kind: 'bot', deck: { title: expect.any(String) } });
   });
 
-  it('plays a whole game, each program seeing only its own seat’s hand', async () => {
+  it('plays a whole game, each program seeing only its own seat’s hand', { tags: ['game'] }, async () => {
     const { host, guest } = await hostAndJoin(3, true);
     host.lobby.ready({ ready: true });
     guest.lobby.ready({ ready: true });

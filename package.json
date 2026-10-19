@@ -9,6 +9,8 @@
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
     "test": "vitest run",
+    "test:quick": "vitest run --exclude \"tests/simulation/**\" --tags-filter=\"!game\"",
+    "test:games": "vitest run --tags-filter=game",
     "fetch-cards": "node scripts/fetch-cards.mjs",
     "fetch-rules": "node scripts/fetch-rules.mjs",
     "parse-report": "node scripts/parse-report.mjs",
