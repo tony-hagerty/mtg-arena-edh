@@ -65,3 +65,22 @@ export interface ViewMessage {
    */
   cards?: CardData[];
 }
+
+/**
+ * POST `${API}/error`: the page hit an error (src/ui/crash.ts), and the program writes one
+ * line of it to its log (`ArenaEDH-data/launcher.log`). The answer is `ErrorLogged`.
+ */
+export interface ErrorReport {
+  /** `render`: drawing the screen failed and the error screen shows; `error` or `rejection`: anything else uncaught. */
+  kind: 'render' | 'error' | 'rejection';
+  message: string;
+  stack?: string;
+  /** The game's turn and step, when a game is on. */
+  turn?: number;
+  step?: string;
+}
+
+/** The answer to an `ErrorReport`: the program's build, for the details a player copies. */
+export interface ErrorLogged {
+  version: string;
+}

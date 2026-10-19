@@ -7,7 +7,7 @@ import { DECKS } from '../src/cards/db';
 import { botAction, isHidden } from '../src/engine';
 import type { Game, PlayerId } from '../src/engine';
 import type { StartRequest, ViewMessage } from '../src/net/protocol';
-import { GameHost, handleGameApi } from '../server/game';
+import { GameHost, errorLine, handleErrorReport, handleGameApi } from '../server/game';
 import { listen, makeServer } from '../launcher/serve';
 import { emptyGame } from './helpers';
 
@@ -195,5 +195,42 @@ describe('the game server over HTTP', () => {
     expect((await post('start', { seats: seats(true, true), prefs: {}, cards: [] }, 'http://evil.example')).status).toBe(403);
     expect((await post('start', { seats: seats(true, true), prefs: {}, cards: [] }, null)).status).toBe(403);
     expect(host.full).toBe(null);
+  });
+});
+
+describe('errors in the game window, written to the program’s log', () => {
+  let server: Server | undefined;
+  afterEach(() => server?.close());
+
+  it('writes one line per error with the build, the turn and step, and the stack trace', async () => {
+    const lines: string[] = [];
+    const host = new GameHost(manualClock().schedule);
+    server = makeServer({
+      files: () => undefined,
+      pages: { pageOpened() {}, pageClosed() {} },
+      hello: { app: 'arena-edh', data: '' },
+      api: (req, res, path) => handleErrorReport(req, res, path, (l) => lines.push(l), 'v9') || handleGameApi(host, req, res, path),
+    });
+    expect(await listen(server, 0)).toBe(true);
+    const base = `http://127.0.0.1:${(server.address() as { port: number }).port}`;
+    const post = (body: unknown, origin: string | null = base) =>
+      fetch(`${base}/api/game/error`, { method: 'POST', headers: { 'Content-Type': 'application/json', ...(origin ? { Origin: origin } : {}) }, body: JSON.stringify(body) });
+    const report = { kind: 'render', message: 'Unknown card: Wizard', stack: 'Error: Unknown card: Wizard\n    at cardData (db.ts:59)\n    at SpellFlash (Hud.tsx:863)', turn: 7, step: 'main1' };
+    const res = await post(report);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ version: 'v9' });
+    expect(lines).toEqual(['Page error (render) v9 turn 7 main1: Error: Unknown card: Wizard | at cardData (db.ts:59) | at SpellFlash (Hud.tsx:863)']);
+    // Only from the program's own pages (launcher/serve.ts), and only a real report.
+    expect((await post(report, 'http://evil.example')).status).toBe(403);
+    expect((await post({ kind: 'error' })).status).toBe(400);
+    expect(lines).toHaveLength(1);
+    // The game's endpoints still answer beside it.
+    expect(await (await fetch(`${base}/api/game/hello`)).json()).toEqual({ server: true });
+  });
+
+  it('keeps a report to one line, and says the message when the stack doesn’t', () => {
+    expect(errorLine({ kind: 'rejection', message: 'Lobby: 500\nretry' }, 'dev')).toBe('Page error (rejection) dev: Lobby: 500 | retry');
+    expect(errorLine({ kind: 'error', message: 'boom', stack: 'at f (x.ts:1)\n  at g (y.ts:2)' }, 'dev')).toBe('Page error (error) dev: boom | at f (x.ts:1) | at g (y.ts:2)');
+    expect(errorLine({ kind: 'error', message: 'x', stack: 'y'.repeat(9000) }, 'dev').length).toBeLessThan(4100);
   });
 });

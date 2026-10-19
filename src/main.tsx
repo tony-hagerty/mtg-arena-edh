@@ -5,7 +5,9 @@ import 'mana-font/css/mana.min.css';
 import './ui/styles.css';
 import './ui/fullscreen';
 import './ui/sound';
+import './ui/music';
 import { App } from './ui/App';
+import { watchPageErrors } from './ui/crash';
 import { connectLobby } from './ui/lobby';
 import { connectServer } from './ui/remote';
 import { useStore } from './ui/store';
@@ -20,6 +22,9 @@ const syncPressed = (e: PointerEvent) => document.documentElement.classList.togg
 for (const type of ['pointerdown', 'pointerup', 'pointermove', 'pointercancel'] as const) {
   window.addEventListener(type, syncPressed, { capture: true, passive: true });
 }
+
+// Errors nothing else caught go to the program's log (crash.ts); drawing errors show the error screen (App).
+watchPageErrors();
 
 // Cards fetched from Scryfall for pasted decks, kept from earlier visits.
 void useStore.getState().loadCards();

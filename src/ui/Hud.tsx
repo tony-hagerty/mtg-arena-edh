@@ -7,12 +7,13 @@ import type { CardData, Game, LogEntry, PlayerId, Step, StopKind } from '../engi
 import { CardImage, ManaCost } from './TextCard';
 import { useRem } from './rem';
 import { play } from './sound';
-import { SoundButton } from './SoundControl';
+import { MusicControl, SoundControl } from './SoundControl';
 import { useStore } from './store';
 import type { Hover } from './store';
 import { type Seat, cx, deckColor, faceUp, hoverProps, seatOf } from './util';
 import { STEP_NAMES, activateFromHand, cancel, clickStackItem, pickAbility, pickMana, pickTapCreature, pickManaDiscard, pickManaSacrifice, pickFace, pickMode, playHandCard, setAbilityX, setChoices, shiftDivision, exileForMana, plotCard, useView } from './view';
 import type { AbilityOption, Btn } from './view';
+import { leftStack, newGame } from './zone-moves';
 
 // ---------- phase tracker + buttons (bottom right) ----------
 
@@ -618,48 +619,184 @@ function LogText({ entry }: { entry: Pick<LogEntry, 'text' | 'cards'> }) {
   );
 }
 
-export function LogPanel() {
-  const g = useView().g;
-  const show = useStore((s) => s.showLog);
+/**
+ * The log lines a stack item resolving wrote (608.2): every line added by a change that took
+ * something off the stack. They flash once as they appear, so a resolve is seen in the log too.
+ */
+function useResolvedLines(g: Game) {
+  const seen = useRef({ g, lines: new Set<number>() });
+  const was = seen.current.g;
+  if (was !== g) {
+    if (newGame(was, g)) seen.current.lines = new Set();
+    else if (leftStack(was, g).length) for (let i = was.log.length; i < g.log.length; i++) seen.current.lines.add(i);
+    seen.current.g = g;
+  }
+  return seen.current.lines;
+}
+
+/** The log bar's icons: 24-unit boxes, drawn in the button's text colour. */
+const BAR_ICONS = {
+  chevron: <path d="M6 9.5 12 15.5 18 9.5" fill="none" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" />,
+  gear: (
+    <path
+      fillRule="evenodd"
+      d="M10.3 2h3.4l.5 2.7a8 8 0 0 1 1.9 1.1l2.6-.9 1.7 2.9-2.1 1.8a8 8 0 0 1 0 2.2l2.1 1.8-1.7 2.9-2.6-.9a8 8 0 0 1-1.9 1.1l-.5 2.7h-3.4l-.5-2.7a8 8 0 0 1-1.9-1.1l-2.6.9-1.7-2.9 2.1-1.8a8 8 0 0 1 0-2.2L3.6 7.8l1.7-2.9 2.6.9a8 8 0 0 1 1.9-1.1ZM12 8.6a3.4 3.4 0 1 0 0 6.8 3.4 3.4 0 0 0 0-6.8Z"
+    />
+  ),
+  pause: <path d="M7 5h3.5v14H7Zm6.5 0H17v14h-3.5Z" />,
+  exit: (
+    <path
+      d="M14 4H6.5A1.5 1.5 0 0 0 5 5.5v13A1.5 1.5 0 0 0 6.5 20H14M10 12h10m-3.5-3.5L20 12l-3.5 3.5"
+      fill="none"
+      strokeWidth="2.2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    />
+  ),
+};
+
+function BarIcon({ name }: { name: keyof typeof BAR_ICONS }) {
+  return (
+    <svg className="bar-icon" viewBox="0 0 24 24" aria-hidden="true">
+      {BAR_ICONS[name]}
+    </svg>
+  );
+}
+
+/** A row of buttons that picks one value, for the settings popover. */
+function Segmented<T>({ options, value, onChange, label }: { options: { value: T; label: string }[]; value: T; onChange: (v: T) => void; label: string }) {
+  return (
+    <div className="segmented" role="radiogroup" aria-label={label}>
+      {options.map((o) => (
+        <button key={o.label} role="radio" aria-checked={o.value === value} className={cx(o.value === value && 'on')} onClick={() => onChange(o.value)}>
+          {o.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+const DAMAGE_TIP = 'When an attacker of yours is blocked by two or more creatures, or has trample, choose how its damage is divided';
+
+/**
+ * The gear on the log bar and its popover: the settings that change how the game runs for
+ * this person (bot speed, sound, and how combat damage is divided). Esc or a click
+ * elsewhere closes it, before Esc reaches the game.
+ */
+function GameSettings() {
+  const [open, setOpen] = useState(false);
   const speed = useStore((s) => s.speed);
   const human = useStore((s) => s.human);
   const manualDamage = useStore((s) => s.settings.manualDamage);
+  const box = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const key = (e: KeyboardEvent) => {
+      if (e.code !== 'Escape') return;
+      e.stopPropagation();
+      setOpen(false);
+    };
+    const down = (e: PointerEvent) => {
+      if (!box.current?.contains(e.target as Node)) setOpen(false);
+    };
+    // Capturing on the window runs before the game's own Esc (cancel).
+    window.addEventListener('keydown', key, true);
+    document.addEventListener('pointerdown', down);
+    return () => {
+      window.removeEventListener('keydown', key, true);
+      document.removeEventListener('pointerdown', down);
+    };
+  }, [open]);
+  return (
+    <div className="log-settings" ref={box}>
+      <button className={cx('bar-button', open && 'on')} onClick={() => setOpen(!open)} aria-label="Settings" aria-expanded={open} aria-haspopup="dialog" data-tip="Settings">
+        <BarIcon name="gear" />
+      </button>
+      <AnimatePresence>
+        {open && (
+          <motion.div
+            className="log-popover"
+            role="dialog"
+            aria-label="Settings"
+            initial={{ opacity: 0, y: '0.6rem' }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: '0.6rem' }}
+            transition={{ duration: 0.16 }}
+          >
+            <div className="setting" title="Bot speed">
+              <span className="setting-name">Bot speed</span>
+              <Segmented options={SPEEDS.map((n) => ({ value: n, label: `${n}×` }))} value={speed} onChange={(n) => useStore.getState().setSpeed(n)} label="Bot speed" />
+            </div>
+            <div className="setting">
+              <span className="setting-name">Sound</span>
+              <SoundControl />
+            </div>
+            <div className="setting">
+              <span className="setting-name">Music</span>
+              <MusicControl />
+            </div>
+            {human !== null && (
+              <div className="setting" title={DAMAGE_TIP}>
+                <span className="setting-name">Combat damage</span>
+                <Segmented
+                  options={[
+                    { value: false, label: 'Auto' },
+                    { value: true, label: 'By hand' },
+                  ]}
+                  value={manualDamage}
+                  onChange={(v) => useStore.getState().setSetting({ manualDamage: v })}
+                  label="Divide combat damage"
+                />
+              </div>
+            )}
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}
+
+export function LogPanel() {
+  const g = useView().g;
+  const show = useStore((s) => s.showLog);
+  const human = useStore((s) => s.human);
   const tableGame = useStore((s) => s.tableGame);
   const lines = useRef<HTMLDivElement>(null);
+  const resolved = useResolvedLines(g);
   useEffect(() => {
     lines.current?.scrollTo({ top: lines.current.scrollHeight });
   }, [g.log.length, show]);
   const start = Math.max(0, g.log.length - 80);
-  // The panel hangs from the bottom-left corner, so as the lines fold away the buttons ride down with them.
+  // The panel hangs from the bottom-left corner. The bar is the log's top edge: as the lines fold away it rides down with them.
   return (
-    <aside className="log">
+    <aside className={cx('log', show && 'open')}>
       <div className="log-bar">
-        <button onClick={() => useStore.setState({ showLog: !show })} aria-expanded={show}>
-          {show ? 'Hide log' : 'Show log'}
+        <button className="log-toggle" onClick={() => useStore.setState({ showLog: !show })} aria-expanded={show} aria-controls="log-body" data-tip={show ? 'Hide log' : 'Show log'}>
+          <BarIcon name="chevron" />
+          <span>Log</span>
         </button>
-        <button onClick={() => useStore.getState().setSpeed(SPEEDS[(SPEEDS.indexOf(speed) + 1) % SPEEDS.length])} title="Bot speed">
-          Speed {speed}×
-        </button>
-        <SoundButton />
-        {human !== null && (
-          <button
-            onClick={() => useStore.getState().setSetting({ manualDamage: !manualDamage })}
-            title="When an attacker of yours is blocked by two or more creatures, or has trample, choose how its damage is divided"
-          >
-            Damage: {manualDamage ? 'By hand' : 'Auto'}
+        <div className="log-tools" role="toolbar" aria-label="Game controls">
+          {tableGame && (
+            <button
+              className="bar-button"
+              onClick={() => useStore.getState().lobby?.pause({ paused: true }).catch((err) => console.warn('Lobby:', err))}
+              aria-label="Pause"
+              data-tip="Pause the game for everyone at the table"
+            >
+              <BarIcon name="pause" />
+            </button>
+          )}
+          <GameSettings />
+          <button className="bar-button exit" onClick={() => useStore.setState({ confirmExit: true })} aria-label="Exit" data-tip="Exit to the menu">
+            <BarIcon name="exit" />
           </button>
-        )}
-        {tableGame && (
-          <button onClick={() => useStore.getState().lobby?.pause({ paused: true }).catch((err) => console.warn('Lobby:', err))} title="Pause the game for everyone at the table">
-            Pause
-          </button>
-        )}
-        <button onClick={() => useStore.setState({ confirmExit: true })}>Exit</button>
+        </div>
       </div>
       <AnimatePresence initial={false}>
         {show && (
           <motion.div
             key="log"
+            id="log-body"
             className="log-body"
             initial={{ height: 0, opacity: 0 }}
             animate={{ height: 'auto', opacity: 1 }}
@@ -672,7 +809,7 @@ export function LogPanel() {
                 const line = human !== null && l.private?.players.includes(human) ? l.private : l;
                 const color = l.player === undefined ? '#fff' : deckColor(g.players[l.player].colors);
                 return (
-                  <div key={start + i} className={cx('log-line', l.text.startsWith('Turn ') && 'turn')} style={{ '--deck': color } as CSSProperties}>
+                  <div key={start + i} className={cx('log-line', l.text.startsWith('Turn ') && 'turn', resolved.has(start + i) && 'resolved')} style={{ '--deck': color } as CSSProperties}>
                     <LogText entry={line} />
                   </div>
                 );
@@ -732,9 +869,13 @@ export function ExitConfirm() {
 
 /** The card a hover target shows, or null for a name that is neither a card nor a token key. */
 function hoverData(hover: Hover): CardData | null {
-  if (hover.d) return hover.d;
+  return hover.d ?? knownCard(hover.name);
+}
+
+/** The card or token with this name or key, or null if there is none: a missing card shows nothing rather than stopping the screen. */
+function knownCard(name: string): CardData | null {
   try {
-    return cardData(hover.name);
+    return cardData(name);
   } catch {
     return null;
   }
@@ -744,7 +885,8 @@ function hoverData(hover: Hover): CardData | null {
 function cardAt(game: Game | null, at: Element | null) {
   const el = at?.closest<HTMLElement>('[data-card]');
   const card = el && game && findCard(game, el.dataset.card!);
-  return el && card ? { name: card.name, d: data(card), el } : null;
+  // The viewer's cards are shown big already (see `ZoneViewer`).
+  return el && card ? { name: card.name, d: data(card), el, ...(el.closest('.viewer') && { pinOnly: true }) } : null;
 }
 
 /**
@@ -791,8 +933,8 @@ export function Preview() {
     useStore.setState({ hover: cardAt(game, document.elementFromPoint(pointer.current.x, pointer.current.y)) });
   }, [game, hover]);
 
-  // A hand card zooms itself, so it only gets the pinned preview.
-  const d = pinned ?? (hover && !hover.hand ? hoverData(hover) : null);
+  // A hand card zooms itself, and the viewer's cards are big already: they only get the pinned preview.
+  const d = pinned ?? (hover && !hover.pinOnly ? hoverData(hover) : null);
   const rem = parseFloat(getComputedStyle(document.documentElement).fontSize);
   const gap = 1.5 * rem;
   if (pinned) {
@@ -840,6 +982,7 @@ export function StackPanel() {
           <div
             key={item.id}
             data-stack={item.id}
+            data-stack-card={item.kind === 'spell' ? item.card.id : undefined}
             className={cx('stack-item', i === g.stack.length - 1 && !paying && 'top', targetStack.has(item.id) && 'targetable')}
             onClick={() => clickStackItem(item.id)}
             title={triggerText(item)}
@@ -854,7 +997,7 @@ export function StackPanel() {
         );
       })}
       {paying && (
-        <div key={`paying-${paying.card.id}`} className="stack-item top paying" {...hoverProps(data(paying.card))}>
+        <div key={`paying-${paying.card.id}`} data-paying={paying.card.id} className="stack-item top paying" {...hoverProps(data(paying.card))}>
           <CardImage d={data(paying.card)} alt={label(paying.card)} draggable={false} />
           <span className="stack-tag">Pay to {paying.kind === 'spell' ? 'cast' : 'activate'}</span>
         </div>
@@ -877,6 +1020,7 @@ export function SpellFlash() {
   const rem = useRem();
   const spell = g.lastSpell;
   const [shown, setShown] = useState<typeof spell>(null);
+  const d = shown && knownCard(shown.name);
   useEffect(() => {
     if (!spell) return;
     setShown(spell);
@@ -886,7 +1030,7 @@ export function SpellFlash() {
   }, [spell?.seq]);
   return (
     <AnimatePresence>
-      {shown && !g.stack.length && (
+      {shown && d && !g.stack.length && (
         <motion.div
           key={shown.seq}
           className="spell-flash"
@@ -895,7 +1039,7 @@ export function SpellFlash() {
           exit={{ opacity: 0, scale: 0.9 }}
         >
           <div className="spell-caster">{flashCaption(shown, shown.caster === me ? null : g.players[shown.caster].name)}</div>
-          <CardImage d={cardData(shown.name)} alt={cardData(shown.name).name} draggable={false} />
+          <CardImage d={d} alt={d.name} draggable={false} />
           {shown.ability && <div className="spell-ability">{shown.ability === 'triggered' ? 'Trigger' : 'Ability'}</div>}
         </motion.div>
       )}
@@ -995,6 +1139,9 @@ export function ZoneViewer() {
                 key={c.id}
                 d={data(c)}
                 alt={data(c).name}
+                data-card={c.id}
+                // Already big: no hover preview, but right-click pins one like a card on the table.
+                {...hoverProps(data(c), { pinOnly: true })}
                 className={cx(castable && 'glow-play')}
                 title={castable ? `Cast ${data(c).name}` : undefined}
                 draggable={false}

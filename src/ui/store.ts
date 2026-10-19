@@ -115,22 +115,28 @@ export interface Settings {
   volume: number;
   /** All sounds off, keeping `volume` for when they come back. */
   muted: boolean;
+  /** Loudness of the background music, 0 to 1, apart from the sounds (see music.ts). */
+  music: number;
+  /** The music off, keeping `music` for when it comes back. */
+  musicMuted: boolean;
 }
 
 export type SeatPlayer = 'bot' | 'person' | 'empty';
 const SEAT_PLAYERS: SeatPlayer[] = ['bot', 'person', 'empty'];
 
-const DEFAULT_SETTINGS: Settings = { manualDamage: false, opponents: [null, null, null], players: ['bot', 'bot', 'bot'], volume: 0.5, muted: false };
+const DEFAULT_SETTINGS: Settings = { manualDamage: false, opponents: [null, null, null], players: ['bot', 'bot', 'bot'], volume: 0.5, muted: false, music: 0.4, musicMuted: false };
 
 /** The human's settings from the last session, or the defaults. Storage can be missing or blocked. */
-function loadSettings(): Settings {
+export function loadSettings(): Settings {
   try {
     const saved = JSON.parse(localStorage.getItem(SETTINGS_KEY) ?? 'null');
     if (saved && typeof saved === 'object') {
       const opponents = DEFAULT_SETTINGS.opponents.map((_, i) => (typeof saved.opponents?.[i] === 'string' ? (saved.opponents[i] as string) : null));
       const players = DEFAULT_SETTINGS.players.map((d, i) => (SEAT_PLAYERS.includes(saved.players?.[i]) ? (saved.players[i] as SeatPlayer) : d));
-      const volume = typeof saved.volume === 'number' ? Math.max(0, Math.min(1, saved.volume)) : DEFAULT_SETTINGS.volume;
-      return { ...DEFAULT_SETTINGS, manualDamage: saved.manualDamage === true, opponents, players, volume, muted: saved.muted === true };
+      const level = (v: unknown, d: number) => (typeof v === 'number' && Number.isFinite(v) ? Math.max(0, Math.min(1, v)) : d);
+      const volume = level(saved.volume, DEFAULT_SETTINGS.volume);
+      const music = level(saved.music, DEFAULT_SETTINGS.music);
+      return { ...DEFAULT_SETTINGS, manualDamage: saved.manualDamage === true, opponents, players, volume, muted: saved.muted === true, music, musicMuted: saved.musicMuted === true };
     }
   } catch {
     // fall through to the defaults
@@ -201,8 +207,11 @@ export interface Hover {
    * looked up by, and a copy or a flipped card looks different from its name's card.
    */
   d?: CardData;
-  /** A card in the human's hand. It zooms itself, so it only gets a preview when right-clicked. */
-  hand?: boolean;
+  /**
+   * Only right-click previews it: a card in the human's hand, which zooms itself, or one
+   * already shown big (the graveyard and exile viewer).
+   */
+  pinOnly?: boolean;
 }
 
 interface Store {

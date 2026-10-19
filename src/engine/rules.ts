@@ -2115,7 +2115,8 @@ function shiftCard(g: Game, c: Card, to: Zone) {
   if (happens.kind === 'move') to = happens.to;
   if (from === 'battlefield') leaveAbilitiesBehind(g, c);
   // As it last was on the battlefield, for leaves-the-battlefield abilities (603.10a).
-  const last = from === 'battlefield' && watchingLeaves(g) ? lastKnown(g, c) : null;
+  // Who is watching looks back in time too (603.10a): a permanent that left earlier in the same event still sees this one go.
+  const last = from === 'battlefield' && watchingLeaves(g, batch?.before ?? battlefield(g)) ? lastKnown(g, c) : null;
   if (last && batch && !batch.before) batch.before = battlefield(g).map((x) => rememberPermanent(g, x));
   const before = last && !batch ? battlefield(g).map((x) => rememberPermanent(g, x)) : null;
   if (c.zone === 'stack') {
@@ -2178,20 +2179,20 @@ function shiftCard(g: Game, c: Card, to: Zone) {
   zone.push(c);
   const stored = zone[zone.length - 1];
   if (to === 'graveyard') announce(g, 'onCardToGraveyard', { card: stored, player: c.owner });
-  // Cards put into exile from a graveyard or the battlefield (Ketramose). Tokens aren't cards (108.2b).
-  const exiled = to === 'exile' && (from === 'graveyard' || from === 'battlefield') && watchingExile(g) ? [stored] : [];
+  // Cards put into exile from a graveyard or the battlefield (Ketramose), which sees itself go (603.10a). Tokens aren't cards (108.2b).
+  const exiled = to === 'exile' && (from === 'graveyard' || from === 'battlefield') && watchingExile(g, before ?? batch?.before ?? battlefield(g)) ? [stored] : [];
   if (last || exiled.length) leaves(g, { left: last ? [{ card: last, to }] : [], exiled, before });
 }
 
-/** Is anything listening for permanents leaving the battlefield (so `moveCard` needs to remember them)? */
-const watchingLeaves = (g: Game) =>
-  battlefield(g).some((x) => {
+/** Is anything among `permanents` listening for permanents leaving the battlefield (so `moveCard` needs to remember them)? */
+const watchingLeaves = (g: Game, permanents: Card[]) =>
+  permanents.some((x) => {
     const s = abilitiesOf(g, x);
     return s.onLeave || s.onPermanentLeaves || s.onExiled;
   });
 
-/** Is anything listening for cards put into exile from graveyards or the battlefield? */
-const watchingExile = (g: Game) => battlefield(g).some((x) => abilitiesOf(g, x).onExiled);
+/** Is anything among `permanents` listening for cards put into exile from graveyards or the battlefield? */
+const watchingExile = (g: Game, permanents: Card[]) => permanents.some((x) => abilitiesOf(g, x).onExiled);
 
 /** Permanents that left the battlefield, and cards exiled from graveyards or the battlefield, in one event. */
 interface Leaving {
@@ -2590,6 +2591,30 @@ export interface EnterOpts {
   after?: { source: Card; key: string; you: PlayerId; data?: Record<string, unknown>; script?: string };
   /** The cards entering together it waits with (`enterTogether`). */
   group?: string;
+  /** Its caller logs it already ("plays X" for a land played from a graveyard), so `logReturns` doesn't. */
+  quiet?: boolean;
+}
+
+/**
+ * Says which cards came back to the battlefield from a graveyard or exile, whatever put them
+ * there (Reanimate, Kaya's Ghostform, persist, a flicker): "Borderland Marauder returns to
+ * the battlefield under Zidane's control." A card under another player's control than its
+ * owner's says whose. Cards entering together share a line for each controller. Cards
+ * from the stack, a hand or a library have their own lines (casting, playing, searching).
+ */
+function logReturns(g: Game, entering: { c: Card; from: Card['zone']; opts: EnterOpts }[]) {
+  const back = entering.filter(({ c, from, opts }) => (from === 'graveyard' || from === 'exile') && !opts.quiet && !c.isToken);
+  const lines = new Map<string, Card[]>();
+  for (const { c } of back) {
+    const p = g.players[c.controller];
+    const key = c.controller === c.owner ? '' : ` under ${p.you ? 'your' : `${p.name}'s`} control`;
+    lines.set(key, [...(lines.get(key) ?? []), c]);
+  }
+  for (const [control, cards] of lines) {
+    const names = cards.map(label);
+    const list = names.length === 1 ? names[0] : `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`;
+    log(g, `${list} ${cards.length === 1 ? 'returns' : 'return'} to the battlefield${control}.`, cards[0].controller, cards);
+  }
 }
 
 /**
@@ -2608,11 +2633,13 @@ export function enterBattlefield(g: Game, c: Card, opts: EnterOpts = {}) {
     return;
   }
   c.controller = controller;
+  const from = c.zone;
   moveCard(g, c, 'battlefield');
   if (opts.face !== undefined) c.face = opts.face;
   if (opts.attachTo) c.attachedTo = opts.attachTo;
   if (opts.copy) c.copy = opts.copy;
   if (opts.chosen) c.chosen = opts.chosen;
+  logReturns(g, [{ c, from, opts }]);
   arrive(g, c, opts);
 }
 
@@ -2729,20 +2756,22 @@ export function timestampTogether(g: Game, cards: Card[]) {
 
 /** The cards of a group whose choices are all made enter, together (603.6a). */
 function putTogether(g: Game, ready: { id: string; moves: number; opts: EnterOpts }[]) {
-  const now: { c: Card; opts: EnterOpts }[] = [];
+  const now: { c: Card; from: Card['zone']; opts: EnterOpts }[] = [];
   for (const r of ready) {
     const c = findCard(g, r.id);
     // A card that has moved meanwhile is a new object (400.7): it isn't put there.
     if (!c || c.moves !== r.moves || c.zone === 'battlefield') continue;
     const opts = r.opts;
     c.controller = opts.controller ?? c.owner;
+    const from = c.zone;
     moveCard(g, c, 'battlefield');
     if (opts.face !== undefined) c.face = opts.face;
     if (opts.attachTo) c.attachedTo = opts.attachTo;
     if (opts.copy) c.copy = opts.copy;
     if (opts.chosen) c.chosen = opts.chosen;
-    now.push({ c, opts });
+    now.push({ c, from, opts });
   }
+  logReturns(g, now);
   timestampTogether(g, now.map((x) => x.c));
   const counters = whileArriving(
     now.map((x) => x.c.id),
@@ -2949,6 +2978,26 @@ export function exile(g: Game, c: Card | undefined) {
   if (!c || c.zone !== 'battlefield') return;
   log(g, `${label(c)} is exiled.`, c.owner, [c]);
   moveCard(g, c, 'exile');
+}
+
+/**
+ * Exiles several cards from anywhere as one event: a graveyard, a hand, the top of a
+ * library, or "exile all creatures". "Whenever one or more cards are put into exile"
+ * triggers once for all of them (603.2c). Logs `text` once for `player` (by default "X, Y
+ * are exiled." for the first card's owner). Returns the cards as they are in exile now.
+ */
+export function exileAll(g: Game, cards: (Card | undefined)[], text?: string, player?: PlayerId): Card[] {
+  const moving = cards.filter((c): c is Card => !!c && c.zone !== 'exile');
+  if (!moving.length) return [];
+  if (text === undefined) log(g, `${moving.map(label).join(', ')} ${moving.length === 1 ? 'is' : 'are'} exiled.`, moving[0].owner, moving);
+  else log(g, text, player, moving);
+  simultaneously(g, () => moving.forEach((c) => moveCard(g, c, 'exile')));
+  return moving.map((c) => g.players[c.owner].exile.find((x) => x.id === c.id)).filter((c): c is Card => !!c);
+}
+
+/** Puts several cards into their owners' graveyards as one event (surveil, "return them to their owners' graveyards"). */
+export function toGraveyards(g: Game, cards: Card[]) {
+  simultaneously(g, () => cards.forEach((c) => moveCard(g, c, 'graveyard')));
 }
 
 /** Player `pid` gains `n` life, or what replacement effects make it instead (119.10). */

@@ -113,6 +113,7 @@ import {
   offerCast,
   battlefield,
   simultaneously,
+  toGraveyards,
   itemScript,
   abilitiesOf,
   scriptFor,
@@ -493,7 +494,7 @@ const ENGINE_THEN: Record<string, (g: Game, ctx: ThenCtx) => void> = {
   // Surveil (701.25a): the cards picked go to the graveyard; the rest stay on top.
   '@surveil': (g, { chooser, picked }) => {
     const p = g.players[chooser];
-    for (const c of picked) moveCard(g, c, 'graveyard');
+    toGraveyards(g, picked);
     log(g, picked.length ? `${says(p, 'surveils')} and ${verbFor(p, 'puts')} ${picked.map(label).join(', ')} into ${their(p)} graveyard.` : `${says(p, 'surveils')}.`, chooser, picked);
   },
   // "Sacrifices a creature of their choice" (701.21a).
@@ -2043,9 +2044,14 @@ function announceTrigger(g: Game, item: StackItem) {
   flash(g, item.card, item.controller, 'triggered');
 }
 
-/** Shows a spell or ability's source card for a moment as it goes on the stack (`Game.lastSpell`). */
+/**
+ * Shows a spell or ability's source card for a moment as it goes on the stack (`Game.lastSpell`).
+ * The name is one `cardData` finds: a token's own key ("Wizard 0/1 ping"), not the name it
+ * shows ("Wizard"); a card's face or what it copies otherwise.
+ */
 function flash(g: Game, c: Card, pid: PlayerId, ability?: 'triggered' | 'activated') {
-  g.lastSpell = { seq: (g.lastSpell?.seq ?? 0) + 1, name: data(c).name, caster: pid, ...(ability && { ability }) };
+  const name = c.isToken && !c.copy ? c.name : data(c).name;
+  g.lastSpell = { seq: (g.lastSpell?.seq ?? 0) + 1, name, caster: pid, ...(ability && { ability }) };
 }
 
 // ---------- actions ----------
@@ -2156,7 +2162,7 @@ function act(g: Game, a: Action): boolean {
       // A modal double-faced card is played as one of its land faces (712.12).
       const face = a.face ?? landFaces(g, c)[0];
       log(g, `${says(p, 'plays')} ${label(c)}.`, pid, [c]);
-      enterBattlefield(g, c, { face, controller: pid });
+      enterBattlefield(g, c, { face, controller: pid, quiet: true });
       g.passes = 0; // the player keeps priority after a special action (117.3c)
       // A choice made as it enters, like Cavern of Souls's creature type (614.12a).
       nextChoice(g);

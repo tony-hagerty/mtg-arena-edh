@@ -1,11 +1,13 @@
 // The human's casting flow in the UI: announce X/kicker/cost, choose targets, choose a
 // sacrifice, pay. Drives the real store and view code without rendering anything.
 import { produce } from 'immer';
+import type { MouseEvent } from 'react';
 import { describe, expect, it } from 'vitest';
 import './fixtures';
 import { useStore } from '../src/ui/store';
+import { hoverProps } from '../src/ui/util';
 import { activateFromHand, buildView, clickGroup, chooseEscape, chooseGraveyardTarget, clickPermanent, clickPlayer, clickStackItem, exileForMana, manaOptions, pickAbility, pickMana, pickManaSacrifice, pickFace, pickMode, playHandCard, setAbilityX, setChoices } from '../src/ui/view';
-import { applyAction, canCast, isCreature, scriptOf } from '../src/engine';
+import { applyAction, canCast, data, isCreature, scriptOf } from '../src/engine';
 import { registerScripts } from '../src/engine/registry';
 import { parseCard } from '../src/cards/oracle';
 import { cardData } from '../src/cards/db';
@@ -838,5 +840,50 @@ describe('a fetch land in the main phase (117.3b)', () => {
     } finally {
       registerScripts({ 'Polluted Delta': hand });
     }
+  });
+});
+
+describe('the card preview (right-click)', () => {
+  // No DOM here: the handlers only keep the element, so any object stands in for it.
+  const el = {} as HTMLElement;
+  const enter = (props: ReturnType<typeof hoverProps>) => props.onMouseEnter({ currentTarget: el } as MouseEvent<HTMLElement>);
+
+  it('a graveyard card in the viewer can be right-clicked, but shows no hover preview', () => {
+    play((d) => {
+      put(d, 0, 'Curiosity', 'graveyard');
+    });
+    const c = byName(game(), 0, 'Curiosity', 'graveyard')!;
+    enter(hoverProps(data(c), { pinOnly: true }));
+    // Right-click pins whatever `hover` holds; `pinOnly` keeps the floating preview off.
+    expect(useStore.getState().hover).toMatchObject({ name: 'Curiosity', d: data(c), el, pinOnly: true });
+    hoverProps(data(c)).onMouseLeave();
+    expect(useStore.getState().hover).toBeNull();
+  });
+
+  it('a card on the table or on top of a pile gets the hover preview too', () => {
+    play((d) => {
+      put(d, 0, 'Serra Angel', 'graveyard');
+    });
+    enter(hoverProps(data(byName(game(), 0, 'Serra Angel', 'graveyard')!)));
+    expect(useStore.getState().hover).toMatchObject({ name: 'Serra Angel', el });
+    expect(useStore.getState().hover!.pinOnly).toBeUndefined();
+  });
+});
+
+describe('the error screen’s details (ErrorScreen.tsx)', () => {
+  it('names the turn and step and the last log lines, and sends nothing without a program', async () => {
+    const { crashDetails, reportError } = await import('../src/ui/crash');
+    play((d) => {
+      d.turn = 4;
+      put(d, 0, 'Serra Angel');
+    });
+    useStore.setState({ server: null, game: produce(game(), (d) => void d.log.push({ text: 'Seraphine casts Kaya’s Ghostform.' } as Game['log'][number])) });
+    const text = crashDetails(new Error('Unknown card: Wizard'), '\n    at SpellFlash', null);
+    expect(text).toContain('Turn 4, main1');
+    expect(text).toContain('Error: Unknown card: Wizard');
+    expect(text).toContain('at SpellFlash');
+    expect(text).toContain('Seraphine casts Kaya’s Ghostform.');
+    // A page opened from disk has no program to write a log: the error screen is all there is.
+    expect(await reportError('render', new Error('boom'))).toBe(null);
   });
 });

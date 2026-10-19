@@ -17,12 +17,14 @@ export interface DeckDef {
   cards: string[];
   /** Still being built: kept off the menu, and its cards may not all have scripts yet. */
   wip?: boolean;
+  /** Finished but kept off the menu: its cards stay in the pool for pasted decks, and the tests still play it. */
+  offMenu?: boolean;
 }
 
-/** Every deck in decklists.json, unfinished ones included. */
+/** Every deck in decklists.json, unfinished and off-menu ones included. */
 export const ALL_DECKS = lists.decks as unknown as DeckDef[];
 /** The decks on the menu. */
-export const DECKS = ALL_DECKS.filter((d) => !d.wip);
+export const DECKS = ALL_DECKS.filter((d) => !d.wip && !d.offMenu);
 
 const cards = generated.cards as Record<string, CardData>;
 const tokenImages = generated.tokens as Record<string, { art: string; image: string }>;
