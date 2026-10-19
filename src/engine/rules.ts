@@ -4117,6 +4117,50 @@ function eliminate(g: Game, p: Player, reason: string) {
 }
 
 /**
+ * Would `checkState` do anything to `g`? It asks the questions `checkState` asks before it
+ * changes anything, and changes nothing, so it can be asked of a finished (frozen) game,
+ * where the layers' answers are kept, instead of inside a draft. False: every condition of
+ * 704.5 and 903.10a is false, nobody has won (104.2), and `checkState` would leave `g` as it is.
+ * Keep the two in step: the bot games check after every action that this is false.
+ */
+export function sbaPending(g: Game): boolean {
+  return settled(g, () => {
+    for (const p of g.players) {
+      if (p.lost) continue;
+      if (p.loses || p.life <= 0 || p.commanderDamage.some((from) => from.some((d) => d >= COMMANDER_DAMAGE)) || p.drewFromEmpty) return true;
+    }
+    const kinds = permanentKinds(g);
+    for (const { c, creature, walker, battle, siege, saga, aura } of kinds) {
+      if (creature) {
+        const s = stats(g, c);
+        const lethal = c.damage >= s.toughness || (c.deathtouched && c.damage > 0);
+        if (s.toughness <= 0 || (lethal && !s.keywords.has('indestructible'))) return true;
+      }
+      if (walker && loyaltyOf(c) <= 0) return true;
+      else if (battle && defenseOf(c) <= 0 && !(siege && defeatPending(g, c))) return true;
+      else if (battle && (c.protector === null || !canProtect(g, c, c.protector))) return true;
+      if (saga) {
+        const chapters = abilitiesOf(g, c).chapters?.length ?? 0;
+        if (chapters > 0 && counterCount(c, 'lore') >= chapters && !chapterPending(g, c)) return true;
+      }
+      if (aura && !canEnchant(g, c, attachedObject(g, c))) return true;
+      else if (c.attachedTo && !aura && !canEquip(g, c, permanent(g, c.attachedTo))) return true;
+      if (Math.min(counterCount(c, '+1/+1'), counterCount(c, '-1/-1')) > 0) return true;
+    }
+    const roles = battlefield(g).filter((c) => c.attachedTo && subtypesOf(g, c).includes('Role'));
+    if (roles.some((c) => roles.some((r) => r !== c && r.attachedTo === c.attachedTo && r.controller === c.controller && r.ts > c.ts))) return true;
+    const legendary = new Set(kinds.filter((k) => k.legendary).map((k) => k.c));
+    for (const p of living(g)) {
+      if (!p.isBot && g.decision) continue;
+      const names = p.battlefield.filter((c) => legendary.has(c)).map(label);
+      if (new Set(names).size < names.length) return true;
+    }
+    for (const c of g.players.flatMap((p) => [...p.graveyard, ...p.exile])) if (c.mayReturn && (g.players[c.owner].isBot || !g.decision)) return true;
+    return g.winner === null && (living(g).some((p) => p.wins) || living(g).length <= 1);
+  });
+}
+
+/**
  * State-based actions (704): kills what should be dead, eliminates players who have lost,
  * and sets the winner. Each pass does everything that applies at once, and passes repeat
  * until nothing changes (704.3). True if nothing was left to do and nobody has won: until
