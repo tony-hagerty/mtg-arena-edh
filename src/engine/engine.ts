@@ -113,6 +113,7 @@ import {
   offerCast,
   battlefield,
   simultaneously,
+  toGraveyards,
   itemScript,
   abilitiesOf,
   scriptFor,
@@ -493,7 +494,7 @@ const ENGINE_THEN: Record<string, (g: Game, ctx: ThenCtx) => void> = {
   // Surveil (701.25a): the cards picked go to the graveyard; the rest stay on top.
   '@surveil': (g, { chooser, picked }) => {
     const p = g.players[chooser];
-    for (const c of picked) moveCard(g, c, 'graveyard');
+    toGraveyards(g, picked);
     log(g, picked.length ? `${says(p, 'surveils')} and ${verbFor(p, 'puts')} ${picked.map(label).join(', ')} into ${their(p)} graveyard.` : `${says(p, 'surveils')}.`, chooser, picked);
   },
   // "Sacrifices a creature of their choice" (701.21a).

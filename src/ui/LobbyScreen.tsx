@@ -3,6 +3,7 @@
 // a table's game the votes on bots for away players and the pause. What the table looks
 // like comes from the lobby (`Store.table`); these screens only send requests and show refusals.
 import { useState } from 'react';
+import type { ReactNode } from 'react';
 import { DECKS } from '../cards/db';
 import type { DeckDef } from '../cards/db';
 import { savedDeckIssues } from '../cards/decklist';
@@ -10,6 +11,19 @@ import type { LobbySeat, LobbyState, SavedGame, SeatVote } from '../net/lobby';
 import { loadName, saveName } from './lobby';
 import { deckChoice, useStore } from './store';
 import { cx } from './util';
+
+/** The frame the screens off the title screen share (these, and pasting a deck): the menu's backdrop, its name over the screen's title, and a panel. */
+export function MenuFrame({ title, className, children }: { title: string; className: string; children: ReactNode }) {
+  return (
+    <div className={cx('stage menu menu-screen', className)}>
+      <div className="menu-frame">
+        <p className="menu-kicker">Commander Table</p>
+        <h2>{title}</h2>
+        {children}
+      </div>
+    </div>
+  );
+}
 
 /** Names are shown on avatars and in the log, so they stay short. */
 const NAME_MAX = 20;
@@ -92,8 +106,7 @@ export function HostTable({ close }: { close: () => void }) {
     run(lobby.host({ name: name.trim(), deck: deckChoice(deck), seatCount, fillBots }));
   };
   return (
-    <div className="stage menu lobby">
-      <h2>Host a table</h2>
+    <MenuFrame className="lobby" title="Host a table">
       <div className="lobby-form">
         <NameField name={name} setName={setName} />
         <label className="lobby-field">
@@ -118,7 +131,7 @@ export function HostTable({ close }: { close: () => void }) {
           </button>
         </div>
       </div>
-    </div>
+    </MenuFrame>
   );
 }
 
@@ -138,8 +151,7 @@ export function JoinTable({ close }: { close: () => void }) {
     run(lobby.join({ code: clean, name: name.trim(), deck: deckChoice(deck) }));
   };
   return (
-    <div className="stage menu lobby">
-      <h2>Join a table</h2>
+    <MenuFrame className="lobby" title="Join a table">
       <div className="lobby-form">
         <label className="lobby-field">
           <span>Code</span>
@@ -160,7 +172,7 @@ export function JoinTable({ close }: { close: () => void }) {
           </button>
         </div>
       </div>
-    </div>
+    </MenuFrame>
   );
 }
 
@@ -210,8 +222,7 @@ export function WaitingRoom({ table }: { table: LobbyState }) {
 
   if (table.role === 'connecting') {
     return (
-      <div className="stage menu lobby">
-        <h2>Joining…</h2>
+      <MenuFrame className="lobby" title="Joining…">
         <p className="lobby-note">Reaching the host's computer.</p>
         <Problem text={problem} />
         <div className="lobby-buttons">
@@ -219,12 +230,11 @@ export function WaitingRoom({ table }: { table: LobbyState }) {
             <span className="btn-label">Cancel</span>
           </button>
         </div>
-      </div>
+      </MenuFrame>
     );
   }
   return (
-    <div className="stage menu lobby">
-      <h2>{table.resuming ? 'Resuming a game' : hosting ? 'Your table' : 'At the table'}</h2>
+    <MenuFrame className="lobby" title={table.resuming ? 'Resuming a game' : hosting ? 'Your table' : 'At the table'}>
       {hosting && <HostCode table={table} />}
       <ol className="lobby-seats">
         {table.seats.map((seat, i) => (
@@ -285,7 +295,7 @@ export function WaitingRoom({ table }: { table: LobbyState }) {
           )}
         </div>
       </div>
-    </div>
+    </MenuFrame>
   );
 }
 
@@ -434,8 +444,7 @@ export function SavedGames({ table, close }: { table: LobbyState; close: () => v
   const lobby = useStore((s) => s.lobby);
   const { error, busy, run } = useRequest();
   return (
-    <div className="stage menu lobby">
-      <h2>Saved games</h2>
+    <MenuFrame className="lobby" title="Saved games">
       <div className="saved-games">
         {table.saves.length ? (
           <ul>
@@ -459,7 +468,7 @@ export function SavedGames({ table, close }: { table: LobbyState; close: () => v
           </button>
         </div>
       </div>
-    </div>
+    </MenuFrame>
   );
 }
 
