@@ -5,6 +5,7 @@ import 'mana-font/css/mana.min.css';
 import './ui/styles.css';
 import './ui/fullscreen';
 import './ui/sound';
+import './ui/music';
 import { App } from './ui/App';
 import { connectLobby } from './ui/lobby';
 import { connectServer } from './ui/remote';

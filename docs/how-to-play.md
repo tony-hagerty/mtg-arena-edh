@@ -156,7 +156,13 @@ The full guide to the game's screens and controls. For a quick start, see the
 | Hover a card name in the log (dashed underline) | see the card |
 
 The log is bottom-left. **Hide log** folds it away, **Speed** changes how fast the bots
-play, **Sound** steps the volume up and round to off, **Damage** switches between dividing
-combat damage automatically and by hand, and **Exit** asks before leaving the game for the
-deck menu. The deck menu has a mute button and a volume slider in its top-right corner.
-Sound and damage choices are saved in the browser.
+play, **Sound** steps the volume up and round to off, **Music** does the same for the
+background music, **Damage** switches between dividing combat damage automatically and by
+hand, and **Exit** asks before leaving the game for the deck menu. The deck menu has a mute
+button and a volume slider for each of sound and music in its top-right corner. Sound,
+music and damage choices are saved in the browser.
+
+The music is ambient and made as it plays, so it never loops. It starts, fading in, with
+your first click or key press (browsers keep a page silent until then), plays quietly on the
+deck menu and a little louder in a game, pauses while the window is hidden, and fades out
+when a game ends.
