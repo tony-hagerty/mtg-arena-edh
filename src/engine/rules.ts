@@ -2312,6 +2312,11 @@ export function tap(g: Game, c: Card) {
   trigger(g, c, 'onTapped', {});
 }
 
+/** Untaps a permanent (701.26b), if it is still there. */
+export function untap(_g: Game, c: Card | undefined) {
+  if (c && c.zone === 'battlefield') c.tapped = false;
+}
+
 /**
  * A copy of a card as it is right now, for an ability or event to remember (113.7a, 603.10a).
  * Inside `produce` it copies from `current(c)`, the card as a plain object, so the copy
