@@ -1703,7 +1703,11 @@ function bestPayment(g: Game, pid: PlayerId, cost: Cost, spell?: Card, keep: str
 export function pay(g: Game, pid: PlayerId, cost: Cost, spell?: Card, keep: string[] = [], convoke?: string[]): Payment | null {
   // The player chose which creatures convoke (702.51a): those are tapped, and the rest paid as usual.
   // Working out how to pay only reads the game, so each permanent's characteristics are worked out once for it.
-  const plan = settled(g, () => (convoke ? planConvoked(g, pid, cost, spell, keep, convoke) : lookahead ? bestPayment(g, pid, cost, spell, keep) : planPayment(g, pid, cost, spell, keep)));
+  // It reads every mana source many times over, so inside `produce` it reads a plain copy of the
+  // game (Immer's `current`) instead of the draft. The plan names permanents by id.
+  const view = isDraft(g) ? current(g) : g;
+  const as = spell && isDraft(spell) ? current(spell) : spell;
+  const plan = settled(view, () => (convoke ? planConvoked(view, pid, cost, as, keep, convoke) : lookahead ? bestPayment(view, pid, cost, as, keep) : planPayment(view, pid, cost, as, keep)));
   if (!plan) return null;
   g.players[pid].pool = plan.pool;
   // Creatures that convoke are tapped as the cost is paid (702.51a, 601.2h).
