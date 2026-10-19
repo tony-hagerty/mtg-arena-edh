@@ -2591,6 +2591,30 @@ export interface EnterOpts {
   after?: { source: Card; key: string; you: PlayerId; data?: Record<string, unknown>; script?: string };
   /** The cards entering together it waits with (`enterTogether`). */
   group?: string;
+  /** Its caller logs it already ("plays X" for a land played from a graveyard), so `logReturns` doesn't. */
+  quiet?: boolean;
+}
+
+/**
+ * Says which cards came back to the battlefield from a graveyard or exile, whatever put them
+ * there (Reanimate, Kaya's Ghostform, persist, a flicker): "Borderland Marauder returns to
+ * the battlefield under Zidane's control." A card under another player's control than its
+ * owner's says whose. Cards entering together share a line for each controller. Cards
+ * from the stack, a hand or a library have their own lines (casting, playing, searching).
+ */
+function logReturns(g: Game, entering: { c: Card; from: Card['zone']; opts: EnterOpts }[]) {
+  const back = entering.filter(({ c, from, opts }) => (from === 'graveyard' || from === 'exile') && !opts.quiet && !c.isToken);
+  const lines = new Map<string, Card[]>();
+  for (const { c } of back) {
+    const p = g.players[c.controller];
+    const key = c.controller === c.owner ? '' : ` under ${p.you ? 'your' : `${p.name}'s`} control`;
+    lines.set(key, [...(lines.get(key) ?? []), c]);
+  }
+  for (const [control, cards] of lines) {
+    const names = cards.map(label);
+    const list = names.length === 1 ? names[0] : `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`;
+    log(g, `${list} ${cards.length === 1 ? 'returns' : 'return'} to the battlefield${control}.`, cards[0].controller, cards);
+  }
 }
 
 /**
@@ -2609,11 +2633,13 @@ export function enterBattlefield(g: Game, c: Card, opts: EnterOpts = {}) {
     return;
   }
   c.controller = controller;
+  const from = c.zone;
   moveCard(g, c, 'battlefield');
   if (opts.face !== undefined) c.face = opts.face;
   if (opts.attachTo) c.attachedTo = opts.attachTo;
   if (opts.copy) c.copy = opts.copy;
   if (opts.chosen) c.chosen = opts.chosen;
+  logReturns(g, [{ c, from, opts }]);
   arrive(g, c, opts);
 }
 
@@ -2730,20 +2756,22 @@ export function timestampTogether(g: Game, cards: Card[]) {
 
 /** The cards of a group whose choices are all made enter, together (603.6a). */
 function putTogether(g: Game, ready: { id: string; moves: number; opts: EnterOpts }[]) {
-  const now: { c: Card; opts: EnterOpts }[] = [];
+  const now: { c: Card; from: Card['zone']; opts: EnterOpts }[] = [];
   for (const r of ready) {
     const c = findCard(g, r.id);
     // A card that has moved meanwhile is a new object (400.7): it isn't put there.
     if (!c || c.moves !== r.moves || c.zone === 'battlefield') continue;
     const opts = r.opts;
     c.controller = opts.controller ?? c.owner;
+    const from = c.zone;
     moveCard(g, c, 'battlefield');
     if (opts.face !== undefined) c.face = opts.face;
     if (opts.attachTo) c.attachedTo = opts.attachTo;
     if (opts.copy) c.copy = opts.copy;
     if (opts.chosen) c.chosen = opts.chosen;
-    now.push({ c, opts });
+    now.push({ c, from, opts });
   }
+  logReturns(g, now);
   timestampTogether(g, now.map((x) => x.c));
   const counters = whileArriving(
     now.map((x) => x.c.id),

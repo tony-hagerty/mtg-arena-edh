@@ -1142,10 +1142,7 @@ registerScripts({
     ],
     onResolve: (g, { self, you, targets }) => {
       const c = refGraveyard(g, targets[0]);
-      if (c) {
-        log(g, `${label(c)} returns to the battlefield.`, you, [c]);
-        enterBattlefield(g, c, { controller: you });
-      }
+      if (c) enterBattlefield(g, c, { controller: you });
       // "If this spell was cast from a graveyard, you may copy this spell and may choose a new
       // target for the copy." A copy wasn't cast (707.10), so it can't copy itself again.
       if (self.cast?.from === 'graveyard') ask(g, you, { text: "Copy Sevinne's Reclamation? You may choose a new target for the copy.", yes: 'Copy', no: "Don't Copy", then: 'copy' });
