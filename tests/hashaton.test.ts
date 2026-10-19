@@ -812,3 +812,22 @@ describe('Delay and suspend', () => {
     expect(has(g, cast_, 'haste')).toBe(true);
   });
 });
+
+describe('Sphinx of the Second Sun', () => {
+  it('adds a beginning phase after your postcombat main phase: untap, upkeep and draw again, then the ending phase', () => {
+    let g = emptyGame((d) => {
+      put(d, 0, 'Sphinx of the Second Sun');
+      put(d, 0, 'Plains').tapped = true;
+      top(d, 0, plenty());
+    });
+    const hand = g.players[0].hand.length;
+    const steps: string[] = [];
+    for (let i = 0; i < 200 && g.active === 0; i++) {
+      g = g.decision ? applyBotAction(g, botAction(g, g.priority)) : applyAction(g, pass, { autoPass: false });
+      if (g.active === 0 && steps[steps.length - 1] !== g.step) steps.push(g.step);
+    }
+    expect(steps.slice(steps.indexOf('main2'))).toEqual(['main2', 'upkeep', 'draw', 'end']);
+    expect(g.players[0].hand.length).toBe(hand + 1);
+    expect(byName(g, 0, 'Plains')!.tapped).toBe(false);
+  });
+});

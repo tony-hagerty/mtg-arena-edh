@@ -1192,6 +1192,8 @@ function beginTurn(g: Game, pid: PlayerId, extra?: ExtraTurn) {
   // What happened "this turn" starts over.
   g.spellsCast = 0;
   g.combatDamaged = [];
+  g.extraBeginnings = 0;
+  g.inExtraBeginning = false;
   for (const p of g.players) {
     p.spellsCast = 0;
     p.noncreatureSpellsCast = 0;
@@ -1371,8 +1373,13 @@ function nextStep(g: Game) {
         log(g, `${says(g.players[g.active], 'skips')} ${their(g.players[g.active])} first draw step.`, g.active);
         return beginStep(g, 'main1');
       }
-      if (replace(g, { kind: 'begin', player: g.active, what: 'drawStep' }).kind === 'none') return beginStep(g, 'main1');
+      if (replace(g, { kind: 'begin', player: g.active, what: 'drawStep' }).kind === 'none') return afterBeginning(g);
       return beginStep(g, 'draw');
+    case 'draw':
+      return afterBeginning(g);
+    case 'main2':
+      // An additional beginning phase comes right after this phase (500.8).
+      return g.extraBeginnings ? beginExtraBeginning(g) : beginStep(g, 'end');
     case 'attackers':
       // With no attackers, the declare blockers and combat damage steps are skipped (508.8).
       return beginStep(g, combat?.attacks.length ? 'blockers' : 'endCombat');
@@ -1385,6 +1392,22 @@ function nextStep(g: Game) {
     default:
       return beginStep(g, STEP_ORDER[STEP_ORDER.indexOf(g.step) + 1]);
   }
+}
+
+/** The beginning phase is over: the precombat main phase, or after an additional one, the next additional one or the ending phase (500.8). */
+function afterBeginning(g: Game) {
+  if (!g.inExtraBeginning) return beginStep(g, 'main1');
+  if (g.extraBeginnings) return beginExtraBeginning(g);
+  g.inExtraBeginning = false;
+  return beginStep(g, 'end');
+}
+
+/** An additional beginning phase (500.8): its untap, upkeep and draw steps. */
+function beginExtraBeginning(g: Game) {
+  g.extraBeginnings!--;
+  g.inExtraBeginning = true;
+  log(g, `An additional beginning phase begins.`, g.active);
+  return beginStep(g, 'untap');
 }
 
 /**
