@@ -37,6 +37,18 @@ Read first:
   `src/cards/subtypes.json` and `docs/rules/` (`npm run fetch-rules`). Behind the cloud
   session's HTTPS proxy, run `NODE_USE_ENV_PROXY=1 npm run fetch-cards`.
 
+## Data sources
+
+- **Scryfall** (`api.scryfall.com`, `cards.scryfall.io`) is the source for card data, art
+  and a card's popularity: every Scryfall card carries `edhrec_rank`, its rank across all
+  Commander decks. Use it before reaching for anything else.
+- **EDHREC** (`edhrec.com`, `json.edhrec.com`) is for what Scryfall lacks: the cards played
+  most with a given commander, and a commander's themes. The site has no documented API;
+  its pages load pre-built JSON from `json.edhrec.com/pages/commanders/<slug>.json` (and
+  `themes`, `cards`, `combos` the same way), which can change shape without notice. Fetch
+  sparingly and cache, as `scripts/fetch-cards.mjs` does with Scryfall; never fetch at
+  game time. Both hosts must be allowed in the cloud environment's network settings.
+
 ## Card wording is the rules
 
 Magic interactions depend on exact wording: "may" vs. "must", "you" vs. "that player",
