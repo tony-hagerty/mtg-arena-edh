@@ -1649,15 +1649,20 @@ function convokeSources(g: Game, pid: PlayerId, spell: Card | undefined): Source
 
 /** Whether `pay` looks ahead (`bestPayment`). Off while a bot tries moves out on copies of the game. */
 let lookahead = true;
+/** Whether `log` writes the game log. Off while a bot tries moves out: nobody reads those lines, and no rule reads the log. */
+let logging = true;
 
-/** Runs `fn` with auto-pay's lookahead off, so a bot trying out moves stays fast. */
+/**
+ * Runs `fn` as a bot trying a move out on a copy of the game: auto-pay's lookahead is off,
+ * and nothing is written to the log, so it stays fast.
+ */
 export function withoutLookahead<T>(fn: () => T): T {
-  const was = lookahead;
-  lookahead = false;
+  const was = [lookahead, logging];
+  lookahead = logging = false;
   try {
     return fn();
   } finally {
-    lookahead = was;
+    [lookahead, logging] = was;
   }
 }
 
@@ -2035,6 +2040,7 @@ const cardNames = (cards: Card[]) => {
  * player found searching their library (701.23e); the rest see `text`.
  */
 export function log(g: Game, text: string, player?: PlayerId, cards: Card[] = [], secret?: { players: PlayerId[]; text: string; cards?: Card[] }) {
+  if (!logging) return;
   g.log.push({
     turn: g.turn,
     text,
