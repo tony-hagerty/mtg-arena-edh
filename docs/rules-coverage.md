@@ -118,12 +118,16 @@ are from the Comprehensive Rules in `docs/rules/`.
   | Whispers of the Pit | black-red | Judith, the Scourge Diva |
   | Fire and Fang | red-green | Halana and Alena |
   | Conclave's Chorus | green-white | Trostani, Selesnya's Voice |
-  | Opus and Weaver | white-blue-black-red | Kraum and Tymna (partners) |
+  | Disciple of Matoya | white-blue-black | Y'shtola, Night's Blessed |
+  | Necropotence at Home | white-black | Ketramose, the New Dawn |
+  | The Stand User Could Be Anyone! | black-red | Kuja, Genome Sorcerer |
+  | Hashaton, Scarab's Fist | white-blue-black | Hashaton, Scarab's Fist |
 
-  The four starter decks are 100-card two-colour decks. Opus and Weaver is the user's
-  Kraum and Tymna deck (scripts in `src/cards/kraum-tymna.ts`). Eight of its cards were
-  listed by their Universes Within names (Chaos Emerald is Lotus Petal, and so on); the
-  deck uses their Oracle names.
+  The four starter decks are 100-card two-colour decks. Opus and Weaver, the user's Kraum
+  and Tymna deck, is off the menu (`offMenu` in `decklists.json`) but its cards stay in
+  the pool, scripted in `src/cards/kraum-tymna.ts`, so a pasted deck can play them, and
+  the bot games still play it. Eight of its cards were listed by their Universes Within
+  names (Chaos Emerald is Lotus Petal, and so on); the deck uses their Oracle names.
 
 ### Turns, priority and the stack
 
@@ -530,8 +534,8 @@ are from the Comprehensive Rules in `docs/rules/`.
   that would be dealt to you"), shroud on a player (702.18a), each player's life lost
   this turn ("if a player lost 4 or more life this turn"), "whenever a source deals
   damage to a player", and "whenever one or more opponents lose life", which triggers once
-  for an event that hits several players at once: "each opponent loses 1 life", combat
-  damage, extort.
+  for an event that hits several players at once: "each opponent loses 1 life" (Wicked
+  Role too), combat damage, extort.
 - **Trigger doubling (603.2d):** Roaming Throne's "triggers an additional time", even for
   a creature that died alongside it (603.10a). Elesh Norn, Mother of Machines does it for
   abilities of your permanents that a permanent entering causes to trigger, and stops
@@ -599,8 +603,13 @@ are from the Comprehensive Rules in `docs/rules/`.
   Currency Converter, Emperor of Bones) are the ones it exiled while it stayed the same
   object (400.7).
 - **Exile triggers:** "whenever one or more cards are put into exile from graveyards
-  and/or the battlefield" triggers once for each event (Ketramose: Relic of Progenitus's
-  cost is one event, exiling every graveyard another); "when this leaves the battlefield"
+  and/or the battlefield" triggers once for each event, however many cards it moved
+  (603.2c; Ketramose: Relic of Progenitus's cost is one event, exiling every graveyard
+  another, and so are Bojuka Bog's "exile target player's graveyard" and "exile all
+  creatures"). It looks back in time, so Ketramose sees itself exiled along with the rest
+  (603.10a). Every effect that moves several cards at once (a graveyard, a hand, the top
+  of a library, a board wipe, mill, surveil, each player discarding their hand) moves them
+  as one event; "when this leaves the battlefield"
   and "whenever a creature you control with a +1/+1 counter leaves" look back in time
   (603.10a, Skyclave Apparition, The Ooze).
 - **Life and protection for a player:** "your life total can't change" (119.7, 119.8;

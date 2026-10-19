@@ -2115,7 +2115,8 @@ function shiftCard(g: Game, c: Card, to: Zone) {
   if (happens.kind === 'move') to = happens.to;
   if (from === 'battlefield') leaveAbilitiesBehind(g, c);
   // As it last was on the battlefield, for leaves-the-battlefield abilities (603.10a).
-  const last = from === 'battlefield' && watchingLeaves(g) ? lastKnown(g, c) : null;
+  // Who is watching looks back in time too (603.10a): a permanent that left earlier in the same event still sees this one go.
+  const last = from === 'battlefield' && watchingLeaves(g, batch?.before ?? battlefield(g)) ? lastKnown(g, c) : null;
   if (last && batch && !batch.before) batch.before = battlefield(g).map((x) => rememberPermanent(g, x));
   const before = last && !batch ? battlefield(g).map((x) => rememberPermanent(g, x)) : null;
   if (c.zone === 'stack') {
@@ -2178,20 +2179,20 @@ function shiftCard(g: Game, c: Card, to: Zone) {
   zone.push(c);
   const stored = zone[zone.length - 1];
   if (to === 'graveyard') announce(g, 'onCardToGraveyard', { card: stored, player: c.owner });
-  // Cards put into exile from a graveyard or the battlefield (Ketramose). Tokens aren't cards (108.2b).
-  const exiled = to === 'exile' && (from === 'graveyard' || from === 'battlefield') && watchingExile(g) ? [stored] : [];
+  // Cards put into exile from a graveyard or the battlefield (Ketramose), which sees itself go (603.10a). Tokens aren't cards (108.2b).
+  const exiled = to === 'exile' && (from === 'graveyard' || from === 'battlefield') && watchingExile(g, before ?? batch?.before ?? battlefield(g)) ? [stored] : [];
   if (last || exiled.length) leaves(g, { left: last ? [{ card: last, to }] : [], exiled, before });
 }
 
-/** Is anything listening for permanents leaving the battlefield (so `moveCard` needs to remember them)? */
-const watchingLeaves = (g: Game) =>
-  battlefield(g).some((x) => {
+/** Is anything among `permanents` listening for permanents leaving the battlefield (so `moveCard` needs to remember them)? */
+const watchingLeaves = (g: Game, permanents: Card[]) =>
+  permanents.some((x) => {
     const s = abilitiesOf(g, x);
     return s.onLeave || s.onPermanentLeaves || s.onExiled;
   });
 
-/** Is anything listening for cards put into exile from graveyards or the battlefield? */
-const watchingExile = (g: Game) => battlefield(g).some((x) => abilitiesOf(g, x).onExiled);
+/** Is anything among `permanents` listening for cards put into exile from graveyards or the battlefield? */
+const watchingExile = (g: Game, permanents: Card[]) => permanents.some((x) => abilitiesOf(g, x).onExiled);
 
 /** Permanents that left the battlefield, and cards exiled from graveyards or the battlefield, in one event. */
 interface Leaving {
@@ -2977,6 +2978,26 @@ export function exile(g: Game, c: Card | undefined) {
   if (!c || c.zone !== 'battlefield') return;
   log(g, `${label(c)} is exiled.`, c.owner, [c]);
   moveCard(g, c, 'exile');
+}
+
+/**
+ * Exiles several cards from anywhere as one event: a graveyard, a hand, the top of a
+ * library, or "exile all creatures". "Whenever one or more cards are put into exile"
+ * triggers once for all of them (603.2c). Logs `text` once for `player` (by default "X, Y
+ * are exiled." for the first card's owner). Returns the cards as they are in exile now.
+ */
+export function exileAll(g: Game, cards: (Card | undefined)[], text?: string, player?: PlayerId): Card[] {
+  const moving = cards.filter((c): c is Card => !!c && c.zone !== 'exile');
+  if (!moving.length) return [];
+  if (text === undefined) log(g, `${moving.map(label).join(', ')} ${moving.length === 1 ? 'is' : 'are'} exiled.`, moving[0].owner, moving);
+  else log(g, text, player, moving);
+  simultaneously(g, () => moving.forEach((c) => moveCard(g, c, 'exile')));
+  return moving.map((c) => g.players[c.owner].exile.find((x) => x.id === c.id)).filter((c): c is Card => !!c);
+}
+
+/** Puts several cards into their owners' graveyards as one event (surveil, "return them to their owners' graveyards"). */
+export function toGraveyards(g: Game, cards: Card[]) {
+  simultaneously(g, () => cards.forEach((c) => moveCard(g, c, 'graveyard')));
 }
 
 /** Player `pid` gains `n` life, or what replacement effects make it instead (119.10). */

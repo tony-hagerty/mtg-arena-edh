@@ -1,19 +1,29 @@
 import { play } from './sound';
 import { useStore } from './store';
+import { cx } from './util';
 
-const LEVELS = [0, 0.25, 0.5, 0.75, 1];
 const percent = (volume: number) => `${Math.round(volume * 100)}%`;
 
-/** The menu's mute button and volume slider for the interface sounds. Letting go of the slider plays a click at the new volume. */
+/**
+ * A mute button and a volume slider for the interface sounds: on the menu, and in the game's
+ * settings popover on the log bar. Letting go of the slider plays a click at the new volume.
+ */
 export function SoundControl() {
   const volume = useStore((s) => s.settings.volume);
   const muted = useStore((s) => s.settings.muted);
   const set = useStore((s) => s.setSetting);
   const off = muted || volume === 0;
   return (
-    <div className="menu-sound">
-      <button onClick={() => set({ muted: !muted })} aria-pressed={muted} title={muted ? 'Turn sounds on' : 'Turn sounds off'}>
-        {off ? 'Sound off' : 'Sound'}
+    <div className="sound-control">
+      <button className={cx('sound-mute', off && 'off')} onClick={() => set({ muted: !muted })} aria-pressed={muted} aria-label={muted ? 'Turn sounds on' : 'Turn sounds off'} title={muted ? 'Turn sounds on' : 'Turn sounds off'}>
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M4 9h3.5L12 5v14l-4.5-4H4Z" />
+          {off ? (
+            <path d="m16 9.5 5 5m0-5-5 5" fill="none" strokeWidth="2" strokeLinecap="round" />
+          ) : (
+            <path d="M15.5 8.5a5 5 0 0 1 0 7M18 6a8.5 8.5 0 0 1 0 12" fill="none" strokeWidth="2" strokeLinecap="round" />
+          )}
+        </svg>
       </button>
       <input
         type="range"
@@ -28,25 +38,7 @@ export function SoundControl() {
         onPointerUp={() => play('click')}
         onKeyUp={() => play('click')}
       />
+      <span className="sound-level">{off ? 'Off' : percent(volume)}</span>
     </div>
-  );
-}
-
-/** One button that steps the volume up through `LEVELS` and round to off, like the bot speed button. */
-export function SoundButton() {
-  const volume = useStore((s) => s.settings.volume);
-  const muted = useStore((s) => s.settings.muted);
-  const off = muted || volume === 0;
-  const next = () => {
-    const level = off ? 0 : volume;
-    const up = LEVELS.find((l) => l > level + 0.01) ?? 0;
-    useStore.getState().setSetting({ volume: up, muted: false });
-    // Heard at the new volume, instead of the usual click at the old one.
-    play('click');
-  };
-  return (
-    <button data-silent onClick={next} title="Sound volume">
-      Sound {off ? 'off' : percent(volume)}
-    </button>
   );
 }
