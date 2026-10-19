@@ -80,7 +80,7 @@ describe('reading Oracle text', () => {
 
   it('refuses cards with faces, and costs it can\'t pay', () => {
     // Each face is read on its own; one it can't read refuses the card.
-    expect(parseCard(cardData('Birgi, God of Storytelling // Harnfel, Horn of Bounty'))).toMatchObject({ ok: false, clause: "until end of turn, you don't lose this mana as steps and phases end" });
+    expect(parseCard(cardData('Birgi, God of Storytelling // Harnfel, Horn of Bounty'))).toMatchObject({ ok: false, clause: 'Creatures you control can boast twice during each of your turns rather than once.' });
     expect(refusal('Creature — Elf', 'Exile a creature card from your graveyard: Draw a card.')).toMatchObject({ reason: 'the cost "exile a creature card from your graveyard"' });
   });
 
@@ -282,7 +282,9 @@ describe('lands and mana from Oracle text', () => {
         { amount: 1, colors: ['C'] },
         { amount: 2, colors: ['W', 'B'], produces: [['W', 'W'], ['W', 'B'], ['B', 'B']], cost: '{W/B}' },
       ]);
-      expect(refusal('Artifact', 'Sacrifice a creature: Add {B}.')).toMatchObject({ reason: "a mana ability with a cost the parser can't pay" });
+      // A sacrifice instead of {T} (Ashnod's Altar); a cost it can't pay is refused.
+      expect(parse('Artifact', 'Sacrifice a creature: Add {C}{C}.')).toMatchObject({ ok: true, script: { mana: { amount: 2, colors: ['C'], noTap: true, sacrificeCreature: true } } });
+      expect(refusal('Artifact', 'Sacrifice two creatures: Add {B}.')).toMatchObject({ reason: "a mana ability with a cost the parser can't pay" });
     });
 
     it('auto-pay uses a Signet only when it must, paying its {1} from another source', () => {
@@ -539,6 +541,26 @@ const SAMPLE = [
   // pain lands, fetch lands, a tutor and more, read since the requested-cards templates
   'Worn Powerstone', 'Ancient Tomb', 'Tarnished Citadel', 'Karplusan Forest', 'Brushland', 'Arid Mesa', 'Misty Rainforest', 'Demonic Tutor',
   'Mortify', 'Collective Blessing', 'Armada Wurm', 'Advent of the Wurm', 'Call of the Conclave',
+  // read since the corpus templates (session 2 of the speed-parser-polish plan)
+  'Abandoned Air Temple', 'Academy Ruins', 'Acidic Slime', 'Angel of the Dawn', 'Angel of the Ruins', 'Arcane Sanctum', 'Arcane Signet',
+  'Ashen Rider', 'Avacyn, Angel of Hope', 'Avenger of Zendikar', 'Azorius Signet', 'Baleful Strix', 'Beast Within', 'Bedevil', "Bender's Waterskin",
+  'Blasphemous Act', 'Blazemire Verge', 'Bleachbone Verge', 'Bloodstained Mire', 'Borne Upon a Wind', 'Brain Freeze', 'Brute Strength',
+  'Caves of Koilos', 'Cephalid Coliseum', 'Circle of Power', 'City of Brass', 'Dark Ritual', 'Deadly Rollick', 'Decanter of Endless Water',
+  'Decorum Dissertation', 'Deserted Beach', 'Dig Through Time', 'Dimir Signet', 'Dismember', "Domri's Ambush", 'Dragonskull Summit', 'Dreadbore',
+  'Drowned Catacomb', 'Dusk Legion Zealot', 'Dust Bowl', 'Elvish Mystic', 'Emergence Zone', 'Farhaven Elf', 'Fetid Heath', 'Flame Rift',
+  'Flawless Maneuver', 'Flooded Strand', 'Floodfarm Verge', 'Furnace Whelp', 'Gilded Lotus', 'Glacial Fortress', 'Gloomlake Verge',
+  'Go for the Throat', 'Grave Titan', 'Graven Cairns', 'Gray Merchant of Asphodel', "Hall of Heliod's Generosity", 'Haunted Ridge',
+  'Inspired Charge', 'Isolated Chapel', 'Judith, the Scourge Diva', 'Lightning Greaves', 'Lightning Strike', 'Lingering Souls', 'Lotus Petal',
+  'Luxury Suite', 'Mana Confluence', 'Manalith', 'Marsh Flats', 'Massacre Wurm', 'Merfolk Looter', 'Morphic Pool', 'Mystic Gate', 'Nekrataal',
+  'Nightmare', 'Orzhov Signet', 'Otawara, Soaring City', 'Overrun', 'Path to Exile', 'Phyrexian Tower', 'Polluted Delta', 'Pyroclasm',
+  'Raging Swordtooth', 'Rampant Growth', 'Reclamation Sage', 'Relic of Legends', 'Rootborn Defenses', 'Rootbound Crag', 'Scalding Tarn',
+  'Scion of Vitu-Ghazi', 'Sea of Clouds', 'Shamanic Revelation', 'Shattered Sanctum', 'Shipwreck Marsh', 'Snapback', 'Snuff Out',
+  'Solemn Simulacrum', 'Spire of Industry', 'Stock Up', 'Sulfurous Springs', 'Sundering Growth', 'Sunken Ruins', 'Sunpetal Grove',
+  'Swords to Plowshares', 'Syphon Soul', 'Takenuma, Abandoned Mire', 'Talisman of Dominance', 'Talisman of Hierarchy', 'Talisman of Indulgence',
+  'Talisman of Progress', 'Terminate', 'The Battle of Bywater', 'Thermo-Alchemist', 'Thought Courier', 'Thought Vessel', 'Thundermaw Hellkite',
+  "Trostani's Summoner", "Trostani, Selesnya's Voice", "Urza's Cave", 'Utter End', 'Vault of Champions', 'Verdant Catacombs',
+  'Vito, Thorn of the Dusk Rose', 'Void Rend', "Wayfarer's Bauble", 'Wheel of Fortune', 'Windswept Heath', 'Withering Torment', 'Wooded Foothills',
+  'Zealous Persecution',
 ];
 
 /** Plays a card with whatever script it has now, and sums up the table afterwards. */
@@ -549,7 +571,7 @@ function scenario(name: string, parsed: CardScript): unknown {
   const permanentCard = !cardData(name).typeLine.match(/Instant|Sorcery/);
   const onTable = permanentCard && !parsed.onEnter && !parsed.onDies;
   let g = emptyGame((d) => {
-    for (const land of ['Plains', 'Swamp', 'Mountain', 'Forest']) put(d, 0, land, 'battlefield', 4);
+    for (const land of ['Plains', 'Swamp', 'Mountain', 'Forest', 'Island']) put(d, 0, land, 'battlefield', 4);
     put(d, 0, 'Elite Vanguard');
     put(d, 1, 'Serra Angel');
     put(d, 1, 'Sol Ring');
