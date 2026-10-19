@@ -376,6 +376,7 @@ function arranged(hand: Card[], order: string[]) {
 }
 
 export function PlayerField({ player }: { player: Player }) {
+  const { g } = useView();
   const hand = arranged(
     player.hand,
     useStore((s) => s.handOrder),
@@ -393,6 +394,8 @@ export function PlayerField({ player }: { player: Player }) {
   };
   return (
     <>
+      {/* The seat's mat, under everything else of yours. */}
+      <div className={cx('seat-mat', 'me-mat', g.active === player.id && 'active')} style={vars({ '--deck': deckColor(player.colors) })} />
       <CreatureRow player={player} width={113} max={17} className="me-front" />
       <BackRow player={player} width={50} max={14} className="me-back" split />
       <div className="me-avatar">
