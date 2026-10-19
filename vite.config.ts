@@ -85,7 +85,7 @@ function gameServer(): Plugin {
 }
 
 /** The bot games that took longest when last measured, longest first (see BotGamesFirst). */
-const SLOW_GAMES = ['hashaton-pair-94', 'kuja-71', 'starter-decks-11', 'counters-auras-22', 'planeswalkers-35', 'hashaton-pair-95', 'kraum-tymna-65', 'kraum-tymna-62', 'counterspells-12', 'faces-and-tokens-47', 'counterspells-14', 'costs-6'];
+const SLOW_GAMES = ['hashaton-pair-94', 'kuja-71', 'counters-auras-22', 'starter-decks-11', 'hashaton-pair-95', 'planeswalkers-35', 'kraum-tymna-65', 'kraum-tymna-62', 'faces-and-tokens-47', 'counterspells-14', 'hashaton-91', 'counterspells-12', 'costs-6', 'two-commanders-8'];
 
 /**
  * Starts the bot-vs-bot games (tests/simulation/, one file each) first. They take far longer
