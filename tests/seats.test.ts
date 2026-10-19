@@ -73,20 +73,23 @@ describe('a two-player game (103.8a)', () => {
 });
 
 describe('full games at every table size', () => {
-  for (const [label, seats] of [
-    ['two bots', bots(2)],
-    ['three bots', bots(3)],
-    ['two people alone', people(2)],
-    ['two people and two bots', [people(1)[0], ...bots(2).slice(1), { deck: DECKS[3], human: true }]],
-  ] as [string, SeatDef[]][]) {
-    it(`${label} play to a winner`, () => {
-      const g = playOut(7, seats);
-      expect(g.winner).not.toBe(null);
+  // The game two people play alone, played once for the two tests that look at it.
+  let shared: Game | undefined;
+  const twoPeople = () => (shared ??= playOut(7, people(2)));
+
+  for (const [label, game] of [
+    ['two bots', () => playOut(7, bots(2))],
+    ['three bots', () => playOut(7, bots(3))],
+    ['two people alone', twoPeople],
+    ['two people and two bots', () => playOut(7, [people(1)[0], ...bots(2).slice(1), { deck: DECKS[3], human: true }])],
+  ] as [string, () => Game][]) {
+    it(`${label} play to a winner`, { tags: ['game'] }, () => {
+      expect(game().winner).not.toBe(null);
     });
   }
 
-  it('writes every line in the third person when several people play', () => {
-    const g = playOut(7, people(2));
+  it('writes every line in the third person when several people play', { tags: ['game'] }, () => {
+    const g = twoPeople();
     expect(g.log.filter((l) => /\b(You|you|your|Your)\b/.test(l.text))).toEqual([]);
   });
 });
