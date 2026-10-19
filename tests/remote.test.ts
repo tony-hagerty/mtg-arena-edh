@@ -4,19 +4,22 @@ import { afterEach, describe, expect, it } from 'vitest';
 import './fixtures';
 import { DECKS } from '../src/cards/db';
 import { isHidden, permanent } from '../src/engine';
-import type { PlayerId } from '../src/engine';
+import type { Game, PlayerId } from '../src/engine';
 import type { ActRequest, StartRequest, ViewMessage } from '../src/net/protocol';
 import { GameHost } from '../server/game';
 import type { Connection } from '../src/ui/remote';
 import { onView, useStore } from '../src/ui/store';
-import { emptyGame, put } from './helpers';
+import { buildView, clickPermanent, clickPlayer, playHandCard } from '../src/ui/view';
+import { byName, emptyGame, put } from './helpers';
 
 /**
  * A connection straight to a GameHost in the same process, with the server's replies held
  * until `deliver` so the test can look between a move and its answer.
  */
-function loopback(host: GameHost) {
+function loopback(host: GameHost, { reversed = false } = {}) {
   const sent: ActRequest[] = [];
+  /** With `reversed`, moves wait for `deliver` and reach the server last first, as two POSTs on separate connections may. */
+  const moves: ActRequest[] = [];
   const held: (() => void)[] = [];
   const watching: { seat: PlayerId | null; on: (m: ViewMessage) => void }[] = [];
   const conn: Connection = {
@@ -35,7 +38,8 @@ function loopback(host: GameHost) {
     },
     act(req) {
       sent.push(req);
-      host.act(req.seat, req.seq, req.action);
+      if (reversed) moves.unshift(req);
+      else host.act(req.seat, req.seq, req.action);
     },
     prefs: (req) => host.setPrefs(req.seat, req.prefs),
     speed: (n) => host.setSpeed(n),
@@ -47,16 +51,19 @@ function loopback(host: GameHost) {
     sent,
     lastGameId: () => gameId,
     watching,
-    /** Hands the window every view the server has sent so far. */
-    deliver: () => held.splice(0).forEach((f) => f()),
+    /** Hands the server the moves still on their way, then the window every view the server has sent so far. */
+    deliver: () => {
+      for (const m of moves.splice(0)) host.act(m.seat, m.seq, m.action);
+      held.splice(0).forEach((f) => f());
+    },
   };
 }
 
 const S = () => useStore.getState();
 const settle = () => new Promise((r) => setTimeout(r, 0));
 
-function connect(host: GameHost) {
-  const link = loopback(host);
+function connect(host: GameHost, opts?: { reversed?: boolean }) {
+  const link = loopback(host, opts);
   useStore.setState({ server: link.conn, game: null, human: null, humans: [], handoff: null });
   return link;
 }
@@ -168,5 +175,68 @@ describe('a window playing through the game server', () => {
     useStore.setState({ game: emptyGame(), human: 1, humans: [1] });
     expect(S().act({ type: 'pass' })).toBe(false);
     expect(link.sent).toEqual([]);
+  });
+
+  describe('a move the screen can only show once the server answers', () => {
+    /** Player 0 is the person at this window, in main 1 of their turn. */
+    function table(setup: (d: Game) => void, opts?: { reversed?: boolean }) {
+      const host = new GameHost(() => () => {});
+      const link = connect(host, opts);
+      host.load(
+        emptyGame((d) => {
+          d.players[0].isBot = false;
+          setup(d);
+        }),
+      );
+      useStore.setState({ humans: [0], human: 0 });
+      link.conn.watch(0, onView);
+      link.deliver();
+      return { host, link };
+    }
+    const press = () => buildView().primary!.onClick();
+
+    it('takes no second move until the server answers: a second click on Pay is not a pass (117.3b)', () => {
+      const { host, link } = table((d) => {
+        put(d, 0, 'Mountain');
+        put(d, 0, 'Shock', 'hand');
+      });
+      playHandCard(byName(S().game!, 0, 'Shock', 'hand')!);
+      clickPlayer(1);
+      press(); // Pay
+      // The screen still shows main 1 from before the cast, where the big button is Next.
+      expect(buildView().primary?.label).toBe('Next');
+      press();
+      expect(link.sent.map((r) => r.action.type)).toEqual(['cast']);
+      link.deliver();
+      const g = host.full!;
+      // Shock resolved and the human has priority in main 1 again.
+      expect([g.players[1].life, g.step, g.priority]).toEqual([38, 'main1', 0]);
+      // Answered: the window moves again.
+      press();
+      expect(link.sent.map((r) => r.action.type)).toEqual(['cast', 'pass']);
+    });
+
+    it('a fetch land: after the search the human still has priority in main 1, even if the moves cross on the way (117.3b)', () => {
+      const { host, link } = table(
+        (d) => {
+          put(d, 0, 'Polluted Delta');
+          d.players[0].library = [];
+          put(d, 0, 'Island', 'library');
+          put(d, 0, 'Plains', 'library');
+        },
+        { reversed: true },
+      );
+      clickPermanent(byName(S().game!, 0, 'Polluted Delta')!);
+      press(); // Pay 1 life
+      press(); // a double click, or Space pressed twice
+      link.deliver();
+      expect(host.full!.decision?.type).toBe('chooseCards');
+      S().act({ type: 'chooseCards', cards: [host.full!.players[0].library.find((c) => c.name === 'Island')!.id] });
+      link.deliver();
+      const g = host.full!;
+      expect([g.turn, g.step, g.priority, g.decision]).toEqual([1, 'main1', 0, null]);
+      expect(byName(g, 0, 'Island')).toBeDefined();
+      expect(S().game!.step).toBe('main1');
+    });
   });
 });
