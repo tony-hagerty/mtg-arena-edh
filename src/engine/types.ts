@@ -188,6 +188,8 @@ export interface CastInfo {
   alt?: number;
   /** Cast for its dash cost (702.109a). */
   dash?: boolean;
+  /** Cast with suspend (702.62a): a creature spell has haste until its caster loses control of it. */
+  suspend?: boolean;
   /** Cast for its impending cost (702.176a): "this permanent's impending cost was paid". */
   impending?: boolean;
   /** Cast with escape (702.138b). */
@@ -366,6 +368,8 @@ export interface Card {
   chosen: string | null;
   /** Monstrous (701.37b): a designation, kept until it leaves the battlefield. */
   monstrous?: boolean;
+  /** It has suspend from an effect, like Delay's "it gains suspend" (702.62a). */
+  suspend?: boolean;
   /** Cards it exiled "until this leaves the battlefield" (Hostage Taker): they return when it does (610.3). */
   holds?: { id: string; moves: number }[];
   /** Cards an ability of it exiled, for the ability linked to it (607), like Chrome Mox's. */
@@ -781,8 +785,8 @@ export interface PlayerChoice extends Then {
  * A player may cast `card` while a spell resolves (608.2g), without paying its mana cost
  * if `free`. Answered by a `cast` action for that card, or `answer` no.
  */
-/** Keyword abilities whose trigger lets a card be cast for its own alternative cost (702.35a, 702.94a). */
-export type CastVia = 'madness' | 'miracle';
+/** Keyword abilities whose trigger lets a card be cast: for its madness or miracle cost (702.35a, 702.94a), or free with suspend (702.62a). */
+export type CastVia = 'madness' | 'miracle' | 'suspend';
 
 export interface CastChoice extends Then {
   kind: 'cast';
@@ -1244,6 +1248,10 @@ export interface TriggerEvents {
   onMadness: object;
   /** Miracle's "When you reveal this card this way" (702.94a): the card in hand. */
   onMiracle: object;
+  /** Suspend's "At the beginning of your upkeep, if this card is suspended, remove a time counter from it" (702.62a). */
+  onSuspendUpkeep: object;
+  /** Suspend's "When the last time counter is removed from this card, if it's exiled, you may play it" (702.62a). */
+  onSuspendCast: object;
   /** "Whenever [a permanent] enters": every permanent, creature or not, as it was as it entered. */
   onPermanentEnters: { entered: Card };
   /**
@@ -1718,5 +1726,5 @@ export interface CardScript extends Triggers {
 /** Hooks that every permanent on the battlefield hears, not only the card the event is about. */
 export type BroadcastHook = Exclude<
   TriggerHook,
-  'onEnter' | 'onDies' | 'onAttack' | 'onBlock' | 'onCombatDamageToPlayer' | 'onDefeat' | 'onChapter' | 'onLevel' | 'onStorm' | 'onDelayed' | 'onTapped' | 'onWard' | 'onMadness' | 'onMiracle' | 'onLeave' | 'onCounters' | 'onReflexive' | 'onEvoked' | 'onOffspring'
+  'onEnter' | 'onDies' | 'onAttack' | 'onBlock' | 'onCombatDamageToPlayer' | 'onDefeat' | 'onChapter' | 'onLevel' | 'onStorm' | 'onDelayed' | 'onTapped' | 'onWard' | 'onMadness' | 'onMiracle' | 'onSuspendUpkeep' | 'onSuspendCast' | 'onLeave' | 'onCounters' | 'onReflexive' | 'onEvoked' | 'onOffspring'
 >;

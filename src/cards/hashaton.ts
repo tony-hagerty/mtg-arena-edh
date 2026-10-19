@@ -67,6 +67,7 @@ import {
   monstrosity,
   madness,
   miracle,
+  hasSuspend,
 } from '../engine/rules';
 import type { Card, CardScript, Game, Mode, PlayerId, TargetRef, TargetSpec, TokenSpec } from '../engine/types';
 import { cardData } from './db';
@@ -786,6 +787,21 @@ registerScripts({
     // "Destroy target creature or planeswalker."
     targets: [{ type: 'creature or planeswalker', label: 'target creature or planeswalker' }],
     onResolve: (g, { targets }) => destroy(g, refCard(g, targets[0])),
+  },
+  Delay: {
+    // "Counter target spell. If the spell is countered this way, exile it with three time
+    // counters on it instead of putting it into its owner's graveyard. If it doesn't have
+    // suspend, it gains suspend." (702.62a) A copy of a spell ceases to exist (704.5e).
+    targets: [{ type: 'spell', label: 'target spell' }],
+    onResolve: (g, { targets }) => {
+      const item = refStack(g, targets[0]);
+      if (item?.kind !== 'spell' || !counter(g, targets[0], { exile: true })) return;
+      const c = item.card;
+      if (c.zone !== 'exile' || c.isToken) return;
+      c.counters.time = 3;
+      if (!hasSuspend(c)) c.suspend = true;
+      log(g, `${label(c)} is exiled with three time counters on it and has suspend.`, c.owner, [c]);
+    },
   },
   'Fell the Profane': {
     // "Destroy target creature or planeswalker."

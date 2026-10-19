@@ -781,3 +781,34 @@ describe('Metamorphosis Fanatic and miracle', () => {
     expect(asked(g)?.then).not.toBe('@miracle');
   });
 });
+
+describe('Delay and suspend', () => {
+  it('exiles the countered spell with three time counters; its owner casts it free, with haste, as the last is removed', () => {
+    let g = emptyGame((d) => {
+      put(d, 1, 'Serra Angel', 'hand');
+      put(d, 1, 'Plains', 'battlefield', 5);
+      put(d, 0, 'Delay', 'hand');
+      put(d, 0, 'Island', 'battlefield', 2);
+      for (const pid of [0, 1, 2, 3] as PlayerId[]) top(d, pid, Array.from({ length: 20 }, () => 'Plains'));
+      d.active = 1;
+      d.priority = 1;
+    });
+    g = run(g, cast(g, 'Serra Angel', {}, 'hand', 1));
+    g = settle(run(g, cast(g, 'Delay', { targets: [{ kind: 'stack', id: g.stack[0].id }] })));
+    const angel = byName(g, 1, 'Serra Angel', 'exile')!;
+    expect(counterCount(angel, 'time')).toBe(3);
+    expect(angel.suspend).toBe(true);
+    // One counter off at each of its owner's upkeeps.
+    const upkeeps: number[] = [];
+    for (let i = 0; i < 3000 && !byName(g, 1, 'Serra Angel'); i++) {
+      const before = byName(g, 1, 'Serra Angel', 'exile');
+      g = g.decision ? applyBotAction(g, botAction(g, g.priority)) : applyAction(g, pass);
+      const after = byName(g, 1, 'Serra Angel', 'exile');
+      if (before && after && counterCount(before, 'time') !== counterCount(after, 'time')) upkeeps.push(g.active);
+    }
+    expect(upkeeps).toEqual([1, 1, 1]);
+    const cast_ = byName(g, 1, 'Serra Angel')!;
+    expect(g.active).toBe(1);
+    expect(has(g, cast_, 'haste')).toBe(true);
+  });
+});

@@ -19,7 +19,7 @@ import {
   canTapForMana,
   canUntapMana,
   altCostsOf,
-  castVia,
+  castsForAlt,
   canActivate,
   castCost,
   castTargets,
@@ -1081,7 +1081,7 @@ function defaultChoices(g: Game, me: PlayerId, card: Card, face: number): CastCh
   const canDiscard = (i: number) => discardOptions(g, me, card).length >= discardsFor(scriptFor(asSpell(card, face)), i);
   const extra = oneOf ? Math.max(0, oneOf.findIndex((_, i) => canDiscard(i) && planPayment(g, me, castCost(g, card, { face, escape, extra: i }, me), spell))) : undefined;
   const alts = ways ? [] : altCostsOf(g, card, face, me);
-  const alt = planPayment(g, me, castCost(g, card, { face, escape, extra }, me), spell) && !castVia(g, card) ? undefined : alts.find((i) => planPayment(g, me, castCost(g, card, { alt: i, face, extra }, me), spell));
+  const alt = planPayment(g, me, castCost(g, card, { face, escape, extra }, me), spell) && !castsForAlt(g, card) ? undefined : alts.find((i) => planPayment(g, me, castCost(g, card, { alt: i, face, extra }, me), spell));
   // An X paid in life ("pay X life", Toxic Deluge) starts at 0, not at all the player's life.
   const hasX = !paysFlashback(g, card, { face, escape }) && parseCost(data(asSpell(card, face)).manaCost).x > 0;
   const choices: CastChoices = {
