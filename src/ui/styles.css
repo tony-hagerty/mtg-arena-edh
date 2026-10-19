@@ -1844,9 +1844,16 @@ button {
   top: 2rem;
   right: 2.4rem;
   display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  width: 24rem;
+}
+
+/* One row each for the sounds and the music: a mute button, then its slider. */
+.menu-sound-row {
+  display: flex;
   gap: 0.8rem;
   align-items: center;
-  width: 24rem;
 }
 
 .menu-sound input {
@@ -1860,6 +1867,7 @@ button {
 }
 
 .menu-sound button {
+  min-width: 8.6rem;
   padding: 0.5rem 1rem;
   font-size: 1.15rem;
   color: #dfe6f3;
