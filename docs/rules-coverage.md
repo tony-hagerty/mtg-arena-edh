@@ -113,12 +113,16 @@ are from the Comprehensive Rules in `docs/rules/`.
   | Whispers of the Pit | black-red | Judith, the Scourge Diva |
   | Fire and Fang | red-green | Halana and Alena |
   | Conclave's Chorus | green-white | Trostani, Selesnya's Voice |
-  | Opus and Weaver | white-blue-black-red | Kraum and Tymna (partners) |
+  | Disciple of Matoya | white-blue-black | Y'shtola, Night's Blessed |
+  | Necropotence at Home | white-black | Ketramose, the New Dawn |
+  | The Stand User Could Be Anyone! | black-red | Kuja, Genome Sorcerer |
+  | Hashaton, Scarab's Fist | white-blue-black | Hashaton, Scarab's Fist |
 
-  The four starter decks are 100-card two-colour decks. Opus and Weaver is the user's
-  Kraum and Tymna deck (scripts in `src/cards/kraum-tymna.ts`). Eight of its cards were
-  listed by their Universes Within names (Chaos Emerald is Lotus Petal, and so on); the
-  deck uses their Oracle names.
+  The four starter decks are 100-card two-colour decks. Opus and Weaver, the user's Kraum
+  and Tymna deck, is off the menu (`offMenu` in `decklists.json`) but its cards stay in
+  the pool, scripted in `src/cards/kraum-tymna.ts`, so a pasted deck can play them, and
+  the bot games still play it. Eight of its cards were listed by their Universes Within
+  names (Chaos Emerald is Lotus Petal, and so on); the deck uses their Oracle names.
 
 ### Turns, priority and the stack
 

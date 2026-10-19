@@ -150,7 +150,9 @@ fixed spot on a 192 × 108 grid.
 
 1. Add its name to a deck in `src/cards/decklists.json`. A deck lists `commanders` (one,
    or two partners), `basics` as a map like `{ "Forest": 18, "Island": 17 }`, and
-   `cards`, one of each.
+   `cards`, one of each. `"offMenu": true` keeps a finished deck off the menu (its cards
+   stay in the pool and tests can still play it, from `ALL_DECKS`); `"wip": true` marks
+   one still being built.
 2. Run `npm run fetch-cards` to pull its data and art from Scryfall. Behind an HTTPS
    proxy (as in a Claude Code cloud session) run `NODE_USE_ENV_PROXY=1 npm run fetch-cards`:
    Node's `fetch` ignores the proxy otherwise.
