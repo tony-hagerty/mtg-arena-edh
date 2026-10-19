@@ -9,7 +9,6 @@ import { registerCards } from '../src/cards/db';
 import generated from './fixtures.generated.json';
 import {
   CANT_ATTACK,
-  firstDrawInDrawStep,
   simultaneously,
   subtypesOf,
   addMana,
@@ -434,14 +433,6 @@ registerScripts({
   },
 
   // ---------- replacement and prevention effects (614-616) ----------
-  'Notion Thief': {
-    // "If an opponent would draw a card except the first one they draw in each of their draw
-    // steps, instead that player skips that draw and you draw a card." (614.11)
-    replaces: (g, self, ev) =>
-      ev.kind === 'draw' && ev.player !== self.controller && !ev.firstInDrawStep
-        ? { instead: { kind: 'draw', player: self.controller, firstInDrawStep: firstDrawInDrawStep(g, self.controller) } }
-        : null,
-  },
   'Doubling Season': {
     replaces: (_g, self, ev) => {
       // "If an effect would create one or more tokens under your control, it creates twice that many of those tokens instead."

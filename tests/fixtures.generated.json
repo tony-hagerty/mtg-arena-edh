@@ -2238,28 +2238,6 @@
    "image": "https://cards.scryfall.io/normal/front/b/3/b30a8f92-ce42-4b27-a893-bcf97fde228d.jpg",
    "art": "https://cards.scryfall.io/art_crop/front/b/3/b30a8f92-ce42-4b27-a893-bcf97fde228d.jpg"
   },
-  "Notion Thief": {
-   "name": "Notion Thief",
-   "manaCost": "{2}{U}{B}",
-   "cmc": 4,
-   "colors": [
-    "B",
-    "U"
-   ],
-   "colorIdentity": [
-    "B",
-    "U"
-   ],
-   "typeLine": "Creature — Human Rogue",
-   "oracleText": "Flash\nIf an opponent would draw a card except the first one they draw in each of their draw steps, instead that player skips that draw and you draw a card.",
-   "power": "3",
-   "toughness": "1",
-   "keywords": [
-    "Flash"
-   ],
-   "image": "https://cards.scryfall.io/normal/front/f/6/f675f509-4343-4568-96dd-265626cb6c2b.jpg",
-   "art": "https://cards.scryfall.io/art_crop/front/f/6/f675f509-4343-4568-96dd-265626cb6c2b.jpg"
-  },
   "Doubling Season": {
    "name": "Doubling Season",
    "manaCost": "{4}{G}",

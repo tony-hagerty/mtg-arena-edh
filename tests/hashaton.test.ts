@@ -1,7 +1,7 @@
 // The Hashaton deck's hand scripts and the rules they needed: the clauses that could go wrong.
 import { produce } from 'immer';
 import { describe, expect, it } from 'vitest';
-import { applyAction, applyBotAction, botAction, canBlock, colorsOf, counterCount, has, isCreature, makeCard, manaAbilities, maxHandSize, stats, subtypesOf, hasType } from '../src/engine';
+import { applyAction, applyBotAction, botAction, canBlock, colorsOf, counterCount, createToken, has, isCreature, makeCard, manaAbilities, maxHandSize, stats, subtypesOf, hasType } from '../src/engine';
 import type { Action, Game, PlayerId, TargetRef } from '../src/engine';
 import { byName, emptyGame, put, run } from './helpers';
 import './fixtures';
@@ -534,5 +534,90 @@ describe("Serra's Emissary and Reflecting Pool", () => {
       put(d, 1, 'Forest');
     });
     expect(colorsOf(g, 0)).toEqual(['G']);
+  });
+});
+
+describe('token makers and replacement effects', () => {
+  const make = (g: Game, key: string) => produce(g, (d) => void createToken(d, 0, key));
+  const count = (g: Game, name: string) => g.players[0].battlefield.filter((c) => c.name === name).length;
+
+  it('Mondrak doubles your tokens; Ojer Taq triples only creature tokens', () => {
+    let g = emptyGame((d) => {
+      put(d, 0, 'Mondrak, Glory Dominus');
+    });
+    g = make(make(g, 'Treasure'), 'Angel 4/4 flying');
+    expect([count(g, 'Treasure'), count(g, 'Angel 4/4 flying')]).toEqual([2, 2]);
+    g = emptyGame((d) => {
+      put(d, 0, 'Ojer Taq, Deepest Foundation');
+    });
+    g = make(make(g, 'Treasure'), 'Angel 4/4 flying');
+    expect([count(g, 'Treasure'), count(g, 'Angel 4/4 flying')]).toEqual([1, 3]);
+    g = emptyGame((d) => {
+      put(d, 0, 'Ojer Taq, Deepest Foundation');
+      put(d, 0, 'Mondrak, Glory Dominus');
+      put(d, 1, 'Mondrak, Glory Dominus');
+    });
+    g = settle(make(g, 'Angel 4/4 flying'));
+    expect(count(g, 'Angel 4/4 flying')).toBe(6);
+  });
+
+  it("Mondrak: sacrifice two other artifacts and/or creatures for an indestructible counter", () => {
+    const g0 = emptyGame((d) => {
+      put(d, 0, 'Mondrak, Glory Dominus');
+      put(d, 0, 'Plains', 'battlefield', 3);
+      put(d, 0, 'Psychic Frog');
+      put(d, 0, 'Monument to Endurance');
+    });
+    const m = byName(g0, 0, 'Mondrak, Glory Dominus')!;
+    const frog = byName(g0, 0, 'Psychic Frog')!;
+    const monument = byName(g0, 0, 'Monument to Endurance')!;
+    // Not Mondrak itself, and not the same one twice.
+    expect(applyAction(g0, { type: 'activate', card: m.id, sacrifice: [m.id, frog.id] })).toBe(g0);
+    expect(applyAction(g0, { type: 'activate', card: m.id, sacrifice: [frog.id, frog.id] })).toBe(g0);
+    const g = settle(run(g0, { type: 'activate', card: m.id, sacrifice: [frog.id, monument.id] }));
+    expect(counterCount(byName(g, 0, 'Mondrak, Glory Dominus')!, 'indestructible')).toBe(1);
+    expect(has(g, byName(g, 0, 'Mondrak, Glory Dominus')!, 'indestructible')).toBe(true);
+    expect(g.players[0].graveyard.map((c) => c.name).sort()).toEqual(['Monument to Endurance', 'Psychic Frog']);
+  });
+
+  it('Ojer Taq returns transformed and tapped when it dies; the Temple transforms back after three attackers', () => {
+    let g = emptyGame((d) => {
+      put(d, 0, 'Ojer Taq, Deepest Foundation');
+      put(d, 0, 'Bitter Triumph', 'hand');
+      put(d, 0, 'Swamp', 'battlefield', 2);
+    });
+    g = settle(run(g, cast(g, 'Bitter Triumph', { extra: 1, targets: [card(byName(g, 0, 'Ojer Taq, Deepest Foundation')!)] })));
+    const temple = g.players[0].battlefield.find((c) => c.name === 'Ojer Taq, Deepest Foundation')!;
+    expect(temple.face).toBe(1);
+    expect(temple.tapped).toBe(true);
+    expect(isCreature(g, temple)).toBe(false);
+    g = produce(g, (d) => {
+      const t = d.players[0].battlefield.find((c) => c.id === temple.id)!;
+      t.tapped = false;
+      put(d, 0, 'Plains', 'battlefield', 3);
+      d.players[0].attackedWith = ['a', 'b'];
+    });
+    expect(applyAction(g, { type: 'activate', card: temple.id })).toBe(g);
+    g = produce(g, (d) => {
+      d.players[0].attackedWith = ['a', 'b', 'c'];
+    });
+    g = settle(run(g, { type: 'activate', card: temple.id }));
+    expect(byName(g, 0, 'Ojer Taq, Deepest Foundation')!.face).toBe(0);
+  });
+
+  it('Notion Thief: an opponent drawing an extra card draws nothing, and you draw instead', () => {
+    let g = emptyGame((d) => {
+      put(d, 0, 'Notion Thief');
+      put(d, 1, 'Cephalid Coliseum');
+      put(d, 1, 'Island');
+      for (let i = 0; i < 7; i++) put(d, 1, 'Plains', 'graveyard');
+      top(d, 0, plenty('Island'));
+      top(d, 1, plenty('Island'));
+      d.active = 1;
+      d.priority = 1;
+    });
+    g = settle(run(g, { type: 'activate', card: byName(g, 1, 'Cephalid Coliseum')!.id, targets: [player(1)] }));
+    expect(g.players[0].hand).toHaveLength(3);
+    expect(g.players[1].hand).toHaveLength(0);
   });
 });

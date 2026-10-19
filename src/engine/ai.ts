@@ -429,9 +429,9 @@ function activations(g: Game, pid: PlayerId, c: Card, ref: AbilityRef): Action[]
   if (crew === null) return [];
   const n = ab?.cost.discard ?? 0;
   const discard = n ? [...discardOptions(g, pid, c, ab?.cost.discardFilter)].sort((a, b) => cardWant(g, pid, a) - cardWant(g, pid, b)).slice(0, n).map((x) => x.id) : undefined;
-  // "Sacrifice a creature": the least valuable one, and not the source itself if there is another.
-  const fodder = ab?.cost.sacrificeOne ? [...activationSacrificeOptions(g, pid, c, activated)].sort((a, b) => sacrificeWorth(g, a) - sacrificeWorth(g, b)) : [];
-  const victim = fodder.find((x) => x.id !== c.id) ?? fodder[0];
+  // "Sacrifice a creature": the least valuable ones, and not the source itself if there are others.
+  const fodder = ab?.cost.sacrificeOne ? [...activationSacrificeOptions(g, pid, c, activated)].sort((a, b) => Number(a.id === c.id) - Number(b.id === c.id) || sacrificeWorth(g, a) - sacrificeWorth(g, b)) : [];
+  const victims = fodder.slice(0, ab?.cost.sacrificeCount ?? 1);
   // "Exile a creature you control": the least valuable one, not the source if there is another.
   const exilable = ab?.cost.exileOne ? [...activationExileOptions(g, pid, c, activated)].sort((a, b) => sacrificeWorth(g, a) - sacrificeWorth(g, b)) : [];
   const exiled = exilable.find((x) => x.id !== c.id) ?? exilable[0];
@@ -448,7 +448,7 @@ function activations(g: Game, pid: PlayerId, c: Card, ref: AbilityRef): Action[]
       targets,
       crew,
       ...(discard ? { discard } : {}),
-      ...(victim ? { sacrifice: [victim.id] } : {}),
+      ...(victims.length ? { sacrifice: victims.map((x) => x.id) } : {}),
       ...(exiled ? { exile: [exiled.id] } : {}),
       ...(graveyard ? { graveyard } : {}),
     })),
