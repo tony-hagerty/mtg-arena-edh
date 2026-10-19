@@ -123,7 +123,8 @@ window only talks to the program on its own computer: `connectLobby` (src/ui/lob
 streams `LobbyState` from `/api/lobby/events` and POSTs requests (host, join, deck,
 ready, table, start, leave); a refusal comes back as a reason in plain words, which the
 screen shows. A page with no lobby (a build opened from disk) gets no Host or Join
-buttons. The menu shows the waiting room while `LobbyState.role` isn't `none`. Once
+buttons. The menu shows the waiting room while `LobbyState.role` isn't `none`. Its screens, like the paste screen, sit in `MenuFrame`
+(`src/ui/LobbyScreen.tsx`), the panel that matches the title screen. Once
 `started` is true, the store (`onLobby`) plays the game through the game server as
 `yourSeat` alone: it streams only that seat, never passes the screen, and never starts a
 game itself (the host's Play Again asks the lobby to start the next one). Leaving that game leaves the table (for the host, that closes it), and the
