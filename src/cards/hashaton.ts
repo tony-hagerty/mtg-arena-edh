@@ -57,6 +57,7 @@ import {
   becomeCopy,
   bounce,
   addEffect,
+  addLasting,
   copyItem,
   finishEnter,
   landColors,
@@ -322,6 +323,17 @@ registerScripts({
       targets: [{ type: 'permanent', label: 'target permanent' }],
       resolve: (g, { targets }) => exile(g, refCard(g, targets[0])),
       text: 'When this creature dies, exile target permanent.',
+    },
+  },
+  'Curious Colossus': {
+    // "When this creature enters, each creature target opponent controls loses all abilities,
+    // becomes a Coward in addition to its other types, and has base power and toughness 1/1."
+    // One effect with no duration on the creatures that player controls as it resolves (611.2c),
+    // applied in layers 4, 6 and 7b (613.1d, 613.1f, 613.4b).
+    targets: [{ type: 'player', who: 'opponent', label: 'target opponent' }],
+    onEnter: (g, { targets }) => {
+      const opp = refPlayer(g, targets[0]);
+      if (opp) for (const c of creaturesOf(g, opp.id)) addLasting(g, c, { loseAll: true, subtypes: ['Coward'], setPower: 1, setToughness: 1 });
     },
   },
   'Avacyn, Angel of Hope': {
