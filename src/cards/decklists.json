@@ -330,6 +330,7 @@
     },
     {
       "id": "kraum-tymna",
+      "offMenu": true,
       "title": "Opus and Weaver",
       "blurb": "cEDH: fast mana, tutors and a Thassa's Oracle win.",
       "pilot": "Ludevic",

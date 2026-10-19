@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ALL_CARD_NAMES, ALL_DECKS, DECKS, cardData, deckColors, deckProblems } from '../src/cards/db';
+import { ALL_CARD_NAMES, ALL_DECKS, DECKS, cardData, deckColors, deckProblems, isCardName } from '../src/cards/db';
 import type { DeckDef } from '../src/cards/db';
 import type { CardData } from '../src/engine';
 import { unsupported } from '../src/cards/support';
@@ -8,6 +8,12 @@ import { MANA_ROCKS } from './helpers';
 describe('card pool', () => {
   it('every deck is legal (903.5), unfinished ones too', () => {
     for (const deck of ALL_DECKS) expect(deckProblems(deck), deck.id).toEqual([]);
+  });
+
+  it('keeps the Kraum and Tymna deck off the menu, with its cards still in the pool for pasted decks', () => {
+    const kraum = ALL_DECKS.find((d) => d.id === 'kraum-tymna')!;
+    expect(DECKS.map((d) => d.id)).not.toContain('kraum-tymna');
+    for (const name of [...kraum.commanders, ...kraum.cards]) expect(isCardName(name), name).toBe(true);
   });
 
   it('every card is fully implemented: supported keywords only, or a script', () => {

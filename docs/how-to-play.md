@@ -5,23 +5,29 @@ The full guide to the game's screens and controls. For a quick start, see the
 
 ## Starting a game
 
-- Pick a deck on the menu (or "watch the bots play").
-- **Opponents:** under the decks, for each of the three other seats pick who plays it
+- Pick a deck on the menu: the decks fill the middle, starter decks then your pasted
+  ones. Pointing at one shows its art behind the menu. **Watch the bots play** (right)
+  starts a game of four bots instead.
+- **The table:** right of the decks, for each of the three other seats pick who plays it
   and its deck, built-in or pasted. **Bot** (the default) is played by the computer;
   **Person here** by a friend at the same screen; **Empty seat** leaves it out, for a
   table of two or three (at least one seat stays filled). **Automatic** (the default deck)
   takes the next built-in deck no one else has. Saved in the browser.
+- **With friends:** under the seats, **Host a table** and **Join a table** play with people
+  on other computers, and **Saved games** resumes a table's game. They show only in the
+  Windows program (or `npm run dev`), not in a page opened from disk.
 - **Passing the screen:** with friends at the same screen, the table is covered whenever
   another person must decide something, until they click **I'm Player N**. Then their
   seat is at the bottom with their hand. People are called Player 1 to 4 by seat, and the
   log is written in the third person; alone against bots, you're "You".
-- **Paste a deck list:** opens a text box. Paste a plain list ("1 Sol Ring" or "Sol
+- **Paste a deck list:** the last tile under "Your decks" opens a text box. Paste a plain list ("1 Sol Ring" or "Sol
   Ring") or an Arena, Moxfield or MTGO export; set codes, collector numbers and foil
   marks are ignored. The commander comes from a "Commander" section, a `*CMDR*` mark or
   a one- or two-card sideboard; otherwise click one (or two partners) among the list's
   legendary creatures. Every problem is listed: cards the game can't play, and broken
   deck rules (100 cards, one of each, colour identity, commander). **Save Deck** works
-  once there are none. The deck joins the menu, saved in the browser; **×** deletes it.
+  once there are none. The deck joins the menu, saved in the browser; **×** deletes it. A
+  saved deck the game can no longer play is greyed out with the reason.
 - **Any card:** a card the game doesn't have is fetched from Scryfall as you paste, and
   scripted from its Oracle text. One the game can't read yet is listed with the words it
   couldn't read; replace it to save the deck. Fetched cards are kept in the browser, so
@@ -162,8 +168,14 @@ The full guide to the game's screens and controls. For a quick start, see the
 | Click a graveyard or exile pile | look through it; hovering the pile shows its top card |
 | Hover a card name in the log (dashed underline) | see the card |
 
-The log is bottom-left. **Hide log** folds it away, **Speed** changes how fast the bots
-play, **Sound** steps the volume up and round to off, **Damage** switches between dividing
-combat damage automatically and by hand, and **Exit** asks before leaving the game for the
-deck menu. The deck menu has a mute button and a volume slider in its top-right corner.
-Sound and damage choices are saved in the browser.
+The log is bottom-left, under one bar; point at a button on it (or tab to it) for its name.
+**Log**, the bar's left half, folds the log away and back. On the right:
+
+- **Pause** (‖, a table's game only) pauses the game for everyone at the table.
+- **Settings** (the gear) opens a small panel: **Bot speed** (1×, 2×, 4×), **Sound** (mute
+  and a volume slider), and **Combat damage**, Auto or By hand, for dividing an attacker's
+  damage among its blockers or trampling over. `Esc` or a click elsewhere closes it.
+- **Exit** (the door) asks before leaving the game for the deck menu.
+
+The deck menu has the same mute button and volume slider in its top-right corner. Sound
+and damage choices are saved in the browser.

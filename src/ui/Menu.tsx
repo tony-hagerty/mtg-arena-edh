@@ -1,12 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import type { CSSProperties } from 'react';
+import type { CSSProperties, ReactNode } from 'react';
 import { DECKS, cardData, deckColors } from '../cards/db';
 import type { DeckDef } from '../cards/db';
 import { checkList, norm, savedDeckIssues } from '../cards/decklist';
 import { clearFetchedCards, fetchCards, fetchedCount, requestFor } from '../cards/fetched';
 import { downloadRequests, keptRequests, reportRequests, writesFile } from './card-requests';
 import { type SeatPlayer, useStore } from './store';
-import { HostTable, JoinTable, SavedGames, TableEnded, WaitingRoom } from './LobbyScreen';
+import { HostTable, JoinTable, MenuFrame, SavedGames, TableEnded, WaitingRoom } from './LobbyScreen';
 import { SoundControl } from './SoundControl';
 import { useArtLoads } from './TextCard';
 import { cx, deckColor } from './util';
@@ -31,6 +31,11 @@ export function Menu() {
   return <DeckMenu go={setScreen} />;
 }
 
+/**
+ * The title screen. The decks fill the middle, starter decks then pasted ones with a tile to
+ * paste another; the table beside them: who sits in the other seats, and the ways to play
+ * with friends or watch. The hovered deck's art fills the background.
+ */
 function DeckMenu({ go }: { go: (screen: MenuScreen) => void }) {
   const start = useStore((s) => s.start);
   // Hosting and joining need the Windows program (or `npm run dev`): a file opened from disk has no lobby.
@@ -39,62 +44,109 @@ function DeckMenu({ go }: { go: (screen: MenuScreen) => void }) {
   const saved = useStore((s) => s.savedDecks);
   // Saved decks are checked again once fetched cards load (`loadCards`).
   useStore((s) => s.cardsVersion);
+  const [focus, setFocus] = useState<DeckDef>(DECKS[0]);
   return (
-    <div className="stage menu">
-      <SoundControl />
-      <h1>Commander Table</h1>
-      <p className="menu-sub">An Arena-style Commander prototype for two to four players. Pick a deck; the seats below say who plays the others.</p>
-      <div className="deck-shelf">
-        <DeckSection title="Starter decks" decks={DECKS.map((deck) => ({ deck, issues: [] }))} play={start} />
-        {saved.length > 0 && (
-          <DeckSection title="Your decks" decks={saved.map((deck) => ({ deck, issues: savedDeckIssues(deck) }))} play={start} pasted />
-        )}
-      </div>
-      <Opponents />
-      {lobby && table?.role === 'none' && <TableEnded table={table} />}
-      <div className="menu-actions">
-        {lobby && (
-          <>
-            <button className="watch" onClick={() => go('host')}>
-              Host a table
+    <div className="stage menu title-screen">
+      <MenuBackdrop deck={focus} />
+      <header className="menu-top">
+        <div className="menu-heading">
+          <h1>Commander Table</h1>
+          <p className="menu-sub">Arena-style Commander for two to four players</p>
+        </div>
+        <div className="menu-sound">
+          <SoundControl />
+        </div>
+      </header>
+      <main className="menu-main">
+        <div className="deck-shelf" role="group" aria-label="Pick a deck to play">
+          <DeckSection title="Starter decks" decks={DECKS.map((deck) => ({ deck, issues: [] }))} play={start} hover={setFocus} />
+          <DeckSection title="Your decks" decks={saved.map((deck) => ({ deck, issues: savedDeckIssues(deck) }))} play={start} hover={setFocus} pasted>
+            <button className="deck deck-paste" onClick={() => go('paste')}>
+              <span className="deck-paste-plus" aria-hidden="true">
+                +
+              </span>
+              <span className="deck-title">Paste a deck list</span>
+              <span className="deck-blurb">An Arena, Moxfield or MTGO export, or a plain list</span>
             </button>
-            <button className="watch" onClick={() => go('join')}>
-              Join a table
-            </button>
-            {!!table?.saves.length && (
-              <button className="watch" onClick={() => go('saves')}>
-                Saved games ({table.saves.length})
-              </button>
-            )}
-          </>
-        )}
-        <button className="watch" onClick={() => go('paste')}>
-          Paste a deck list
-        </button>
-        <button className="watch" onClick={() => start(null)}>
-          or watch the bots play
-        </button>
-      </div>
+          </DeckSection>
+        </div>
+        <aside className="menu-side">
+          <section className="menu-panel">
+            <h2>The table</h2>
+            <p className="menu-hint">Pick a deck to sit down. These seats say who plays the others.</p>
+            <Opponents />
+          </section>
+          {lobby && table?.role === 'none' && <TableEnded table={table} />}
+          {lobby && (
+            <section className="menu-panel">
+              <h2>With friends</h2>
+              <div className="menu-actions">
+                <button className="menu-action" onClick={() => go('host')}>
+                  Host a table
+                </button>
+                <button className="menu-action" onClick={() => go('join')}>
+                  Join a table
+                </button>
+                {!!table?.saves.length && (
+                  <button className="menu-action wide" onClick={() => go('saves')}>
+                    Saved games <span className="menu-count">{table.saves.length}</span>
+                  </button>
+                )}
+              </div>
+            </section>
+          )}
+          <button className="menu-watch" onClick={() => start(null)}>
+            Watch the bots play
+          </button>
+        </aside>
+      </main>
     </div>
   );
 }
 
-/** A labelled grid of decks. It wraps onto new rows; the shelf around it scrolls once they don't fit. */
-function DeckSection({ title, decks, play, pasted }: { title: string; decks: { deck: DeckDef; issues: string[] }[]; play: (deck: DeckDef) => void; pasted?: boolean }) {
+/** The focused deck's art, blurred and dimmed behind the menu, tinted with its colours. */
+function MenuBackdrop({ deck }: { deck: DeckDef }) {
+  const url = cardData(deck.commanders[0]).art;
+  const ok = useArtLoads(url);
+  const color = deckColor(deckColors(deck));
+  return (
+    <div className="menu-backdrop" aria-hidden="true" style={{ '--deck': color } as CSSProperties}>
+      <div key={url} className="menu-backdrop-art" style={ok ? { backgroundImage: `url(${url})` } : undefined} />
+    </div>
+  );
+}
+
+/** A labelled grid of decks, and anything after them (the paste tile). It wraps onto new rows; the shelf around it scrolls once they don't fit. */
+function DeckSection({
+  title,
+  decks,
+  play,
+  hover,
+  pasted,
+  children,
+}: {
+  title: string;
+  decks: { deck: DeckDef; issues: string[] }[];
+  play: (deck: DeckDef) => void;
+  hover: (deck: DeckDef) => void;
+  pasted?: boolean;
+  children?: ReactNode;
+}) {
   return (
     <section className="deck-section">
       <h2>{title}</h2>
       <div className="deck-list">
         {decks.map(({ deck, issues }) => (
-          <DeckTile key={deck.id} deck={deck} issues={issues} play={() => play(deck)} pasted={pasted} />
+          <DeckTile key={deck.id} deck={deck} issues={issues} play={() => play(deck)} hover={() => issues.length === 0 && hover(deck)} pasted={pasted} />
         ))}
+        {children}
       </div>
     </section>
   );
 }
 
 /** A deck on the menu. A pasted deck can be deleted, and is greyed out if a newer card pool can't play it. */
-function DeckTile({ deck, issues, play, pasted }: { deck: DeckDef; issues: string[]; play: () => void; pasted?: boolean }) {
+function DeckTile({ deck, issues, play, hover, pasted }: { deck: DeckDef; issues: string[]; play: () => void; hover: () => void; pasted?: boolean }) {
   const remove = useStore((s) => s.deleteDeck);
   const broken = issues.length > 0;
   // A deck's colours are its commanders' colour identity (903.4, 702.124c).
@@ -102,7 +154,7 @@ function DeckTile({ deck, issues, play, pasted }: { deck: DeckDef; issues: strin
   const color = broken ? '#4a5366' : deckColor(colors);
   return (
     <div className="deck-slot">
-      <button className={cx('deck', broken && 'broken')} onClick={play} disabled={broken} style={{ '--deck': color } as CSSProperties} title={deck.commanders.join(' & ')}>
+      <button className={cx('deck', broken && 'broken')} onClick={play} onPointerEnter={hover} onFocus={hover} disabled={broken} style={{ '--deck': color } as CSSProperties} title={deck.commanders.join(' & ')}>
         {/* Each commander's art crop; partners split the banner. */}
         <div className="deck-banner">
           {deck.commanders.map((name) => (
@@ -157,9 +209,9 @@ function Opponents() {
   const lastFilled = players.filter((p) => p !== 'empty').length === 1;
   return (
     <div className="opponents">
-      <span>Opponents</span>
       {opponents.map((id, seat) => (
-        <span key={seat} className="opponent-seat">
+        <div key={seat} className={cx('opponent-seat', players[seat] === 'empty' && 'empty')}>
+          <span className="opponent-n">{seat + 2}</span>
           <select value={players[seat]} onChange={(e) => who(seat, e.target.value as SeatPlayer)} aria-label={`Who plays opponent ${seat + 1}`}>
             {(Object.keys(SEAT_LABELS) as SeatPlayer[]).map((p) => (
               <option key={p} value={p} disabled={p === 'empty' && lastFilled && players[seat] !== 'empty'}>
@@ -186,7 +238,7 @@ function Opponents() {
               </optgroup>
             )}
           </select>
-        </span>
+        </div>
       ))}
     </div>
   );
@@ -301,8 +353,7 @@ function PasteDeck({ close }: { close: () => void }) {
     setPicked(now.includes(name) ? now.filter((n) => n !== name) : [...now, name].slice(-2));
   };
   return (
-    <div className="stage menu paste">
-      <h2>Paste a deck list</h2>
+    <MenuFrame className="paste" title="Paste a deck list">
       <div className="paste-body">
         <textarea
           className="paste-text"
@@ -394,6 +445,6 @@ function PasteDeck({ close }: { close: () => void }) {
           </div>
         </div>
       </div>
-    </div>
+    </MenuFrame>
   );
 }

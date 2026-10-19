@@ -14,7 +14,7 @@ This is an unofficial fan prototype. Expect rough edges.
   their rules text.
 - **Bots** fill any empty seat, so you can play alone.
 - **Friends** can share your screen, or join from their own computer with a code.
-- **Five decks built in**, four two-colour starters and a four-colour partner deck.
+- **Eight decks built in**, four two-colour starters and four Commander decks.
 
 ## Getting the game
 
