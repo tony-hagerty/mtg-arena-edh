@@ -1686,10 +1686,12 @@ export interface CardScript extends Triggers {
   /** Triggered abilities this card gives other permanents (see `GrantedTrigger`). */
   grants?: GrantedTrigger[];
   /**
-   * While this permanent is on the battlefield: is it a Roaming Throne for `source`? "If a
-   * triggered ability of [a permanent] triggers, it triggers an additional time" (603.2d).
+   * While this permanent is on the battlefield: is it a Roaming Throne for `source`'s ability
+   * on `hook`? "If a triggered ability of [a permanent] triggers, it triggers an additional time" (603.2d).
    */
-  doublesTriggers?: (g: Game, self: Card, source: Card) => boolean;
+  doublesTriggers?: (g: Game, self: Card, source: Card, hook: TriggerHook) => boolean;
+  /** While this permanent is on the battlefield: does `source`'s ability on `hook` not trigger at all? "Permanents entering don't cause abilities of permanents your opponents control to trigger." */
+  suppressesTriggers?: (g: Game, self: Card, source: Card, hook: TriggerHook) => boolean;
   /** While this permanent is on the battlefield: does player `pid` have protection from `source` (702.16)? "You ... have protection from the chosen card type." */
   protectsPlayer?: (g: Game, self: Card, pid: PlayerId, source: Card) => boolean;
   /** While this permanent is on the battlefield: does player `pid` have shroud (702.18a)? "You have shroud." */
