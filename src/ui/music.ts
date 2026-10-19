@@ -1,6 +1,6 @@
 // The background music: plays the notes music-score.ts writes with the Web Audio API, no
-// sound files. A pad per chord through one low-pass filter, a harp arpeggio, a plucked bass,
-// a soft lead and bells through a reverb made from decaying noise, and a frame drum and shaker
+// sound files. A harp arpeggio and a plucked bass through one low-pass filter, a soft lead
+// and bells, all through a reverb made from decaying noise, and a frame drum and shaker
 // kept mostly dry so the beat stays crisp. A timer once a second schedules the next bar ahead
 // on the audio clock, so nothing runs per frame.
 import { composer, hz, musicLevel, musicPlace } from './music-score';
@@ -23,7 +23,8 @@ interface Graph {
   bus: GainNode;
   /** Where the percussion goes: mostly dry, a little reverb. */
   drums: GainNode;
-  pad: BiquadFilterNode;
+  /** The harp and bass's low-pass, whose brightness drifts from bar to bar. */
+  tone: BiquadFilterNode;
   lead: BiquadFilterNode;
   /** The drum's thud of noise and the shaker's hiss, cut from one buffer of noise. */
   thud: BiquadFilterNode;
@@ -81,8 +82,6 @@ function build(): Graph {
   room.gain.value = 0.2;
   drums.connect(room).connect(reverb);
 
-  const pad = filter(audio, 'lowpass', 900, bus);
-  pad.Q.value = 0.5;
   const noise = audio.createBuffer(1, audio.sampleRate, audio.sampleRate);
   const data = noise.getChannelData(0);
   for (let i = 0; i < data.length; i++) data[i] = Math.random() * 2 - 1;
@@ -91,7 +90,7 @@ function build(): Graph {
     master,
     bus,
     drums,
-    pad,
+    tone: filter(audio, 'lowpass', 2000, bus),
     lead: filter(audio, 'lowpass', 2200, bus),
     thud: filter(audio, 'lowpass', 300, drums),
     hiss: filter(audio, 'highpass', 6000, drums),
@@ -118,7 +117,7 @@ function burst(g: Graph, out: AudioNode, start: number, dur: number) {
   src.stop(start + dur + 0.02);
 }
 
-/** One note at time `t`: a swell for the pad, a soft rise for the lead, a pluck for the rest, a hit for the drums. */
+/** One note at time `t`: a soft rise for the lead, a pluck for the rest, a hit for the drums. */
 function note(g: Graph, t: number, n: Note) {
   const { audio } = g;
   const start = t + n.at;
@@ -133,15 +132,6 @@ function note(g: Graph, t: number, n: Note) {
     v.exponentialRampToValueAtTime(0.0001, end);
   };
   switch (n.voice) {
-    case 'pad':
-      // A second in, two out, so each chord melts into the next.
-      v.linearRampToValueAtTime(0.045 * n.gain, start + 1.2);
-      v.setValueAtTime(0.045 * n.gain, end - 2);
-      v.linearRampToValueAtTime(0, end);
-      env.connect(g.pad);
-      // Each note a few cents off, for a slow shimmer between them.
-      osc(audio, 'sawtooth', freq * (1 + (Math.random() - 0.5) * 0.006), env, start, end);
-      break;
     case 'lead':
       v.linearRampToValueAtTime(0.06 * n.gain, start + 0.08);
       v.exponentialRampToValueAtTime(0.0001, end);
@@ -150,12 +140,12 @@ function note(g: Graph, t: number, n: Note) {
       break;
     case 'harp':
       pluck(0.09);
-      env.connect(g.bus);
+      env.connect(g.tone);
       osc(audio, 'triangle', freq, env, start, end);
       break;
     case 'bass':
       pluck(0.16);
-      env.connect(g.pad);
+      env.connect(g.tone);
       osc(audio, 'triangle', freq, env, start, end);
       break;
     case 'bell': {
@@ -191,8 +181,8 @@ function note(g: Graph, t: number, n: Note) {
 }
 
 function playBar(g: Graph, t: number, bar: Bar) {
-  // The pad's colour drifts from bar to bar: 500 Hz is dark, about 1600 Hz bright.
-  g.pad.frequency.setTargetAtTime(500 + bar.brightness * 1100, t, bar.length / 3);
+  // The colour drifts from bar to bar: 1200 Hz is dark, about 3200 Hz bright.
+  g.tone.frequency.setTargetAtTime(1200 + bar.brightness * 2000, t, bar.length / 3);
   for (const n of bar.notes) note(g, t, n);
 }
 

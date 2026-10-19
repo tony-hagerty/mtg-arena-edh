@@ -1,8 +1,9 @@
 // The background music's notes and when it plays, with no audio: music.ts turns these into
 // sound. The music is generative but keeps a steady pulse: a seeded random walk over a few
-// chords in D Dorian, two measures of 4/4 a chord, with a plucked bass, a soft frame drum and
-// shaker, a melody on the beat and now and then a harp roll. Every few chords a new section
-// picks new patterns and how busy it is, so it never repeats a loop.
+// chords in D Dorian, two measures of 4/4 a chord, with a harp arpeggio in eighth notes, a
+// plucked bass, a soft frame drum and shaker, and a melody on the beat. Nothing is held: every
+// voice is plucked or struck and dies away. Every few chords a new section picks new patterns
+// and how busy it is, so it never repeats a loop.
 import type { Game } from '../engine';
 import type { Settings } from './store';
 
@@ -21,7 +22,7 @@ export function seeded(seed: number): () => number {
 /** D Dorian, as MIDI note numbers mod 12: D E F G A B C. The raised sixth (B) is what makes it Dorian. */
 export const SCALE = [2, 4, 5, 7, 9, 11, 0];
 
-/** Each chord centre: its notes (MIDI, voiced for the pad), its bass root, and where the walk may go next, with weights. */
+/** Each chord centre: its notes (MIDI, voiced for the arpeggio), its bass root, and where the walk may go next, with weights. */
 export const CHORDS = {
   Dm: { notes: [50, 57, 60, 65], root: 38, next: { F: 3, G: 3, C: 2, Am: 2 } },
   F: { notes: [53, 57, 60, 64], root: 41, next: { C: 3, G: 2, Dm: 3 } },
@@ -31,7 +32,7 @@ export const CHORDS = {
 } satisfies Record<string, { notes: number[]; root: number; next: Record<string, number> }>;
 export type Chord = keyof typeof CHORDS;
 
-export type Voice = 'pad' | 'harp' | 'bass' | 'lead' | 'bell' | 'drum' | 'shaker';
+export type Voice = 'harp' | 'bass' | 'lead' | 'bell' | 'drum' | 'shaker';
 /** Voices with no pitch: their `midi` is ignored. */
 export const UNPITCHED: Voice[] = ['drum', 'shaker'];
 
@@ -51,11 +52,11 @@ export interface Bar {
   chord: Chord;
   /** Seconds a beat lasts; a bar is `BEATS` of them. */
   beat: number;
-  /** Seconds until the next bar starts. A pad note outlasts it a little, so the chords cross-fade. */
+  /** Seconds until the next bar starts. */
   length: number;
   /** How busy the section is: 0 a light bass and drum on beats 1 and 3, 1 the section's full patterns, 2 adds the shaker. */
   energy: number;
-  /** How open the pad's filter is this bar, 0 (dark) to 1 (bright): the colour drifts slowly. */
+  /** How open the harp and bass's filter is this bar, 0 (dark) to 1 (bright): the colour drifts slowly. */
   brightness: number;
   notes: Note[];
 }
@@ -63,6 +64,14 @@ export interface Bar {
 /** Beats in a bar: one chord lasts two measures of 4/4. */
 export const BEATS = 8;
 
+/** Arpeggios over the chord's four notes, one index per eighth note of a measure. */
+const ARPS = [
+  [0, 1, 2, 3, 2, 1, 0, 1],
+  [0, 2, 1, 3, 0, 2, 1, 3],
+  [0, 1, 2, 3, 3, 2, 1, 0],
+  [0, 2, 3, 2, 1, 2, 3, 2],
+  [3, 2, 1, 0, 1, 2, 3, 2],
+];
 /** Bass rhythms, in beats of the bar. Each note is the root, or the fifth on an odd one. */
 const BASS = [
   [0, 4],
@@ -99,7 +108,7 @@ function scaleNotes(low: number, high: number): number[] {
   return notes;
 }
 
-/** The melody's range, about A4 to D6: above the pad, below shrill. */
+/** The melody's range, about A4 to D6: above the harp, below shrill. */
 const LEAD = scaleNotes(69, 86);
 
 /**
@@ -119,6 +128,8 @@ export function composer(seed: number): { next(): Bar } {
   // The section: bars left in it, its energy and its patterns. It opens quietly, briefly.
   let left = 2;
   let energy = 0;
+  let arp = ARPS[0];
+  let rests = 0.3;
   let bass = BASS[0];
   let drums = DRUMS[0];
   return {
@@ -128,6 +139,9 @@ export function composer(seed: number): { next(): Bar } {
         left = 4 + Math.floor(rng() * 5);
         // Out of the quiet level always up; at the top, more often back down.
         energy = energy === 0 ? 1 : energy === 1 ? pick(rng, [0, 2, 2]) : pick(rng, [1, 1, 2]);
+        arp = pick(rng, ARPS);
+        // How many of the harp's off-beat eighths drop out: few at the busiest.
+        rests = energy === 2 ? rng() * 0.1 : 0.1 + rng() * 0.25;
         bass = energy === 0 ? BASS[0] : pick(rng, BASS);
         drums = energy === 0 ? DRUMS[0] : pick(rng, DRUMS);
       }
@@ -136,8 +150,13 @@ export function composer(seed: number): { next(): Bar } {
       const at = (beats: number) => beats * beat;
       const { notes: tones, root } = CHORDS[chord];
       brightness = Math.max(0.1, Math.min(0.9, brightness + (rng() - 0.5) * 0.3));
-      // The pad, softer when the rest is busy, held a beat and a half past the bar.
-      const notes: Note[] = tones.map((midi) => ({ voice: 'pad', midi, at: 0, dur: length + at(1.5), gain: energy === 2 ? 0.45 : 0.6 }));
+      const notes: Note[] = [];
+      // The harp: the section's arpeggio in eighth notes, an octave up, the downbeats kept.
+      for (let i = 0; i < BEATS * 2; i++) {
+        if (i % 4 !== 0 && rng() < rests) continue;
+        const up = i >= 8 && rng() < 0.2 ? 24 : 12;
+        notes.push({ voice: 'harp', midi: tones[arp[i % 8]] + up, at: at(i / 2), dur: at(2.5), gain: i % 4 === 0 ? 0.6 : 0.42 });
+      }
 
       // The bass and drum, softer at the quiet level, rolling into the next section on its last bar.
       const soft = energy === 0 ? 0.7 : 1;
@@ -149,11 +168,6 @@ export function composer(seed: number): { next(): Bar } {
         for (let i = 0; i < BEATS * 2; i++) notes.push({ voice: 'shaker', midi: 0, at: at(i / 2), dur: 0.06, gain: i % 2 ? 0.5 : 0.25 });
       }
 
-      // Now and then a quick harp roll up the chord, an octave above the pad, in eighth notes.
-      if (rng() < 0.25) {
-        const from = Math.floor(rng() * (BEATS - 2));
-        tones.forEach((midi, i) => notes.push({ voice: 'harp', midi: midi + 12, at: at(from + i / 2), dur: at(3), gain: 0.5 }));
-      }
       // A melody on the beat, in more bars the busier it is.
       if (rng() < [0.3, 0.55, 0.7][energy]) {
         let b = pick(rng, [0, 1, 2, 2.5]);

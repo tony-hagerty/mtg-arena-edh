@@ -108,9 +108,9 @@ describe('background music', () => {
         if (!UNPITCHED.includes(n.voice)) expect(SCALE).toContain(n.midi % 12);
         expect(n.at).toBeGreaterThanOrEqual(0);
         expect(n.at).toBeLessThan(bar.length);
-        if (n.voice === 'pad') expect(CHORDS[bar.chord].notes).toContain(n.midi);
-        // The pad outlasts the bar, so chords cross-fade instead of stopping.
-        if (n.voice === 'pad') expect(n.dur).toBeGreaterThan(bar.length);
+        if (n.voice === 'harp') expect(CHORDS[bar.chord].notes.map((m) => m % 12)).toContain(n.midi % 12);
+        // Nothing is held like a key pressed down: every note dies away within a few seconds.
+        expect(n.dur).toBeLessThanOrEqual(4);
         if (n.voice === 'lead') expect(n.midi).toBeGreaterThanOrEqual(69);
         if (n.voice === 'lead') expect(n.midi).toBeLessThanOrEqual(86);
       }
@@ -118,7 +118,7 @@ describe('background music', () => {
     // Every chord and every voice turns up, and some bars leave the melody out.
     expect(new Set(bars.map((b) => b.chord)).size).toBe(Object.keys(CHORDS).length);
     const voices = new Set(bars.flatMap((b) => b.notes.map((n) => n.voice)));
-    expect([...voices].sort()).toEqual(['bass', 'bell', 'drum', 'harp', 'lead', 'pad', 'shaker']);
+    expect([...voices].sort()).toEqual(['bass', 'bell', 'drum', 'harp', 'lead', 'shaker']);
     expect(bars.some((b) => b.notes.every((n) => n.voice !== 'lead'))).toBe(true);
     // No loop: the chord sequence doesn't repeat with any short period.
     const chords = bars.map((b) => b.chord).join(' ');
@@ -152,12 +152,10 @@ describe('background music', () => {
     }
   });
 
-  it('plays the harp now and then, not all the time', () => {
-    const bars = Array.from({ length: 200 }, composer(3).next);
-    const harped = bars.filter((b) => b.notes.some((n) => n.voice === 'harp')).length;
-    expect(harped).toBeGreaterThan(0);
-    expect(harped).toBeLessThan(bars.length / 2);
-    for (const bar of bars) expect(bar.notes.filter((n) => n.voice === 'harp').length).toBeLessThanOrEqual(4);
+  it('plays the harp in eighth notes in every bar, keeping the downbeats', () => {
+    for (const bar of Array.from({ length: 100 }, composer(3).next)) {
+      for (let b = 0; b < BEATS; b += 2) expect(bar.notes.some((n) => n.voice === 'harp' && Math.abs(n.at - b * bar.beat) < 1e-9)).toBe(true);
+    }
   });
 
   it('turns MIDI notes into pitches', () => {
