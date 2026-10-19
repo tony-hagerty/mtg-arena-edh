@@ -4102,7 +4102,8 @@ function eliminate(g: Game, p: Player, reason: string) {
 /**
  * State-based actions (704): kills what should be dead, eliminates players who have lost,
  * and sets the winner. Each pass does everything that applies at once, and passes repeat
- * until nothing changes (704.3).
+ * until nothing changes (704.3). True if nothing was left to do and nobody has won: until
+ * the game changes, checking again would do nothing.
  */
 /** What kind of permanent each one is, for the state-based actions (704.5). */
 function permanentKinds(g: Game) {
@@ -4120,7 +4121,9 @@ function permanentKinds(g: Game) {
   );
 }
 
-export function checkState(g: Game) {
+export function checkState(g: Game): boolean {
+  // Whether a pass found nothing to do: then the game is as the rules leave it (704.3).
+  let stable = false;
   for (let guard = 0; guard < 50; guard++) {
     let changed = false;
     for (const p of g.players) {
@@ -4261,7 +4264,10 @@ export function checkState(g: Game) {
         g.priority = c.owner;
       }
     }
-    if (!changed) break;
+    if (!changed) {
+      stable = true;
+      break;
+    }
   }
   // A player an effect says wins the game does, unless they also lost just now (104.2b, 104.3f).
   const winner = living(g).find((p) => p.wins);
@@ -4279,4 +4285,5 @@ export function checkState(g: Game) {
       log(g, 'The game is a draw.');
     }
   }
+  return stable && g.winner === null;
 }
