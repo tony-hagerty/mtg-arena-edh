@@ -187,8 +187,9 @@ slowest ones measured (`SLOW_GAMES`) first.
 **Profiling.** `npm run profile-game -- <seed>` plays one game under Node's CPU profiler and
 prints the functions that took the most time, by their own code and with what they call.
 By default it is the suite's slowest game (two Hashaton decks, seed 94); add `starter` for
-the four starter decks (`npm run profile-game -- 44 starter`). The raw `.cpuprofile` it
-names opens in Chrome's DevTools (Performance, Load profile).
+the four starter decks (`npm run profile-game -- 44 starter`), or a deck set from `games.ts`
+(`npm run profile-game -- 71 kuja`). The raw `.cpuprofile` it names opens in Chrome's
+DevTools (Performance, Load profile).
 
 ### Keeping the engine fast
 

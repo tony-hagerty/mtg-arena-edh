@@ -4,6 +4,7 @@
 //
 //   npm run profile-game -- <seed>             default seed 94
 //   npm run profile-game -- <seed> starter     the four starter decks instead
+//   npm run profile-game -- <seed> <set>       a deck set from tests/simulation/games.ts (kuja, costs, ...)
 //
 // It prints the top functions by self time (time in the function's own code) and by
 // inclusive time (its own code plus everything it called), and writes the raw
@@ -31,7 +32,12 @@ if (process.env.PROFILE_GAME_CHILD) {
     const hashaton = DECKS.find((d) => d.id === 'hashaton');
     const ketramose = DECKS.find((d) => d.id === 'ketramose');
     const started = performance.now();
-    const { g, actions } = playOut(seed, decks === 'starter' ? undefined : [hashaton, DECKS[3], { ...hashaton, id: 'hashaton2' }, ketramose]);
+    const { GAMES } = await server.ssrLoadModule('/tests/simulation/games.ts');
+    const set = GAMES[decks];
+    const group = set?.groups.find((x) => x.seeds.includes(seed)) ?? set?.groups[0];
+    const tables = decks === 'starter' ? undefined : decks === 'hashaton' ? [hashaton, DECKS[3], { ...hashaton, id: 'hashaton2' }, ketramose] : group?.decks();
+    if (decks !== 'starter' && decks !== 'hashaton' && !group) throw new Error(`No deck set ${decks} in tests/simulation/games.ts`);
+    const { g, actions } = playOut(seed, tables);
     const secs = ((performance.now() - started) / 1000).toFixed(1);
     console.log(`seed ${seed}: ${actions} actions, ${g.turn} turns, winner ${g.winner}, ${secs} s`);
   } finally {
