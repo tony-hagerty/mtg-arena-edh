@@ -354,18 +354,21 @@ button {
   margin-top: 3rem;
 }
 
+/* How many cards a pile or hand holds: a small raised pill on its corner. */
 .count {
   position: absolute;
-  right: -0.6rem;
-  bottom: -0.6rem;
-  min-width: 2.2rem;
-  padding: 0 0.4rem;
-  font: 700 1.3rem/2rem 'Segoe UI', sans-serif;
+  right: -0.7rem;
+  bottom: -0.7rem;
+  min-width: 2.4rem;
+  padding: 0 0.5rem;
+  font: 700 1.35rem/2.1rem 'Segoe UI', sans-serif;
+  font-variant-numeric: tabular-nums;
   text-align: center;
-  color: #fff;
-  background: var(--panel);
+  color: var(--text);
+  background: linear-gradient(180deg, #2a303b, #0d0f14);
   border: 0.1rem solid var(--edge-light);
-  border-radius: 1.1rem;
+  border-radius: var(--r-pill);
+  box-shadow: var(--shadow-sm);
   z-index: 3;
 }
 
@@ -384,22 +387,33 @@ button {
   translate: 0 -50%;
 }
 
+/*
+  The back of every card: libraries, opponents' hands, cards flying face down. A dark field,
+  a gold double rule and a compass mark, drawn as one SVG so it is crisp at any size.
+*/
 .card-back {
+  --card-back: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 63 88' preserveAspectRatio='none'%3E %3Cdefs%3E %3CradialGradient id='f' cx='50%25' cy='45%25' r='70%25'%3E%3Cstop offset='0' stop-color='%23232c3d'/%3E%3Cstop offset='.6' stop-color='%23121722'/%3E%3Cstop offset='1' stop-color='%23080a0f'/%3E%3C/radialGradient%3E %3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0' stop-color='%23f6dd94'/%3E%3Cstop offset='.5' stop-color='%23d2aa42'/%3E%3Cstop offset='1' stop-color='%238a6a2c'/%3E%3C/linearGradient%3E %3C/defs%3E %3Crect width='63' height='88' fill='url%28%23f%29'/%3E %3Cg fill='none' stroke='%23d2aa42'%3E %3Ccircle cx='31.5' cy='44' r='21' stroke-opacity='.08' stroke-width='.5'/%3E %3Ccircle cx='31.5' cy='44' r='27' stroke-opacity='.06' stroke-width='.5'/%3E %3Ccircle cx='31.5' cy='44' r='33' stroke-opacity='.045' stroke-width='.5'/%3E %3C/g%3E %3Crect x='4.2' y='4.2' width='54.6' height='79.6' rx='2.2' fill='none' stroke='url%28%23g%29' stroke-width='.75'/%3E %3Crect x='6' y='6' width='51' height='76' rx='1.4' fill='none' stroke='%23d2aa42' stroke-opacity='.45' stroke-width='.3'/%3E %3Cpath d='M31.5 1.9 33.8 4.2 31.5 6.5 29.2 4.2Z M31.5 81.5 33.8 83.8 31.5 86.1 29.2 83.8Z' fill='url%28%23g%29'/%3E %3Ccircle cx='31.5' cy='44' r='11.5' fill='%230b0e14' fill-opacity='.55' stroke='url%28%23g%29' stroke-width='.7'/%3E %3Ccircle cx='31.5' cy='44' r='9.4' fill='none' stroke='%23d2aa42' stroke-opacity='.5' stroke-width='.25'/%3E %3Cpath d='M31.5 31.5 33.4 42.1 44 44 33.4 45.9 31.5 56.5 29.6 45.9 19 44 29.6 42.1Z' fill='url%28%23g%29'/%3E %3Cpath d='M31.5 37.6 32.5 43 37.9 44 32.5 45 31.5 50.4 30.5 45 25.1 44 30.5 43Z' fill='%230b0e14' fill-opacity='.35'/%3E %3C/svg%3E");
   aspect-ratio: 5 / 7;
-  border-radius: 0.4rem;
-  border: 0.2rem solid #140b05;
-  background:
-    radial-gradient(ellipse 40% 52% at center, #d9a04a 0 60%, transparent 62%),
-    radial-gradient(ellipse 62% 74% at center, #7a431a 0 96%, transparent 100%), #2e1709;
-  box-shadow: var(--shadow-sm);
+  border-radius: 4.75% / 3.5%;
+  background: var(--card-back) center / 100% 100% no-repeat, #0b0e14;
+  box-shadow:
+    inset 0 0 0 0.1rem rgba(0, 0, 0, 0.8),
+    var(--shadow-sm);
 }
 
 /* ---------- zones: library, graveyard, exile ---------- */
 
+/*
+  Each pile is a card-sized place: the library a deck of backs whose edges thicken with its
+  size (--depth, from Board.tsx), the graveyard its top card with a worn, darkened edge,
+  exile its top card washed out and ringed in pale blue. Empty, a pile is a quiet outline
+  with its zone's icon. At the side seats the cards in them turn like the permanents.
+*/
 .pile {
   position: relative;
   width: var(--pile-w);
   aspect-ratio: 5 / 7;
+  border-radius: 0.5rem;
 }
 
 /* At the side seats, cards in the piles are turned like permanents (see .tile). */
@@ -410,7 +424,8 @@ button {
 }
 
 .pile .card-back,
-.pile :is(img, .text-card) {
+.pile :is(img, .text-card),
+.pile:not(.empty)::after {
   position: absolute;
   left: 50%;
   top: 50%;
@@ -420,38 +435,80 @@ button {
   rotate: var(--face);
 }
 
+/* The library: card edges stacked under the top card, more of them the fuller it is. */
 .pile.library .card-back {
+  --d: calc(0.1rem + var(--depth, 1) * 0.12rem);
   box-shadow:
-    0.2rem 0.2rem 0 #140b05,
-    0.4rem 0.4rem 0 #2e1709,
-    0 0.4rem 0.9rem rgba(0, 0, 0, 0.8);
+    inset 0 0 0 0.1rem rgba(0, 0, 0, 0.8),
+    0.04rem var(--d) 0 #2d333e,
+    0.08rem calc(var(--d) * 2) 0 #0c0f15,
+    0.12rem calc(var(--d) * 3) 0 #2d333e,
+    0.16rem calc(var(--d) * 4) 0 #0c0f15,
+    0 calc(var(--d) * 4 + 0.3rem) 0.9rem rgba(0, 0, 0, 0.75);
 }
 
-.pile.graveyard,
-.pile.exile {
-  border-radius: 0.4rem;
+.pile.library.empty .card-back {
+  visibility: hidden;
+}
+
+/* The library's back says what it is; its icon shows only when it is empty. */
+.pile.library:not(.empty) > .ms {
+  display: none;
 }
 
 .pile.graveyard :is(img, .text-card),
 .pile.exile :is(img, .text-card) {
-  border-radius: 0.4rem;
-  filter: saturate(0.5) brightness(0.8);
+  border-radius: 4.75% / 3.5%;
 }
 
-/* Exiled cards look washed out and ringed in pale blue, so the pile isn't mistaken for the graveyard. */
-.pile.exile :is(img, .text-card) {
-  filter: saturate(0.25) brightness(1.05) contrast(0.85);
+/* The graveyard: the top card a little faded and browned, with worn, darkened edges. */
+.pile.graveyard :is(img, .text-card) {
+  filter: sepia(0.25) saturate(0.7) brightness(0.82);
+  box-shadow: var(--shadow-sm);
+}
+
+.pile.graveyard.many :is(img, .text-card) {
   box-shadow:
-    0 0 0 0.15rem rgba(190, 215, 255, 0.75),
-    0 0 0.9rem rgba(150, 190, 255, 0.5);
+    0.12rem 0.18rem 0 #1b1712,
+    0.22rem 0.34rem 0 #0b0a08,
+    var(--shadow-sm);
 }
 
+.pile.graveyard:not(.empty)::after {
+  content: '';
+  pointer-events: none;
+  border-radius: 4.75% / 3.5%;
+  background:
+    var(--grain) 0 0 / 6rem 6rem,
+    radial-gradient(ellipse 75% 70% at 50% 48%, transparent 50%, rgba(36, 20, 8, 0.45) 82%, rgba(14, 8, 3, 0.8));
+  box-shadow: inset 0 0 0 0.08rem rgba(70, 48, 26, 0.6);
+}
+
+/* Exile: washed out, cooled and ringed in pale blue, so the pile isn't mistaken for the graveyard. */
+.pile.exile :is(img, .text-card) {
+  filter: grayscale(0.75) brightness(1.02) contrast(0.85);
+  box-shadow:
+    0 0 0 0.15rem rgba(180, 210, 255, 0.8),
+    0 0 1rem rgba(130, 180, 255, 0.5);
+}
+
+.pile.exile:not(.empty)::after {
+  content: '';
+  pointer-events: none;
+  border-radius: 4.75% / 3.5%;
+  background: linear-gradient(170deg, rgba(160, 200, 255, 0.24), rgba(90, 140, 230, 0.12));
+  mix-blend-mode: screen;
+}
+
+/* An empty pile: a quiet outline holding its zone's icon. */
 .pile.empty {
-  border: 0.15rem dashed rgba(255, 255, 255, 0.3);
+  background: rgba(0, 0, 0, 0.18);
+  border: 0.1rem solid rgba(255, 255, 255, 0.09);
+  box-shadow: inset 0 0.2rem 0.6rem rgba(0, 0, 0, 0.35);
 }
 
 .pile.exile.empty {
-  border-color: rgba(190, 215, 255, 0.4);
+  border-color: rgba(180, 210, 255, 0.16);
 }
 
 /* The zone's icon: a faint mark filling an empty pile, a small corner badge once it holds cards. */
@@ -460,20 +517,25 @@ button {
   inset: 0;
   display: grid;
   place-items: center;
-  font-size: calc(var(--pile-w) * 0.5);
-  color: rgba(255, 255, 255, 0.3);
+  font-size: calc(var(--pile-w) * 0.42);
+  color: rgba(255, 255, 255, 0.2);
   pointer-events: none;
 }
 
+.pile.exile.empty > .ms {
+  color: rgba(180, 210, 255, 0.24);
+}
+
 .pile:not(.empty) > .ms {
-  inset: -0.5rem auto auto -0.5rem;
-  width: 1.7em;
-  height: 1.7em;
-  font-size: calc(var(--pile-w) * 0.24);
-  color: #fff;
-  background: var(--panel);
+  inset: -0.6rem auto auto -0.6rem;
+  width: 1.75em;
+  height: 1.75em;
+  font-size: max(1.1rem, calc(var(--pile-w) * 0.22));
+  color: var(--text);
+  background: linear-gradient(180deg, #2a303b, #0d0f14);
   border: 0.1rem solid var(--edge-light);
   border-radius: 50%;
+  box-shadow: var(--shadow-sm);
   z-index: 3;
 }
 

@@ -262,7 +262,7 @@ function FaceUpPile({ player, zone }: { player: Player; zone: 'graveyard' | 'exi
   const name = zone === 'graveyard' ? 'Graveyard' : 'Exile';
   return (
     <div
-      className={cx('pile', zone, !top && 'empty', castable && 'glow-play')}
+      className={cx('pile', zone, !top && 'empty', cards.length > 1 && 'many', castable && 'glow-play')}
       data-pile={`${player.id}-${zone}`}
       title={`${name}: ${cards.length} cards${top ? ' — click to view' : ''}`}
       // The viewer covers the pile, so its preview goes with it.
@@ -279,8 +279,15 @@ function FaceUpPile({ player, zone }: { player: Player; zone: 'graveyard' | 'exi
 function Piles({ player }: { player: Player }) {
   return (
     <>
-      <div className="pile library" data-library={player.id} title={`Library: ${player.library.length} cards`}>
+      {/* The deck's edges thicken with its size (--depth). The back stays when it is empty: draws measure it. */}
+      <div
+        className={cx('pile', 'library', !player.library.length && 'empty')}
+        data-library={player.id}
+        title={`Library: ${player.library.length} cards`}
+        style={vars({ '--depth': Math.min(1, player.library.length / 60).toFixed(2) })}
+      >
         <div className="card-back" />
+        <i className="ms ms-library" />
         <span className="count">{player.library.length}</span>
       </div>
       <FaceUpPile player={player} zone="graveyard" />
