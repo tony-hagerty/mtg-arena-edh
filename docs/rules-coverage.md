@@ -862,6 +862,11 @@ card, naming the clause: it never guesses. Hand scripts always win.
   each template on a made-up card and check a near miss is refused.
   `npm run recheck-requests` takes the requested cards the parser now reads out of
   `docs/card-requests.json`.
+- **Corpus staples with hand scripts:** Brainstorm, Chaos Warp, Arcane Denial, The One Ring
+  and Myriad Landscape are among the corpus's top 100 and need wording no template reads, so
+  they have hand scripts in `src/cards/scripts.ts` for pasted decks (tested in
+  `tests/staples.test.ts` with the corpus's data). Path of Ancestry stays refused: the engine
+  has no ability that triggers when mana is spent.
 
 ### Bots
 
