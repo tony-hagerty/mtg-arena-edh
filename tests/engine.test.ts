@@ -4579,7 +4579,7 @@ describe('a card played without its rules text (Card.textless)', () => {
     expect(byName(g, 0, 'Bojuka Bog')!.tapped).toBe(false);
   });
 
-  it('starts in the library from the deck, and the bots play a game through with such cards', () => {
+  it('starts in the library from the deck, and the bots play a game through with such cards', { tags: ['game'], timeout: 60_000 }, () => {
     const black = DECKS.find((d) => d.id === 'black')!;
     const creatures = black.cards.filter((n) => cardData(n).typeLine.includes('Creature')).slice(0, 12);
     const deck = { ...black, textless: creatures };
@@ -4595,5 +4595,5 @@ describe('a card played without its rules text (Card.textless)', () => {
       if (++actions > 20_000) throw new Error(`game did not finish (turn ${g.turn})`);
     }
     expect(g.winner).not.toBeNull();
-  }, 60_000);
+  });
 });

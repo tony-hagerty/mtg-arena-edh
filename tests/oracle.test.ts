@@ -6,7 +6,7 @@ import { cardData, registerCards } from '../src/cards/db';
 import { needsScript, parseCard, scriptCards } from '../src/cards/oracle';
 import { parseResults } from '../src/cards/oracle-report';
 import { activatedAt, applyAction, applyBotAction, botAction, castCost, hasScript, isCreature, isLand, legalTargets, makeCard, manaAbilities, permanent, scriptOf, spellTargets, stats } from '../src/engine';
-import type { Action, ActivatedAbility, Card, CardData, CardScript, Game, TargetRef, TargetSpec } from '../src/engine';
+import type { Action, ActivatedAbility, Card, CardData, CardScript, Ctx, Game, TargetRef, TargetSpec } from '../src/engine';
 import { registerScripts } from '../src/engine/registry';
 import fixtureData from './fixtures.generated.json';
 import { byName, emptyGame, put, run } from './helpers';
@@ -34,7 +34,7 @@ describe('reading Oracle text', () => {
       if (!p.ok) throw new Error(`${p.clause}: ${p.reason}`);
       return p.script;
     };
-    expect(s('When this creature enters, draw a card.').onEnter).toBeTypeOf('function');
+    expect(s('When this creature enters, draw a card.').onEnter).toMatchObject({ text: 'When Test Card enters, draw a card.' });
     expect(s('When Test Card dies, you gain 2 life.').onDies).toMatchObject({ text: 'When Test Card dies, you gain 2 life.' });
     expect(s('Whenever this creature attacks, it gets +2/+0 until end of turn.').onAttack).toBeDefined();
     expect(s('{T}: Add {G}.').mana).toEqual({ amount: 1, colors: ['G'] });
@@ -59,25 +59,29 @@ describe('reading Oracle text', () => {
   it('finds listed tokens by their words (111)', () => {
     expect(parse('Sorcery', 'Create two 1/1 white Spirit creature tokens with flying.').ok).toBe(true);
     expect(parse('Sorcery', 'Create a Treasure token.').ok).toBe(true);
-    expect(refusal('Sorcery', 'Create a 7/7 blue Kraken creature token.')).toEqual({ clause: 'create a 7/7 blue kraken creature token', reason: 'no listed token is "7/7 blue kraken creature"' });
+    // A token the list doesn't have is made from its words (111.4), under a key like the listed ones.
+    const kraken = parse('Sorcery', 'Create a 7/7 blue Kraken creature token.');
+    expect(kraken.ok).toBe(true);
+    expect(cardData('Kraken 7/7 U')).toMatchObject({ name: 'Kraken', power: '7', toughness: '7', colors: ['U'], typeLine: 'Token Creature — Kraken' });
+    expect(refusal('Sorcery', 'Create a 7/7 blue Krakenling creature token.')).toEqual({ clause: 'create a 7/7 blue krakenling creature token', reason: '"krakenling" isn\'t a creature type' });
   });
 
   it('refuses the whole card at the first clause it can\'t read, naming it', () => {
-    expect(refusal('Creature — Elf', 'Flying\nWhen this creature enters, draw a card.\nWhenever you gain life, put a +1/+1 counter on Test Card.')).toEqual({
-      clause: 'Whenever you gain life, put a +1/+1 counter on Test Card.',
+    expect(refusal('Creature — Elf', 'Flying\nWhen this creature enters, draw a card.\nWhenever a player casts their second spell each turn, put a +1/+1 counter on Test Card.')).toEqual({
+      clause: 'Whenever a player casts their second spell each turn, put a +1/+1 counter on Test Card.',
       reason: 'no template matches',
     });
-    // "Instead", "for each", conditions and modal text are never approximated.
-    expect(refusal('Instant', 'Draw a card for each creature you control.')).not.toBeNull();
-    expect(refusal('Instant', 'Choose one —\n• Draw a card.\n• You gain 3 life.')).not.toBeNull();
-    expect(refusal('Instant', 'If you control a creature, draw two cards.')).not.toBeNull();
+    // "Instead", conditions and counts it can't read are never approximated.
+    expect(refusal('Instant', 'Draw a card for each creature that died this turn.')).not.toBeNull();
+    expect(refusal('Instant', 'If you attacked with three creatures this turn, draw two cards.')).not.toBeNull();
     expect(refusal('Instant', 'Target player draws X cards.')).toMatchObject({ reason: 'X outside a cost' });
-    expect(refusal('Instant', 'Destroy target creature. Its controller gains 3 life.')).toMatchObject({ clause: 'its controller gains 3 life' });
+    expect(refusal('Instant', 'Destroy target creature. Its controller scries 2.')).toMatchObject({ clause: 'its controller scries 2' });
   });
 
   it('refuses cards with faces, and costs it can\'t pay', () => {
-    expect(parseCard(cardData('Birgi, God of Storytelling // Harnfel, Horn of Bounty'))).toMatchObject({ ok: false, reason: 'a card with more than one face' });
-    expect(refusal('Creature — Elf', 'Exile a card from your graveyard: Draw a card.')).toMatchObject({ reason: 'the cost "exile a card from your graveyard"' });
+    // Each face is read on its own; one it can't read refuses the card.
+    expect(parseCard(cardData('Birgi, God of Storytelling // Harnfel, Horn of Bounty'))).toMatchObject({ ok: false, clause: 'Creatures you control can boast twice during each of your turns rather than once.' });
+    expect(refusal('Creature — Elf', 'Exile a creature card from your graveyard: Draw a card.')).toMatchObject({ reason: 'the cost "exile a creature card from your graveyard"' });
   });
 
   it('uses X only from an ability\'s own cost (107.3a, 107.3k)', () => {
@@ -185,7 +189,10 @@ describe('lands and mana from Oracle text', () => {
     expect(playTapped('Test Checkland', (d) => put(d, 0, 'Plains'))).toBe(true);
     expect(playTapped('Test Checkland', (d) => put(d, 0, 'Swamp'))).toBe(false);
     // A condition it has no template for refuses the card.
-    expect(refusal('Land', 'This land enters tapped unless you control three or more other lands.')).toMatchObject({ reason: 'no template for "unless you control three or more other lands"' });
+    teach('Test Lair', 'Land', 'This land enters tapped unless you control three or more other Islands.\n{T}: Add {U}.');
+    expect(playTapped('Test Lair', (d) => put(d, 0, 'Island', 'battlefield', 2))).toBe(true);
+    expect(playTapped('Test Lair', (d) => put(d, 0, 'Island', 'battlefield', 3))).toBe(false);
+    expect(refusal('Land', 'This land enters tapped unless you control three or more other creatures.')).toMatchObject({ reason: 'no template for "unless you control three or more other creatures"' });
   });
 
   it('asks to pay 2 life as a shock land enters, or it enters tapped (614.12a)', () => {
@@ -275,7 +282,9 @@ describe('lands and mana from Oracle text', () => {
         { amount: 1, colors: ['C'] },
         { amount: 2, colors: ['W', 'B'], produces: [['W', 'W'], ['W', 'B'], ['B', 'B']], cost: '{W/B}' },
       ]);
-      expect(refusal('Artifact', 'Sacrifice a creature: Add {B}.')).toMatchObject({ reason: 'a mana ability with a cost other than {T}' });
+      // A sacrifice instead of {T} (Ashnod's Altar); a cost it can't pay is refused.
+      expect(parse('Artifact', 'Sacrifice a creature: Add {C}{C}.')).toMatchObject({ ok: true, script: { mana: { amount: 2, colors: ['C'], noTap: true, sacrificeCreature: true } } });
+      expect(refusal('Artifact', 'Sacrifice two creatures: Add {B}.')).toMatchObject({ reason: "a mana ability with a cost the parser can't pay" });
     });
 
     it('auto-pay uses a Signet only when it must, paying its {1} from another source', () => {
@@ -378,7 +387,7 @@ describe('lands and mana from Oracle text', () => {
 });
 
 describe('more effects and static lines from Oracle text', () => {
-  it('reads "draw, then discard" and refuses an effect that would happen before the discard', () => {
+  it('reads "draw, then discard", and an effect after it waits for the discard (608.2c)', () => {
     teach('Test Researcher', 'Creature — Human Wizard', 'Sacrifice this creature: Draw a card, then discard a card.');
     let g = emptyGame((d) => {
       d.players[0].isBot = false;
@@ -392,7 +401,21 @@ describe('more effects and static lines from Oracle text', () => {
     expect(g.decision).toMatchObject({ type: 'chooseCards', choice: { kind: 'pick', min: 1, max: 1 } });
     g = run(g, { type: 'chooseCards', cards: [byName(g, 0, 'Plains', 'hand')!.id] });
     expect(byName(g, 0, 'Plains', 'graveyard')).toBeDefined();
-    expect(refusal('Sorcery', 'Draw a card, then discard a card. You gain 1 life.')).toMatchObject({ clause: 'you gain 1 life', reason: 'an effect after a choice' });
+    teach('Test Loot', 'Sorcery', 'Draw a card, then discard a card. You gain 1 life.');
+    g = emptyGame((d) => {
+      d.players[0].isBot = false;
+      d.players[0].you = true;
+      put(d, 0, 'Test Loot', 'hand');
+      put(d, 0, 'Plains', 'battlefield');
+      put(d, 0, 'Plains', 'hand');
+    });
+    g = run(g, { type: 'cast', card: byName(g, 0, 'Test Loot', 'hand')!.id });
+    for (let i = 0; i < 6 && g.stack.length && !g.decision; i++) g = applyAction(g, { type: 'pass' });
+    // The life is gained only after the discard is chosen, in printed order.
+    expect(g.decision).toMatchObject({ type: 'chooseCards' });
+    expect(g.players[0].life).toBe(40);
+    g = run(g, { type: 'chooseCards', cards: [byName(g, 0, 'Plains', 'hand')!.id] });
+    expect(g.players[0].life).toBe(41);
   });
 
   it('triggers on your noncreature spells only (603.2)', () => {
@@ -432,7 +455,9 @@ describe('more effects and static lines from Oracle text', () => {
     g = run(g, { type: 'cast', card: byName(g, 0, 'Shock', 'hand')!.id, targets: [{ kind: 'player', id: 1 }] });
     for (let i = 0; i < 20 && (g.decision || g.stack.length); i++) g = g.decision ? applyBotAction(g, botAction(g, g.priority)) : applyAction(g, { type: 'pass' });
     expect(stats(g, byName(g, 0, 'Test Monk')!)).toMatchObject({ power: 2, toughness: 2 });
-    expect(parseCard(fake('Test Monk 2', 'Creature', 'Prowess\nWhenever you cast a noncreature spell, draw a card.'))).toMatchObject({ ok: false, reason: 'two abilities that trigger on the same event' });
+    // Two abilities on one event are a list, each triggering on its own (603.2).
+    const two = parseCard(fake('Test Monk 2', 'Creature', 'Prowess\nWhenever you cast a noncreature spell, draw a card.'));
+    expect(two.ok && two.script.onCast).toHaveLength(2);
   });
 
   it("exiles a target player's graveyard and puts a counter on each of your creatures", () => {
@@ -486,12 +511,12 @@ describe('more effects and static lines from Oracle text', () => {
     });
     // Player 0's Angel ({4}{W}) costs {1} less for its own Medallion, not for the opponent's.
     expect(castCost(g, byName(g, 0, 'Angel of Mercy', 'hand')!)).toMatchObject({ generic: 3, pips: ['W'] });
-    expect(refusal('Artifact', 'White spells you cast cost {1} more to cast.')).not.toBeNull();
+    expect(refusal('Artifact', 'White spells you cast cost {1} less to cast for each artifact you control.')).not.toBeNull();
     const rollick = parse('Instant', 'If you control a commander, you may cast this spell without paying its mana cost.\nExile target creature.');
     expect(rollick.ok && rollick.script.alternativeCosts).toMatchObject([{ label: 'free: you control a commander', mana: '' }]);
     const maneuver = parse('Instant', 'Creatures you control gain indestructible until end of turn.');
     expect(maneuver.ok).toBe(true);
-    expect(refusal('Instant', 'Creatures you control gain shroud until end of turn.')).toMatchObject({ reason: 'can\'t grant "shroud"' });
+    expect(refusal('Instant', 'Creatures you control gain banding until end of turn.')).toMatchObject({ reason: 'can\'t grant "banding"' });
   });
 
   it('reads a tutor with a life cost (701.23d)', () => {
@@ -516,14 +541,37 @@ const SAMPLE = [
   // pain lands, fetch lands, a tutor and more, read since the requested-cards templates
   'Worn Powerstone', 'Ancient Tomb', 'Tarnished Citadel', 'Karplusan Forest', 'Brushland', 'Arid Mesa', 'Misty Rainforest', 'Demonic Tutor',
   'Mortify', 'Collective Blessing', 'Armada Wurm', 'Advent of the Wurm', 'Call of the Conclave',
+  // read since the corpus templates (session 2 of the speed-parser-polish plan)
+  'Abandoned Air Temple', 'Academy Ruins', 'Acidic Slime', 'Angel of the Dawn', 'Angel of the Ruins', 'Arcane Sanctum', 'Arcane Signet',
+  'Ashen Rider', 'Avacyn, Angel of Hope', 'Avenger of Zendikar', 'Azorius Signet', 'Baleful Strix', 'Beast Within', 'Bedevil', "Bender's Waterskin",
+  'Blasphemous Act', 'Blazemire Verge', 'Bleachbone Verge', 'Bloodstained Mire', 'Borne Upon a Wind', 'Brain Freeze', 'Brute Strength',
+  'Caves of Koilos', 'Cephalid Coliseum', 'Circle of Power', 'City of Brass', 'Dark Ritual', 'Deadly Rollick', 'Decanter of Endless Water',
+  'Decorum Dissertation', 'Deserted Beach', 'Dig Through Time', 'Dimir Signet', 'Dismember', "Domri's Ambush", 'Dragonskull Summit', 'Dreadbore',
+  'Drowned Catacomb', 'Dusk Legion Zealot', 'Dust Bowl', 'Elvish Mystic', 'Emergence Zone', 'Farhaven Elf', 'Fetid Heath', 'Flame Rift',
+  'Flawless Maneuver', 'Flooded Strand', 'Floodfarm Verge', 'Furnace Whelp', 'Gilded Lotus', 'Glacial Fortress', 'Gloomlake Verge',
+  'Go for the Throat', 'Grave Titan', 'Graven Cairns', 'Gray Merchant of Asphodel', "Hall of Heliod's Generosity", 'Haunted Ridge',
+  'Inspired Charge', 'Isolated Chapel', 'Judith, the Scourge Diva', 'Lightning Greaves', 'Lightning Strike', 'Lingering Souls', 'Lotus Petal',
+  'Luxury Suite', 'Mana Confluence', 'Manalith', 'Marsh Flats', 'Massacre Wurm', 'Merfolk Looter', 'Morphic Pool', 'Mystic Gate', 'Nekrataal',
+  'Nightmare', 'Orzhov Signet', 'Otawara, Soaring City', 'Overrun', 'Path to Exile', 'Phyrexian Tower', 'Polluted Delta', 'Pyroclasm',
+  'Raging Swordtooth', 'Rampant Growth', 'Reclamation Sage', 'Relic of Legends', 'Rootborn Defenses', 'Rootbound Crag', 'Scalding Tarn',
+  'Scion of Vitu-Ghazi', 'Sea of Clouds', 'Shamanic Revelation', 'Shattered Sanctum', 'Shipwreck Marsh', 'Snapback', 'Snuff Out',
+  'Solemn Simulacrum', 'Spire of Industry', 'Stock Up', 'Sulfurous Springs', 'Sundering Growth', 'Sunken Ruins', 'Sunpetal Grove',
+  'Swords to Plowshares', 'Syphon Soul', 'Takenuma, Abandoned Mire', 'Talisman of Dominance', 'Talisman of Hierarchy', 'Talisman of Indulgence',
+  'Talisman of Progress', 'Terminate', 'The Battle of Bywater', 'Thermo-Alchemist', 'Thought Courier', 'Thought Vessel', 'Thundermaw Hellkite',
+  "Trostani's Summoner", "Trostani, Selesnya's Voice", "Urza's Cave", 'Utter End', 'Vault of Champions', 'Verdant Catacombs',
+  'Vito, Thorn of the Dusk Rose', 'Void Rend', "Wayfarer's Bauble", 'Wheel of Fortune', 'Windswept Heath', 'Withering Torment', 'Wooded Foothills',
+  'Zealous Persecution',
 ];
 
 /** Plays a card with whatever script it has now, and sums up the table afterwards. */
+export function scenarioFor(name: string, parsed: CardScript): unknown {
+  return scenario(name, parsed);
+}
 function scenario(name: string, parsed: CardScript): unknown {
   const permanentCard = !cardData(name).typeLine.match(/Instant|Sorcery/);
   const onTable = permanentCard && !parsed.onEnter && !parsed.onDies;
   let g = emptyGame((d) => {
-    for (const land of ['Plains', 'Swamp', 'Mountain', 'Forest']) put(d, 0, land, 'battlefield', 4);
+    for (const land of ['Plains', 'Swamp', 'Mountain', 'Forest', 'Island']) put(d, 0, land, 'battlefield', 4);
     put(d, 0, 'Elite Vanguard');
     put(d, 1, 'Serra Angel');
     put(d, 1, 'Sol Ring');
@@ -616,6 +664,626 @@ describe('the parse report', () => {
     const { scripted, refused } = parseResults();
     expect(scripted).toEqual(expect.arrayContaining(SAMPLE));
     expect(refused.every((r) => r.clause && r.reason)).toBe(true);
-    expect(refused.find((r) => r.name === 'Swords to Plowshares')).toMatchObject({ clause: 'its controller gains life equal to its power' });
+    expect(refused.find((r) => r.name === 'Ad Nauseam')).toMatchObject({ clause: 'reveal the top card of your library' });
+  });
+});
+
+// ---------- the general gaps: lists of triggers, ability words, faces, tokens, targets, groups ----------
+
+/** Passes priority, bots answering anything asked, until the stack is empty and nothing is being decided. */
+function settle(g: Game): Game {
+  for (let i = 0; i < 60 && (g.decision || g.stack.length); i++) g = g.decision ? applyBotAction(g, botAction(g, g.priority)) : applyAction(g, { type: 'pass' });
+  return g;
+}
+const p = (id: number): TargetRef => ({ kind: 'player', id });
+const cardRef = (id: string): TargetRef => ({ kind: 'card', id });
+
+describe('several abilities on one event, ability words (207.2c)', () => {
+  it('two "enters" abilities each trigger (603.2), with their own targets', () => {
+    teach('Twin Herald', 'Creature — Human', 'When this creature enters, you gain 2 life.\nWhen this creature enters, it deals 1 damage to any target.');
+    expect(scriptOf('Twin Herald').onEnter).toHaveLength(2);
+    let g = emptyGame((d) => {
+      put(d, 0, 'Twin Herald', 'hand');
+      put(d, 0, 'Plains');
+    });
+    g = settle(run(g, { type: 'cast', card: byName(g, 0, 'Twin Herald', 'hand')!.id }));
+    expect(g.players[0].life).toBe(42);
+    expect(g.players.slice(1).reduce((n, x) => n + x.life, 0)).toBe(3 * 40 - 1);
+    expect(refusal('Creature — Human', 'When this creature enters or becomes tapped, draw a card.')).toMatchObject({ reason: 'no template matches' });
+  });
+
+  it('reads past an ability word, and refuses a label that isn\'t one', () => {
+    teach('Test Baloth', 'Creature — Beast', 'Landfall — Whenever a land you control enters, you gain 1 life.');
+    let g = emptyGame((d) => {
+      put(d, 0, 'Test Baloth');
+      put(d, 0, 'Forest', 'hand');
+      put(d, 1, 'Test Baloth');
+    });
+    g = settle(run(g, { type: 'playLand', card: byName(g, 0, 'Forest', 'hand')!.id }));
+    // Only its controller's land counts.
+    expect(g.players.map((x) => x.life)).toEqual([41, 40, 40, 40]);
+    expect(refusal('Creature — Beast', 'Seafaring — Whenever a land you control enters, you gain 1 life.')).toMatchObject({ reason: 'no template matches' });
+  });
+});
+
+describe('cards with faces (712, 715)', () => {
+  const mdfc = (name: string, front: string, back: string): CardData => {
+    const a = fake(`${name} Spell`, 'Instant', front, { manaCost: '{1}{B}', cmc: 2, colors: ['B'] });
+    const b = fake(`${name} Mire`, 'Land', back, { manaCost: '', cmc: 0, power: undefined, toughness: undefined });
+    return { ...a, name: `${a.name} // ${b.name}`, layout: 'modal_dfc', faces: [a, b] };
+  };
+
+  it('reads each face on its own and registers a script for each face name', () => {
+    registerCards({ 'Test Rebirth Spell // Test Rebirth Mire': mdfc('Test Rebirth', 'Destroy target creature.', "As this land enters, you may pay 3 life. If you don't, it enters tapped.\n{T}: Add {B}.") });
+    expect(scriptCards(['Test Rebirth Spell // Test Rebirth Mire'])).toEqual([]);
+    expect(scriptOf('Test Rebirth Spell').targets).toMatchObject([{ type: 'creature' }]);
+    expect(scriptOf('Test Rebirth Mire').mana).toEqual({ amount: 1, colors: ['B'] });
+    // Played as its land face, it asks for the 3 life (614.12a).
+    let g = emptyGame((d) => {
+      d.players[0].isBot = false;
+      d.players[0].you = true;
+      put(d, 0, 'Test Rebirth Spell // Test Rebirth Mire', 'hand');
+    });
+    g = run(g, { type: 'playLand', card: g.players[0].hand[0].id, face: 1 });
+    expect(g.decision).toMatchObject({ type: 'ask', choice: { life: 3 } });
+    g = run(g, { type: 'answer', yes: true });
+    expect(g.players[0].life).toBe(37);
+    expect(g.players[0].battlefield.find((c) => c.face === 1)?.tapped).toBe(false);
+  });
+
+  it('refuses the card when one face has a clause it can\'t read', () => {
+    const d = mdfc('Test Broken', 'Destroy target creature. Its controller scries 2.', 'This land enters tapped.\n{T}: Add {B}.');
+    expect(parseCard(d)).toMatchObject({ ok: false, clause: 'its controller scries 2' });
+  });
+});
+
+describe('tokens the text describes (111.4)', () => {
+  it('makes a token from its words, with keywords the engine knows', () => {
+    teach('Test Muster', 'Sorcery', 'Create two 2/2 black Zombie Knight creature tokens with menace.');
+    let g = emptyGame((d) => {
+      put(d, 0, 'Test Muster', 'hand');
+      put(d, 0, 'Swamp');
+    });
+    g = settle(run(g, { type: 'cast', card: byName(g, 0, 'Test Muster', 'hand')!.id }));
+    const made = g.players[0].battlefield.filter((c) => c.isToken);
+    expect(made).toHaveLength(2);
+    expect(stats(g, made[0])).toMatchObject({ power: 2, toughness: 2 });
+    expect(stats(g, made[0]).keywords.has('menace')).toBe(true);
+    expect(cardData(made[0].name).typeLine).toBe('Token Creature — Zombie Knight');
+  });
+
+  it('uses the listed token when the words match one, so its art shows', () => {
+    const q = parse('Sorcery', 'Create a 3/3 green Beast creature token.');
+    expect(q.ok).toBe(true);
+    let g = emptyGame((d) => put(d, 0, 'Forest'));
+    registerCards({ 'Test Beast Call': fake('Test Beast Call', 'Sorcery', 'Create a 3/3 green Beast creature token.') });
+    scriptCards(['Test Beast Call']);
+    g = produce(g, (d) => void put(d, 0, 'Test Beast Call', 'hand'));
+    g = settle(run(g, { type: 'cast', card: byName(g, 0, 'Test Beast Call', 'hand')!.id }));
+    expect(g.players[0].battlefield.find((c) => c.isToken)?.name).toBe('Beast 3/3');
+  });
+
+  it('reads a token\'s quoted ability with the parser, and refuses one it can\'t read', () => {
+    teach('Test Spawner', 'Sorcery', 'Create a 0/1 colorless Eldrazi Spawn creature token with "Sacrifice this token: Add {C}."');
+    let g = emptyGame((d) => {
+      put(d, 0, 'Test Spawner', 'hand');
+      put(d, 0, 'Plains');
+    });
+    g = settle(run(g, { type: 'cast', card: byName(g, 0, 'Test Spawner', 'hand')!.id }));
+    const spawn = g.players[0].battlefield.find((c) => c.isToken)!;
+    g = run(g, { type: 'tapMana', card: spawn.id });
+    expect(g.players[0].pool.map((m) => m.sym)).toEqual(['C']);
+    expect(byName(g, 0, spawn.name)).toBeUndefined();
+    expect(refusal('Sorcery', 'Create a 1/1 red Goblin creature token with "This token gets +1/+1 for each opponent who blocked this turn."')).not.toBeNull();
+    expect(refusal('Sorcery', 'Create an X/X green Ooze creature token.')).toMatchObject({ reason: 'no token the parser can make is "x/x green ooze creature"' });
+  });
+});
+
+describe('targets and groups (115, 609)', () => {
+  it('"up to two target", lists of types, and qualities like power and attacking (115.1)', () => {
+    teach('Test Shatter Pair', 'Sorcery', 'Destroy up to two target artifacts.');
+    expect(scriptOf('Test Shatter Pair').targets).toMatchObject([{ optional: true }, { optional: true, distinctFrom: 0 }]);
+    let g = emptyGame((d) => {
+      put(d, 0, 'Test Shatter Pair', 'hand');
+      put(d, 0, 'Mountain', 'battlefield', 2);
+      put(d, 1, 'Sol Ring', 'battlefield', 2);
+    });
+    const rings = g.players[1].battlefield.filter((c) => c.name === 'Sol Ring').map((c) => cardRef(c.id));
+    g = settle(run(g, { type: 'cast', card: byName(g, 0, 'Test Shatter Pair', 'hand')!.id, targets: rings }));
+    expect(g.players[1].battlefield.filter((c) => c.name === 'Sol Ring')).toHaveLength(0);
+
+    teach('Test Bedevil', 'Instant', 'Destroy target artifact, creature, or planeswalker with mana value 3 or less.');
+    const h = emptyGame((d) => {
+      put(d, 0, 'Test Bedevil', 'hand');
+      put(d, 1, 'Sol Ring');
+      put(d, 1, 'Elite Vanguard');
+      put(d, 1, 'Serra Angel');
+      put(d, 1, 'Plains');
+    });
+    const spec = scriptOf('Test Bedevil').targets![0];
+    const names = legalTargets(h, 0, spec, byName(h, 0, 'Test Bedevil', 'hand')!).map((r) => (r.kind === 'card' ? permanent(h, r.id)!.name : r.id));
+    expect(names.sort()).toEqual(['Elite Vanguard', 'Sol Ring']);
+    expect(refusal('Sorcery', 'Destroy up to three target artifacts.')).toMatchObject({ reason: 'three or more targets that must all be different' });
+    expect(refusal('Sorcery', 'Destroy target artifact that was dealt damage this turn.')).not.toBeNull();
+  });
+
+  it('counters a spell, and "unless its controller pays" asks that player (701.6, 118.12a)', () => {
+    teach('Test Negate', 'Instant', 'Counter target noncreature spell unless its controller pays {2}.');
+    const cast = (lands: number) => {
+      let g = emptyGame((d) => {
+        put(d, 0, 'Shock', 'hand');
+        put(d, 0, 'Mountain', 'battlefield', lands);
+        put(d, 1, 'Test Negate', 'hand');
+        put(d, 1, 'Island', 'battlefield', 2);
+      });
+      g = run(g, { type: 'cast', card: byName(g, 0, 'Shock', 'hand')!.id, targets: [p(1)], hold: true }, { type: 'pass' });
+      g = run(g, { type: 'cast', card: byName(g, 1, 'Test Negate', 'hand')!.id, targets: [{ kind: 'stack', id: g.stack[0].id }] });
+      return settle(g).players[1].life;
+    };
+    // With mana to spare the bot pays and Shock resolves; without, it is countered.
+    expect(cast(6)).toBe(38);
+    expect(cast(1)).toBe(40);
+    expect(refusal('Instant', 'Counter target spell unless its controller sacrifices a creature.')).not.toBeNull();
+  });
+
+  it('acts on every object a group names, as one event (609, 603.2c)', () => {
+    teach('Test Sweep', 'Sorcery', 'Destroy all creatures with power 2 or less.');
+    let g = emptyGame((d) => {
+      put(d, 0, 'Test Sweep', 'hand');
+      put(d, 0, 'Plains');
+      put(d, 0, 'Elite Vanguard');
+      put(d, 1, 'Typhoid Rats');
+      put(d, 1, 'Serra Angel');
+    });
+    g = settle(run(g, { type: 'cast', card: byName(g, 0, 'Test Sweep', 'hand')!.id }));
+    expect(battlefieldNames(g)).toEqual(['Plains', 'Serra Angel']);
+    teach('Test Quake', 'Sorcery', 'Test Quake deals 2 damage to each creature and each player.');
+    g = emptyGame((d) => {
+      put(d, 0, 'Test Quake', 'hand');
+      put(d, 0, 'Mountain');
+      put(d, 0, 'Elite Vanguard');
+      put(d, 1, 'Serra Angel');
+    });
+    g = settle(run(g, { type: 'cast', card: byName(g, 0, 'Test Quake', 'hand')!.id }));
+    expect(g.players.map((x) => x.life)).toEqual([38, 38, 38, 38]);
+    expect(battlefieldNames(g)).toEqual(['Mountain', 'Serra Angel']);
+    expect(refusal('Sorcery', 'Destroy all creatures that attacked this turn.')).not.toBeNull();
+  });
+
+  it('"each opponent sacrifices a creature of their choice", each choosing in turn (701.21a, 101.4)', () => {
+    teach('Test Edict', 'Sorcery', 'Each opponent sacrifices a creature of their choice.');
+    let g = emptyGame((d) => {
+      put(d, 0, 'Test Edict', 'hand');
+      put(d, 0, 'Swamp');
+      put(d, 1, 'Elite Vanguard');
+      put(d, 1, 'Serra Angel');
+      put(d, 2, 'Typhoid Rats');
+    });
+    g = settle(run(g, { type: 'cast', card: byName(g, 0, 'Test Edict', 'hand')!.id }));
+    expect(battlefieldNames(g)).toEqual(['Serra Angel', 'Swamp']);
+    expect(refusal('Sorcery', 'Each opponent sacrifices a creature with the greatest power among creatures they control.')).not.toBeNull();
+  });
+
+  it('remembers the object acted on: "its controller gains life equal to its power" (608.2h)', () => {
+    teach('Test Plow', 'Instant', 'Exile target creature. Its controller gains life equal to its power.');
+    let g = emptyGame((d) => {
+      put(d, 0, 'Test Plow', 'hand');
+      put(d, 0, 'Plains');
+      put(d, 1, 'Serra Angel');
+    });
+    g = settle(run(g, { type: 'cast', card: byName(g, 0, 'Test Plow', 'hand')!.id, targets: [cardRef(byName(g, 1, 'Serra Angel')!.id)] }));
+    expect(g.players[1].life).toBe(44);
+    expect(refusal('Instant', 'Its controller gains 3 life.')).toMatchObject({ reason: '"its controller" without an object before it' });
+  });
+});
+
+const battlefieldNames = (g: Game) => g.players.flatMap((x) => x.battlefield.map((c) => c.name)).sort();
+
+// ---------- the corpus templates: searches, choices, payments, costs, statics, triggers, modes ----------
+
+/** A game where player 0 is a person, so their choices wait for an answer. */
+const humanGame = (setup: (g: Game) => void) =>
+  emptyGame((d) => {
+    d.players[0].isBot = false;
+    d.players[0].you = true;
+    setup(d);
+  });
+
+describe('searches and choices made as an effect resolves (701.23, 608.2c)', () => {
+  it('searches into the graveyard, for several cards, and with X (701.23)', () => {
+    teach('Test Entomb', 'Instant', 'Search your library for a card, put that card into your graveyard, then shuffle.');
+    let g = emptyGame((d) => {
+      put(d, 0, 'Test Entomb', 'hand');
+      put(d, 0, 'Swamp');
+      d.players[0].library.unshift(makeCard(d, 'Serra Angel', 0, 'library'));
+    });
+    const library = g.players[0].library.length;
+    g = settle(run(g, { type: 'cast', card: byName(g, 0, 'Test Entomb', 'hand')!.id }));
+    expect(g.players[0].graveyard.map((c) => c.name).sort()).toEqual([expect.any(String), 'Test Entomb'].sort((a, b) => (a === 'Test Entomb' ? 1 : -1) - (b === 'Test Entomb' ? 1 : -1)));
+    expect(g.players[0].library).toHaveLength(library - 1);
+    teach('Test Chord', 'Instant', 'Search your library for a creature card with mana value X or less, put it onto the battlefield, then shuffle.', { manaCost: '{X}{G}{G}{G}' });
+    expect(refusal('Sorcery', 'Search your library for a creature card with mana value X or less, put it onto the battlefield, then shuffle.')).toMatchObject({ reason: 'X outside a cost' });
+    expect(refusal('Sorcery', 'Search your library for two creature cards, put them into your hand, then shuffle.')).not.toBeNull();
+  });
+
+  it('Cultivate: one search, one land onto the battlefield tapped and the other into the hand', () => {
+    teach('Test Cultivate', 'Sorcery', 'Search your library for up to two basic land cards, reveal those cards, put one onto the battlefield tapped and the other into your hand, then shuffle.');
+    let g = humanGame((d) => {
+      put(d, 0, 'Test Cultivate', 'hand');
+      put(d, 0, 'Forest', 'battlefield');
+      put(d, 0, 'Swamp', 'library', 2);
+    });
+    g = run(g, { type: 'cast', card: byName(g, 0, 'Test Cultivate', 'hand')!.id });
+    for (let i = 0; i < 6 && g.stack.length && !g.decision; i++) g = applyAction(g, { type: 'pass' });
+    const swamps = g.players[0].library.filter((c) => c.name === 'Swamp').map((c) => c.id);
+    g = run(g, { type: 'chooseCards', cards: swamps.slice(0, 2) });
+    expect(g.decision).toMatchObject({ type: 'chooseCards', choice: { text: 'put one onto the battlefield tapped (the other goes into your hand)' } });
+    g = run(g, { type: 'chooseCards', cards: [swamps[0]] });
+    expect(byName(g, 0, 'Swamp')?.tapped).toBe(true);
+    expect(byName(g, 0, 'Swamp', 'hand')).toBeDefined();
+  });
+
+  it('"return a land you control to its owner\'s hand" is chosen, not targeted (bounce lands)', () => {
+    teach('Test Karoo', 'Land', 'This land enters tapped.\nWhen this land enters, return a land you control to its owner\'s hand.\n{T}: Add {G}{U}.');
+    let g = emptyGame((d) => {
+      put(d, 0, 'Test Karoo', 'hand');
+      put(d, 0, 'Forest');
+    });
+    g = settle(run(g, { type: 'playLand', card: byName(g, 0, 'Test Karoo', 'hand')!.id }));
+    expect(g.players[0].battlefield.filter((c) => isLand(g, c))).toHaveLength(1);
+    expect(g.players[0].hand.filter((c) => isLand(g, c))).toHaveLength(1);
+    expect(refusal('Land', 'When this land enters, return a land an opponent controls to its owner\'s hand.')).not.toBeNull();
+  });
+
+  it('scry puts cards on the bottom, then the next effect happens (701.22a)', () => {
+    teach('Test Opt', 'Instant', 'Scry 2, then draw a card.');
+    let g = humanGame((d) => {
+      put(d, 0, 'Test Opt', 'hand');
+      put(d, 0, 'Island');
+    });
+    const [a, b] = g.players[0].library;
+    g = run(g, { type: 'cast', card: byName(g, 0, 'Test Opt', 'hand')!.id });
+    for (let i = 0; i < 6 && g.stack.length && !g.decision; i++) g = applyAction(g, { type: 'pass' });
+    expect(g.decision).toMatchObject({ type: 'chooseCards', choice: { text: 'scry 2: put any on the bottom of your library' } });
+    g = run(g, { type: 'chooseCards', cards: [a.id] });
+    // The other card stays on top and is the one drawn.
+    expect(g.players[0].hand.map((c) => c.id)).toEqual([b.id]);
+    expect(g.players[0].library[g.players[0].library.length - 1].id).toBe(a.id);
+    expect(refusal('Instant', 'Scry X.')).toMatchObject({ reason: 'X outside a cost' });
+  });
+
+  it('"look at the top N, put K into your hand and the rest on the bottom" (401.4)', () => {
+    teach('Test Stock', 'Sorcery', 'Look at the top five cards of your library. Put two of them into your hand and the rest on the bottom of your library in a random order.');
+    let g = emptyGame((d) => {
+      put(d, 0, 'Test Stock', 'hand');
+      put(d, 0, 'Island');
+    });
+    const top = g.players[0].library.slice(0, 5).map((c) => c.id);
+    g = settle(run(g, { type: 'cast', card: byName(g, 0, 'Test Stock', 'hand')!.id }));
+    expect(g.players[0].hand).toHaveLength(2);
+    expect(g.players[0].hand.every((c) => top.includes(c.id))).toBe(true);
+    expect(g.players[0].library.slice(-3).every((c) => top.includes(c.id))).toBe(true);
+    expect(refusal('Sorcery', 'Look at the top five cards of your library. Put two of them into your hand and the rest into your graveyard.')).not.toBeNull();
+  });
+});
+
+describe('payments: "unless that player pays", "you may pay ... if you do" (118.12)', () => {
+  it('asks the player who would pay first, then the "you may" (118.12a)', () => {
+    teach('Test Study', 'Enchantment', 'Whenever an opponent casts a spell, you may draw a card unless that player pays {1}.');
+    const cast = (mountains: number) => {
+      let g = humanGame((d) => {
+        put(d, 0, 'Test Study');
+        d.active = 1;
+        d.priority = 1;
+        put(d, 1, 'Shock', 'hand');
+        put(d, 1, 'Mountain', 'battlefield', mountains);
+      });
+      g = run(g, { type: 'cast', card: byName(g, 1, 'Shock', 'hand')!.id, targets: [p(2)] });
+      // Bots answer their own questions; it stops at one for player 0.
+      for (let i = 0; i < 20 && (g.decision || g.stack.length) && !(g.decision && g.priority === 0); i++) g = g.decision ? applyBotAction(g, botAction(g, g.priority)) : applyAction(g, { type: 'pass' });
+      return g;
+    };
+    // With mana to spare the bot pays, and player 0 is never asked.
+    let g = cast(5);
+    expect(g.decision).toBeNull();
+    // Without, player 0 is asked whether to draw.
+    g = cast(1);
+    expect(g.decision).toMatchObject({ type: 'ask', choice: { player: 0, text: 'Draw a card?' } });
+    expect(refusal('Enchantment', 'Whenever an opponent casts a spell, you may draw a card unless that player sacrifices a creature.')).not.toBeNull();
+  });
+
+  it('"you may pay {4}. If you do, untap this artifact" asks with the cost (Mana Vault)', () => {
+    teach('Test Vault', 'Artifact', "This artifact doesn't untap during your untap step.\nAt the beginning of your upkeep, you may pay {4}. If you do, untap this artifact.\n{T}: Add {C}{C}{C}.");
+    let g = humanGame((d) => {
+      put(d, 0, 'Test Vault');
+      put(d, 0, 'Plains', 'battlefield', 4);
+      d.step = 'untap';
+      d.turn = 1;
+    });
+    g = produce(g, (d) => {
+      d.players[0].battlefield.find((c) => c.name === 'Test Vault')!.tapped = true;
+    });
+    expect(scriptOf('Test Vault').noUntap).toBe(true);
+    const ab = (scriptOf('Test Vault').onUpkeep as { resolve: (g: Game, c: Ctx) => void }).resolve;
+    g = produce(g, (d) => ab(d, { self: d.players[0].battlefield.find((c) => c.name === 'Test Vault')!, you: 0, targets: [] }));
+    expect(g.choices[0] ?? g.decision).toMatchObject({ kind: 'ask', cost: '{4}', text: 'Pay {4} to untap Test Vault?' });
+    expect(refusal('Artifact', 'At the beginning of your upkeep, you may pay {X}. If you do, untap this artifact.')).not.toBeNull();
+  });
+});
+
+describe('costs: alternative, overload, reductions, keyword costs (118.9, 702.96, 601.2f)', () => {
+  it('an alternative cost of life and a card from the hand (Force of Will)', () => {
+    teach('Test Force', 'Instant', 'You may pay 1 life and exile a blue card from your hand rather than pay this spell\'s mana cost.\nCounter target spell.', { manaCost: '{3}{U}{U}' });
+    expect(scriptOf('Test Force').alternativeCosts).toMatchObject([{ mana: '', life: 1, exile: { label: 'a blue card' } }]);
+    teach('Test Snuff', 'Instant', 'If you control a Swamp, you may pay 4 life rather than pay this spell\'s mana cost.\nDestroy target nonblack creature.');
+    const alt = scriptOf('Test Snuff').alternativeCosts![0];
+    const g = emptyGame((d) => put(d, 0, 'Test Snuff', 'hand'));
+    expect(alt.when!(g, byName(g, 0, 'Test Snuff', 'hand')!)).toBe(false);
+    const h = produce(g, (d) => void put(d, 0, 'Swamp'));
+    expect(alt.when!(h, byName(h, 0, 'Test Snuff', 'hand')!)).toBe(true);
+    expect(refusal('Instant', 'You may discard two cards rather than pay this spell\'s mana cost.\nDraw a card.')).toMatchObject({ reason: 'the alternative cost "discard two cards"' });
+  });
+
+  it('overload reads "target" as "each": no targets (702.96b)', () => {
+    teach('Test Blast', 'Sorcery', 'Destroy target artifact you don\'t control.\nOverload {4}{R}');
+    let g = emptyGame((d) => {
+      put(d, 0, 'Test Blast', 'hand');
+      put(d, 0, 'Mountain', 'battlefield', 5);
+      put(d, 0, 'Sol Ring');
+      put(d, 1, 'Sol Ring', 'battlefield', 2);
+      put(d, 2, 'Sol Ring');
+    });
+    g = settle(run(g, { type: 'cast', card: byName(g, 0, 'Test Blast', 'hand')!.id, alt: 0, targets: [] }));
+    expect(battlefieldNames(g).filter((n) => n === 'Sol Ring')).toHaveLength(1);
+    expect(byName(g, 0, 'Sol Ring')).toBeDefined();
+    expect(refusal('Creature — Elf', 'Overload {2}')).not.toBeNull();
+  });
+
+  it('cost reductions: "for each" and "where X is" (601.2f)', () => {
+    teach('Test Act', 'Sorcery', 'This spell costs {1} less to cast for each creature on the battlefield.\nTest Act deals 13 damage to each creature.', { manaCost: '{8}{R}', cmc: 9 });
+    const g = emptyGame((d) => {
+      put(d, 0, 'Test Act', 'hand');
+      put(d, 0, 'Elite Vanguard', 'battlefield', 2);
+      put(d, 1, 'Serra Angel', 'battlefield', 3);
+    });
+    expect(castCost(g, byName(g, 0, 'Test Act', 'hand')!)).toMatchObject({ generic: 3 });
+    teach('Test Ghalta', 'Creature — Dinosaur', 'This spell costs {X} less to cast, where X is the total power of creatures you control.', { manaCost: '{10}{G}{G}', cmc: 12 });
+    const h = emptyGame((d) => {
+      put(d, 0, 'Test Ghalta', 'hand');
+      put(d, 0, 'Serra Angel', 'battlefield', 2);
+    });
+    expect(castCost(h, byName(h, 0, 'Test Ghalta', 'hand')!)).toMatchObject({ generic: 2 });
+    expect(refusal('Sorcery', 'This spell costs {1} less to cast for each creature that died this turn.')).not.toBeNull();
+  });
+
+  it('keyword costs: kicker, flashback, escape, ward, offspring, dash, evoke, plot', () => {
+    const k = parse('Creature — Elf', 'Kicker {2}{G}\nWhen this creature enters, if it was kicked, draw a card.');
+    expect(k.ok && k.script.kicker).toEqual({ mana: '{2}{G}' });
+    expect(parse('Sorcery', 'Draw two cards.\nFlashback {3}{U}')).toMatchObject({ ok: true, script: { flashback: '{3}{U}' } });
+    expect(parse('Creature — Horror', 'Escape—{2}{B}, Exile three other cards from your graveyard.')).toMatchObject({ ok: true, script: { escape: { mana: '{2}{B}', exile: 3 } } });
+    expect(parse('Creature — Horror', 'Ward {2}')).toMatchObject({ ok: true, script: { ward: { mana: '{2}' } } });
+    expect(parse('Creature — Horror', 'Ward—Pay 3 life.')).toMatchObject({ ok: true, script: { ward: { life: 3 } } });
+    expect(parse('Creature — Mouse', 'Offspring {2}')).toMatchObject({ ok: true, script: { offspring: '{2}' } });
+    expect(parse('Creature — Goblin', 'Dash {1}{R}')).toMatchObject({ ok: true, script: { alternativeCosts: [{ mana: '{1}{R}', dash: true }] } });
+    expect(parse('Creature — Elemental', 'When this creature enters, draw two cards.\nEvoke {2}{U}')).toMatchObject({ ok: true, script: { alternativeCosts: [{ mana: '{2}{U}', evoke: true }] } });
+    expect(parse('Creature — Human', 'Plot {2}{R}')).toMatchObject({ ok: true, script: { plot: '{2}{R}' } });
+    expect(refusal('Sorcery', 'Draw two cards.\nFlashback—{1}{U}, Pay 3 life.')).not.toBeNull();
+    // A kicked part only when kicked (702.33d).
+    teach('Test Kicker Bolt', 'Instant', 'Kicker {R}\nTest Kicker Bolt deals 2 damage to each opponent.\nIf this spell was kicked, you gain 3 life.');
+    const cast = (kicked: number) => {
+      let g = emptyGame((d) => {
+        put(d, 0, 'Test Kicker Bolt', 'hand');
+        put(d, 0, 'Mountain', 'battlefield', 3);
+      });
+      g = settle(run(g, { type: 'cast', card: byName(g, 0, 'Test Kicker Bolt', 'hand')!.id, kicked }));
+      return g.players.map((x) => x.life);
+    };
+    expect(cast(0)).toEqual([40, 38, 38, 38]);
+    expect(cast(1)).toEqual([43, 38, 38, 38]);
+  });
+
+  it('a mana ability that also does something else is refused (605.1a)', () => {
+    expect(refusal('Artifact', '{T}: Add {G}{G}. You gain 2 life.')).toMatchObject({ reason: 'a mana ability that does more than add mana' });
+  });
+});
+
+describe('static abilities from the corpus (604.3, 613, 614)', () => {
+  it('base power and toughness from a count (604.3)', () => {
+    teach('Test Nightmare', 'Creature — Nightmare Horse', 'Test Nightmare\'s power and toughness are each equal to the number of Swamps you control.', { power: '*', toughness: '*' });
+    const g = emptyGame((d) => {
+      put(d, 0, 'Test Nightmare');
+      put(d, 0, 'Swamp', 'battlefield', 3);
+      put(d, 1, 'Swamp', 'battlefield', 2);
+    });
+    expect(stats(g, byName(g, 0, 'Test Nightmare')!)).toMatchObject({ power: 3, toughness: 3 });
+    expect(refusal('Creature — Horror', "Test Card's power is equal to the number of cards in your library plus two.")).not.toBeNull();
+  });
+
+  it('Auras and Equipment: enchant, "enchanted creature gets", "equipped creature has", equip (702.5, 702.6)', () => {
+    teach('Test Courage', 'Enchantment — Aura', 'Enchant creature\nEnchanted creature gets +2/+2 and has trample and lifelink.');
+    let g = emptyGame((d) => {
+      put(d, 0, 'Test Courage', 'hand');
+      put(d, 0, 'Plains');
+      put(d, 0, 'Elite Vanguard');
+    });
+    const vanguard = byName(g, 0, 'Elite Vanguard')!;
+    g = settle(run(g, { type: 'cast', card: byName(g, 0, 'Test Courage', 'hand')!.id, targets: [cardRef(vanguard.id)] }));
+    expect(stats(g, byName(g, 0, 'Elite Vanguard')!)).toMatchObject({ power: 4, toughness: 3 });
+    expect([...stats(g, byName(g, 0, 'Elite Vanguard')!).keywords].sort()).toEqual(['lifelink', 'trample']);
+    teach('Test Boots', 'Artifact — Equipment', 'Equipped creature has hexproof and haste.\nEquip {1}');
+    g = emptyGame((d) => {
+      put(d, 0, 'Test Boots');
+      put(d, 0, 'Plains');
+      put(d, 0, 'Elite Vanguard');
+    });
+    g = settle(run(g, { type: 'activate', card: byName(g, 0, 'Test Boots')!.id, targets: [cardRef(byName(g, 0, 'Elite Vanguard')!.id)] }));
+    expect(stats(g, byName(g, 0, 'Elite Vanguard')!).keywords.has('hexproof')).toBe(true);
+    expect(refusal('Enchantment — Aura', 'Enchanted creature gets +2/+2.')).toMatchObject({ reason: 'an Aura without an enchant line' });
+    expect(refusal('Enchantment — Aura', 'Enchant creature or player\nEnchanted creature gets +1/+1.')).not.toBeNull();
+  });
+
+  it('attack taxes and "during your turn, your opponents can\'t" (508.1g, 101.2)', () => {
+    teach('Test Prison', 'Enchantment', "Creatures can't attack you unless their controller pays {2} for each creature they control that's attacking you.");
+    const tax = scriptOf('Test Prison').attackTax!;
+    const g = emptyGame((d) => put(d, 0, 'Test Prison'));
+    const prison = byName(g, 0, 'Test Prison')!;
+    expect(tax(g, prison, prison, 0, null)).toBe('{2}');
+    expect(tax(g, prison, prison, 1, null)).toBeNull();
+    expect(refusal('Enchantment', "Creatures can't attack you unless their controller sacrifices a land.")).not.toBeNull();
+  });
+
+  it('counters and tokens doubled, or one more (614.1a)', () => {
+    teach('Test Scales', 'Enchantment', 'If one or more +1/+1 counters would be put on a creature you control, that many plus one +1/+1 counters are put on it instead.');
+    teach('Test Season', 'Enchantment', 'If an effect would create one or more tokens under your control, it creates twice that many of those tokens instead.\nIf an effect would put one or more counters on a permanent you control, it puts twice that many of those counters on that permanent instead.');
+    teach('Test Growth', 'Instant', 'Put a +1/+1 counter on target creature.');
+    const grow = (setup: (d: Game) => void) => {
+      let g = emptyGame((d) => {
+        put(d, 0, 'Test Growth', 'hand');
+        put(d, 0, 'Forest');
+        put(d, 0, 'Elite Vanguard');
+        setup(d);
+      });
+      g = settle(run(g, { type: 'cast', card: byName(g, 0, 'Test Growth', 'hand')!.id, targets: [cardRef(byName(g, 0, 'Elite Vanguard')!.id)] }));
+      return byName(g, 0, 'Elite Vanguard')!.counters['+1/+1'];
+    };
+    expect(grow(() => {})).toBe(1);
+    expect(grow((d) => put(d, 0, 'Test Scales'))).toBe(2);
+    expect(grow((d) => put(d, 0, 'Test Season'))).toBe(2);
+    expect(grow((d) => put(d, 1, 'Test Season'))).toBe(1);
+    expect(refusal('Enchantment', 'If one or more +1/+1 counters would be put on a creature you control, three times that many are put on it instead.')).not.toBeNull();
+  });
+});
+
+describe('triggers from the corpus (603)', () => {
+  it('"whenever equipped creature dies" and "whenever a Dragon you control attacks"', () => {
+    teach('Test Clamp', 'Artifact — Equipment', 'Equipped creature gets +1/-1.\nWhenever equipped creature dies, draw two cards.\nEquip {1}');
+    let g = emptyGame((d) => {
+      put(d, 0, 'Test Clamp');
+      put(d, 0, 'Plains');
+      put(d, 0, 'Elite Vanguard');
+    });
+    const hand = g.players[0].hand.length;
+    // Elite Vanguard is 2/1: with +1/-1 it dies, and the Clamp draws two.
+    g = settle(run(g, { type: 'activate', card: byName(g, 0, 'Test Clamp')!.id, targets: [cardRef(byName(g, 0, 'Elite Vanguard')!.id)] }));
+    expect(byName(g, 0, 'Elite Vanguard', 'graveyard')).toBeDefined();
+    expect(g.players[0].hand.length).toBe(hand + 2);
+    const atarka = parse('Legendary Creature — Dragon', 'Whenever a Dragon you control attacks, it gains double strike until end of turn.');
+    expect(atarka.ok && atarka.script.onCreatureAttacks).toMatchObject({ text: 'Whenever a Dragon you control attacks, it gains double strike until end of turn.' });
+    expect(refusal('Creature — Dragon', 'Whenever a Dragon you control attacks alone, it gains double strike until end of turn.')).not.toBeNull();
+  });
+
+  it('magecraft triggers on a copy too (207.2c), and "whenever an opponent searches"', () => {
+    const p2 = parse('Creature — Wizard', 'Magecraft — Whenever you cast or copy an instant or sorcery spell, draw a card.');
+    expect(p2.ok && p2.script.onCast && p2.script.onCopy).toBeTruthy();
+    const a = parse('Creature — Cleric', 'Whenever an opponent searches their library, you gain 1 life and draw a card.');
+    expect(a.ok && a.script.onSearch).toBeTruthy();
+    expect(refusal('Creature — Cleric', 'Whenever an opponent searches their library for a land, you gain 1 life.')).not.toBeNull();
+  });
+
+  it('"protection from the color of your choice" asks the colour as it resolves (702.16)', () => {
+    teach('Test Mother', 'Creature — Human Cleric', '{T}: Target creature you control gains protection from the color of your choice until end of turn.');
+    let g = humanGame((d) => {
+      put(d, 0, 'Test Mother');
+      put(d, 0, 'Elite Vanguard');
+    });
+    g = run(g, { type: 'activate', card: byName(g, 0, 'Test Mother')!.id, targets: [cardRef(byName(g, 0, 'Elite Vanguard')!.id)] });
+    for (let i = 0; i < 6 && g.stack.length && !g.decision; i++) g = applyAction(g, { type: 'pass' });
+    expect(g.decision).toMatchObject({ type: 'name', choice: { of: 'color' } });
+    g = run(g, { type: 'name', name: 'B' });
+    expect(stats(g, byName(g, 0, 'Elite Vanguard')!).keywords.has('protection from black')).toBe(true);
+    expect(refusal('Creature — Human Cleric', '{T}: Target creature you control gains protection from the color of its choice until end of turn.')).not.toBeNull();
+  });
+});
+
+describe('modes with their own targets and choices (700.2)', () => {
+  it('each chosen mode gets its own share of the targets, a choice in one included', () => {
+    teach('Test Command', 'Instant', 'Choose two —\n• Destroy target artifact.\n• Target player discards a card.\n• Test Command deals 2 damage to any target.');
+    let g = humanGame((d) => {
+      put(d, 0, 'Test Command', 'hand');
+      put(d, 0, 'Mountain', 'battlefield', 2);
+      put(d, 1, 'Sol Ring');
+      put(d, 0, 'Plains', 'hand');
+    });
+    const ring = byName(g, 1, 'Sol Ring')!.id;
+    // Modes 0 and 1: the artifact, then the player who discards (player 0 here, so the choice waits).
+    g = run(g, { type: 'cast', card: byName(g, 0, 'Test Command', 'hand')!.id, modes: [0, 1], targets: [cardRef(ring), p(0)] });
+    for (let i = 0; i < 6 && g.stack.length && !g.decision; i++) g = applyAction(g, { type: 'pass' });
+    expect(byName(g, 1, 'Sol Ring')).toBeUndefined();
+    expect(g.decision).toMatchObject({ type: 'chooseCards' });
+    g = run(g, { type: 'chooseCards', cards: [byName(g, 0, 'Plains', 'hand')!.id] });
+    expect(byName(g, 0, 'Plains', 'graveyard')).toBeDefined();
+    expect(refusal('Instant', 'Choose four —\n• Draw a card.\n• Draw a card.')).toMatchObject({ reason: 'no template matches' });
+    expect(refusal('Creature — Elf', 'Choose one —\n• Draw a card.\n• You gain 2 life.')).toMatchObject({ reason: 'a modal ability of a permanent' });
+  });
+});
+
+describe('mana that may be spent only on some spells (106.6)', () => {
+  it('reads "spend this mana only to cast a legendary spell, and that spell can\'t be countered"', () => {
+    expect(parse('Creature — Halfling', "{T}: Add one mana of any color. Spend this mana only to cast a legendary spell, and that spell can't be countered.")).toMatchObject({
+      ok: true,
+      script: { mana: { amount: 1, colors: 'any', legendary: true, uncounterable: true } },
+    });
+    expect(parse('Artifact', '{T}: Add {C}{C}. Spend this mana only to cast instant and sorcery spells.')).toMatchObject({ ok: true, script: { mana: { types: ['Instant', 'Sorcery'] } } });
+    teach('Test Plaza', 'Land', '{T}: Add {C}.\n{T}: Add one mana of any color. Spend this mana only to cast a legendary spell.');
+    teach('Test Prism', 'Land', '{T}: Add one mana of any color.');
+    // Its coloured mana can't pay for a spell that isn't legendary; unrestricted mana can.
+    const cast = (land: string) => {
+      const g = emptyGame((d) => {
+        put(d, 0, land);
+        put(d, 0, 'Plains');
+        put(d, 0, 'Two Drop', 'hand');
+      });
+      return applyAction(g, { type: 'cast', card: byName(g, 0, 'Two Drop', 'hand')!.id }) !== g;
+    };
+    expect(cast('Test Prism')).toBe(true);
+    expect(cast('Test Plaza')).toBe(false);
+    expect(refusal('Land', '{T}: Add one mana of any color. Spend this mana only to cast a spell with flying.')).not.toBeNull();
+  });
+});
+
+describe('conditions as it resolves, "that land", "that player", granted mana (608.2c, 613.1f)', () => {
+  it('"Then if you control four or more lands, untap that land" checks as it resolves', () => {
+    teach('Test Passage', 'Land', '{T}, Sacrifice this land: Search your library for a basic land card, put it onto the battlefield tapped, then shuffle. Then if you control four or more lands, untap that land.');
+    const crack = (lands: number) => {
+      let g = emptyGame((d) => {
+        put(d, 0, 'Test Passage');
+        put(d, 0, 'Plains', 'battlefield', lands);
+        d.players[0].library.unshift(makeCard(d, 'Forest', 0, 'library'));
+      });
+      g = settle(run(g, { type: 'activate', card: byName(g, 0, 'Test Passage')!.id }));
+      return byName(g, 0, 'Forest')?.tapped;
+    };
+    expect(crack(2)).toBe(true);
+    expect(crack(3)).toBe(false);
+    teach('Test If', 'Sorcery', 'Draw a card. If you control an artifact, draw a card.');
+    expect(refusal('Sorcery', 'Draw a card. If you control an artifact, draw two cards instead.')).not.toBeNull();
+  });
+
+  it('"That player may search" after destroying an opponent\'s permanent asks its controller (Boseiju)', () => {
+    teach('Test Boseiju', 'Instant', 'Destroy target nonbasic land an opponent controls. That player may search their library for a land card with a basic land type, put it onto the battlefield, then shuffle.');
+    let g = emptyGame((d) => {
+      d.players[1].isBot = false;
+      put(d, 0, 'Test Boseiju', 'hand');
+      put(d, 0, 'Forest');
+      put(d, 1, 'Test Gate');
+    });
+    g = run(g, { type: 'cast', card: byName(g, 0, 'Test Boseiju', 'hand')!.id, targets: [cardRef(byName(g, 1, 'Test Gate')!.id)] });
+    for (let i = 0; i < 10 && g.stack.length && !g.decision; i++) g = applyAction(g, { type: 'pass' });
+    expect(byName(g, 1, 'Test Gate')).toBeUndefined();
+    expect(g.decision).toMatchObject({ type: 'ask', choice: { player: 1 } });
+    expect(refusal('Instant', 'Draw a card. That player may draw a card.')).toMatchObject({ reason: '"that player" without a player to refer to' });
+  });
+
+  it('"Lands you control have \'{T}: Add one mana of any color.\'" (Chromatic Lantern)', () => {
+    teach('Test Lantern', 'Artifact', 'Lands you control have "{T}: Add one mana of any color."\n{T}: Add one mana of any color.');
+    const g = emptyGame((d) => {
+      put(d, 0, 'Test Lantern');
+      put(d, 0, 'Plains');
+      put(d, 1, 'Plains');
+    });
+    // Its own {W}, and any colour from the Lantern.
+    expect(manaAbilities(g, byName(g, 0, 'Plains')!).map((m) => m.colors.length)).toEqual([1, 5]);
+    expect(manaAbilities(g, byName(g, 1, 'Plains')!).flatMap((m) => m.colors)).toEqual(['W']);
+    expect(refusal('Artifact', 'Lands you control have "{T}: Add one mana of any color. Activate only as a sorcery."')).not.toBeNull();
   });
 });

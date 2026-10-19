@@ -36,7 +36,7 @@ function scry(name: string, type_line: string, oracle_text: string, extra: Parti
 }
 
 const WALL = scry('Wall of Omens', 'Creature — Wall', 'Defender\nWhen this creature enters, draw a card.', { mana_cost: '{1}{W}', cmc: 2, keywords: ['Defender'] });
-const WARDEN = scry('Essence Warden', 'Creature — Elf Shaman', 'Whenever another creature enters, you gain 1 life.', { mana_cost: '{G}', cmc: 1, colors: ['G'], color_identity: ['G'] });
+const WARDEN = scry('Morbid Opportunist', 'Creature — Human Rogue', 'Whenever one or more other creatures die, draw a card. This ability triggers only once each turn.', { mana_cost: '{2}{B}', cmc: 3, colors: ['B'], color_identity: ['B'] });
 
 /** A fake fetch that answers /cards/collection from these cards, and records each request's names. */
 function fakeScryfall(cards: ScryfallCard[], calls: string[][] = []): typeof fetch {
@@ -131,18 +131,20 @@ describe('a pasted deck with fetched cards', () => {
   });
 
   it('refuses a card the parser can\'t read, naming the clause, and writes it down', async () => {
-    await fetchCards(['Essence Warden'], { fetch: fakeScryfall([WARDEN]) });
-    expect(hasScript('Essence Warden')).toBe(false);
-    const check = checkList('Commander\n1 Lyra Dawnbringer\n\nDeck\n1 Essence Warden', null, '', 'x');
+    await fetchCards(['Morbid Opportunist'], { fetch: fakeScryfall([WARDEN]) });
+    expect(hasScript('Morbid Opportunist')).toBe(false);
+    const check = checkList('Commander\n1 Lyra Dawnbringer\n\nDeck\n1 Morbid Opportunist', null, '', 'x');
     // Listed apart from the save problems, with the clause: it no longer stops the deck being saved.
-    expect(check.refused).toMatchObject([{ name: 'Essence Warden', heading: '“Whenever another creature enters, you gain 1 life.”', noTextless: null, textless: false }]);
+    expect(check.refused).toMatchObject([
+      { name: 'Morbid Opportunist', heading: '“Whenever one or more other creatures die, draw a card. This ability triggers only once each turn.”', noTextless: null, textless: false },
+    ]);
     expect(check.problems.some((p) => p.includes("can't read"))).toBe(false);
     expect(check.deck).toBeNull(); // a two-card deck
-    const req = requestFor('Essence Warden', new Date('2026-10-15T12:00:00Z'));
+    const req = requestFor('Morbid Opportunist', new Date('2026-10-15T12:00:00Z'));
     expect(req).toEqual({
-      name: 'Essence Warden',
-      oracleText: 'Whenever another creature enters, you gain 1 life.',
-      clause: 'Whenever another creature enters, you gain 1 life.',
+      name: 'Morbid Opportunist',
+      oracleText: 'Whenever one or more other creatures die, draw a card. This ability triggers only once each turn.',
+      clause: 'Whenever one or more other creatures die, draw a card. This ability triggers only once each turn.',
       reason: 'no template matches',
       count: 1,
       last: '2026-10-15T12:00:00.000Z',

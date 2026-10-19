@@ -273,8 +273,12 @@ export function ActionBar() {
   return (
     <div className="action-bar">
       <PhaseTracker />
-      {v.paying && <HoldToggle />}
-      {v.secondary && <Button btn={v.secondary} small />}
+      {(v.paying || v.secondary) && (
+        <div className="action-row">
+          {v.secondary && <Button btn={v.secondary} small />}
+          {v.paying && <HoldToggle />}
+        </div>
+      )}
       {v.primary && <Button btn={v.primary} />}
     </div>
   );
