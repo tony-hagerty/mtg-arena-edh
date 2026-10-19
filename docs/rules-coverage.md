@@ -176,7 +176,7 @@ are from the Comprehensive Rules in `docs/rules/`.
 - **Counterspells (701.6):** a spell or ability can target spells or abilities on the
   stack (click one in the stack panel). A countered spell goes to the graveyard and its
   costs aren't refunded; a countered commander can still go to the command zone.
-- **Modal spells (700.2):** the cast panel lists the modes; pick as many as the card says.
+- **Modal spells (700.2):** the prompt lists the modes; pick as many as the card says.
   Each mode has its own targets, and a mode with no legal target can't be picked. "You may
   choose the same mode more than once" works (700.2d).
 - **Copying spells (707.10):** the copy keeps the original's modes, X and kicker, and its
@@ -264,7 +264,7 @@ are from the Comprehensive Rules in `docs/rules/`.
   total. A single target gets all of it. Bots kill what they can, keeping X below their
   life total.
 - **A choice of additional costs:** "pay 5 life or pay {2}" (Redirect Lightning): pick one
-  in the cast panel.
+  in the prompt.
 - **"Exile two cards from your graveyard"** as an activation cost (Matoc): pick them after
   the targets; bots exile the cards they want least.
 - **Offspring (702.175):** pay the extra cost and a 1/1 token copy enters with it
@@ -290,7 +290,7 @@ are from the Comprehensive Rules in `docs/rules/`.
   deal damage, need a condition ("activate only if"), make colours worked out as they are
   used (Fellwar Stone and Exotic Orchard check what opponents' lands could produce, and
   Reflecting Pool what your lands could produce, 106.7), or work from a hand (Simian Spirit Guide: click it in your hand, or pick "Exile
-  it for mana" in the cast panel). Auto-pay uses free sources first, then painful ones,
+  it for mana" in the prompt). Auto-pay uses free sources first, then painful ones,
   then ones that are sacrificed. Rituals add mana as they resolve. A permanent can skip
   its untap (502.3), and "whenever this becomes tapped" triggers.
 - **Treasure, Food and Clue tokens (111.10).** A Treasure is sacrificed for one mana of
@@ -351,7 +351,7 @@ are from the Comprehensive Rules in `docs/rules/`.
   (115.4). Bots use loyalty abilities when the look-ahead says it helps.
 - **Battles (310):** they enter with their printed defense and a protector. A Siege's
   protector is an opponent of its controller, chosen when it is cast (the human picks in
-  the cast panel; bots pick the opponent with the fewest untapped blockers). Anyone but
+  the prompt; bots pick the opponent with the fewest untapped blockers). Anyone but
   the protector can attack it, including its controller; only the protector can block
   for it (310.9b-c). Damage removes defense (120.3h). A defeated Siege is exiled when its
   defeat ability resolves, then cast transformed for free (310.12b, 704.5v). A battle

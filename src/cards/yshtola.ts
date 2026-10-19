@@ -322,6 +322,8 @@ registerScripts({
     botActivate: (g, pid) => opponentsOf(g, pid).some((o) => o.lifeLost > 0 && strongest(g, o.id).some((c) => threat(g, c) >= 4)),
   },
   'Roaming Throne': {
+    // "Ward {2}" (702.21a): the engine counters a spell or ability an opponent aims at it unless they pay.
+    ward: { mana: '{2}' },
     // "As this creature enters, choose a creature type." (614.1c, 614.12a)
     replaceEnter: (g, c, controller) => {
       nameCard(g, controller, { text: 'Choose a creature type.', of: 'creature type', then: 'type', script: c.id });
