@@ -2,6 +2,7 @@
 // clause by clause (docs/card-scripting.md); comments quote the clauses that need care.
 import { registerScripts } from '../engine/registry';
 import {
+  addCounters,
   MUST_ATTACK,
   abilitySource,
   addEffect,
@@ -424,8 +425,8 @@ registerScripts({
       resolve: (g, { self, you }) => {
         const remora = permanent(g, self.id);
         if (!remora) return;
-        remora.counters.age = (remora.counters.age ?? 0) + 1;
-        const cost = `{${remora.counters.age}}`;
+        addCounters(g, remora, 1, 'age');
+        const cost = `{${remora.counters.age ?? 0}}`;
         ask(g, you, { text: `Pay ${cost} to keep ${label(remora)}, or sacrifice it.`, cost, yes: `Pay ${cost}`, no: 'Sacrifice It', then: 'upkeep' });
       },
     },
@@ -918,9 +919,7 @@ registerScripts({
       begin: (g, { self, you, yes }) => {
         if (!yes || self.zone !== 'hand') return;
         log(g, `${says(g.players[you], 'begins')} the game with Gemstone Caverns on the battlefield.`, you, [self]);
-        enterBattlefield(g, self, { controller: you });
-        const caverns = permanent(g, self.id);
-        if (caverns) caverns.counters.luck = 1;
+        enterBattlefield(g, self, { controller: you, counters: { luck: 1 } });
         const hand = g.players[you].hand;
         if (hand.length) pickCards(g, you, hand, { min: 1, max: 1, text: 'exile a card from your hand', button: 'Exile', then: 'exile', script: self.id });
       },

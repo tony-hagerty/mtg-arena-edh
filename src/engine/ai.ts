@@ -1089,9 +1089,9 @@ export function botAction(g: Game, pid: PlayerId): Action {
       return castNow(g, pid);
     case 'retarget':
       return bestTargets(g, pid);
-    // Only a person is asked; answering for one, take the least damage (the options are sorted).
-    case 'orderDamage':
-      return { type: 'orderDamage', option: 0 };
+    // Only a person is asked; answering for one, take what a bot would (the first option).
+    case 'replacement':
+      return { type: 'replacement', option: 0 };
     case 'assignDamage':
       // Only a human is asked, but a bot answering for one splits it automatically.
       return { type: 'assignDamage', assignments: autoAssignments(g) };
@@ -1120,7 +1120,7 @@ export function applyBotAction(g: Game, a: Action, opts?: ApplyOptions): Game {
   if (next === g && g.decision?.type === 'cast') next = applyAction(g, { type: 'answer', yes: false }, opts);
   if (next === g && g.decision?.type === 'retarget') next = applyAction(g, anyTargets(g), opts);
   if (next === g && g.decision?.type === 'mulligan') next = applyAction(g, { type: 'keep' }, opts);
-  if (next === g && g.decision?.type === 'orderDamage') next = applyAction(g, { type: 'orderDamage', option: 0 }, opts);
+  if (next === g && g.decision?.type === 'replacement') next = applyAction(g, { type: 'replacement', option: 0 }, opts);
   if (next === g && g.decision?.type === 'assignDamage') next = applyAction(g, { type: 'assignDamage', assignments: autoAssignments(g) }, opts);
   return next;
 }
