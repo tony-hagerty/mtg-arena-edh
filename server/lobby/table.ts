@@ -6,7 +6,7 @@
 import { DECKS, deckProblems, isCardName, registerCards } from '../../src/cards/db';
 import type { DeckDef } from '../../src/cards/db';
 import { scriptCards } from '../../src/cards/oracle';
-import { unsupported } from '../../src/cards/support';
+import { playsWithoutText, unsupported } from '../../src/cards/support';
 import { produce } from 'immer';
 import type { DeckChoice, LobbySeat, LobbyState, SavedGame, SeatVote } from '../../src/net/lobby';
 import type { StartRequest } from '../../src/net/protocol';
@@ -348,7 +348,8 @@ function deckIssues({ deck, cards }: DeckChoice): string[] {
     scriptCards(fresh.map((c) => c.name));
   }
   const names = [...new Set([...deck.commanders, ...Object.keys(deck.basics), ...deck.cards])];
-  const cant = names.flatMap((n) => unsupported(n).map((p) => `${n}: ${p}`));
+  // A card the deck plays without its rules text, by its player's choice, is played as a vanilla card.
+  const cant = names.filter((n) => !playsWithoutText(deck, n)).flatMap((n) => unsupported(n).map((p) => `${n}: ${p}`));
   return cant.length ? cant : deckProblems(deck);
 }
 

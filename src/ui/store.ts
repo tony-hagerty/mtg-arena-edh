@@ -6,6 +6,7 @@ import { DECKS, cardData, isCardName } from '../cards/db';
 import type { DeckDef } from '../cards/db';
 import { savedDeckIssues } from '../cards/decklist';
 import { addCards, fetchCards, isFetched, loadFetchedCards } from '../cards/fetched';
+import { playedDeck } from '../cards/support';
 import type { StartRequest, ViewMessage } from '../net/protocol';
 import type { DeckChoice, LobbyConnection, LobbyState } from '../net/lobby';
 import type { Connection } from './remote';
@@ -162,10 +163,12 @@ function loadDecks(): DeckDef[] {
   try {
     const saved = JSON.parse(localStorage.getItem(DECKS_KEY) ?? '[]');
     if (Array.isArray(saved)) {
-      return saved.filter(
-        (d): d is DeckDef =>
-          d && typeof d.id === 'string' && typeof d.title === 'string' && Array.isArray(d.commanders) && Array.isArray(d.cards) && typeof d.basics === 'object',
-      );
+      return saved
+        .filter(
+          (d): d is DeckDef =>
+            d && typeof d.id === 'string' && typeof d.title === 'string' && Array.isArray(d.commanders) && Array.isArray(d.cards) && typeof d.basics === 'object',
+        )
+        .map((d) => (d.textless === undefined || (Array.isArray(d.textless) && d.textless.every((n) => typeof n === 'string')) ? d : (({ textless: _, ...rest }) => rest)(d)));
     }
   } catch {
     // fall through to none
@@ -212,6 +215,8 @@ export interface Hover {
    * already shown big (the graveyard and exile viewer).
    */
   pinOnly?: boolean;
+  /** The card is played without its rules text (`Card.textless`): the preview says so. */
+  textless?: boolean;
 }
 
 interface Store {
@@ -577,7 +582,7 @@ export function onLobby(table: LobbyState) {
 }
 
 /** A deck to send to a table, with the fetched cards the host can't know. */
-export const deckChoice = (deck: DeckDef): DeckChoice => ({ deck, cards: fetchedCardsOf([deck]) });
+export const deckChoice = (deck: DeckDef): DeckChoice => ({ deck: playedDeck(deck), cards: fetchedCardsOf([deck]) });
 
 /** The cards fetched from Scryfall that these decks use, for the server, which can't fetch them itself. */
 function fetchedCardsOf(decks: DeckDef[]) {
@@ -624,7 +629,8 @@ export function tableOf(deck: DeckDef | null, settings: Settings, saved: DeckDef
   const decks = seatDecks(deck, settings.opponents, saved, (d) => savedDeckIssues(d).length === 0);
   const players = settings.players.every((p) => p === 'empty') ? (['bot', ...settings.players.slice(1)] as SeatPlayer[]) : settings.players;
   const opponents = decks.slice(1).flatMap((d, i) => (players[i] === 'empty' ? [] : [{ deck: d, human: deck !== null && players[i] === 'person' }]));
-  return [{ deck: decks[0], human: deck !== null }, ...opponents].map((s) => (s.human ? { ...s, manualDamage: settings.manualDamage } : s));
+  // Each deck goes to the engine with only the cards it still plays without their rules text (`playedDeck`).
+  return [{ deck: decks[0], human: deck !== null }, ...opponents].map((s) => ({ ...s, deck: playedDeck(s.deck), ...(s.human ? { manualDamage: settings.manualDamage } : {}) }));
 }
 
 /**

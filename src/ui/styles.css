@@ -4142,3 +4142,179 @@ button {
   font-size: 1.6rem;
   color: #aab3c5;
 }
+
+/* ---------- cards played without their rules text (Card.textless) ---------- */
+/* Appended here, not woven in: the table's styles are being reworked elsewhere. */
+
+/* A small plain mark: on a tile it scales with the tile (em), in the hand with the card. */
+.textless-badge {
+  display: inline-block;
+  padding: 0 0.45em;
+  font: 600 0.75em/1.5em 'Segoe UI', sans-serif;
+  letter-spacing: 0.02em;
+  color: #d4dbe9;
+  background: rgba(8, 10, 16, 0.85);
+  border: 0.08em solid #7a8399;
+  border-radius: 0.3em;
+  white-space: nowrap;
+}
+
+.tile .textless-badge {
+  position: absolute;
+  left: 0.3em;
+  bottom: 0.3em;
+  z-index: 1;
+  pointer-events: none;
+}
+
+/* The name bar is dimmed, so the card reads as "not all there" at a glance. */
+.tile.textless .tile-name {
+  color: #a9b0bd;
+  background: linear-gradient(90deg, rgba(60, 64, 74, 0.92), rgba(8, 10, 14, 0.85));
+}
+
+.hand-card .textless-badge {
+  position: absolute;
+  left: 50%;
+  top: 13%;
+  translate: -50% 0;
+  font-size: 1.3rem;
+  pointer-events: none;
+}
+
+/* The hand card's name bar sits at the top of the image: a grey wash over it. */
+.hand-card.textless::after {
+  content: '';
+  position: absolute;
+  inset: 3.5% 6% auto;
+  height: 6%;
+  background: rgba(40, 44, 52, 0.45);
+  border-radius: 0.4rem;
+  pointer-events: none;
+}
+
+.preview-textless {
+  margin-top: 0.8rem;
+  padding: 0.8rem 1.2rem;
+  font: 600 1.5rem/1.35 'Segoe UI', sans-serif;
+  color: #e6ebf4;
+  background: rgba(8, 10, 16, 0.92);
+  border: 0.15rem solid #7a8399;
+  border-radius: 0.8rem;
+}
+
+/* ---------- the paste screen's refused and textless lists (Menu.tsx) ---------- */
+
+.paste-problems.waiting {
+  flex: none;
+  color: #f0d58a;
+}
+
+.paste-refused,
+.paste-textless {
+  flex: 1 1 0;
+  min-height: 10rem;
+  overflow-y: auto;
+  padding: 1.2rem 1.4rem;
+  background: rgba(12, 14, 20, 0.7);
+  border: 0.15rem solid #4a5366;
+  border-radius: 1rem;
+  user-select: text;
+}
+
+.paste-textless {
+  flex-grow: 0.6;
+}
+
+.paste-refused h3,
+.paste-textless h3 {
+  margin: 0 0 0.4rem;
+  font: 600 1.8rem var(--serif);
+  color: var(--f-gold);
+}
+
+.refused-group + .refused-group {
+  margin-top: 1.2rem;
+  padding-top: 1rem;
+  border-top: 0.1rem solid #2e3442;
+}
+
+.refused-clause {
+  margin: 0.8rem 0 0.4rem;
+  font-size: 1.5rem;
+  font-style: italic;
+  color: #ffb4a3;
+}
+
+.refused-card {
+  padding: 0.6rem 0 0.6rem 1.2rem;
+  border-left: 0.2rem solid #4a5366;
+}
+
+.refused-card + .refused-card {
+  margin-top: 0.6rem;
+}
+
+.refused-name {
+  font-weight: 600;
+  color: #eef1f7;
+}
+
+.refused-line {
+  margin-top: 0.2rem;
+  font-size: 1.4rem;
+  color: #9aa4b8;
+}
+
+.refused-choice {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.8rem;
+  margin-top: 0.6rem;
+}
+
+.refused-choice .chip {
+  padding: 0.3rem 1rem;
+  font: 600 1.4rem 'Segoe UI', sans-serif;
+  color: #fff;
+  background: #262c38;
+  border: 0.15rem solid #4a5366;
+  border-radius: 0.8rem;
+}
+
+.refused-choice .chip:hover {
+  border-color: var(--f-gold);
+}
+
+.refused-why {
+  font-size: 1.4rem;
+  color: #c9a27a;
+}
+
+.paste-textless .textless-badge {
+  margin-left: 0.6rem;
+  font-size: 1.2rem;
+}
+
+/* ---------- menu: decks waiting on cards, decks with textless cards ---------- */
+
+.deck-blurb.deck-textless {
+  color: #d4dbe9;
+}
+
+.deck-fix {
+  position: absolute;
+  left: 0.8rem;
+  top: 0.8rem;
+  padding: 0.4rem 1.2rem;
+  font: 600 1.4rem 'Segoe UI', sans-serif;
+  color: #fff;
+  background: #262c38;
+  border: 0.15rem solid var(--f-gold);
+  border-radius: 0.8rem;
+}
+
+.deck-fix:hover {
+  background: #3a3324;
+}

@@ -13,7 +13,8 @@ src/cards/      decklists.json        the decks and tokens
                 decklist.ts           reading a pasted deck list (parseDeckList, checkList)
                 oracle.ts             scripts from Oracle text, for cards without a hand script
                 oracle-report.ts      the parse report (npm run parse-report)
-                support.ts            can the engine play a card (unsupported)
+                support.ts            can the engine play a card (unsupported, problemsOf), and
+                                      playing one without its rules text (playsWithoutText)
                 scryfall.ts           Scryfall's card data as CardData; fetching by name
                 fetched.ts            cards fetched for pasted decks: add, script, refuse
                 cache.ts              the browser's cache of fetched cards (IndexedDB)
@@ -269,7 +270,11 @@ A card pasted in a deck doesn't need to be in the pool: the app fetches it (see
 [Commander and decks](rules-coverage.md#commander-and-decks)). The ones it can't play are listed in
 `docs/card-requests.json`; run `/script-requested-cards` in Claude Code to add parser
 templates or hand scripts for them, then `npm run recheck-requests` to take out the ones the
-parser now reads.
+parser now reads. Until then a player may play such a card without its
+rules text: the deck lists it in `DeckDef.textless`, the engine makes the card with
+`Card.textless`, and `scriptFor` gives it the empty script (see
+[Known simplifications](rules-coverage.md#known-simplifications)). `playedDeck` drops a
+card from that list once it has a script, so it plays with its text again.
 
 **Widening the parser.** `npm run parse-report` scores the parser alone on the pool and on a
 corpus of real staples, `tests/parser-corpus.generated.json` (the 600 most-played Commander

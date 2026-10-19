@@ -57,7 +57,7 @@ import {
   untilEndOfTurn,
 } from '../src/engine';
 import type { Action, ActivatedAbility, ApplyOptions, Game, TurnStops } from '../src/engine';
-import { DECKS } from '../src/cards/db';
+import { DECKS, cardData } from '../src/cards/db';
 import './fixtures';
 import { byName, emptyGame, onBattlefield, put, run, runWith, twoCommanderDeck } from './helpers';
 
@@ -4511,5 +4511,89 @@ describe('dividing combat damage by hand (510.1c, 702.19b)', () => {
     });
     g = fight(g, ['Kalonian Tusker'], [['Walking Corpse', 'Kalonian Tusker'], ['Goblin Piker', 'Kalonian Tusker']]);
     expect(botAction(g, 0)).toEqual({ type: 'assignDamage', assignments: [asg(g, 'Kalonian Tusker', [['Walking Corpse', 2], ['Goblin Piker', 1]])] });
+  });
+});
+
+describe('a card played without its rules text (Card.textless)', () => {
+  /** Puts `name` in player `pid`'s hand, played without its rules text. */
+  const textlessInHand = (d: Game, pid: number, name: string) => {
+    const c = makeCard(d, name, pid, 'hand', { textless: true });
+    d.players[pid].hand.push(c);
+    return c;
+  };
+
+  it('casts, attacks and dies like a plain creature: its printed keywords stay, its script does nothing', () => {
+    // Nekrataal's script destroys a creature as it enters, and Phyrexian Rager's draws a card
+    // and loses 1 life; played without their text, neither does anything.
+    let g = emptyGame((d) => {
+      put(d, 0, 'Swamp', 'battlefield', 10);
+      textlessInHand(d, 0, 'Nekrataal');
+      textlessInHand(d, 0, 'Phyrexian Rager');
+      textlessInHand(d, 0, 'Vampire Nighthawk');
+      put(d, 1, 'Walking Corpse');
+      put(d, 1, 'Kalonian Tusker');
+    });
+    const library = g.players[0].library.length;
+    g = run(g, { type: 'cast', card: byName(g, 0, 'Nekrataal', 'hand')!.id });
+    expect(g.stack).toEqual([]);
+    expect(byName(g, 1, 'Walking Corpse')).toBeDefined();
+    g = run(g, { type: 'cast', card: byName(g, 0, 'Phyrexian Rager', 'hand')!.id });
+    expect([g.players[0].library.length, g.players[0].life]).toEqual([library, 40]);
+    const nekrataal = byName(g, 0, 'Nekrataal')!;
+    const rager = byName(g, 0, 'Phyrexian Rager')!;
+    expect(nekrataal.textless && rager.textless).toBe(true);
+    expect(stats(g, rager)).toMatchObject({ power: 2, toughness: 2 });
+    expect(g.log.filter((l) => l.text.includes("casts Nekrataal (its rules text doesn't work here)"))).toHaveLength(1);
+    // Its printed keywords are the engine's own (702): Nighthawk keeps flying, deathtouch and lifelink.
+    g = run(g, { type: 'cast', card: byName(g, 0, 'Vampire Nighthawk', 'hand')!.id });
+    expect([...stats(g, byName(g, 0, 'Vampire Nighthawk')!).keywords].sort()).toEqual(['deathtouch', 'flying', 'lifelink']);
+    // Next turn they attack and are blocked. Nekrataal's printed first strike (702.7) kills the
+    // Corpse before it can strike back; the Rager is a plain 2/2 and dies to the 3/3 Tusker.
+    g = produce(g, (d) => {
+      for (const c of d.players[0].battlefield) c.sick = false;
+    });
+    g = run(g, pass, { type: 'declareAttack', card: nekrataal.id, defender: 1 }, { type: 'declareAttack', card: rager.id, defender: 1 }, pass);
+    g = run(
+      g,
+      { type: 'declareBlock', blocker: byName(g, 1, 'Walking Corpse')!.id, attacker: nekrataal.id },
+      { type: 'declareBlock', blocker: byName(g, 1, 'Kalonian Tusker')!.id, attacker: rager.id },
+      pass,
+    );
+    expect(byName(g, 0, 'Nekrataal')).toBeDefined();
+    expect(byName(g, 1, 'Walking Corpse', 'graveyard')).toBeDefined();
+    const dead = byName(g, 0, 'Phyrexian Rager', 'graveyard')!;
+    expect(dead).toBeDefined();
+    expect(byName(g, 1, 'Kalonian Tusker')).toBeDefined();
+    // It stays played without its text in the graveyard, and the log said so once per card.
+    expect(dead.textless).toBe(true);
+    expect(g.log.filter((l) => l.text.includes("(its rules text doesn't work here)"))).toHaveLength(3);
+  });
+
+  it('notes it the first time it is played, for a land too', () => {
+    let g = emptyGame((d) => {
+      textlessInHand(d, 0, 'Bojuka Bog');
+    });
+    g = run(g, { type: 'playLand', card: byName(g, 0, 'Bojuka Bog', 'hand')!.id });
+    expect(g.log.some((l) => l.text.endsWith("plays Bojuka Bog (its rules text doesn't work here)."))).toBe(true);
+    // Bojuka Bog's script makes it enter tapped and exile a graveyard; without its text it does neither.
+    expect(byName(g, 0, 'Bojuka Bog')!.tapped).toBe(false);
+  });
+
+  it('starts in the library from the deck, and the bots play a game through with such cards', { tags: ['game'], timeout: 60_000 }, () => {
+    const black = DECKS.find((d) => d.id === 'black')!;
+    const creatures = black.cards.filter((n) => cardData(n).typeLine.includes('Creature')).slice(0, 12);
+    const deck = { ...black, textless: creatures };
+    let g = newGame({ seed: 7, humanDeck: null, decks: [deck, DECKS.find((d) => d.id === 'green')!] });
+    const all = [...g.players[0].library, ...g.players[0].hand];
+    expect(all.filter((c) => c.textless).map((c) => c.name).sort()).toEqual([...creatures].sort());
+    expect([...g.players[1].library, ...g.players[1].hand].some((c) => c.textless)).toBe(false);
+    let actions = 0;
+    while (g.step !== 'gameOver') {
+      const next = applyBotAction(g, botAction(g, g.priority));
+      if (next === g) throw new Error(`bot stalled at step ${g.step}`);
+      g = next;
+      if (++actions > 20_000) throw new Error(`game did not finish (turn ${g.turn})`);
+    }
+    expect(g.winner).not.toBeNull();
   });
 });

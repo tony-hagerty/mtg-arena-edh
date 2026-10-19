@@ -20,21 +20,45 @@ The full guide to the game's screens and controls. For a quick start, see the
   another person must decide something, until they click **I'm Player N**. Then their
   seat is at the bottom with their hand. People are called Player 1 to 4 by seat, and the
   log is written in the third person; alone against bots, you're "You".
-- **Paste a deck list:** the last tile under "Your decks" opens a text box. Paste a plain list ("1 Sol Ring" or "Sol
-  Ring") or an Arena, Moxfield or MTGO export; set codes, collector numbers and foil
-  marks are ignored. The commander comes from a "Commander" section, a `*CMDR*` mark or
-  a one- or two-card sideboard; otherwise click one (or two partners) among the list's
-  legendary creatures. Every problem is listed: cards the game can't play, and broken
-  deck rules (100 cards, one of each, colour identity, commander). **Save Deck** works
-  once there are none. The deck joins the menu, saved in the browser; **×** deletes it. A
-  saved deck the game can no longer play is greyed out with the reason.
+- **Paste a deck list:** the last tile under "Your decks" opens a text box. Paste a plain list ("1 Sol Ring", "Sol
+  Ring" or "Sol Ring x1") or an export from Arena, Moxfield, Archidekt, MTGO or
+  TappedOut. Set codes, collector numbers, foil marks, tags and category headings
+  ("Creatures (12)") are ignored, and sideboard and maybeboard cards ("SB:", Archidekt's
+  `{noDeck}`) are left out. The commander comes from a "Commander" section, a
+  "Commander: Name" line (one per partner), a `*CMDR*` mark, Archidekt's "Commander"
+  category, a one- or two-card sideboard, or the last one or two cards after a blank line
+  in a list with no headings (Moxfield's and MTGO's plain exports); otherwise click one
+  (or two partners) among the list's legendary creatures. Every problem is listed: names
+  that aren't cards, cards not legal in Commander, and broken deck rules (100 cards, one
+  of each, colour identity, commander). **Save Deck** works once there are none. The deck
+  joins the menu, saved in the browser; **×** deletes it. A saved deck the game can no
+  longer play is greyed out with the reason.
 - **Any card:** a card the game doesn't have is fetched from Scryfall as you paste, and
-  scripted from its Oracle text. One the game can't read yet is listed with the words it
-  couldn't read; replace it to save the deck. Fetched cards are kept in the browser, so
-  the deck works offline afterwards (**Clear N fetched** forgets them). If Scryfall
-  can't be reached, the screen says why and offers **Retry**; every other card still
-  works. Refused cards are written down for Claude to script later (see
-  [Adding a card](developing.md#adding-a-card)).
+  scripted from its Oracle text. Fetched cards are kept in the browser, so the deck works
+  offline afterwards (**Clear N fetched** forgets them). If Scryfall can't be reached,
+  the screen says why and offers **Retry**; every other card still works.
+- **Cards the game can't read yet** are listed under their own heading, grouped by the
+  words the game couldn't read, each with that line of its rules text and two choices:
+  - **Play without its rules text:** the card is in the deck with its real name, cost,
+    types, power and toughness and the keywords the game knows (flying, deathtouch ...),
+    and the rest of its text does nothing: it is a plain card. It moves to the heading
+    "Played without their rules text", where **Undo** takes it back. In a game it has a
+    small **no text** badge and a greyed name bar, on the table and in your hand;
+    hovering it says so, and the log adds "(its rules text doesn't work here)" the first
+    time it is cast. On the menu the deck says "N cards play without their text". Once
+    the game learns to read the card, it plays with its text again by itself.
+  - **Swap it out** takes its line out of the list, so you can paste another card in.
+
+  Your commander can't be played without its text (its text is the deck), and neither
+  can a card the game can't play as a plain card at all, like a double-faced card or one
+  with a keyword such as ninjutsu: those can only be swapped.
+- **Saving for later:** a deck with cards still to choose for can be saved anyway
+  (**Save for Later**). It waits greyed out on the menu with "N cards the game can't play
+  yet", and **Swap them** (**Swap it** for one) opens it in the paste screen with those cards at the top of the
+  list, so you can fix it at your own pace. Saving there replaces it.
+- Cards the game can't read are written down for Claude to script later (see
+  [Adding a card](developing.md#adding-a-card)); outside `npm run dev`, **Download
+  report** saves them as a file.
 - **Mulligan:** before the first turn you see your seven cards. Press **Keep**, or
   **Mulligan** to shuffle them away and draw seven new ones. Your first mulligan is free;
   after that you pick one card per extra mulligan to put on the bottom of your library.

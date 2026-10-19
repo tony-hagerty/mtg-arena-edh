@@ -39,10 +39,10 @@ export const faceUp = (c: Card, me: PlayerId | null) => !c.faceDown || (me !== n
  * card in the game by its data (`data(card)`), which a token or a copy needs. Right-click
  * pins it (`Preview`). With `pinOnly` only right-click shows it, for a card already shown big.
  */
-export const hoverProps = (card: string | CardData, { pinOnly = false } = {}) => ({
+export const hoverProps = (card: string | CardData, { pinOnly = false, textless = false } = {}) => ({
   onMouseEnter: (e: MouseEvent<HTMLElement>) =>
     useStore.setState({
-      hover: { ...(typeof card === 'string' ? { name: card } : { name: card.name, d: card }), el: e.currentTarget, ...(pinOnly && { pinOnly }) },
+      hover: { ...(typeof card === 'string' ? { name: card } : { name: card.name, d: card }), el: e.currentTarget, ...(pinOnly && { pinOnly }), ...(textless && { textless }) },
     }),
   onMouseLeave: () => useStore.setState({ hover: null }),
 });
