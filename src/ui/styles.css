@@ -721,6 +721,8 @@ button {
   border-radius: 0.5em;
   background: #0d0f14;
   box-shadow: 0 0.35em 0.9em rgba(0, 0, 0, 0.8);
+  /* Its own stacking context, so the cards attached to it stay above the table (.tile-attached). */
+  isolation: isolate;
 }
 
 /* Side seats see their cards turned a quarter, so the box is tall instead of wide. */
@@ -898,44 +900,37 @@ button {
 }
 
 /*
-  An Aura or Equipment attached to this permanent (303.4b, 301.5a): tucked behind it,
-  each one's top strip showing above the last.
+  An Aura or Equipment attached to this permanent (303.4b, 301.5a): a card the size of the
+  face, turned with it and fanned out behind it toward the top of the face, so each one's
+  name bar and a band of its art show past the last. The tile is isolated (see .tile), so
+  z-index -1 puts them behind the face but never behind the table: without it an untapped
+  tile has no transform, so no stacking context, and they sank under the board's background.
+  They are children of the tile, so they tap, attack and glow with it.
 */
 .tile-attached {
+  --frame: var(--f-artifact);
   position: absolute;
-  left: 0.6em;
-  right: 0.6em;
-  top: calc(-1.6em * (var(--i) + 1));
-  height: 2.6em;
+  left: 50%;
+  top: 50%;
+  width: var(--tw);
+  aspect-ratio: 5 / 4;
+  translate: -50% -50%;
+  rotate: var(--face);
+  /*
+    After the turn, so "up" is the top of the face at every seat. Each one shows 2.3em more,
+    or less once there are more than three (--n), so the fan stays within 7em.
+  */
+  transform: translateY(calc(-1 * min(2.3em, 7em / var(--n)) * (var(--i) + 1)));
   z-index: -1;
-  display: flex;
-  align-items: flex-start;
-  gap: 0.4em;
-  padding: 0.25em 0.4em;
-  font: 600 0.95em 'Segoe UI', sans-serif;
-  white-space: nowrap;
-  overflow: hidden;
-  color: #fff;
-  background: #1a1d24;
-  border: 0.12em solid var(--frame);
-  border-radius: 0.45em 0.45em 0 0;
+  border-radius: 0.5em;
+  /* Shows if the art doesn't load. */
+  background: var(--frame);
+  box-shadow: 0 -0.2em 0.6em rgba(0, 0, 0, 0.7);
   cursor: pointer;
 }
 
-.tile-attached-art {
-  flex: none;
-  /* Shows if the art doesn't load. */
-  background-color: var(--frame);
-  width: 1.2em;
-  height: 1.2em;
-  border-radius: 50%;
-  background-size: cover;
-  background-position: center;
-}
-
-.tile-attached.glow-play,
-.tile-attached.glow-target {
-  border-color: #ffe45c;
+.tile-attached:hover {
+  outline: 0.15em solid var(--cyan);
 }
 
 .tile-sick {
@@ -2101,6 +2096,18 @@ button {
   color: #fff;
 }
 
+/* What a resolving spell or ability did: the lines flash gold once as they appear. */
+.log-line.resolved {
+  animation: log-resolved 1.6s ease-out;
+}
+
+@keyframes log-resolved {
+  from {
+    color: #fff;
+    background: rgba(255, 210, 122, 0.35);
+  }
+}
+
 /* A card named in the log: hover it for the full card. */
 .log-card {
   color: #eef1f7;
@@ -2265,6 +2272,58 @@ button {
   box-shadow:
     0 0 4rem 0.8rem rgba(255, 210, 122, 0.6),
     0 1rem 3rem #000;
+}
+
+/* ---------- cards moving between zones (Flights.tsx) ---------- */
+
+/* Over the table and its panels, under the modals. The copies only show a move: the pointer goes through them. */
+.flights {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 45;
+}
+
+.flight {
+  position: absolute;
+  translate: -50% -50%;
+}
+
+.flight :is(img, .text-card),
+.flight .card-back {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  border-radius: 4.75% / 3.5%;
+  box-shadow: 0 0.8rem 2rem rgba(0, 0, 0, 0.8);
+}
+
+/* A spell or ability resolving glows like the top of the stack as it goes. */
+.flight.resolving :is(img, .text-card) {
+  box-shadow:
+    0 0 0 0.25rem #ffe9a8,
+    0 0 3rem 0.8rem rgba(255, 210, 122, 0.85),
+    0 0.8rem 2rem #000;
+}
+
+/* A ring flaring once over a permanent: a token appearing, or the source of an ability that resolved. */
+.flare {
+  position: absolute;
+  translate: -50% -50%;
+  border-radius: 0.8rem;
+}
+
+.flare.resolve {
+  box-shadow:
+    0 0 0 0.3rem #ffe9a8,
+    0 0 2.6rem 1rem rgba(255, 210, 122, 0.8);
+}
+
+.flare.token {
+  box-shadow:
+    0 0 0 0.3rem #fff,
+    0 0 2.6rem 1rem rgba(160, 220, 255, 0.8);
 }
 
 .spell-caster {

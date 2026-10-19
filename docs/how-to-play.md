@@ -72,6 +72,12 @@ The full guide to the game's screens and controls. For a quick start, see the
   is there and you could respond, the game stops for you: cast an instant or use an
   ability, or press **Resolve** to let it happen. The newest thing on the stack happens
   first.
+- Cards fly to where they go: from a hand to the stack, from the stack to the battlefield
+  or the graveyard, from the battlefield to a graveyard or exile pile, back to a hand or
+  the command zone. A spell or ability that resolves glows gold as it leaves the stack, an
+  ability flies back into the permanent it came from, and the log lines it wrote flash
+  gold. A new token flares as it appears. At a higher **Speed** the flights are quicker,
+  and with your system set to reduce motion cards just appear where they go.
 - With the stack empty, the game passes for you except at your **stops**. The tracker in
   the bottom right shows them:
 
@@ -132,6 +138,7 @@ The full guide to the game's screens and controls. For a quick start, see the
 | **Class** | Click yours to see its level bars; pick the next one and pay for it. |
 | **Several abilities** (Deathrite Shaman) | Click the permanent to see every activated ability; the ones you can't use now are dimmed. With only one usable, clicking goes straight to it. |
 | **"One mana of any color"** | A window with the five colours opens while it resolves. **Lion's Eye Diamond** asks for the colour when you click it. |
+| **Aura and Equipment** | What is attached to a permanent fans out behind it, toward the top of the card, each showing its name and a strip of art; it taps and attacks with the permanent. Click an Equipment's strip to equip it to something else, hover a strip to read the card. An enchanted land stands on its own instead of in its pile. |
 | **Graveyard and exile** | A pile glows when something in it can be cast (flashback, escape, an adventurer card whose Adventure you cast, or a card an effect lets you cast or play, in anyone's exile). Open it and click the glowing card. With escape (Underworld Breach) a window then asks for the three other cards to exile. A card exiled face down shows its back, unless you may look at it. |
 | **Gift, channel, bargain** | Extra cast-panel rows: **Gift** (promise an opponent a gift, or none); an **Or** chip beside playing a card with an ability that works from the hand (Otawara's channel); **No Sacrifice** skips a bargain sacrifice. |
 | **Sacrifice costs** (Goblin Bombardment, Village Rites) | After the targets, the creatures you could sacrifice glow yellow; click one. |
@@ -157,8 +164,8 @@ The full guide to the game's screens and controls. For a quick start, see the
 | `Esc` | cancel |
 | `Ctrl+Space` | hold priority (see [Turns, priority and the stack](rules-coverage.md#turns-priority-and-the-stack)) |
 | Hover a card | full-size view |
-| Right-click a card (in your hand too) | bigger view that stays up; left-click off it to close |
-| Click a graveyard or exile pile | look through it |
+| Right-click a card (in your hand, on the stack, on a graveyard or exile pile, or in the window that opens from one) | bigger view that stays up; left-click off it to close (over that window, the first click closes the view and the next the window) |
+| Click a graveyard or exile pile | look through it; hovering the pile shows its top card |
 | Hover a card name in the log (dashed underline) | see the card |
 
 The log is bottom-left, under one bar; point at a button on it (or tab to it) for its name.

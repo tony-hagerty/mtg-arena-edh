@@ -2323,6 +2323,22 @@
    "keywords": [],
    "image": "https://cards.scryfall.io/normal/front/3/8/38737f38-26bd-417c-b6b4-53f26e4e8044.jpg",
    "art": "https://cards.scryfall.io/art_crop/front/3/8/38737f38-26bd-417c-b6b4-53f26e4e8044.jpg"
+  },
+  "Final Judgment": {
+   "name": "Final Judgment",
+   "manaCost": "{4}{W}{W}",
+   "cmc": 6,
+   "colors": [
+    "W"
+   ],
+   "colorIdentity": [
+    "W"
+   ],
+   "typeLine": "Sorcery",
+   "oracleText": "Exile all creatures.",
+   "keywords": [],
+   "image": "https://cards.scryfall.io/normal/front/2/5/2503e136-031f-498a-b042-4077baebe8f8.jpg",
+   "art": "https://cards.scryfall.io/art_crop/front/2/5/2503e136-031f-498a-b042-4077baebe8f8.jpg"
   }
  }
 }
