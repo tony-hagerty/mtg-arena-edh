@@ -26,9 +26,11 @@ import {
   destroyMany,
   devotion,
   discard,
+  discardHand,
   draw,
   enterBattlefield,
   exile,
+  exileAll,
   gainLife,
   hasType,
   isColor,
@@ -655,10 +657,9 @@ registerScripts({
           text: "Exile target player's graveyard.",
           targets: [anyPlayer],
           resolve: (g, { targets }) => {
+            // Every card in it, as one event (603.2c).
             const p = refPlayer(g, targets[0]);
-            if (!p || !p.graveyard.length) return;
-            log(g, `${p.name}'s graveyard is exiled.`, p.id, [...p.graveyard]);
-            for (const c of [...p.graveyard]) moveCard(g, c, 'exile');
+            if (p) exileAll(g, [...p.graveyard], `${p.name}'s graveyard is exiled.`, p.id);
           },
         },
         { text: 'Destroy target artifact.', targets: [{ type: 'permanent', label: 'target artifact', filter: (g, c) => hasType(g, c, 'Artifact') }], resolve: (g, { targets }) => void destroy(g, refCard(g, targets[0])) },
@@ -776,12 +777,9 @@ registerScripts({
     // "Each player discards their hand, then draws cards equal to the greatest number of cards a player discarded this way."
     onResolve: (g) => {
       const order = turnOrder(g, g.active);
-      let most = 0;
-      for (const pid of order) {
-        const hand = [...g.players[pid].hand];
-        most = Math.max(most, hand.length);
-        for (const c of hand) discard(g, c);
-      }
+      const most = Math.max(...order.map((pid) => g.players[pid].hand.length));
+      // Every hand at once (701.9a).
+      simultaneously(g, () => order.forEach((pid) => discardHand(g, pid)));
       for (const pid of order) draw(g, pid, most); // in turn order (121.2c)
     },
   },
