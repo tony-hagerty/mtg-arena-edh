@@ -2140,7 +2140,7 @@ function act(g: Game, a: Action): boolean {
       // A modal double-faced card is played as one of its land faces (712.12).
       const face = a.face ?? landFaces(g, c)[0];
       log(g, `${says(p, 'plays')} ${label(c)}.`, pid, [c]);
-      enterBattlefield(g, c, { face, controller: pid });
+      enterBattlefield(g, c, { face, controller: pid, quiet: true });
       g.passes = 0; // the player keeps priority after a special action (117.3c)
       // A choice made as it enters, like Cavern of Souls's creature type (614.12a).
       nextChoice(g);
