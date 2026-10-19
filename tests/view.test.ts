@@ -5,7 +5,10 @@ import { describe, expect, it } from 'vitest';
 import './fixtures';
 import { useStore } from '../src/ui/store';
 import { activateFromHand, buildView, clickGroup, chooseEscape, chooseGraveyardTarget, clickPermanent, clickPlayer, clickStackItem, exileForMana, manaOptions, pickAbility, pickMana, pickManaSacrifice, pickFace, pickMode, playHandCard, setAbilityX, setChoices } from '../src/ui/view';
-import { applyAction, canCast, isCreature } from '../src/engine';
+import { applyAction, canCast, isCreature, scriptOf } from '../src/engine';
+import { registerScripts } from '../src/engine/registry';
+import { parseCard } from '../src/cards/oracle';
+import { cardData } from '../src/cards/db';
 import type { Game } from '../src/engine';
 import { byName, emptyGame, put } from './helpers';
 
@@ -747,5 +750,31 @@ describe('choosing the mana by hand (605, 106.1)', () => {
     clickPermanent(byName(game(), 0, 'Dimir Signet')!);
     expect(pool()).toBe('');
     expect(game().players[0].battlefield.filter((c) => c.tapped)).toEqual([]);
+  });
+});
+
+describe('a fetch land in the main phase (117.3b)', () => {
+  it.each(['hand script', 'Oracle template'])('after the search the human still has priority in main 1 (%s)', (source) => {
+    const hand = scriptOf('Polluted Delta');
+    const parsed = parseCard(cardData('Polluted Delta'));
+    if (!parsed.ok) throw new Error('Polluted Delta refused');
+    try {
+      // A pasted deck's fetch lands without a hand script are read by the Oracle parser.
+      if (source === 'Oracle template') registerScripts({ 'Polluted Delta': parsed.script });
+      play((d) => {
+        put(d, 0, 'Polluted Delta');
+        d.players[0].library = [];
+        put(d, 0, 'Island', 'library');
+        put(d, 0, 'Plains', 'library');
+      });
+      clickPermanent(byName(game(), 0, 'Polluted Delta')!);
+      press(); // Pay 1 life
+      expect(game().decision?.type).toBe('chooseCards');
+      useStore.getState().act({ type: 'chooseCards', cards: [byName(game(), 0, 'Island', 'library')!.id] });
+      expect([game().step, game().priority, game().decision]).toEqual(['main1', 0, null]);
+      expect(buildView().primary?.label).toBe('Next');
+    } finally {
+      registerScripts({ 'Polluted Delta': hand });
+    }
   });
 });

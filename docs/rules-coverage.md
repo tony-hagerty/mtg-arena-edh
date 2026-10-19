@@ -67,7 +67,9 @@ are from the Comprehensive Rules in `docs/rules/`.
   view first, so a refused click says so at once. It doesn't pass priority on for others
   (that depends on their hands), and a move that gets past the engine's checks and then
   reaches a hidden card, like the last mulligan keep (103.6), is left to the server. Tapping mana and declaring attackers or blockers show at
-  once; anything else waits for the server's next view. Each move carries a number the
+  once; anything else waits for the server's next view, and until it comes the window
+  takes no other move, so a second click or key press on the old screen (Pay turned into
+  Next) can't send a pass the player never saw. Each move carries a number the
   server echoes back (`ack`), so a view sent before the move arrived is ignored. Passing
   the screen to another person at the same computer switches which seat the window
   streams. A POST must come from the game's own page (its `Origin`), so another web page

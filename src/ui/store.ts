@@ -449,12 +449,18 @@ export const useStore = create<Store>()((set, get) => ({
       set({ game: next, ...ui, ...follow(next, human, get().humans) });
       return true;
     }
+    // Until the server answers a move this window can't show by itself, the screen still
+    // shows the game from before it, and the big button there means something else (Pay has
+    // become Next): a second click or key press would send a move the player never saw, a
+    // pass that skips the rest of the main phase. So one such move at a time.
+    if (remote.waiting[human]) return false;
     // With a server, the move is checked against this seat's view first, so a click the
     // engine refuses still says so at once. The server then has the last word.
     const next = checkOnView(g, a);
     if (next === g) return false;
     const seq = (remote.seq[human] ?? 0) + 1;
     remote.seq[human] = seq;
+    if (!keep) remote.waiting[human] = seq;
     server.act({ seat: human, seq, action: a });
     // Those same moves touch nothing hidden, so the window shows them at once and the
     // server's view agrees. Anything else waits for the server: it may draw a card, or
@@ -475,9 +481,11 @@ export const useStore = create<Store>()((set, get) => ({
 const freshSeat = { handoff: null, targeting: null, attackTarget: null, pickedBlockers: [], handOrder: [], viewer: null, manaPick: null, hover: null };
 
 /** The connection's moving parts, outside the store's state: they don't change what's drawn. */
-const remote: { gameId: number; seq: Partial<Record<PlayerId, number>>; unwatch: (() => void) | null; leaving: boolean } = {
+const remote: { gameId: number; seq: Partial<Record<PlayerId, number>>; waiting: Partial<Record<PlayerId, number>>; unwatch: (() => void) | null; leaving: boolean } = {
   gameId: 0,
   seq: {},
+  /** The move each seat sent that the server hasn't answered yet and the window doesn't show (see `act`). */
+  waiting: {},
   unwatch: null,
   /** This window left a table's game and the lobby hasn't said so yet. */
   leaving: false,
@@ -505,6 +513,7 @@ export function onView(m: ViewMessage) {
     // A new game: the screen starts afresh, and moves count from 1 again.
     remote.gameId = m.gameId;
     remote.seq = {};
+    remote.waiting = {};
     if (!m.game) return;
     useStore.setState({ game: m.game, gameNo: s.gameNo + 1, human: m.seat, ...freshSeat, ...follow(m.game, m.seat, s.humans) });
     // The host started a table's game without this person's stops and settings.
@@ -512,6 +521,8 @@ export function onView(m: ViewMessage) {
     return;
   }
   if (m.seat !== null && m.ack < (remote.seq[m.seat] ?? 0)) return;
+  // Every move this seat sent has been answered: it may move again.
+  if (m.seat !== null) delete remote.waiting[m.seat];
   if (!m.game) {
     // The game ended elsewhere (another window left it).
     if (s.game) useStore.setState({ game: null, hover: null, targeting: null, viewer: null, confirmExit: false });

@@ -214,6 +214,8 @@ export function ActionBar() {
         return;
       }
       const { primary, secondary, paying } = latest.current;
+      // A key held down repeats: only the first press counts, or one press could pay and then pass.
+      if ((e.code === 'Space' || e.code === 'Enter') && e.repeat) return e.preventDefault();
       if ((e.code === 'Space' || e.code === 'Enter') && primary && !primary.disabled) {
         // Ctrl (or Cmd) with Pay keeps priority afterwards, like Arena.
         if (paying && (e.ctrlKey || e.metaKey)) useStore.setState({ hold: true });
