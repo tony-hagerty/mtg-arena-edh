@@ -22,23 +22,34 @@ src/cards/      decklists.json        the decks and tokens
                 subtypes.json         the other card types' subtypes (205.3g-q; npm run fetch-rules)
                 cards.generated.json  card data from Scryfall (npm run fetch-cards)
                 scripts.ts            what each card does (starter decks)
-                kraum-tymna.ts        what the Kraum and Tymna deck's cards do
                 pairs.ts              what the two-colour starter decks' new cards do
+                kraum-tymna.ts, yshtola.ts, ketramose.ts, kuja.ts, hashaton.ts
+                                      what each Commander deck's own cards do
 src/engine/     types.ts              game state, actions, card-script types
                 rules.ts              queries (stats, mana, targets) + effect primitives
                 layers.ts             continuous effects in layers and timestamp order (613)
                 replace.ts            replacement and prevention effects, and their order (614-616)
                 engine.ts             setup, turn structure, priority, the stack, applyAction()
                 ai.ts                 the bots
+                view.ts               one seat's copy of the game, hidden cards taken out
+                registry.ts           where card scripts register themselves
 src/net/        protocol.ts           what the game window and game server send each other
                 lobby.ts              what the window and the lobby send each other
 server/game/    host.ts               the game server: the whole game, bots, each seat's view
                 http.ts               its web endpoints (/api/game/...)
+                service.ts            which game the endpoints play: this computer's, or a host's
 server/lobby/   table.ts              the host's table: seats, decks, ready, starting the game
                 hosting.ts            hosting: friends' TLS connections, the join code
                 guest.ts              a friend's side: joining, and relaying the host's game
                 lobby.ts, http.ts     this computer's lobby and its endpoints (/api/lobby/...)
-src/ui/         store.ts              Zustand store (game + what the player is selecting)
+                saves.ts              saved table games, to resume if the host goes
+                wire.ts, version.ts   the host-to-friend protocol; the build each program is
+server/net/                           reaching the host: TLS identity, join codes, port
+                                      forwarding (NAT-PMP, UPnP), addresses, CGNAT checks
+launcher/                             the Windows program: serves the game, opens Edge, logs
+                                      to ArenaEDH-data/launcher.log (see launcher/README.md)
+src/ui/         App.tsx               menu or game screen; GameScreen.tsx lays the game out
+                store.ts              Zustand store (game + what the player is selecting)
                 remote.ts             the window's connection to the game server
                 lobby.ts              the window's connection to the lobby; the name you play under
                 LobbyScreen.tsx       hosting a table, joining one with a code, the waiting room
@@ -54,6 +65,8 @@ src/ui/         store.ts              Zustand store (game + what the player is s
                 synth.ts              how each sound is made (Web Audio, no sound files)
                 game-sounds.ts        which sound a change of game state makes (gameSound)
                 SoundControl.tsx      the menu's volume slider and the in-game Sound button
+                fullscreen.ts, rem.ts Alt+Enter fullscreen; the root font-size as a hook
+                util.ts               small helpers: class names, deck colours, hover props
                 styles.css            all styling
 tests/                                Vitest: card coverage, rules, the UI casting flow,
                                       bot-vs-bot games

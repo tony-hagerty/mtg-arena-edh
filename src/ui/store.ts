@@ -201,8 +201,11 @@ export interface Hover {
    * looked up by, and a copy or a flipped card looks different from its name's card.
    */
   d?: CardData;
-  /** A card in the human's hand. It zooms itself, so it only gets a preview when right-clicked. */
-  hand?: boolean;
+  /**
+   * Only right-click previews it: a card in the human's hand, which zooms itself, or one
+   * already shown big (the graveyard and exile viewer).
+   */
+  pinOnly?: boolean;
 }
 
 interface Store {

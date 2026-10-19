@@ -80,7 +80,8 @@ function BackRow({ player, width, max, className, split }: { player: Player; wid
   const stacks = new Map<string, Card[]>();
   const order = (c: Card) => Number(floating(player, c)) * 2 + Number(c.tapped);
   for (const c of [...lands].sort((a, b) => a.name.localeCompare(b.name) || order(b) - order(a))) {
-    const key = `${c.name}|${c.tapped}|${floating(player, c)}`;
+    // An enchanted land stands alone, so what is attached to it shows (see `Permanent`).
+    const key = attachmentsOf(g, c).length ? c.id : `${c.name}|${c.tapped}|${floating(player, c)}`;
     stacks.set(key, [...(stacks.get(key) ?? []), c]);
   }
   const landUnits = [...stacks.values()].reduce((n, s) => n + 1 + 0.14 * (s.length - 1), 0);
@@ -260,9 +261,11 @@ function FaceUpPile({ player, zone }: { player: Player; zone: 'graveyard' | 'exi
     <div
       className={cx('pile', zone, !top && 'empty', castable && 'glow-play')}
       title={`${name}: ${cards.length} cards${top ? ' — click to view' : ''}`}
-      onClick={() => top && useStore.setState({ viewer: { pid: player.id, zone } })}
+      // The viewer covers the pile, so its preview goes with it.
+      onClick={() => top && useStore.setState({ viewer: { pid: player.id, zone }, hover: null })}
     >
-      {top && (faceUp(top, v.me) ? <CardImage d={data(top)} alt="" draggable={false} /> : <div className="card-back" />)}
+      {/* Keyed by the card, so the preview moves on when a new card lands on top. */}
+      {top && (faceUp(top, v.me) ? <CardImage key={top.id} d={data(top)} alt="" draggable={false} data-card={top.id} {...hoverProps(data(top))} /> : <div className="card-back" />)}
       <i className={`ms ms-${zone}`} />
       <span className="count">{cards.length}</span>
     </div>

@@ -1,11 +1,13 @@
 // The human's casting flow in the UI: announce X/kicker/cost, choose targets, choose a
 // sacrifice, pay. Drives the real store and view code without rendering anything.
 import { produce } from 'immer';
+import type { MouseEvent } from 'react';
 import { describe, expect, it } from 'vitest';
 import './fixtures';
 import { useStore } from '../src/ui/store';
+import { hoverProps } from '../src/ui/util';
 import { activateFromHand, buildView, clickGroup, chooseEscape, chooseGraveyardTarget, clickPermanent, clickPlayer, clickStackItem, exileForMana, manaOptions, pickAbility, pickMana, pickManaSacrifice, pickFace, pickMode, playHandCard, setAbilityX, setChoices } from '../src/ui/view';
-import { applyAction, canCast, isCreature } from '../src/engine';
+import { applyAction, canCast, data, isCreature } from '../src/engine';
 import type { Game } from '../src/engine';
 import { byName, emptyGame, put } from './helpers';
 
@@ -747,5 +749,32 @@ describe('choosing the mana by hand (605, 106.1)', () => {
     clickPermanent(byName(game(), 0, 'Dimir Signet')!);
     expect(pool()).toBe('');
     expect(game().players[0].battlefield.filter((c) => c.tapped)).toEqual([]);
+  });
+});
+
+describe('the card preview (right-click)', () => {
+  // No DOM here: the handlers only keep the element, so any object stands in for it.
+  const el = {} as HTMLElement;
+  const enter = (props: ReturnType<typeof hoverProps>) => props.onMouseEnter({ currentTarget: el } as MouseEvent<HTMLElement>);
+
+  it('a graveyard card in the viewer can be right-clicked, but shows no hover preview', () => {
+    play((d) => {
+      put(d, 0, 'Curiosity', 'graveyard');
+    });
+    const c = byName(game(), 0, 'Curiosity', 'graveyard')!;
+    enter(hoverProps(data(c), { pinOnly: true }));
+    // Right-click pins whatever `hover` holds; `pinOnly` keeps the floating preview off.
+    expect(useStore.getState().hover).toMatchObject({ name: 'Curiosity', d: data(c), el, pinOnly: true });
+    hoverProps(data(c)).onMouseLeave();
+    expect(useStore.getState().hover).toBeNull();
+  });
+
+  it('a card on the table or on top of a pile gets the hover preview too', () => {
+    play((d) => {
+      put(d, 0, 'Serra Angel', 'graveyard');
+    });
+    enter(hoverProps(data(byName(game(), 0, 'Serra Angel', 'graveyard')!)));
+    expect(useStore.getState().hover).toMatchObject({ name: 'Serra Angel', el });
+    expect(useStore.getState().hover!.pinOnly).toBeUndefined();
   });
 });

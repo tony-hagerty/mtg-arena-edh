@@ -36,11 +36,14 @@ export const faceUp = (c: Card, me: PlayerId | null) => !c.faceDown || (me !== n
 
 /**
  * Shows the big card preview while the pointer is over an element: a card by its name, or a
- * card in the game by its data (`data(card)`), which a token or a copy needs.
+ * card in the game by its data (`data(card)`), which a token or a copy needs. Right-click
+ * pins it (`Preview`). With `pinOnly` only right-click shows it, for a card already shown big.
  */
-export const hoverProps = (card: string | CardData) => ({
+export const hoverProps = (card: string | CardData, { pinOnly = false } = {}) => ({
   onMouseEnter: (e: MouseEvent<HTMLElement>) =>
-    useStore.setState({ hover: typeof card === 'string' ? { name: card, el: e.currentTarget } : { name: card.name, d: card, el: e.currentTarget } }),
+    useStore.setState({
+      hover: { ...(typeof card === 'string' ? { name: card } : { name: card.name, d: card }), el: e.currentTarget, ...(pinOnly && { pinOnly }) },
+    }),
   onMouseLeave: () => useStore.setState({ hover: null }),
 });
 

@@ -709,7 +709,8 @@ function hoverData(hover: Hover): CardData | null {
 function cardAt(game: Game | null, at: Element | null) {
   const el = at?.closest<HTMLElement>('[data-card]');
   const card = el && game && findCard(game, el.dataset.card!);
-  return el && card ? { name: card.name, d: data(card), el } : null;
+  // The viewer's cards are shown big already (see `ZoneViewer`).
+  return el && card ? { name: card.name, d: data(card), el, ...(el.closest('.viewer') && { pinOnly: true }) } : null;
 }
 
 /**
@@ -756,8 +757,8 @@ export function Preview() {
     useStore.setState({ hover: cardAt(game, document.elementFromPoint(pointer.current.x, pointer.current.y)) });
   }, [game, hover]);
 
-  // A hand card zooms itself, so it only gets the pinned preview.
-  const d = pinned ?? (hover && !hover.hand ? hoverData(hover) : null);
+  // A hand card zooms itself, and the viewer's cards are big already: they only get the pinned preview.
+  const d = pinned ?? (hover && !hover.pinOnly ? hoverData(hover) : null);
   const rem = parseFloat(getComputedStyle(document.documentElement).fontSize);
   const gap = 1.5 * rem;
   if (pinned) {
@@ -960,6 +961,9 @@ export function ZoneViewer() {
                 key={c.id}
                 d={data(c)}
                 alt={data(c).name}
+                data-card={c.id}
+                // Already big: no hover preview, but right-click pins one like a card on the table.
+                {...hoverProps(data(c), { pinOnly: true })}
                 className={cx(castable && 'glow-play')}
                 title={castable ? `Cast ${data(c).name}` : undefined}
                 draggable={false}
