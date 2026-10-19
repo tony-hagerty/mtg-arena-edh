@@ -86,6 +86,15 @@ function sizedToken(name: string): CardData | undefined {
   return sizedTokens.get(name);
 }
 
+/**
+ * Adds a token the Oracle text parser read from a card's words ("a 2/2 black Zombie creature
+ * token"), under a key like the listed ones' ("Zombie 2/2 B"). A listed token wins: the parser
+ * looks for one first, and a key already taken isn't replaced. It has no art.
+ */
+export function registerToken(key: string, d: CardData) {
+  if (!(key in tokens)) tokens[key] = d;
+}
+
 export function cardData(name: string): CardData {
   const d = cards[name] ?? tokens[name] ?? faceNames.get(name) ?? sizedToken(name);
   if (!d) throw new Error(`Unknown card: ${name}`);
