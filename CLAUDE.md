@@ -48,6 +48,13 @@ Read first:
   `themes`, `cards`, `combos` the same way), which can change shape without notice. Fetch
   sparingly and cache, as `scripts/fetch-cards.mjs` does with Scryfall; never fetch at
   game time. Both hosts must be allowed in the cloud environment's network settings.
+- **Moxfield** (`moxfield.com`, `api2.moxfield.com`) is where sample decks would come from,
+  but its API is not public: Cloudflare turns away requests that don't come from a browser,
+  and Moxfield grants scripted access only on request (they issue a User-Agent to send).
+  Until the user has that, the supported route is the one the app already has: export a
+  deck from Moxfield and paste it (`src/cards/decklist.ts` reads the format). Don't work
+  around the block. With access granted, keep the agreed User-Agent in an environment
+  secret, fetch sparingly and cache, and allow both hosts in the network settings.
 
 ## Card wording is the rules
 
