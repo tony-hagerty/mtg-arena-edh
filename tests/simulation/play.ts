@@ -1,6 +1,6 @@
 // Plays a bot-vs-bot game for the files in this folder (see games.ts: one game a file, so
 // Vitest plays them at the same time on every core), checking the game after every action.
-import { applyBotAction, botAction, newGame } from '../../src/engine';
+import { applyBotAction, botAction, newGame, sbaPending } from '../../src/engine';
 import type { Card, Game } from '../../src/engine';
 import type { DeckDef } from '../../src/cards/db';
 import '../fixtures';
@@ -52,6 +52,8 @@ function checkInvariants(g: Game, sizes: number[]) {
   }
   if (g.step !== 'gameOver' && g.players[g.priority].lost) throw new Error('a dead player has priority');
   if (g.triggers.length && !g.decision && g.step !== 'gameOver') throw new Error('a triggered ability was left waiting');
+  // State-based actions are checked before anyone gets priority (117.5): none is left to do.
+  if (!g.resolving && g.step !== 'gameOver' && sbaPending(g)) throw new Error('a state-based action was left undone');
   if (g.stack.some((x) => g.players[x.controller].lost)) throw new Error('a dead player has something on the stack');
   for (const a of g.combat?.attacks ?? []) {
     if (g.players[a.defender].lost) throw new Error('attacking a dead player');
