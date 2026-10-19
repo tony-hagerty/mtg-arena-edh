@@ -73,7 +73,7 @@ describe('reading Oracle text', () => {
     });
     // "Instead", conditions and counts it can't read are never approximated.
     expect(refusal('Instant', 'Draw a card for each creature that died this turn.')).not.toBeNull();
-    expect(refusal('Instant', 'If you control a creature, draw two cards.')).not.toBeNull();
+    expect(refusal('Instant', 'If you attacked with three creatures this turn, draw two cards.')).not.toBeNull();
     expect(refusal('Instant', 'Target player draws X cards.')).toMatchObject({ reason: 'X outside a cost' });
     expect(refusal('Instant', 'Destroy target creature. Its controller scries 2.')).toMatchObject({ clause: 'its controller scries 2' });
   });
@@ -1238,5 +1238,52 @@ describe('mana that may be spent only on some spells (106.6)', () => {
     expect(cast('Test Prism')).toBe(true);
     expect(cast('Test Plaza')).toBe(false);
     expect(refusal('Land', '{T}: Add one mana of any color. Spend this mana only to cast a spell with flying.')).not.toBeNull();
+  });
+});
+
+describe('conditions as it resolves, "that land", "that player", granted mana (608.2c, 613.1f)', () => {
+  it('"Then if you control four or more lands, untap that land" checks as it resolves', () => {
+    teach('Test Passage', 'Land', '{T}, Sacrifice this land: Search your library for a basic land card, put it onto the battlefield tapped, then shuffle. Then if you control four or more lands, untap that land.');
+    const crack = (lands: number) => {
+      let g = emptyGame((d) => {
+        put(d, 0, 'Test Passage');
+        put(d, 0, 'Plains', 'battlefield', lands);
+        d.players[0].library.unshift(makeCard(d, 'Forest', 0, 'library'));
+      });
+      g = settle(run(g, { type: 'activate', card: byName(g, 0, 'Test Passage')!.id }));
+      return byName(g, 0, 'Forest')?.tapped;
+    };
+    expect(crack(2)).toBe(true);
+    expect(crack(3)).toBe(false);
+    teach('Test If', 'Sorcery', 'Draw a card. If you control an artifact, draw a card.');
+    expect(refusal('Sorcery', 'Draw a card. If you control an artifact, draw two cards instead.')).not.toBeNull();
+  });
+
+  it('"That player may search" after destroying an opponent\'s permanent asks its controller (Boseiju)', () => {
+    teach('Test Boseiju', 'Instant', 'Destroy target nonbasic land an opponent controls. That player may search their library for a land card with a basic land type, put it onto the battlefield, then shuffle.');
+    let g = emptyGame((d) => {
+      d.players[1].isBot = false;
+      put(d, 0, 'Test Boseiju', 'hand');
+      put(d, 0, 'Forest');
+      put(d, 1, 'Test Gate');
+    });
+    g = run(g, { type: 'cast', card: byName(g, 0, 'Test Boseiju', 'hand')!.id, targets: [cardRef(byName(g, 1, 'Test Gate')!.id)] });
+    for (let i = 0; i < 10 && g.stack.length && !g.decision; i++) g = applyAction(g, { type: 'pass' });
+    expect(byName(g, 1, 'Test Gate')).toBeUndefined();
+    expect(g.decision).toMatchObject({ type: 'ask', choice: { player: 1 } });
+    expect(refusal('Instant', 'Draw a card. That player may draw a card.')).toMatchObject({ reason: '"that player" without a player to refer to' });
+  });
+
+  it('"Lands you control have \'{T}: Add one mana of any color.\'" (Chromatic Lantern)', () => {
+    teach('Test Lantern', 'Artifact', 'Lands you control have "{T}: Add one mana of any color."\n{T}: Add one mana of any color.');
+    const g = emptyGame((d) => {
+      put(d, 0, 'Test Lantern');
+      put(d, 0, 'Plains');
+      put(d, 1, 'Plains');
+    });
+    // Its own {W}, and any colour from the Lantern.
+    expect(manaAbilities(g, byName(g, 0, 'Plains')!).map((m) => m.colors.length)).toEqual([1, 5]);
+    expect(manaAbilities(g, byName(g, 1, 'Plains')!).flatMap((m) => m.colors)).toEqual(['W']);
+    expect(refusal('Artifact', 'Lands you control have "{T}: Add one mana of any color. Activate only as a sorcery."')).not.toBeNull();
   });
 });

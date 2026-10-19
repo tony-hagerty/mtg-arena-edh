@@ -815,6 +815,8 @@ interface Effect {
   reuse?: boolean;
   /** It happens only if the player asked in the step before didn't pay (118.12a). */
   unlessPaid?: boolean;
+  /** "If [condition], [effect]": it happens only if the condition holds as it resolves (608.2c). */
+  onlyIf?: Cond;
   /** "You may pay {N}. If you do, ...": the "may" is a payment (118.12). */
   mayPay?: { cost?: string; life?: number };
   /** A bot hint the card's script takes from it (`CardScript.ai`). */
@@ -865,7 +867,7 @@ function objects(phrase: string, env: Env, st: State, clause: string): Objects |
     if (!env.permanent) return refuse(clause, 'a spell acting on itself');
     return { targets: [], zone: 'battlefield', single: true, cards: (g, ctx) => [permanent(g, ctx.self.id)].filter((c): c is Card => !!c) };
   }
-  if (/^(?:it|that creature|that permanent|that card)$/.test(phrase)) {
+  if (/^(?:it|that creature|that permanent|that card|that land)$/.test(phrase)) {
     if (st.last === 'card' && st.lastTarget) return { targets: [], reuse: true, zone: 'battlefield', single: true, cards: (g, ctx, i) => [refCard(g, ctx.targets[i])].filter((c): c is Card => !!c) };
     if (st.last === 'card') return { targets: [], zone: 'battlefield', single: true, cards: (g, _c, _i, m) => [m.last && permanent(g, m.last.id)].filter((c): c is Card => !!c) };
     // In a trigger about another object ("whenever a creature you control enters"), "it" is that object.
@@ -930,6 +932,7 @@ function findOf(phrase: string): Find | null {
   if (phrase === 'a card') return { label: 'a card' };
   // "An instant card or a card with flash": a card type or a keyword, either will do.
   if (phrase === 'an instant card or a card with flash') return { types: ['Instant'], keywords: ['flash'], label: phrase };
+  if (phrase === 'a land card with a basic land type') return { types: ['Land'], subtypes: ['Plains', 'Island', 'Swamp', 'Mountain', 'Forest'], label: phrase };
   const m0 = /^(?:an?|up to \S+|\S+) (.+?) cards?( with mana value (?:\d+|x) or less)?$/.exec(phrase);
   if (!m0) return null;
   const what = m0[1] + (m0[2] ?? '');
@@ -949,7 +952,7 @@ function findOf(phrase: string): Find | null {
  * that card on top" (701.23). Several cards: "up to two basic land cards, ... put them ...".
  * A search for a card with a stated quality may find nothing (701.23b).
  */
-function searchEffect(rest: string, searcher: (g: Game, ctx: Ctx, i: number, m: Memo) => PlayerId | undefined, env: Env, clause: string): Read | null {
+function searchEffect(rest: string, searcher: (g: Game, ctx: Ctx, i: number, m: Memo) => PlayerId | undefined, env: Env, st: State, clause: string): Read | null {
   let m = /^search(?:es)? (?:your|their) library for (.+?), (reveal (?:it|that card|them|those cards), )?put (?:it|that card|them|those cards) (onto the battlefield( tapped)?|into (?:your|their) hand|into (?:your|their) graveyard), then shuffle$/.exec(rest);
   let to: 'battlefield' | 'hand' | 'top' | 'none';
   if (m) to = m[3].startsWith('onto') ? 'battlefield' : /hand$/.test(m[3]) ? 'hand' : 'none';
@@ -963,6 +966,9 @@ function searchEffect(rest: string, searcher: (g: Game, ctx: Ctx, i: number, m: 
   const n = many ? count(many[1], env.x, clause) : () => 1;
   const tapped = !!m[4];
   const reveal = !!m[2];
+  // "Then ... untap that land": the card found is what the next clause calls "that land" or "it".
+  st.last = many ? null : 'card';
+  st.lastTarget = false;
   return {
     targets: [],
     choose: (g, ctx, i, memo, q) => {
@@ -974,8 +980,9 @@ function searchEffect(rest: string, searcher: (g: Game, ctx: Ctx, i: number, m: 
       return true;
     },
     // "Put it into your graveyard": the engine leaves what it found in the library.
-    after: (g, c) => {
+    after: (g, c, _i, memo) => {
       if (to === 'none') simultaneously(g, () => c.picked.forEach((x) => moveCard(g, x, 'graveyard')));
+      if (c.picked.length === 1) remember(g, memo, permanent(g, c.picked[0].id) ?? c.picked[0]);
     },
   };
 }
@@ -1064,7 +1071,7 @@ function playerEffect(rest: string, who: Subject, env: Env, st: State, clause: s
   }
   if (/^takes? an extra turn after this one$/.test(rest)) return each((g, _ctx, p) => extraTurn(g, p));
   // "Search their library for a basic land card, put it onto the battlefield tapped, then shuffle."
-  const searching = searchEffect(rest, (g, ctx, i, memo) => players(g, ctx, sub.i ?? i, who, memo)[0], env, clause);
+  const searching = searchEffect(rest, (g, ctx, i, memo) => players(g, ctx, sub.i ?? i, who, memo)[0], env, st, clause);
   if (searching) return { ...sub, ...searching, targets: sub.targets };
   return null;
 }
@@ -1197,7 +1204,10 @@ function lookEffect(n: Num, k: Num, random: boolean, filter: Test | null, label:
  */
 function effect(clause0: string, env: Env, st: State): Read {
   // "That creature's controller" and "that permanent's controller" are "its controller".
-  const clause = clause0.replace(/^(?:that creature's|that permanent's|that spell's) (controller|owner) /, 'its $1 ');
+  // "That player" after a permanent an opponent controls, with no player before it, is that permanent's controller (Boseiju).
+  const clause = clause0
+    .replace(/^(?:that creature's|that permanent's|that spell's|that land's) (controller|owner) /, 'its $1 ')
+    .replace(/^that player /, !env.ev?.player && st.last === 'card' && st.who !== 'target player' && st.who !== 'target opponent' ? 'its controller ' : 'that player ');
   const subj = /^(you|target player|target opponent|each opponent|each player|each other player|its controller|its owner|that player|they) (.+)$/.exec(clause);
   let subject = (subj?.[1] as Subject | 'they' | undefined) ?? st.who;
   const rest = subj ? subj[2] : clause;
@@ -1788,6 +1798,13 @@ function effects(text: string, env: Env): Effect[] {
   for (const raw of sentences) {
     const read = whereX(raw, env, raw);
     let sentence = read.sentence;
+    // "If you control four or more lands, untap that land": checked as it resolves (608.2c). Only a condition the parser reads.
+    let onlyIf: Cond | undefined;
+    const iff = /^if (.+?), (.+)$/.exec(sentence);
+    if (iff && condition(iff[1]) && !/ instead$/.test(iff[2])) {
+      onlyIf = condition(iff[1])!;
+      sentence = iff[2];
+    }
     let may = false;
     let asker: Effect['asker'];
     let mayPay: { cost?: string; life?: number } | undefined;
@@ -1799,12 +1816,16 @@ function effects(text: string, env: Env): Effect[] {
       mayPay = pay[1] ? { cost: pay[1].toUpperCase() } : { life: parseInt(pay[2], 10) };
       sentence = pay[3];
     }
-    const mayWho = pay ? null : /^(you|its controller|that player) may (.+)$/.exec(sentence);
+    const mayWho = pay ? null : /^(you|its controller|that player|that land's controller) may (.+)$/.exec(sentence.replace(/^that land's controller may /, 'its controller may '));
     if (mayWho) {
       may = true;
       sentence = mayWho[2];
       if (mayWho[1] === 'its controller') {
         if (!st.last) refuse(raw, '"its controller" without an object before it');
+        asker = (g, _c, _i, m) => (m.last && !g.players[m.last.controller].lost ? m.last.controller : null);
+        sentence = `its controller ${sentence}`;
+      } else if (mayWho[1] === 'that player' && !read.env.ev?.player && st.last === 'card') {
+        // "That player may search" after "destroy target ... an opponent controls": its controller.
         asker = (g, _c, _i, m) => (m.last && !g.players[m.last.controller].lost ? m.last.controller : null);
         sentence = `its controller ${sentence}`;
       } else if (mayWho[1] === 'that player') {
@@ -1853,7 +1874,7 @@ function effects(text: string, env: Env): Effect[] {
         return;
       }
       const e = effect(c, read.env, st);
-      out.push({ ...e, text: clause, ...mayPart });
+      out.push({ ...e, text: clause, ...mayPart, ...(onlyIf ? { onlyIf } : {}) });
     });
   }
   return out;
@@ -1904,6 +1925,10 @@ function build(list: Effect[], key: string, name: string, then: Then, bots: Bots
   const runFrom = (from: number, g: Game, ctx: Ctx, m: Memo, answered = -1): void => {
     for (let s = from; s < steps.length; s++) {
       const step = steps[s];
+      if (step.onlyIf && !step.onlyIf(g, ctx.self, ctx.you)) {
+        if (step.may) s = endOf(s) - 1;
+        continue;
+      }
       // "[Effect] unless [player] pays [cost]": the effect only if they didn't (118.12a).
       if (step.unlessPaid && m.paid) {
         if (step.may) s = endOf(s) - 1;
@@ -2130,6 +2155,11 @@ function bonusOf(text: string): StaticBonus | null {
     const keywords = m[3] ? keywordList(m[3]) : [];
     if (!keywords) return null;
     return { power: parseInt(m[1], 10), toughness: parseInt(m[2], 10), ...(keywords.length ? { keywords } : {}) };
+  }
+  // 'Lands you control have "{T}: Add one mana of any color."': a mana ability from another permanent (613.1f).
+  if ((m = /^(?:has|have) "(\{t\}): (add .+\.)"$/.exec(text))) {
+    const add = manaEffect(m[2]);
+    return add && !add.when ? { mana: add } : null;
   }
   // "Have 'Ward—Pay 2 life.'", "has ward {2}": ward from another permanent (702.21, 613.1f).
   if ((m = /^(?:has|have) "ward—pay (\d+) life\."$/.exec(text))) return { ward: { life: parseInt(m[1], 10) } };
