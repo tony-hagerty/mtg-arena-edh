@@ -1976,6 +1976,23 @@ export function removeFromCombat(g: Game, id: string) {
  * Callers that care where the card went look at `c.zone` afterwards.
  */
 export function moveCard(g: Game, c: Card, to: Zone) {
+  const held = c.zone === 'battlefield' ? c.holds : undefined;
+  shiftCard(g, c, to);
+  if (held?.length) release(g, held);
+}
+
+/**
+ * The cards a permanent exiled "until it leaves the battlefield" return under their owners'
+ * control, together, right after it leaves (610.3, 610.3c-d). With other cards leaving at the
+ * same time, after that whole event, so nothing returned sees it.
+ */
+function release(g: Game, held: { id: string; moves: number }[]) {
+  if (batch) return void batch.returns.push(...held);
+  const cards = held.map((h) => g.players.flatMap((p) => p.exile).find((x) => sameCard(x, h))).filter((x): x is Card => !!x && !g.players[x.owner].lost);
+  if (cards.length) enterTogether(g, cards.map((card) => ({ card, opts: { controller: card.owner } })));
+}
+
+function shiftCard(g: Game, c: Card, to: Zone) {
   const from = c.zone;
   const happens = replace(g, { kind: 'move', card: c, to });
   if (happens.kind === 'move') to = happens.to;
@@ -2004,6 +2021,7 @@ export function moveCard(g: Game, c: Card, to: Zone) {
   c.known = [];
   c.chosen = null;
   delete c.monstrous;
+  delete c.holds;
   c.linked = [];
   c.tapped = false;
   c.sick = false;
@@ -2102,7 +2120,7 @@ function fireLeaves(g: Game, l: Leaving) {
  * lose life" triggers once for the whole event.
  */
 type Dealt = TriggerEvents['onSourceDamage'];
-let batch: ({ events: [BroadcastHook, object][]; losses: { player: PlayerId; amount: number }[]; damage: Dealt[] } & Leaving) | null = null;
+let batch: ({ events: [BroadcastHook, object][]; losses: { player: PlayerId; amount: number }[]; damage: Dealt[]; returns: { id: string; moves: number }[] } & Leaving) | null = null;
 
 /** Broadcasts an event now, or once the event going on now is over (`simultaneously`). */
 function announce<H extends BroadcastHook>(g: Game, hook: H, event: TriggerEvents[H]) {
@@ -2116,7 +2134,7 @@ function announce<H extends BroadcastHook>(g: Game, hook: H, event: TriggerEvent
  */
 export function simultaneously(g: Game, fn: () => void) {
   if (batch) return fn();
-  batch = { events: [], losses: [], damage: [], left: [], exiled: [], before: null };
+  batch = { events: [], losses: [], damage: [], returns: [], left: [], exiled: [], before: null };
   try {
     fn();
   } finally {
@@ -2126,6 +2144,7 @@ export function simultaneously(g: Game, fn: () => void) {
     for (const [hook, event] of done.events) broadcast(g, hook, event as never);
     if (done.losses.length) broadcast(g, 'onLifeLossTogether', { losses: done.losses });
     for (const d of done.damage) broadcast(g, 'onSourceDamage', d);
+    if (done.returns.length) release(g, done.returns);
   }
 }
 
@@ -3779,6 +3798,8 @@ function eliminate(g: Game, p: Player, reason: string) {
   p.lost = true;
   log(g, `${says(p, 'is')} eliminated (${reason}).`, p.id);
   const theirs = (x: StackItem) => x.controller === p.id || x.card.owner === p.id;
+  // What their permanents exiled "until" they leave returns to its owners (610.3, as Hostage Taker's rulings say).
+  const held = battlefield(g).filter((c) => c.owner === p.id).flatMap((c) => c.holds ?? []);
   g.stack = g.stack.filter((x) => !theirs(x));
   g.triggers = g.triggers.filter((x) => !theirs(x));
   g.effects = g.effects.filter((e) => !('player' in e) || e.player !== p.id);
@@ -3807,6 +3828,8 @@ function eliminate(g: Game, p: Player, reason: string) {
       g.players[back].battlefield.push(c);
       log(g, `${label(c)} goes back to ${g.players[back].name}.`, back, [c]);
     } else {
+      held.push(...(c.holds ?? []));
+      delete c.holds;
       c.zone = 'exile';
       c.controller = c.owner;
       c.gained = [];
@@ -3827,6 +3850,7 @@ function eliminate(g: Game, p: Player, reason: string) {
   p.exile = [];
   p.command = [];
   p.pool = [];
+  if (held.length) release(g, held);
 }
 
 /**
