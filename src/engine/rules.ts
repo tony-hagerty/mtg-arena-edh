@@ -1,7 +1,7 @@
 // Queries and effect primitives. Everything here either reads a Game or mutates an
 // Immer draft of one; turn structure and action handling live in engine.ts.
 import { CREATURE_TYPES, cardData } from '../cards/db';
-import { scriptOf } from './registry';
+import { NO_SCRIPT, scriptOf } from './registry';
 import { characteristics, hasOwnAbilities, heldMemo, mayLoseAbilities, settled, staticRemoval, typesOf } from './layers';
 import { replace, whileArriving } from './replace';
 import type {
@@ -205,6 +205,8 @@ function copyData(copy: CopyInfo): CardData {
  */
 export function scriptFor(c: Card, zone = c.zone, face = c.face): CardScript {
   if (c.copy && zone === 'battlefield') return scriptOf(faceData(cardData(c.copy.name), 'battlefield', c.copy.face).name);
+  // A card played without its rules text (`Card.textless`) is a vanilla card: its printed keywords and nothing else.
+  if (c.textless) return NO_SCRIPT;
   const d = cardData(c.name);
   return scriptOf(d.faces ? faceData(d, zone, face).name : c.name);
 }

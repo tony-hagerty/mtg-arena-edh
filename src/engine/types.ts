@@ -400,6 +400,14 @@ export interface Card {
   known: PlayerId[];
   /** A choice made as it entered, such as Cavern of Souls's creature type (614.12a). */
   chosen: string | null;
+  /**
+   * Played without its rules text, by its owner's choice on the paste screen (a card the
+   * game can't read yet): its script is ignored, so it is a vanilla card with its printed
+   * name, cost, types, P/T and keywords (see "Known simplifications").
+   */
+  textless?: boolean;
+  /** The log has said once that its rules text doesn't work here (the first time it was cast or played). */
+  textlessNoted?: boolean;
   /** Monstrous (701.37b): a designation, kept until it leaves the battlefield. */
   monstrous?: boolean;
   /** It has suspend from an effect, like Delay's "it gains suspend" (702.62a). */

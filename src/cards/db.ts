@@ -19,6 +19,11 @@ export interface DeckDef {
   wip?: boolean;
   /** Finished but kept off the menu: its cards stay in the pool for pasted decks, and the tests still play it. */
   offMenu?: boolean;
+  /**
+   * Cards played without their rules text (`Card.textless`), by the player's choice on the
+   * paste screen: ones the game can't read yet. Never a commander.
+   */
+  textless?: string[];
 }
 
 /** Every deck in decklists.json, unfinished and off-menu ones included. */
