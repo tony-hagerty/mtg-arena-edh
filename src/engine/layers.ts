@@ -297,6 +297,8 @@ function entries(g: Game, c: Card, temporary: boolean): Entry[] {
   if (c.cast?.impending && counterCount(c, 'time') > 0 && data(c).keywords.includes('Impending')) out.push({ ts: c.ts, seq: seq++, parts: { notTypes: ['Creature'] } });
   // A permanent whose dash cost was paid has haste (702.109a).
   if (c.cast?.dash) out.push({ ts: c.ts, seq: seq++, parts: { keywords: ['haste'] } });
+  // A creature spell cast with suspend has haste until its caster loses control of it (702.62a).
+  if (c.cast?.suspend && !c.gained.length && data(c).typeLine.includes('Creature')) out.push({ ts: c.ts, seq: seq++, parts: { keywords: ['haste'] } });
   // +1/+1 and -1/-1 counters (122.1a, 613.4c), and keyword counters (122.1b, 613.1f), each kind from when it was last put on (613.7c).
   for (const [kind, n] of Object.entries(c.counters)) {
     if (n <= 0) continue;

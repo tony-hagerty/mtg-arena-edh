@@ -613,7 +613,16 @@ export function flashbackCost(g: Game, c: Card): string | undefined {
 }
 
 /** Is `c` being cast without paying its mana cost while a spell resolves (608.2g, Beseech the Mirror)? */
-/** If `c` is the card its madness or miracle ability lets its owner cast now, which (702.35a, 702.94a). */
+/** Must `c` be cast now for its madness or miracle cost, rather than its mana cost (702.35a, 702.94a)? */
+export const castsForAlt = (g: Game, c: Card) => castVia(g, c) === 'madness' || castVia(g, c) === 'miracle';
+
+/** Does `c` have suspend, its own or gained (702.62a)? */
+export const hasSuspend = (c: Card) => !!c.suspend || cardData(c.name).keywords.includes('Suspend');
+
+/** Is `c` suspended: in exile, with suspend and a time counter on it (702.62b)? */
+export const isSuspended = (c: Card) => c.zone === 'exile' && hasSuspend(c) && counterCount(c, 'time') > 0;
+
+/** If `c` is the card its madness, miracle or suspend ability lets its owner cast now, which (702.35a, 702.94a, 702.62a). */
 export const castVia = (g: Game, c: Card): CastVia | undefined => (g.decision?.type === 'cast' && g.decision.choice.card === c.id ? g.decision.choice.via : undefined);
 
 export const freeCast = (g: Game, c: Card) => g.decision?.type === 'cast' && g.decision.choice.card === c.id && g.decision.choice.free;
@@ -2028,6 +2037,7 @@ function shiftCard(g: Game, c: Card, to: Zone) {
   c.chosen = null;
   delete c.monstrous;
   delete c.holds;
+  delete c.suspend;
   c.linked = [];
   c.tapped = false;
   c.sick = false;

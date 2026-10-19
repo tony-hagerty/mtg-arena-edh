@@ -50,6 +50,7 @@ import {
   loyaltyOf,
   makeCard,
   removeCounters,
+  isSuspended,
   moveCard,
   nextLiving,
   parseCost,
@@ -89,7 +90,7 @@ import {
   discard,
   fitsSpec,
   freeCast,
-  castVia,
+  castsForAlt,
   hasEscape,
   manaValue,
   permission,
@@ -768,7 +769,7 @@ function choicesOk(g: Game, pid: PlayerId, c: Card, ch: CastChoices): boolean {
   if (oneOf ? ch.extra === undefined || !Number.isInteger(ch.extra) || ch.extra < 0 || ch.extra >= oneOf.length : ch.extra !== undefined) return false;
   if (ch.alt !== undefined && !altCostsOf(g, c, face, pid).includes(ch.alt)) return false;
   // Cast with madness or miracle, it is cast for that cost (702.35a, 702.94a).
-  if (ch.alt === undefined && castVia(g, c)) return false;
+  if (ch.alt === undefined && castsForAlt(g, c)) return false;
   if (ch.protector !== undefined && !(isBattle(g, spell) && canProtect(g, spell, ch.protector))) return false;
   // A gift is promised to an opponent (702.174a), and only by a spell with gift.
   if (ch.gift !== undefined && (!script.gift || ch.gift === pid || g.players[ch.gift]?.lost !== false)) return false;
@@ -851,7 +852,7 @@ export function canCastAs(g: Game, pid: PlayerId, c: Card, face: number, choices
     const ways = graveyardWays(g, c, face);
     const escaping = escapes(g, c).filter((e) => escapeOptions(g, c).length >= e.exile).map((e): CastChoices => ({ face, escape: Array.from({ length: e.exile }, () => '') }));
     routes = [...(ways.flashback || ways.aftermath || ways.permitted ? [{ face }] : []), ...escaping];
-  } else routes = [...(castVia(g, c) ? [] : [undefined]), ...altCostsOf(g, c, face, pid)].map((alt) => ({ alt, face }));
+  } else routes = [...(castsForAlt(g, c) ? [] : [undefined]), ...altCostsOf(g, c, face, pid)].map((alt) => ({ alt, face }));
   // Each of the additional costs it offers a choice of ("pay 5 life or pay {2}").
   const extras: (number | undefined)[] = script.additionalCost?.oneOf ? script.additionalCost.oneOf.map((_, i) => i) : [undefined];
   return routes.some((r) => modeSets.some((modes) => extras.some((extra) => {
@@ -1301,6 +1302,8 @@ function beginStep(g: Game, step: Step) {
       break;
     case 'upkeep':
       broadcast(g, 'onUpkeep', { player: pid }); // 503.1a
+      // "At the beginning of your upkeep, if this card is suspended, remove a time counter from it" (702.62a).
+      for (const c of p.exile) if (isSuspended(c)) g.triggers.push({ id: `s${g.nextId++}`, kind: 'triggered', controller: pid, card: snapshot(c), hook: 'onSuspendUpkeep', event: {}, targets: [] });
       fireDelayed(g, 'upkeep');
       break;
     case 'draw':
@@ -1740,6 +1743,19 @@ function resolveTop(g: Game) {
       // "You may cast it by paying [cost] rather than its mana cost" (702.94a), if it is still in their hand.
       const drawn = g.players[controller].hand.find((x) => x.id === card.id && x.moves === card.moves);
       if (drawn) offerCast(g, controller, drawn, { free: false, via: 'miracle', text: `You may cast ${label(drawn)} for its miracle cost.` });
+    } else if (item.hook === 'onSuspendUpkeep') {
+      // Checked again as it resolves (603.4): still the same card, and still suspended.
+      const c = g.players[card.owner].exile.find((x) => x.id === card.id && x.moves === card.moves);
+      if (c && isSuspended(c)) {
+        removeCounters(c, 1, 'time');
+        const left = counterCount(c, 'time');
+        log(g, `A time counter is removed from ${label(c)}${left ? ` (${left} left)` : ''}.`, c.owner, [c]);
+        if (!left) g.triggers.push({ id: `s${g.nextId++}`, kind: 'triggered', controller: c.owner, card: snapshot(c), hook: 'onSuspendCast', event: {}, targets: [] });
+      }
+    } else if (item.hook === 'onSuspendCast') {
+      // "You may play it without paying its mana cost if able. If you don't, it remains exiled." (702.62a)
+      const c = g.players[card.owner].exile.find((x) => x.id === card.id && x.moves === card.moves);
+      if (c) offerCast(g, c.owner, c, { free: true, via: 'suspend', text: `You may cast ${label(c)} without paying its mana cost (suspend).` });
     } else if (item.hook === 'onWard') {
       // Ward (702.21a): counter the spell or ability unless its controller pays.
       const { item: id, cost } = item.event as TriggerEvents['onWard'];
@@ -2154,6 +2170,7 @@ function act(g: Game, a: Action): boolean {
       c.airbent = undefined;
       c.plotted = undefined;
       c.warped = undefined;
+      c.suspend = undefined;
       const info: CastInfo = {
         x: hasX ? (choices.x ?? 0) : 0,
         kicked: choices.kicked ?? 0,
@@ -2166,6 +2183,7 @@ function act(g: Game, a: Action): boolean {
         from,
         alt: choices.alt,
         dash: !!alt?.dash,
+        ...(during?.card === c.id && during.via === 'suspend' ? { suspend: true } : {}),
         ...(alt?.impending ? { impending: true } : {}),
         escaped,
         free,
