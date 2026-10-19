@@ -4,6 +4,7 @@ import { OpponentPanel, PlayerField } from './Board';
 import { ActionBar, ArrowLayer, ManaPicker, ExitConfirm, GameOver, LogPanel, Preview, Prompt, SpellFlash, StackPanel, ZoneViewer } from './Hud';
 import { GameVotes, PausedOverlay } from './LobbyScreen';
 import { Decisions, DelvePicker, EscapePicker, GraveCostPicker, GraveyardTargets } from './Picker';
+import { River } from './River';
 import { useStore } from './store';
 import { fromSeat } from './util';
 import { ViewContext, buildView } from './view';
@@ -59,6 +60,8 @@ export function GameScreen() {
   return (
     <ViewContext.Provider value={view}>
       <div className="stage board">
+        {/* Under everything on the table. */}
+        <River />
         {others.map((p) => (
           <OpponentPanel key={p.id} player={p} />
         ))}
