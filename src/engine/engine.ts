@@ -1,7 +1,7 @@
 // Game setup, turn structure, priority, the stack and action handling. `applyAction` is
 // the only way a game changes: it returns a new Game, or the same object if the action
 // was illegal. Rule numbers in comments refer to docs/rules.
-import { produce } from 'immer';
+import { current, isDraft, produce } from 'immer';
 import { CREATURE_TYPES, DECKS, cardData, deckColors, deckLibrary, isCardName } from '../cards/db';
 import type { DeckDef } from '../cards/db';
 import {
@@ -17,6 +17,7 @@ import {
   altCostsOf,
   castCost,
   checkState,
+  sbaPending,
   commanderIndex,
   creaturesOf,
   damageCard,
@@ -139,7 +140,7 @@ import {
   CARD_TYPES,
 } from './rules';
 import type { EnterOpts } from './rules';
-import { settled } from './layers';
+import { inBase, settled, untouched } from './layers';
 import { NeedsChoice, replace, withReplacementAnswers } from './replace';
 import type {
   AbilityRef,
@@ -293,7 +294,7 @@ export function newGame(opts: NewGameOptions): Game {
   });
   for (const p of g.players) p.commanderDamage = g.players.map((o) => o.commanders.map(() => 0));
   beginMulligans(g, Math.floor(rand(g) * g.players.length));
-  settle(g, true, stops);
+  settle(g, inPlace, true, stops);
   return g;
 }
 
@@ -631,6 +632,9 @@ export function canPlot(g: Game, pid: PlayerId, c: Card): boolean {
 }
 
 export function canPlayLand(g: Game, pid: PlayerId, c: Card, face?: number): boolean {
+  // Asked of a draft nothing has changed in yet: the finished game it came from (`untouched`).
+  const base = untouched(g);
+  if (base) return canPlayLand(base, pid, inBase(c), face);
   const faces = landFaces(g, c);
   if (face !== undefined ? !faces.includes(face) : !faces.length) return false;
   // From a hand, or from exile with an effect that lets them play it (Jeska's Will). Either
@@ -835,6 +839,8 @@ function choicesOk(g: Game, pid: PlayerId, c: Card, ch: CastChoices): boolean {
  * alternative costs. Only the face being cast is checked (709.3a, 712.11c, 715.3a).
  */
 export function canCast(g: Game, pid: PlayerId, c: Card, choices?: CastChoices): boolean {
+  const base = untouched(g);
+  if (base) return canCast(base, pid, inBase(c), choices);
   if (!castableFrom(g, pid, c)) return false;
   if (choices) return settled(g, () => canCastAs(g, pid, c, choices.face ?? 0, choices));
   return settled(g, () => castFaces(c).some((face) => canCastAs(g, pid, c, face)));
@@ -895,6 +901,8 @@ export function maxX(g: Game, pid: PlayerId, c: Card, choices: CastChoices = {})
  * `x` is the X announced for an ability with X in its cost (107.3a); any other must have 0.
  */
 export function canActivate(g: Game, pid: PlayerId, c: Card, ability?: number, activated = 0, x = 0): boolean {
+  const base = untouched(g);
+  if (base) return canActivate(base, pid, inBase(c), ability, activated, x);
   if (!Number.isInteger(x) || x < 0 || (x > 0 && !abilityHasX(g, c, { ability, activated }))) return false;
   if (ability !== undefined) return abilitiesOf(g, c).levels ? canLevelUp(g, pid, c, ability) : canActivateLoyalty(g, pid, c, ability, x);
   return canPayActivation(g, pid, c, activated, x) && hasTargetsFor(g, pid, c, activated, x);
@@ -1060,6 +1068,8 @@ export interface AttackOption {
  * can't attack it, but its controller can when that is someone else, as with a Siege (310.9b).
  */
 export function attackOptions(g: Game, pid: PlayerId): AttackOption[] {
+  const base = untouched(g);
+  if (base) return attackOptions(base, pid);
   const out: AttackOption[] = [];
   for (const o of living(g)) {
     if (o.id !== pid) out.push({ defender: o.id, target: null });
@@ -1721,18 +1731,21 @@ function dealCombatDamage(g: Game, firstStrike: boolean, struckFirst: Set<string
 
 /**
  * The player with priority passes it on (117.3d). Once every player has passed in a row,
- * the top of the stack resolves, or the step ends if the stack is empty (117.4).
+ * the top of the stack resolves, or the step ends if the stack is empty (117.4). True if
+ * priority only moved on to the next player, and nothing else about the game changed.
  */
-function passPriority(g: Game) {
+function passPriority(g: Game): boolean {
   g.holding = null;
   g.passes++;
   if (g.passes < living(g).length) {
     g.priority = nextLiving(g, g.priority);
+    return true;
   } else if (g.stack.length) {
     resolveTop(g);
   } else {
     nextStep(g);
   }
+  return false;
 }
 
 /**
@@ -1747,8 +1760,12 @@ function resolveTop(g: Game) {
   // Targets are checked again. Illegal ones are left alone, and if every target has
   // become illegal the spell or ability does nothing at all (608.2b).
   const specs = specsFor(targetSpecs(g, item), item.targets.length);
+  // Asked of a plain copy of the game (Immer's `current`), not through the draft: so far only
+  // passing priority has changed it, so the copy costs little, and the check reads every permanent.
+  const view = isDraft(g) ? current(g) : g;
+  const source = isDraft(card) ? current(card) : card;
   const targets = item.targets.map((t, i) =>
-    t && specs[i] && legalTargets(g, controller, specs[i], card, item.x).some((x) => sameRef(x, t)) ? t : null,
+    t && specs[i] && legalTargets(view, controller, specs[i], source, item.x).some((x) => sameRef(x, t)) ? t : null,
   );
   const fizzled = item.targets.some(Boolean) && !targets.some(Boolean);
   if (fizzled) log(g, `${label(card)} has no legal target left and does nothing.`, controller, [card]);
@@ -2002,8 +2019,13 @@ function putTriggerOnStack(g: Game): boolean {
     return true;
   }
   const [item] = g.triggers.splice(next, 1);
+  // Its modes and targets are worked out from a plain copy of the game (Immer's `current`):
+  // so far only the waiting triggers have changed, so the copy costs little, and the
+  // questions read every permanent. The item itself is read as it is in the draft.
+  const view = isDraft(g) ? current(g) : g;
+  const asked = isDraft(item) ? current(item) : item;
   // A modal triggered ability: its controller chooses the modes as it goes on the stack (603.3c).
-  const modal = item.modes ? null : triggerModeOptions(g, item);
+  const modal = item.modes ? null : triggerModeOptions(view, asked);
   if (modal) {
     // With too few modes that can be chosen, it is removed from the stack (603.3c).
     if (modal.legal.length < modal.min) return true;
@@ -2020,7 +2042,8 @@ function putTriggerOnStack(g: Game): boolean {
     }
   }
   const specs = targetSpecs(g, item);
-  const options = specs.map((spec) => legalTargets(g, item.controller, spec, item.card, item.x));
+  const card = isDraft(item.card) ? current(item.card) : item.card;
+  const options = specs.map((spec) => legalTargets(view, item.controller, spec, card, item.x));
   if (specs.some((spec, i) => !spec.optional && !spec.any && options[i].length === 0)) {
     // A copy keeps the original's targets if there are no new ones (707.10c). An ability
     // that needs a target and has none is removed instead (603.3d).
@@ -2686,7 +2709,7 @@ function act(g: Game, a: Action): boolean {
     case 'pass': {
       switch (deciding) {
         case undefined:
-          passPriority(g);
+          passedOn = passPriority(g);
           return true;
         case 'attackers':
           if (!canPayAttacks(g, pid, g.combat!.attacks)) return false;
@@ -2713,34 +2736,84 @@ function act(g: Game, a: Action): boolean {
   }
 }
 
+/** Makes one change to `g`: in a draft of it (`produce`), or in place for a game still being made (`newGame`). */
+type Update = (g: Game, change: (d: Game) => void) => Game;
+const inPlace: Update = (g, change) => {
+  change(g);
+  return g;
+};
+const drafted: Update = (g, change) => produce(g, change);
+
 /**
  * Runs the game forward until it needs a player. Each time a player would get priority,
  * state-based actions are checked and waiting triggered abilities go on the stack, until
  * neither does anything more (117.5). Then that player gets priority, or it is passed for
  * them (see `wantsPriority`). `released`: a player in full control who has just cast or
  * activated without `hold`, so it passes for them this once as it would without full control.
+ *
+ * Each change is its own `update`, and the questions in between (are state-based actions
+ * due, does this player want priority) are asked of the game as it is after the last one:
+ * a finished game, where the layers' answers are kept, rather than through a draft. The
+ * changes are the same, in the same order. `stable`: it ended giving a player priority with
+ * the state-based actions checked and nothing to do.
  */
-function settle(g: Game, autoPass: boolean, stops: ApplyOptions['stops'] = {}, fullControl: PlayerId[] = [], released: PlayerId | null = null) {
+function settle(g: Game, update: Update, autoPass: boolean, stops: ApplyOptions['stops'] = {}, fullControl: PlayerId[] = [], released: PlayerId | null = null, checked = false): { g: Game; stable: boolean } {
   for (let guard = 0; guard < 5000; guard++) {
     // A spell or ability is waiting on a choice partway through resolving. Nothing else
     // happens until it has finished, not even state-based actions (608.2).
-    if (g.resolving) return;
-    checkState(g);
-    if (g.winner !== null) {
-      g.step = 'gameOver';
-      g.combat = null;
-      g.decision = null;
-      return;
+    if (g.resolving) return { g, stable: false };
+    // State-based actions are checked whenever a player would get priority (117.5, 704.3).
+    // `checked`: they were, finding nothing, and since then priority has only passed from one
+    // player to the next. Nothing they look at has changed, so checking would find nothing.
+    // Whether any are due is asked first (`sbaPending`); only then is the game changed.
+    if (!checked) {
+      if (sbaPending(g)) {
+        g = update(g, (d) => {
+          checked = checkState(d);
+        });
+      } else checked = g.winner === null;
     }
-    if (g.decision) return;
-    if (putTriggerOnStack(g)) continue;
-    if (g.players[g.priority].lost) g.priority = nextLiving(g, g.priority);
+    if (g.winner !== null) {
+      const over = update(g, (d) => {
+        d.step = 'gameOver';
+        d.combat = null;
+        d.decision = null;
+      });
+      return { g: over, stable: false };
+    }
+    if (g.decision) return { g, stable: false };
+    if (g.triggers.length) {
+      g = update(g, (d) => {
+        putTriggerOnStack(d);
+      });
+      checked = false;
+      continue;
+    }
+    if (g.players[g.priority].lost) {
+      g = update(g, (d) => {
+        d.priority = nextLiving(d, d.priority);
+      });
+    }
     const full = fullControl.includes(g.priority) && released !== g.priority;
-    if (!autoPass || wantsPriority(g, g.priority, stops[g.priority], full)) return;
-    passPriority(g);
+    if (!autoPass || wantsPriority(g, g.priority, stops[g.priority], full)) return { g, stable: checked };
+    let moved = false;
+    g = update(g, (d) => {
+      moved = passPriority(d);
+    });
+    checked &&= moved;
     released = null;
   }
+  return { g, stable: false };
 }
+
+/**
+ * Games a player got priority in with the state-based actions just checked and nothing to
+ * do (`settle`): passing priority on from one needn't check them again. Immer freezes every
+ * game it makes, so a game in here never changes.
+ */
+const sbaChecked = new WeakSet<Game>();
+/** Did the action `act` just applied only pass priority on to the next player (`passPriority`)? */
+let passedOn = false;
 
 export interface ApplyOptions {
   /** Pass priority for players who have nothing they'd want to do (default true). See `wantsPriority`. */
@@ -2779,10 +2852,19 @@ function attempt(g: Game, a: Action, opts: Required<Pick<ApplyOptions, 'autoPass
   const { autoPass, stops, fullControl } = opts;
   // Casting or activating without `hold` lets priority pass on, even in full control (117.3c).
   const released = (a.type === 'cast' || a.type === 'activate') && !a.hold ? g.priority : null;
-  const run = () =>
-    produce(g, (draft) => {
-      if (act(draft, a)) settle(draft, autoPass, stops, fullControl, released);
+  const run = () => {
+    // Passing on priority in a game whose state-based actions were checked changes nothing they look at.
+    const checked = a.type === 'pass' && sbaChecked.has(g);
+    let legal = false;
+    const acted = produce(g, (draft) => {
+      passedOn = false;
+      legal = act(draft, a);
     });
+    if (!legal) return acted;
+    const { g: next, stable } = settle(acted, drafted, autoPass, stops, fullControl, released, checked && passedOn);
+    if (stable && next !== g) sbaChecked.add(next);
+    return next;
+  };
   try {
     // A bot trying a move out can't ask anyone: each choice goes the way a bot would take it.
     return withReplacementAnswers(simulate ? null : answers, () => (simulate ? withoutLookahead(run) : run()));

@@ -14,6 +14,9 @@ import { clickCrown, clickPlayer, useView } from './view';
 
 const vars = (v: Record<string, string | number>) => v as CSSProperties;
 
+/** How much of each card under the top one a pile shows, as a share of the tile's width. Keep in step with `.stack .tile + .tile` in styles.css. */
+const PILE_STEP = 0.1;
+
 /** Tile width (rem) that lets `n` tiles share a row, capped at `max`. */
 const fit = (n: number, width: number, max: number, gap = 0.8) => Math.min(max, (width - gap * (n - 1)) / Math.max(n, 1));
 
@@ -41,7 +44,7 @@ function CreatureRow({ player, width, max, className, wrap }: { player: Player; 
     const key = stackable && !attached ? [c.name, c.tapped, floating(player, c), c.sick, JSON.stringify(c.counters), c.damage, c.continuous.length, ...choice].join('|') : c.id;
     groups.set(key, [...(groups.get(key) ?? []), c]);
   }
-  const units = [...groups.values()].reduce((n, s) => n + 1 + 0.14 * (s.length - 1), 0);
+  const units = [...groups.values()].reduce((n, s) => n + 1 + PILE_STEP * (s.length - 1), 0);
   const oneRow = fit(units, width, max);
   const wrapped = wrap ? fit(Math.ceil(units / 2), width, Math.min(max, 9.5)) : 0;
   const twoRows = wrapped > oneRow;
@@ -70,8 +73,11 @@ function CreatureRow({ player, width, max, className, wrap }: { player: Player; 
  * tapped ones apart, and ones whose mana is still unspent in the pool apart again. The
  * pile's badge taps (or untaps) the whole pile.
  * With `split` the two sides sit either side of the avatar and each gets `width` to itself.
+ * A row `depth` rem deep wraps onto two lines once that makes the tiles bigger than
+ * squeezing them into one, as a crowded board's lands do; each side of a split row decides
+ * on its own.
  */
-function BackRow({ player, width, max, className, split }: { player: Player; width: number; max: number; className: string; split?: boolean }) {
+function BackRow({ player, width, max, depth, className, split }: { player: Player; width: number; max: number; depth: number; className: string; split?: boolean }) {
   const g = useView().g;
   const lands = player.battlefield.filter((x) => isLand(g, x));
   // Auras and Equipment attached to something are drawn under it instead (see `Permanent`).
@@ -85,13 +91,20 @@ function BackRow({ player, width, max, className, split }: { player: Player; wid
     const key = attachmentsOf(g, c).length ? c.id : `${c.name}|${c.tapped}|${floating(player, c)}`;
     stacks.set(key, [...(stacks.get(key) ?? []), c]);
   }
-  const landUnits = [...stacks.values()].reduce((n, s) => n + 1 + 0.14 * (s.length - 1), 0);
-  const tw = split
-    ? Math.min(fit(landUnits, width, max, 1.2), fit(others.length, width, max, 1.2))
-    : fit(landUnits + others.length + phased.length, width, max, 1.2);
+  const landUnits = [...stacks.values()].reduce((n, s) => n + 1 + PILE_STEP * (s.length - 1), 0);
+  // A tile is 0.8 of its width tall, and two lines need a gap between them.
+  const sized = (units: number) => {
+    const one = fit(units, width, max, 1.2);
+    const two = Math.min(fit(Math.ceil(units / 2), width, max, 1.2), (depth - 0.6) / 1.6);
+    return two > one && units > 1 ? { tw: two, wrap: true } : { tw: one, wrap: false };
+  };
+  const side = (x: { tw: number }) => vars({ '--tw': `${x.tw}rem` });
+  const all = sized(landUnits + others.length + phased.length);
+  const landSide = split ? sized(landUnits) : all;
+  const otherSide = split ? sized(others.length + phased.length) : all;
   return (
-    <div className={cx('row back', className)} style={vars({ '--tw': `${tw}rem` })}>
-      <div className="lands">
+    <div className={cx('row back', className, !split && all.wrap && 'two-rows')} style={side(all)}>
+      <div className={cx('lands', split && landSide.wrap && 'two-rows')} style={split ? side(landSide) : undefined}>
         {[...stacks.entries()].map(([key, stack]) => (
           <div className="stack" key={key}>
             {stack.map((c, i) => (
@@ -100,7 +113,7 @@ function BackRow({ player, width, max, className, split }: { player: Player; wid
           </div>
         ))}
       </div>
-      <div className="others">
+      <div className={cx('others', split && otherSide.wrap && 'two-rows')} style={split ? side(otherSide) : undefined}>
         <AnimatePresence>
           {others.map((c) => (
             <Permanent key={c.id} card={c} />
@@ -259,7 +272,7 @@ function FaceUpPile({ player, zone }: { player: Player; zone: 'graveyard' | 'exi
   const name = zone === 'graveyard' ? 'Graveyard' : 'Exile';
   return (
     <div
-      className={cx('pile', zone, !top && 'empty', castable && 'glow-play')}
+      className={cx('pile', zone, !top && 'empty', cards.length > 1 && 'many', castable && 'glow-play')}
       data-pile={`${player.id}-${zone}`}
       title={`${name}: ${cards.length} cards${top ? ' — click to view' : ''}`}
       // The viewer covers the pile, so its preview goes with it.
@@ -276,8 +289,15 @@ function FaceUpPile({ player, zone }: { player: Player; zone: 'graveyard' | 'exi
 function Piles({ player }: { player: Player }) {
   return (
     <>
-      <div className="pile library" data-library={player.id} title={`Library: ${player.library.length} cards`}>
+      {/* The deck's edges thicken with its size (--depth). The back stays when it is empty: draws measure it. */}
+      <div
+        className={cx('pile', 'library', !player.library.length && 'empty')}
+        data-library={player.id}
+        title={`Library: ${player.library.length} cards`}
+        style={vars({ '--depth': Math.min(1, player.library.length / 60).toFixed(2) })}
+      >
         <div className="card-back" />
+        <i className="ms ms-library" />
         <span className="count">{player.library.length}</span>
       </div>
       <FaceUpPile player={player} zone="graveyard" />
@@ -342,7 +362,7 @@ export function OpponentPanel({ player }: { player: Player }) {
           <Piles player={player} />
         </div>
       </header>
-      <BackRow player={player} width={side ? 60 : 104} max={11} className="opp-back" />
+      <BackRow player={player} width={side ? 60 : 104} max={11} depth={9.3} className="opp-back" />
       <CreatureRow player={player} width={side ? 61 : 111} max={side ? 14 : 14.5} className="opp-front" wrap={side} />
       {player.lost && <div className="defeated">Defeated</div>}
     </section>
@@ -376,6 +396,7 @@ function arranged(hand: Card[], order: string[]) {
 }
 
 export function PlayerField({ player }: { player: Player }) {
+  const { g } = useView();
   const hand = arranged(
     player.hand,
     useStore((s) => s.handOrder),
@@ -393,8 +414,10 @@ export function PlayerField({ player }: { player: Player }) {
   };
   return (
     <>
+      {/* The seat's mat, under everything else of yours. */}
+      <div className={cx('seat-mat', 'me-mat', g.active === player.id && 'active')} style={vars({ '--deck': deckColor(player.colors) })} />
       <CreatureRow player={player} width={113} max={17} className="me-front" />
-      <BackRow player={player} width={50} max={14} className="me-back" split />
+      <BackRow player={player} width={44} max={14} depth={11.5} className="me-back" split />
       <div className="me-avatar">
         <Avatar player={player} />
         <ManaPool player={player} />

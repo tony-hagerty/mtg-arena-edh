@@ -172,13 +172,28 @@ describe('viewFor and the log', () => {
   });
 });
 
+/**
+ * A four-player game with one person (seat 0), every move the bot's choice, played to the end
+ * once for the tests below: every state it went through, in order.
+ */
+let played: Game[] | undefined;
+function wholeGame(): Game[] {
+  if (played) return played;
+  let g = newGame({ seed: 12, seats: [{ deck: DECKS[0], human: true }, ...DECKS.slice(1, 4).map((deck) => ({ deck }))] });
+  const states = [g];
+  for (let i = 0; g.step !== 'gameOver' && i < 4000; i++) {
+    g = applyBotAction(g, botAction(g, g.priority));
+    states.push(g);
+  }
+  expect(g.step).toBe('gameOver');
+  return (played = states);
+}
+
 describe('viewFor through whole games', () => {
-  it('never gives any player a hidden card’s id, at any point of a four-player game', () => {
-    let g = newGame({ seed: 31, seats: DECKS.slice(0, 4).map((deck) => ({ deck })) });
+  it('never gives any player a hidden card’s id, at any point of a four-player game', { tags: ['game'] }, () => {
     let checked = 0;
-    for (let i = 0; g.step !== 'gameOver' && i < 4000; i++) {
-      g = applyBotAction(g, botAction(g, g.priority));
-      if (i % 25) continue;
+    wholeGame().forEach((g, i) => {
+      if (i % 25) return;
       for (const viewer of [0, 1, 2, 3, null] as (PlayerId | null)[]) {
         const v = viewFor(g, viewer);
         const seen = strings(v);
@@ -188,7 +203,7 @@ describe('viewFor through whole games', () => {
         expect(v.players.map((p) => p.battlefield.length)).toEqual(g.players.map((p) => p.battlefield.length));
         checked++;
       }
-    }
+    });
     expect(checked).toBeGreaterThan(50);
   });
 
@@ -200,16 +215,13 @@ describe('viewFor through whole games', () => {
 });
 
 describe('the screen drawn from a player’s view', () => {
-  it('builds from a filtered game at every point of a game with one person', async () => {
+  it('builds from a filtered game at every point of a game with one person', { tags: ['game'] }, async () => {
     const { useStore } = await import('../src/ui/store');
     const { buildView } = await import('../src/ui/view');
-    let g = newGame({ seed: 12, seats: [{ deck: DECKS[0], human: true }, ...DECKS.slice(1, 4).map((deck) => ({ deck }))] });
-    for (let i = 0; g.step !== 'gameOver' && i < 1500; i++) {
-      if (i % 10 === 0) {
-        useStore.setState({ game: viewFor(g, 0), human: 0, humans: [0], handoff: null, targeting: null, pickedBlockers: [] });
-        expect(() => buildView()).not.toThrow();
-      }
-      g = applyBotAction(g, botAction(g, g.priority));
-    }
+    wholeGame().forEach((g, i) => {
+      if (i % 10) return;
+      useStore.setState({ game: viewFor(g, 0), human: 0, humans: [0], handoff: null, targeting: null, pickedBlockers: [] });
+      expect(() => buildView()).not.toThrow();
+    });
   });
 });
