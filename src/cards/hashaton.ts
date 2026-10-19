@@ -694,6 +694,23 @@ registerScripts({
       },
     },
   },
+  'Hostage Taker': {
+    // "When this creature enters, exile another target creature or artifact until this creature
+    // leaves the battlefield. You may cast that card for as long as it remains exiled, and mana
+    // of any type can be spent to cast that spell." If it has already left, nothing is exiled
+    // (610.3b); when it leaves, the card returns under its owner's control (610.3c). A token
+    // exiled ceases to exist (111.7). The spell cast is a new object, so it stays (400.7).
+    targets: [{ type: 'permanent', label: 'another target creature or artifact', filter: (g, c, self) => c.id !== self.id && (isCreature(g, c) || hasType(g, c, 'Artifact')) }],
+    onEnter: (g, { self, you, targets }) => {
+      const me = still(g, self);
+      const c = refCard(g, targets[0]);
+      if (!me || !c) return;
+      exile(g, c);
+      if (c.zone !== 'exile' || c.isToken) return;
+      me.holds = [...(me.holds ?? []), { id: c.id, moves: c.moves }];
+      addEffect(g, { kind: 'mayCast', player: you, card: c.id, moves: c.moves, anyMana: true, lasting: true });
+    },
+  },
   'Jin-Gitaxias, Progress Tyrant': {
     onCast: [
       // "Whenever you cast an artifact, instant, or sorcery spell, copy that spell. You may choose

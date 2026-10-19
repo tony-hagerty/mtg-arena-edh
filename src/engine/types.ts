@@ -366,6 +366,8 @@ export interface Card {
   chosen: string | null;
   /** Monstrous (701.37b): a designation, kept until it leaves the battlefield. */
   monstrous?: boolean;
+  /** Cards it exiled "until this leaves the battlefield" (Hostage Taker): they return when it does (610.3). */
+  holds?: { id: string; moves: number }[];
   /** Cards an ability of it exiled, for the ability linked to it (607), like Chrome Mox's. */
   linked: { id: string; moves: number }[];
   /**

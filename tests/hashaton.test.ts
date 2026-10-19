@@ -670,3 +670,34 @@ describe('Giggling Skitterspike', () => {
     expect(stats(g, after).power).toBe(6);
   });
 });
+
+describe('Hostage Taker', () => {
+  const setup = () =>
+    emptyGame((d) => {
+      put(d, 0, 'Hostage Taker', 'hand');
+      put(d, 0, 'Island', 'battlefield', 6);
+      put(d, 0, 'Swamp', 'battlefield', 6);
+      put(d, 0, 'Bitter Triumph', 'hand');
+      put(d, 1, 'Serra Angel');
+    });
+
+  it('exiles a creature you may cast with mana of any type', () => {
+    let g = setup();
+    g = settle(run(g, cast(g, 'Hostage Taker')), (x) => (x.decision?.type === 'targets' ? { type: 'chooseTargets', targets: [card(byName(x, 1, 'Serra Angel')!)] } : null));
+    expect(byName(g, 1, 'Serra Angel', 'exile')).toBeDefined();
+    g = settle(run(g, cast(g, 'Serra Angel', {}, 'exile', 1)));
+    const angel = byName(g, 0, 'Serra Angel')!;
+    expect(angel.owner).toBe(1);
+    // A new object: it stays when Hostage Taker leaves.
+    g = settle(run(g, cast(g, 'Bitter Triumph', { extra: 1, targets: [card(byName(g, 0, 'Hostage Taker')!)] })));
+    expect(byName(g, 0, 'Serra Angel')).toBeDefined();
+  });
+
+  it('returns the card to its owner when it leaves, if still exiled', () => {
+    let g = setup();
+    g = settle(run(g, cast(g, 'Hostage Taker')), (x) => (x.decision?.type === 'targets' ? { type: 'chooseTargets', targets: [card(byName(x, 1, 'Serra Angel')!)] } : null));
+    g = settle(run(g, cast(g, 'Bitter Triumph', { extra: 1, targets: [card(byName(g, 0, 'Hostage Taker')!)] })));
+    expect(byName(g, 1, 'Serra Angel')).toBeDefined();
+    expect(byName(g, 1, 'Serra Angel', 'exile')).toBeUndefined();
+  });
+});
