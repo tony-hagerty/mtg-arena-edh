@@ -24,6 +24,7 @@ import {
   enterTogether,
   equip,
   exile,
+  exileAll,
   exileLinked,
   finishEnter,
   gainLife,
@@ -112,15 +113,8 @@ function blink(g: Game, c: Card | undefined) {
  * Interlude, Phelia, The Eternal Wanderer). Returns what the delayed trigger needs to find it.
  */
 function exileForNow(g: Game, cards: Card[]): { id: string; moves: number }[] {
-  const out: { id: string; moves: number }[] = [];
-  simultaneously(g, () => {
-    for (const c of cards) {
-      if (c.zone !== 'battlefield') continue;
-      exile(g, c);
-      if (c.zone === ('exile' as Card['zone']) && !c.isToken) out.push({ id: c.id, moves: c.moves });
-    }
-  });
-  return out;
+  // Tokens cease to exist in exile (111.7), so only cards come back.
+  return exileAll(g, cards.filter((c) => c.zone === 'battlefield')).map((c) => ({ id: c.id, moves: c.moves }));
 }
 
 /** "As this land enters, you may pay 3 life. If you don't, it enters tapped." (614.12a, 119.4) */
@@ -220,7 +214,7 @@ function yangchenChoose(g: Game, you: PlayerId, order: PlayerId[], i: number, ch
   }
   // "Exile those permanents." Together.
   const cards = [...new Set(chosen)].map((id) => permanent(g, id)).filter((c): c is Card => !!c);
-  simultaneously(g, () => cards.forEach((c) => exile(g, c)));
+  exileAll(g, cards);
 }
 
 // ---------- Lively Dirge ----------
@@ -285,9 +279,7 @@ registerScripts({
     onEnter: (g, { targets }) => {
       const p = refPlayer(g, targets[0]);
       if (!p || !p.graveyard.length) return;
-      const cards = [...p.graveyard];
-      log(g, `${says(p, 'exiles')} ${their(p)} graveyard.`, p.id, cards);
-      simultaneously(g, () => cards.forEach((c) => moveCard(g, c, 'exile')));
+      exileAll(g, [...p.graveyard], `${says(p, 'exiles')} ${their(p)} graveyard.`, p.id);
     },
   },
   'Boggart Bog': payThreeLand('B'),
@@ -690,9 +682,7 @@ registerScripts({
         cost: { mana: '{1}', exileSelf: true },
         text: 'Exile all graveyards, then draw a card',
         resolve: (g, { you }) => {
-          const cards = g.players.flatMap((p) => p.graveyard);
-          if (cards.length) log(g, 'All graveyards are exiled.', you, cards);
-          simultaneously(g, () => cards.forEach((c) => moveCard(g, c, 'exile')));
+          exileAll(g, g.players.flatMap((p) => [...p.graveyard]), 'All graveyards are exiled.', you);
           draw(g, you);
         },
       },

@@ -16,6 +16,7 @@ import {
   destroy,
   discard,
   draw,
+  exileAll,
   enterBattlefield,
   equip,
   finishEnter,
@@ -336,9 +337,8 @@ registerScripts({
     static: attachedBonus({ power: 1, toughness: 1 }),
     onLeave: {
       when: (_g, { to }) => to === 'graveyard',
-      resolve: (g, { you }) => {
-        for (const o of opponentsOf(g, you)) loseLife(g, o.id, 1);
-      },
+      // Every opponent at once: "whenever one or more opponents lose life" triggers once (603.2c).
+      resolve: (g, { you }) => simultaneously(g, () => opponentsOf(g, you).forEach((o) => void loseLife(g, o.id, 1))),
       text: 'When this token is put into a graveyard from the battlefield, each opponent loses 1 life.',
     },
   },
@@ -700,9 +700,7 @@ registerScripts({
     onResolve: (g, { you }) => {
       const p = g.players[you];
       const hand = [...p.hand];
-      for (const c of hand) moveCard(g, c, 'exile');
-      if (hand.length) log(g, `${says(p, 'exiles')} ${their(p)} hand: ${hand.map(label).join(', ')}.`, you, hand);
-      const exiled = stillExiled(g, refsOf(hand.map((c) => p.exile.find((x) => x.id === c.id)!).filter(Boolean)));
+      const exiled = stillExiled(g, refsOf(exileAll(g, hand, `${says(p, 'exiles')} ${their(p)} hand: ${hand.map(label).join(', ')}.`, you)));
       draw(g, you, hand.length);
       mayPlayUntilNextTurn(g, you, exiled);
     },
