@@ -208,7 +208,7 @@ function DeckTile({ deck, state, play, hover, edit, pasted }: { deck: DeckDef; s
       </button>
       {pasted && broken && edit && (
         <button className="deck-fix" onClick={edit} title="Open this deck in the paste screen, with the cards to swap at the top">
-          {waiting && !issues.length ? 'Swap them' : 'Open the list'}
+          {waiting && !issues.length ? (waiting === 1 ? 'Swap it' : 'Swap them') : 'Open the list'}
         </button>
       )}
       {pasted && (
@@ -545,7 +545,7 @@ function RefusedList({ cards: list, playTextless, swap }: { cards: RefusedCard[]
           {group.map((r) => (
             <div key={r.name} className="refused-card">
               <div className="refused-name">{r.name}</div>
-              <div className="refused-line">{r.line}</div>
+              {!r.lineInHeading && <div className="refused-line">{r.line}</div>}
               <div className="refused-choice">
                 {r.noTextless === null ? (
                   <button className="chip" onClick={() => playTextless(r.name)} title="It plays with its name, cost, types, power and toughness and the keywords the game knows. The rest of its text does nothing.">
