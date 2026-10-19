@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 import './fixtures';
 import type { Game } from '../src/engine';
 import { gameSound } from '../src/ui/game-sounds';
-import { CHORDS, composer, hz, musicLevel, musicPlace, SCALE, seeded } from '../src/ui/music-score';
+import { BEATS, CHORDS, composer, hz, musicLevel, musicPlace, SCALE, seeded, UNPITCHED } from '../src/ui/music-score';
 import { loadSettings, useStore } from '../src/ui/store';
 import { emptyGame, put } from './helpers';
 
@@ -102,11 +102,10 @@ describe('background music', () => {
     expect(bars[0].chord).toBe('Dm');
     for (const [i, bar] of bars.entries()) {
       if (i > 0) expect(Object.keys(CHORDS[bars[i - 1].chord].next)).toContain(bar.chord);
-      expect(bar.length).toBeGreaterThanOrEqual(9);
       expect(bar.brightness).toBeGreaterThan(0);
       expect(bar.brightness).toBeLessThan(1);
       for (const n of bar.notes) {
-        expect(SCALE).toContain(n.midi % 12);
+        if (!UNPITCHED.includes(n.voice)) expect(SCALE).toContain(n.midi % 12);
         expect(n.at).toBeGreaterThanOrEqual(0);
         expect(n.at).toBeLessThan(bar.length);
         if (n.voice === 'pad') expect(CHORDS[bar.chord].notes).toContain(n.midi);
@@ -119,11 +118,38 @@ describe('background music', () => {
     // Every chord and every voice turns up, and some bars leave the melody out.
     expect(new Set(bars.map((b) => b.chord)).size).toBe(Object.keys(CHORDS).length);
     const voices = new Set(bars.flatMap((b) => b.notes.map((n) => n.voice)));
-    expect([...voices].sort()).toEqual(['bell', 'harp', 'lead', 'pad']);
-    expect(bars.some((b) => b.notes.every((n) => n.voice === 'pad'))).toBe(true);
+    expect([...voices].sort()).toEqual(['bass', 'bell', 'drum', 'harp', 'lead', 'pad', 'shaker']);
+    expect(bars.some((b) => b.notes.every((n) => n.voice !== 'lead'))).toBe(true);
     // No loop: the chord sequence doesn't repeat with any short period.
     const chords = bars.map((b) => b.chord).join(' ');
     for (let period = 1; period <= 16; period++) expect(bars.every((b, i) => i < period || b.chord === bars[i - period].chord), `${period}: ${chords}`).toBe(false);
+  });
+
+  it('keeps a steady pulse: one tempo, every note on the eighth-note grid', () => {
+    const bars = Array.from({ length: 100 }, composer(5).next);
+    const { beat } = bars[0];
+    // 80 to 92 beats a minute.
+    expect(60 / beat).toBeGreaterThanOrEqual(80);
+    expect(60 / beat).toBeLessThanOrEqual(92);
+    for (const bar of bars) {
+      expect(bar.beat).toBe(beat);
+      expect(bar.length).toBeCloseTo(BEATS * beat);
+      for (const n of bar.notes) expect((n.at / beat) * 2).toBeCloseTo(Math.round((n.at / beat) * 2));
+    }
+  });
+
+  it('opens quietly, then builds and eases off section by section', () => {
+    const bars = Array.from({ length: 200 }, composer(9).next);
+    expect(bars[0].energy).toBe(0);
+    expect(bars[0].notes.some((n) => n.voice === 'drum' || n.voice === 'bass')).toBe(false);
+    expect(new Set(bars.map((b) => b.energy))).toEqual(new Set([0, 1, 2]));
+    for (const [i, bar] of bars.entries()) {
+      if (i > 0) expect(Math.abs(bar.energy - bars[i - 1].energy)).toBeLessThanOrEqual(1);
+      expect(bar.notes.some((n) => n.voice === 'drum')).toBe(bar.energy >= 1);
+      expect(bar.notes.some((n) => n.voice === 'shaker')).toBe(bar.energy === 2);
+      // The harp keeps every downbeat.
+      for (let b = 0; b < BEATS; b += 2) expect(bar.notes.some((n) => n.voice === 'harp' && Math.abs(n.at - b * bar.beat) < 1e-9)).toBe(true);
+    }
   });
 
   it('turns MIDI notes into pitches', () => {

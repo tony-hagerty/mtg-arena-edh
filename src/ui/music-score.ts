@@ -1,7 +1,8 @@
 // The background music's notes and when it plays, with no audio: music.ts turns these into
-// sound. The music is generative: a seeded random walk over a few chords in D Dorian, a slow
-// pad under each, now and then a short melody or a few harp and bell notes on top, so it never
-// repeats a loop.
+// sound. The music is generative but keeps a steady pulse: a seeded random walk over a few
+// chords in D Dorian, two measures of 4/4 a chord, with a harp arpeggio in eighth notes, a
+// plucked bass, a soft frame drum and shaker, and a melody on the beat. Every few chords a new
+// section picks new patterns and how busy it is, so it never repeats a loop.
 import type { Game } from '../engine';
 import type { Settings } from './store';
 
@@ -19,20 +20,20 @@ export function seeded(seed: number): () => number {
 
 /** D Dorian, as MIDI note numbers mod 12: D E F G A B C. The raised sixth (B) is what makes it Dorian. */
 export const SCALE = [2, 4, 5, 7, 9, 11, 0];
-/** The drone's notes, D2 and A2, under every chord. */
-export const DRONE = [38, 45];
 
-/** Each chord centre: its notes (MIDI, voiced for the pad) and where the walk may go next, with weights. */
+/** Each chord centre: its notes (MIDI, voiced for the pad and arpeggio), its bass root, and where the walk may go next, with weights. */
 export const CHORDS = {
-  Dm: { notes: [50, 57, 60, 65], next: { F: 3, G: 3, C: 2, Am: 2 } },
-  F: { notes: [53, 57, 60, 64], next: { C: 3, G: 2, Dm: 3 } },
-  G: { notes: [50, 55, 59, 62], next: { Dm: 4, Am: 2, F: 1 } },
-  C: { notes: [52, 55, 60, 64], next: { Dm: 3, F: 2, Am: 2 } },
-  Am: { notes: [52, 57, 60, 64], next: { Dm: 3, G: 2, F: 2 } },
-} satisfies Record<string, { notes: number[]; next: Record<string, number> }>;
+  Dm: { notes: [50, 57, 60, 65], root: 38, next: { F: 3, G: 3, C: 2, Am: 2 } },
+  F: { notes: [53, 57, 60, 64], root: 41, next: { C: 3, G: 2, Dm: 3 } },
+  G: { notes: [50, 55, 59, 62], root: 43, next: { Dm: 4, Am: 2, F: 1 } },
+  C: { notes: [52, 55, 60, 64], root: 36, next: { Dm: 3, F: 2, Am: 2 } },
+  Am: { notes: [52, 57, 60, 64], root: 45, next: { Dm: 3, G: 2, F: 2 } },
+} satisfies Record<string, { notes: number[]; root: number; next: Record<string, number> }>;
 export type Chord = keyof typeof CHORDS;
 
-export type Voice = 'pad' | 'lead' | 'harp' | 'bell';
+export type Voice = 'pad' | 'harp' | 'bass' | 'lead' | 'bell' | 'drum' | 'shaker';
+/** Voices with no pitch: their `midi` is ignored. */
+export const UNPITCHED: Voice[] = ['drum', 'shaker'];
 
 export interface Note {
   voice: Voice;
@@ -48,12 +49,44 @@ export interface Note {
 
 export interface Bar {
   chord: Chord;
-  /** Seconds until the next bar starts. A pad note outlasts it, so the chords cross-fade. */
+  /** Seconds a beat lasts; a bar is `BEATS` of them. */
+  beat: number;
+  /** Seconds until the next bar starts. A pad note outlasts it a little, so the chords cross-fade. */
   length: number;
+  /** How busy the section is: 0 just pad and harp, 1 adds bass, drum and melody, 2 adds the shaker. */
+  energy: number;
   /** How open the pad's filter is this bar, 0 (dark) to 1 (bright): the colour drifts slowly. */
   brightness: number;
   notes: Note[];
 }
+
+/** Beats in a bar: one chord lasts two measures of 4/4. */
+export const BEATS = 8;
+
+/** Arpeggios over the chord's four notes, one index per eighth note of a measure. */
+const ARPS = [
+  [0, 1, 2, 3, 2, 1, 0, 1],
+  [0, 2, 1, 3, 0, 2, 1, 3],
+  [0, 1, 2, 3, 3, 2, 1, 0],
+  [0, 2, 3, 2, 1, 2, 3, 2],
+  [3, 2, 1, 0, 1, 2, 3, 2],
+];
+/** Bass rhythms, in beats of the bar. Each note is the root, or the fifth on an odd one. */
+const BASS = [
+  [0, 4],
+  [0, 3, 4, 7],
+  [0, 1.5, 4, 5.5],
+  [0, 2.5, 4, 6.5],
+];
+/** Frame drum rhythms, [beat, loudness]: a strong first beat, the rest lighter. */
+const DRUMS = [
+  [[0, 1], [4, 0.75]],
+  [[0, 1], [2.5, 0.4], [4, 0.8], [6.5, 0.4]],
+  [[0, 1], [1.5, 0.45], [4, 0.8], [5.5, 0.45], [7, 0.35]],
+  [[0, 1], [3, 0.5], [4, 0.75], [7, 0.5], [7.5, 0.35]],
+];
+/** The last bar of a section ends with a little roll into the next. */
+const FILL = [[6, 0.45], [6.5, 0.5], [7, 0.6], [7.5, 0.7]];
 
 /** MIDI note number to Hz. */
 export const hz = (midi: number) => 440 * 2 ** ((midi - 69) / 12);
@@ -74,51 +107,82 @@ function scaleNotes(low: number, high: number): number[] {
   return notes;
 }
 
-/** The melody's range, about A4 to D6: above the pad, below shrill. */
+/** The melody's range, about A4 to D6: above the harp, below shrill. */
 const LEAD = scaleNotes(69, 86);
 
 /**
- * Makes the music, one bar at a time, from `seed`. The melody walks by steps through the
- * scale from where it last stopped, so phrases connect across bars.
+ * Makes the music, one bar (one chord) at a time, from `seed`. The tempo is set once, about
+ * 80 to 92 beats a minute; each section of 4 to 8 bars picks its own patterns and moves its
+ * energy up or down a step. The melody walks by steps from where it last stopped, so phrases
+ * connect across bars.
  */
 export function composer(seed: number): { next(): Bar } {
   const rng = seeded(seed);
+  const beat = 60 / (80 + Math.floor(rng() * 13));
+  const length = BEATS * beat;
   let chord: Chord = 'Dm';
   let lead = LEAD.indexOf(74);
   let brightness = 0.4;
   let first = true;
+  // The section: bars left in it, its energy and its patterns. It opens quietly.
+  let left = 0;
+  let energy = 0;
+  let arp = ARPS[0];
+  let bass = BASS[0];
+  let drums = DRUMS[0];
+  let rests = 0.3;
   return {
     next() {
       if (!first) chord = weighted<Chord>(rng, CHORDS[chord].next);
+      if (left === 0) {
+        left = 4 + Math.floor(rng() * 5);
+        // Out of the quiet level always up; at the top, more often back down.
+        if (!first) energy = energy === 0 ? 1 : energy === 1 ? pick(rng, [0, 2, 2]) : pick(rng, [1, 1, 2]);
+        arp = pick(rng, ARPS);
+        bass = pick(rng, BASS);
+        drums = pick(rng, DRUMS);
+        rests = energy === 2 ? rng() * 0.1 : 0.1 + rng() * 0.25;
+      }
       first = false;
-      // 9 to 13 seconds a chord: slow enough to float, uneven so nothing lines up.
-      const length = 9 + rng() * 4;
+      left--;
+      const at = (beats: number) => beats * beat;
+      const { notes: tones, root } = CHORDS[chord];
       brightness = Math.max(0.1, Math.min(0.9, brightness + (rng() - 0.5) * 0.3));
-      const notes: Note[] = CHORDS[chord].notes.map((midi, i) => ({ voice: 'pad', midi, at: i * 0.15, dur: length + 4, gain: i === 0 ? 0.9 : 0.7 }));
+      // The pad, softer when the rest is busy, held a beat and a half past the bar.
+      const notes: Note[] = tones.map((midi) => ({ voice: 'pad', midi, at: 0, dur: length + at(1.5), gain: energy === 2 ? 0.45 : 0.6 }));
 
-      // A short melody in a little over half the bars, the rest left to the pad.
-      if (rng() < 0.55) {
-        let at = 1 + rng() * 2.5;
-        const count = 2 + Math.floor(rng() * 4);
-        for (let i = 0; i < count && at < length - 1; i++) {
-          // Mostly steps, now and then a leap of a third, drifting back towards the middle.
-          const step = pick(rng, [-2, -1, -1, 1, 1, 2]) + (lead > LEAD.length * 0.7 ? -1 : lead < LEAD.length * 0.3 ? 1 : 0);
-          lead = Math.max(0, Math.min(LEAD.length - 1, lead + step));
-          const dur = 1.6 + rng() * 2;
-          notes.push({ voice: 'lead', midi: LEAD[lead], at, dur, gain: 0.5 + rng() * 0.3 });
-          at += 0.9 + rng() * 1.8;
+      // The harp: the section's arpeggio in eighth notes, an octave up, the downbeats kept.
+      for (let i = 0; i < BEATS * 2; i++) {
+        if (i % 4 !== 0 && rng() < rests) continue;
+        const up = i >= 8 && rng() < 0.2 ? 24 : 12;
+        notes.push({ voice: 'harp', midi: tones[arp[i % 8]] + up, at: at(i / 2), dur: at(2.5), gain: i % 4 === 0 ? 0.6 : 0.42 });
+      }
+      if (energy >= 1) {
+        bass.forEach((b, i) => notes.push({ voice: 'bass', midi: i % 2 === 1 && rng() < 0.4 ? root + 7 : root, at: at(b), dur: at(1.8), gain: b % 4 === 0 ? 0.9 : 0.7 }));
+        for (const [b, gain] of left === 0 ? [...drums.filter(([b]) => b < 6), ...FILL] : drums) {
+          notes.push({ voice: 'drum', midi: 38, at: at(b), dur: 0.5, gain });
         }
       }
-      // A slow harp roll up the chord, an octave above the pad.
-      if (rng() < 0.3) {
-        const at = 0.5 + rng() * (length - 3);
-        CHORDS[chord].notes.forEach((midi, i) => notes.push({ voice: 'harp', midi: midi + 12, at: at + i * 0.18, dur: 3, gain: 0.55 }));
+      if (energy === 2) {
+        for (let i = 0; i < BEATS * 2; i++) notes.push({ voice: 'shaker', midi: 0, at: at(i / 2), dur: 0.06, gain: i % 2 ? 0.5 : 0.25 });
       }
-      // A single far-off bell on a chord note.
-      if (rng() < 0.25) {
-        notes.push({ voice: 'bell', midi: pick(rng, CHORDS[chord].notes) + 24, at: rng() * (length - 1), dur: 5, gain: 0.35 });
+
+      // A melody on the beat, in more bars the busier it is.
+      if (rng() < [0.2, 0.5, 0.7][energy]) {
+        let b = pick(rng, [0, 1, 2, 2.5]);
+        while (b < BEATS - 1) {
+          const step = pick(rng, [-2, -1, -1, 1, 1, 2]) + (lead > LEAD.length * 0.7 ? -1 : lead < LEAD.length * 0.3 ? 1 : 0);
+          lead = Math.max(0, Math.min(LEAD.length - 1, lead + step));
+          const beats = pick(rng, [0.5, 1, 1, 1.5, 2]);
+          notes.push({ voice: 'lead', midi: LEAD[lead], at: at(b), dur: at(beats) * 1.3, gain: 0.55 + rng() * 0.25 });
+          b += beats;
+          // A breath now and then.
+          if (rng() < 0.2) b += 1;
+        }
       }
-      return { chord, length, brightness, notes };
+      // A single far-off bell on a chord note, on a beat.
+      if (rng() < 0.2) notes.push({ voice: 'bell', midi: pick(rng, tones) + 24, at: at(Math.floor(rng() * BEATS)), dur: 4, gain: 0.35 });
+      return { chord, beat, length, energy, brightness, notes };
     },
   };
 }

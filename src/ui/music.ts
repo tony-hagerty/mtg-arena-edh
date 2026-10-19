@@ -1,8 +1,9 @@
 // The background music: plays the notes music-score.ts writes with the Web Audio API, no
-// sound files. A drone, a pad per chord through one low-pass filter, a soft lead, harp and
-// bell plucks, all through a reverb made from decaying noise. A timer once a second schedules
-// the next bar ahead on the audio clock, so nothing runs per frame.
-import { composer, DRONE, hz, musicLevel, musicPlace } from './music-score';
+// sound files. A pad per chord through one low-pass filter, a harp arpeggio, a plucked bass,
+// a soft lead and bells through a reverb made from decaying noise, and a frame drum and shaker
+// kept mostly dry so the beat stays crisp. A timer once a second schedules the next bar ahead
+// on the audio clock, so nothing runs per frame.
+import { composer, hz, musicLevel, musicPlace } from './music-score';
 import type { Bar, Note } from './music-score';
 import { useStore } from './store';
 
@@ -12,16 +13,22 @@ const BASE = 0.8;
 const AHEAD = 3;
 const TICK = 1000;
 /** Seconds the reverb rings. */
-const REVERB = 4;
+const REVERB = 3;
 
 interface Graph {
   audio: AudioContext;
   /** The music volume, faded in and out. */
   master: GainNode;
-  /** Where every voice goes: on to the master dry and through the reverb. */
+  /** Where the tuned voices go: on to the master dry and through the reverb. */
   bus: GainNode;
+  /** Where the percussion goes: mostly dry, a little reverb. */
+  drums: GainNode;
   pad: BiquadFilterNode;
   lead: BiquadFilterNode;
+  /** The drum's thud of noise and the shaker's hiss, cut from one buffer of noise. */
+  thud: BiquadFilterNode;
+  hiss: BiquadFilterNode;
+  noise: AudioBuffer;
 }
 
 let graph: Graph | null = null;
@@ -45,90 +52,141 @@ function impulse(audio: AudioContext): AudioBuffer {
   return buffer;
 }
 
+function filter(audio: AudioContext, type: BiquadFilterType, freq: number, out: AudioNode): BiquadFilterNode {
+  const f = audio.createBiquadFilter();
+  f.type = type;
+  f.frequency.value = freq;
+  f.connect(out);
+  return f;
+}
+
 function build(): Graph {
   const audio = new AudioContext();
   const master = audio.createGain();
   master.gain.value = 0;
   master.connect(audio.destination);
-  const bus = audio.createGain();
-  bus.gain.value = 0.7;
-  bus.connect(master);
   const reverb = audio.createConvolver();
   reverb.buffer = impulse(audio);
   const wet = audio.createGain();
-  wet.gain.value = 0.9;
-  bus.connect(reverb).connect(wet).connect(master);
+  wet.gain.value = 0.6;
+  reverb.connect(wet).connect(master);
 
-  const pad = audio.createBiquadFilter();
-  pad.type = 'lowpass';
-  pad.frequency.value = 900;
+  const bus = audio.createGain();
+  bus.gain.value = 0.75;
+  bus.connect(master);
+  bus.connect(reverb);
+  const drums = audio.createGain();
+  drums.connect(master);
+  const room = audio.createGain();
+  room.gain.value = 0.2;
+  drums.connect(room).connect(reverb);
+
+  const pad = filter(audio, 'lowpass', 900, bus);
   pad.Q.value = 0.5;
-  pad.connect(bus);
-  const lead = audio.createBiquadFilter();
-  lead.type = 'lowpass';
-  lead.frequency.value = 2200;
-  lead.connect(bus);
-
-  // The drone runs all the time, swelling and easing back with a very slow wave.
-  const drone = audio.createGain();
-  drone.gain.value = 0.05;
-  drone.connect(pad);
-  for (const midi of DRONE) {
-    const osc = audio.createOscillator();
-    osc.frequency.value = hz(midi);
-    osc.connect(drone);
-    osc.start();
-  }
-  const swell = audio.createOscillator();
-  swell.frequency.value = 0.04;
-  const depth = audio.createGain();
-  depth.gain.value = 0.025;
-  swell.connect(depth).connect(drone.gain);
-  swell.start();
-  return { audio, master, bus, pad, lead };
+  const noise = audio.createBuffer(1, audio.sampleRate, audio.sampleRate);
+  const data = noise.getChannelData(0);
+  for (let i = 0; i < data.length; i++) data[i] = Math.random() * 2 - 1;
+  return {
+    audio,
+    master,
+    bus,
+    drums,
+    pad,
+    lead: filter(audio, 'lowpass', 2200, bus),
+    thud: filter(audio, 'lowpass', 300, drums),
+    hiss: filter(audio, 'highpass', 6000, drums),
+    noise,
+  };
 }
 
-/** One note of `voice` at time `t`, into `out`: a slow swell for the pad, a soft rise for the lead, a pluck for harp and bell. */
-function note({ audio, pad, lead, bus }: Graph, t: number, n: Note) {
+function osc(audio: AudioContext, type: OscillatorType, freq: number, out: AudioNode, start: number, end: number): OscillatorNode {
+  const o = audio.createOscillator();
+  o.type = type;
+  o.frequency.value = freq;
+  o.connect(out);
+  o.start(start);
+  o.stop(end + 0.05);
+  return o;
+}
+
+/** A burst of the noise buffer into `out`, from a random point in it. */
+function burst(g: Graph, out: AudioNode, start: number, dur: number) {
+  const src = g.audio.createBufferSource();
+  src.buffer = g.noise;
+  src.connect(out);
+  src.start(start, Math.random() * 0.8);
+  src.stop(start + dur + 0.02);
+}
+
+/** One note at time `t`: a swell for the pad, a soft rise for the lead, a pluck for the rest, a hit for the drums. */
+function note(g: Graph, t: number, n: Note) {
+  const { audio } = g;
   const start = t + n.at;
   const end = start + n.dur;
   const env = audio.createGain();
-  const g = env.gain;
-  g.setValueAtTime(0, start);
-  const partials: [OscillatorType, number, number][] = [];
-  if (n.voice === 'pad') {
-    // Three seconds in, four out, so each chord melts into the next.
-    g.linearRampToValueAtTime(0.045 * n.gain, start + 3);
-    g.setValueAtTime(0.045 * n.gain, end - 4);
-    g.linearRampToValueAtTime(0, end);
-    env.connect(pad);
-    // Each note a few cents off, for a slow shimmer between them.
-    partials.push(['sawtooth', 1 + (Math.random() - 0.5) * 0.006, 1]);
-  } else if (n.voice === 'lead') {
-    g.linearRampToValueAtTime(0.06 * n.gain, start + 0.35);
-    g.exponentialRampToValueAtTime(0.0001, end);
-    env.connect(lead);
-    partials.push(['triangle', 1, 1]);
-  } else {
-    // A pluck: there at once, ringing away. A bell adds an inharmonic partial.
-    g.linearRampToValueAtTime((n.voice === 'bell' ? 0.06 : 0.07) * n.gain, start + 0.005);
-    g.exponentialRampToValueAtTime(0.0001, end);
-    env.connect(bus);
-    partials.push(n.voice === 'bell' ? ['sine', 1, 1] : ['triangle', 1, 1]);
-    if (n.voice === 'bell') partials.push(['sine', 2.76, 0.3]);
-  }
-  for (const [type, ratio, gain] of partials) {
-    const osc = audio.createOscillator();
-    osc.type = type;
-    osc.frequency.value = hz(n.midi) * ratio;
-    if (gain === 1) osc.connect(env);
-    else {
+  const v = env.gain;
+  v.setValueAtTime(0, start);
+  const freq = hz(n.midi);
+  /** A pluck: there at once, ringing away. */
+  const pluck = (peak: number) => {
+    v.linearRampToValueAtTime(peak * n.gain, start + 0.005);
+    v.exponentialRampToValueAtTime(0.0001, end);
+  };
+  switch (n.voice) {
+    case 'pad':
+      // A second in, two out, so each chord melts into the next.
+      v.linearRampToValueAtTime(0.045 * n.gain, start + 1.2);
+      v.setValueAtTime(0.045 * n.gain, end - 2);
+      v.linearRampToValueAtTime(0, end);
+      env.connect(g.pad);
+      // Each note a few cents off, for a slow shimmer between them.
+      osc(audio, 'sawtooth', freq * (1 + (Math.random() - 0.5) * 0.006), env, start, end);
+      break;
+    case 'lead':
+      v.linearRampToValueAtTime(0.06 * n.gain, start + 0.08);
+      v.exponentialRampToValueAtTime(0.0001, end);
+      env.connect(g.lead);
+      osc(audio, 'triangle', freq, env, start, end);
+      break;
+    case 'harp':
+      pluck(0.09);
+      env.connect(g.bus);
+      osc(audio, 'triangle', freq, env, start, end);
+      break;
+    case 'bass':
+      pluck(0.16);
+      env.connect(g.pad);
+      osc(audio, 'triangle', freq, env, start, end);
+      break;
+    case 'bell': {
+      pluck(0.06);
+      env.connect(g.bus);
+      osc(audio, 'sine', freq, env, start, end);
+      // A bell's inharmonic partial, quieter.
       const quiet = audio.createGain();
-      quiet.gain.value = gain;
-      osc.connect(quiet).connect(env);
+      quiet.gain.value = 0.3;
+      quiet.connect(env);
+      osc(audio, 'sine', freq * 2.76, quiet, start, end);
+      break;
     }
-    osc.start(start);
-    osc.stop(end + 0.05);
+    case 'drum': {
+      // A frame drum: a low pitch falling fast, with a soft thud of noise for the skin.
+      pluck(0.2);
+      env.connect(g.drums);
+      osc(audio, 'sine', 110, env, start, end).frequency.exponentialRampToValueAtTime(48, start + 0.25);
+      const skin = audio.createGain();
+      skin.gain.setValueAtTime(0.25 * n.gain, start);
+      skin.gain.exponentialRampToValueAtTime(0.0001, start + 0.08);
+      skin.connect(g.thud);
+      burst(g, skin, start, 0.08);
+      break;
+    }
+    case 'shaker':
+      v.linearRampToValueAtTime(0.05 * n.gain, start + 0.01);
+      v.exponentialRampToValueAtTime(0.0001, end);
+      env.connect(g.hiss);
+      burst(g, env, start, n.dur);
+      break;
   }
 }
 
