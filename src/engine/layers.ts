@@ -32,7 +32,7 @@
  * again after each effect applies (613.8c). Only an ability that looked at a characteristic
  * this layer can change can depend on anything, so most layers need no extra asking.
  */
-import { current, isDraft } from 'immer';
+import { current, isDraft, original } from 'immer';
 import { CREATURE_TYPES, SUBTYPES, cardData } from '../cards/db';
 import { anyRemovingScript, hasRemovingScript, hasStaticScript } from './registry';
 import { CANT_ATTACK, CANT_BLOCK, MUST_ATTACK, SUPPORTED_KEYWORDS, battlefield, counterCount, data, hasReconfigure, permanent, scriptFor } from './rules';
@@ -330,6 +330,8 @@ function apply(w: Working, p: LayerParts, l: Layer) {
  */
 export function staticRemoval(g: Game): boolean {
   if (!anyRemovingScript()) return false;
+  const base = untouched(g);
+  if (base) return staticRemoval(base);
   const isHeld = held?.g === g;
   const isFrozen = !isHeld && Object.isFrozen(g) && Object.isFrozen(g.players);
   const known = isHeld ? held!.removing : isFrozen ? removing.get(g) : undefined;
@@ -526,6 +528,8 @@ function storeFor(g: Game): WeakMap<Card, Result> | null {
  * `temporary: false` leaves out effects with a duration, for the bots' sense of what lasts.
  */
 export function characteristics(g: Game, c: Card, upTo: Layer = '7d', temporary = true): Characteristics {
+  const base = untouched(g);
+  if (base) return characteristics(base, inBase(c), upTo, temporary);
   if (c.lki) return c.lki;
   if (reading && c.zone === 'battlefield') reading.push({ id: c.id, upTo: LAYERS.indexOf(upTo), temporary });
   const partial = working.get(c.id);
@@ -555,6 +559,25 @@ function offBattlefield(g: Game, draft: Card): Characteristics {
   if (basePT) ({ power: w.power, toughness: w.toughness } = basePT(g, c));
   return w;
 }
+
+/** Immer's own key for a draft's state (a registered symbol, so the same in every copy of Immer). */
+const DRAFT_STATE = Symbol.for('immer-state');
+
+/**
+ * The finished game draft `g` was made from, while nothing in the draft has changed yet;
+ * otherwise undefined. Immer marks a draft's root as changed as soon as anything inside it
+ * changes, so an unchanged root means the draft is still exactly that game. Questions asked
+ * before an action changes anything (is this cast legal?) can then be answered from the
+ * finished game, where answers are kept, instead of through the draft. If Immer's draft state
+ * ever looks different, this says undefined and the draft is read as usual.
+ */
+export function untouched(g: Game): Game | undefined {
+  const state = (g as unknown as Record<symbol, { modified_?: unknown; base_?: Game } | undefined>)[DRAFT_STATE];
+  return state && state.modified_ === false && state.base_ && Object.isFrozen(state.base_) ? state.base_ : undefined;
+}
+
+/** `c` as it is in the finished game `untouched` gave. */
+export const inBase = (c: Card): Card => (isDraft(c) ? original(c)! : c);
 
 /**
  * `c` as a plain object. Inside `produce` a card is an Immer draft, and every property read
