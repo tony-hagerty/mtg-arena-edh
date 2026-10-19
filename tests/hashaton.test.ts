@@ -913,3 +913,37 @@ describe('Elesh Norn, Mother of Machines', () => {
     expect(counterCount(byName(g, 1, 'Nesting Dovehawk')!)).toBe(0);
   });
 });
+
+describe('Curious Colossus', () => {
+  it("makes each creature the target opponent controls a 1/1 Coward with no abilities, for good, and only those it affected", () => {
+    let g = emptyGame((d) => {
+      put(d, 0, 'Curious Colossus', 'hand');
+      put(d, 0, 'Plains', 'battlefield', 7);
+      put(d, 1, 'Serra Angel');
+      put(d, 1, 'Ashen Rider');
+      put(d, 2, 'Serra Angel');
+      put(d, 1, 'Serra Angel', 'hand');
+    });
+    g = run(g, cast(g, 'Curious Colossus'));
+    g = settle(g, (x) => (x.decision?.type === 'targets' ? { type: 'chooseTargets', targets: [player(1)] } : null));
+    for (const c of g.players[1].battlefield) {
+      const s = stats(g, c);
+      expect([s.power, s.toughness]).toEqual([1, 1]);
+      expect(s.keywords.size).toBe(0);
+      expect(subtypesOf(g, c)).toContain('Coward');
+    }
+    // The other opponent's creature, and Curious Colossus itself, are untouched.
+    const other = stats(g, g.players[2].battlefield[0]);
+    expect([other.power, other.toughness, other.keywords.has('flying')]).toEqual([4, 4, true]);
+    expect(stats(g, byName(g, 0, 'Curious Colossus')!).power).toBe(7);
+    // It lasts past the turn, and a creature that player gets later isn't affected (611.2c).
+    g = until(g, (x) => x.turn > 1 && x.active === 1 && x.step === 'main1');
+    expect(stats(g, byName(g, 1, 'Ashen Rider')!).power).toBe(1);
+    expect(g.turn).toBeGreaterThan(1);
+    g = produce(g, (d) => {
+      put(d, 1, 'Serra Angel');
+    });
+    const late = g.players[1].battlefield.at(-1)!;
+    expect(stats(g, late).power).toBe(4);
+  });
+});
