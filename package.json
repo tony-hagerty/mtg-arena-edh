@@ -10,6 +10,7 @@
     "preview": "vite preview",
     "test": "vitest run",
     "fetch-cards": "node scripts/fetch-cards.mjs",
+    "fetch-corpus": "node scripts/fetch-corpus.mjs",
     "fetch-rules": "node scripts/fetch-rules.mjs",
     "parse-report": "node scripts/parse-report.mjs",
     "card-requests": "node scripts/card-requests.mjs",
