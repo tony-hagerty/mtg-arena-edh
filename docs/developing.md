@@ -59,6 +59,7 @@ src/ui/         App.tsx               menu or game screen; GameScreen.tsx lays t
                 LobbyScreen.tsx       hosting a table, joining one with a code, the waiting room
                 view.ts               highlights, prompt, buttons, click handlers
                 Card/Board/Hud.tsx    components
+                River.tsx             the river arcing around your seat, under everything
                 TextCard.tsx          a card drawn as text when its image doesn't load
                 Menu.tsx              deck menu, opponent seats, the paste screen
                 card-requests.ts      sends refused cards to the dev server or a download

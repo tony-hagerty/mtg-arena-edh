@@ -629,7 +629,8 @@ export function buildView(): View {
     const face = t.choices.face ?? 0;
     const playing = view.announce.faces?.find((f) => f.face === face)?.land;
     const name = data(asSpell(card, face)).name;
-    view.prompt = playing ? `Play ${name} as a land.` : `Choose how to cast ${name}: ${text}.`;
+    const plot = view.announce.plot;
+    view.prompt = playing ? `Play ${name} as a land.` : plot ? `Cast ${name} for ${text}, or plot it for ${plot}?` : `Choose how to cast ${name}: ${text}.`;
     const ready = playing
       ? canPlayLand(g, me, card, face)
       : !!planPayment(g, me, castCost(g, card, t.choices, me), asSpell(card, face, me)) && (!view.announce.modal || view.announce.modal.valid);
@@ -1193,7 +1194,7 @@ function confirmAnnounce() {
   advance({ ...t, announcing: false, specs: castTargets(card, t.choices.modes, face, t.choices.gift, t.choices.alt) });
 }
 
-/** From the cast panel: use the card's ability that works from the hand (channel) instead of playing it. */
+/** From the prompt's cast options: use the card's ability that works from the hand (channel) instead of playing it. */
 export function activateFromHand() {
   const t = S().targeting;
   const g = S().game;
@@ -1614,7 +1615,7 @@ export function playHandCard(card: Card) {
   else if (!g.decision && canTapForMana(g, me, card)) tapByHand(g, me, card);
 }
 
-/** From the cast panel: plot the card instead of casting it (702.170a). */
+/** From the prompt's cast options: plot the card instead of casting it (702.170a). */
 export function plotCard() {
   const t = S().targeting;
   if (!t || !t.announcing) return;

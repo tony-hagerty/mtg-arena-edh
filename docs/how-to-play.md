@@ -76,6 +76,11 @@ The full guide to the game's screens and controls. For a quick start, see the
 
   Until it is paid for nothing has happened. The spell isn't on the stack, and Cancel
   untaps any lands you tapped while paying, so you are back exactly where you were.
+- **More than one way to play a card:** when a card can be cast for an alternative cost,
+  plotted instead (Highway Robbery), cast as either half, or needs X or kicker, the prompt
+  in the middle of the table lists the choices with **Cast** (or **Play**) and **Cancel**
+  beside them, so the whole choice is made right there. The big button in the corner does
+  the same as the prompt's Cast.
 - **Paying by hand:** click your lands and mana rocks to tap them. The mana shows in a
   pill beside your avatar. Costs spend that mana first and auto-tap only for the rest.
   A source with a choice (a dual land, a Talisman, Sunken Ruins) asks which ability and
@@ -100,7 +105,9 @@ The full guide to the game's screens and controls. For a quick start, see the
   or the graveyard, from the battlefield to a graveyard or exile pile, back to a hand or
   the command zone. A spell or ability that resolves glows gold as it leaves the stack, an
   ability flies back into the permanent it came from, and the log lines it wrote flash
-  gold. A new token flares as it appears. At a higher **Speed** the flights are quicker,
+  gold. A new token flares as it appears. A card landing on the battlefield folds into
+  its tile: the frame closes in on the picture as the tile fades in under it. At a higher
+  **Speed** the flights are quicker,
   and with your system set to reduce motion cards just appear where they go.
 - With the stack empty, the game passes for you except at your **stops**. The tracker on
   the controls' plate in the bottom right shows them: a strip of the turn's parts, the
@@ -169,18 +176,19 @@ The full guide to the game's screens and controls. For a quick start, see the
 | Card or cost | What to do |
 | --- | --- |
 | **Planeswalker** | Click yours to see its loyalty abilities and pick one. It happens right away (after any target): loyalty abilities cost loyalty, not mana. A −X ability first asks for X, like an ability with {X} in its cost does. Loyalty is the shield in the corner. |
-| **Battle** | Its defense is the orange box. When you cast a Siege, the cast panel asks which opponent protects it. |
-| **Two faces** (split, adventurer, modal double-faced) | The cast panel has a **Face** row: pick the half, the Adventure, or the face to play. A modal card's land face says "(land)"; pressing Continue on it plays the land. |
+| **Battle** | Its defense is the orange box. When you cast a Siege, the prompt asks which opponent protects it. |
+| **Two faces** (split, adventurer, modal double-faced) | The prompt has a **Face** row: pick the half, the Adventure, or the face to play. A modal card's land face says "(land)"; its button reads **Play** instead of **Cast**. |
 | **Class** | Click yours to see its level bars; pick the next one and pay for it. |
 | **Several abilities** (Deathrite Shaman) | Click the permanent to see every activated ability; the ones you can't use now are dimmed. With only one usable, clicking goes straight to it. |
 | **"One mana of any color"** | A window with the five colours opens while it resolves. **Lion's Eye Diamond** asks for the colour when you click it. |
 | **Aura and Equipment** | What is attached to a permanent fans out behind it, toward the top of the card, each showing its name and a strip of art; it taps and attacks with the permanent. Click an Equipment's strip to equip it to something else, hover a strip to read the card. An enchanted land stands on its own instead of in its pile. |
 | **Graveyard and exile** | A pile glows when something in it can be cast (flashback, escape, an adventurer card whose Adventure you cast, or a card an effect lets you cast or play, in anyone's exile). Open it and click the glowing card. With escape (Underworld Breach) a window then asks for the three other cards to exile. A card exiled face down shows its back, unless you may look at it. |
-| **Gift, channel, bargain** | Extra cast-panel rows: **Gift** (promise an opponent a gift, or none); an **Or** chip beside playing a card with an ability that works from the hand (Otawara's channel); **No Sacrifice** skips a bargain sacrifice. |
+| **Gift, channel, bargain, plot** | Extra prompt rows and buttons: **Gift** (promise an opponent a gift, or none); a button beside **Cast** for a card with an ability that works from the hand (Otawara's channel) or that can be plotted instead (Highway Robbery); **No Sacrifice** skips a bargain sacrifice. |
 | **Sacrifice costs** (Goblin Bombardment, Village Rites) | After the targets, the creatures you could sacrifice glow yellow; click one. |
 | **Shock lands** | Asks whether you pay 2 life as you play it. |
 | **New targets** (Deflecting Swat) | Click the new target for each slot, or press **Keep Target**. A card in a graveyard (Sevinne's Reclamation) is targeted from a window. |
 | **Cast as it resolves** (Beseech the Mirror) | A window offers **Cast** or **Don't Cast**; casting goes through the usual targets and costs. |
+| **A choice from several places** (Highway Robbery: discard a card or sacrifice a land) | The window groups the cards by where they are, **Your hand** and **Your battlefield**, so a Mountain in your hand isn't taken for one on the table. |
 | **Library search** (Rampant Growth, Cultivate, Path to Exile, ...) | Your whole library opens. Cards you could find glow; click one and press **Choose**, or **Find Nothing**. |
 
 ## Triggers and pop-up windows

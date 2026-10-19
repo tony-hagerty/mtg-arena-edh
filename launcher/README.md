@@ -41,7 +41,11 @@ Node version from nodejs.org the first time, checks its published SHA-256, and k
   every network, so the first time, Windows Firewall asks whether to allow it. Friends
   need it allowed; "Private networks" is enough for friends on the same Wi-Fi. Leaving
   the table, or quitting, closes the router's forward.
-- **Double-clicking it again** while it runs opens another window on the running copy.
+- **Double-clicking it again** while it runs opens another window on the running copy,
+  and that includes the 3 seconds after the last window closed: the new copy tells the
+  running one a window is coming (`/__launcher/hello?opening`) so it waits, and starts Edge
+  detached, because Node on Windows otherwise ends a child process with its parent and the
+  new copy, exiting, would take its own window down with it.
 - **Alt+Enter** toggles fullscreen (`src/ui/fullscreen.ts`). F11 works too.
 
 ## The data folder

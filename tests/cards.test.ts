@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { ALL_CARD_NAMES, ALL_DECKS, DECKS, cardData, deckColors, deckProblems, isCardName } from '../src/cards/db';
 import type { DeckDef } from '../src/cards/db';
 import type { CardData } from '../src/engine';
+import { scriptOf } from '../src/engine';
 import { unsupported } from '../src/cards/support';
 import { MANA_ROCKS } from './helpers';
 
@@ -14,6 +15,17 @@ describe('card pool', () => {
     const kraum = ALL_DECKS.find((d) => d.id === 'kraum-tymna')!;
     expect(DECKS.map((d) => d.id)).not.toContain('kraum-tymna');
     for (const name of [...kraum.commanders, ...kraum.cards]) expect(isCardName(name), name).toBe(true);
+  });
+
+  it('every card with printed ward has it in its script (702.21): the engine only triggers ward a script declares', () => {
+    const missing: string[] = [];
+    for (const name of ALL_CARD_NAMES) {
+      const d = cardData(name);
+      for (const face of d.faces ?? [d]) {
+        if (/^ward(?: \{|—)/im.test(face.oracleText) && !scriptOf(face.name).ward) missing.push(face.name);
+      }
+    }
+    expect(missing).toEqual([]);
   });
 
   it('every card is fully implemented: supported keywords only, or a script', () => {

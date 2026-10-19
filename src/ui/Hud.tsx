@@ -288,7 +288,7 @@ export function ActionBar() {
  * Choices announced before a spell's targets (601.2b): the value of X (107.3a), how many
  * times to pay kicker (702.33), and the mana cost or an alternative cost (118.9).
  */
-export function CastOptions() {
+function CastOptions() {
   const { announce: a, loyalty, abilityX, divide } = useView();
   if (loyalty) return <LoyaltyOptions options={loyalty.options} />;
   if (abilityX) return <AbilityX x={abilityX.x} max={abilityX.max} />;
@@ -300,30 +300,6 @@ export function CastOptions() {
   const modal = a.modal;
   return (
     <div className="cast-options">
-      {a.handMana && (
-        <div className="cast-row">
-          <span className="cast-label">Or</span>
-          <button className="chip" onClick={exileForMana}>
-            Exile it for mana
-          </button>
-        </div>
-      )}
-      {a.plot && (
-        <div className="cast-row">
-          <span className="cast-label">Or</span>
-          <button className="chip" onClick={plotCard}>
-            Plot <ManaCost cost={a.plot} />
-          </button>
-        </div>
-      )}
-      {a.handAbility && (
-        <div className="cast-row">
-          <span className="cast-label">Or</span>
-          <button className="chip" onClick={activateFromHand}>
-            {a.handAbility}
-          </button>
-        </div>
-      )}
       {a.faces && (
         <div className="cast-row">
           <span className="cast-label">Face</span>
@@ -581,14 +557,48 @@ function LoyaltyOptions({ options }: { options: AbilityOption[] }) {
   );
 }
 
+/**
+ * The prompt: a band across the middle of the table. While a spell is being announced
+ * (601.2b), an ability or X picked, or damage divided, the choices sit in the band under
+ * the words, with the buttons that go on or cancel, so the whole decision is made in one
+ * place. The big button in the corner does the same as the band's.
+ */
 export function Prompt() {
-  const { prompt } = useView();
+  const v = useView();
+  const { prompt, announce: a, loyalty, abilityX, divide } = v;
+  const options = !!(a || loyalty || abilityX || divide);
+  // One band for the whole decision: its words change as choices are made, but it stays put.
+  const key = a ? `announce:${a.card.id}` : loyalty ? `ability:${loyalty.card.id}` : abilityX ? `x:${abilityX.card.id}` : divide ? `divide:${divide.card.id}` : prompt;
   return (
     <AnimatePresence>
       {prompt && (
-        <motion.div key={prompt} className="prompt" initial={{ opacity: 0, scaleX: 0.8 }} animate={{ opacity: 1, scaleX: 1 }} exit={{ opacity: 0 }}>
+        <motion.div key={key} className={cx('prompt', options && 'with-options')} initial={{ opacity: 0, scaleX: 0.8 }} animate={{ opacity: 1, scaleX: 1 }} exit={{ opacity: 0 }}>
           {/* Mana costs like "{1}{B}" are drawn as symbols. */}
-          {prompt.split(/((?:\{[^}]+\})+)/).map((part, i) => (part.startsWith('{') ? <ManaCost key={i} cost={part} /> : part))}
+          <div className="prompt-text">{prompt.split(/((?:\{[^}]+\})+)/).map((part, i) => (part.startsWith('{') ? <ManaCost key={i} cost={part} /> : part))}</div>
+          <CastOptions />
+          {options && (v.primary || v.secondary) && (
+            <div className="prompt-actions">
+              {/* Announcing, the corner button's small print ("Cast Fireball") is the band's whole label. */}
+              {v.primary && <Button btn={a ? { ...v.primary, label: v.primary.sub ?? v.primary.label, sub: undefined } : v.primary} small />}
+              {/* Other things to do with the card instead of casting it: plot it (702.170a), or use a mana ability or channel from the hand. */}
+              {a?.plot && (
+                <button className="chip" onClick={plotCard}>
+                  Plot it for <ManaCost cost={a.plot} />
+                </button>
+              )}
+              {a?.handMana && (
+                <button className="chip" onClick={exileForMana}>
+                  Exile it for mana
+                </button>
+              )}
+              {a?.handAbility && (
+                <button className="chip" onClick={activateFromHand}>
+                  {a.handAbility}
+                </button>
+              )}
+              {v.secondary && <Button btn={v.secondary} small />}
+            </div>
+          )}
         </motion.div>
       )}
     </AnimatePresence>
