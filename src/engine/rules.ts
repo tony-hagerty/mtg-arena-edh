@@ -3,7 +3,7 @@
 import { CREATURE_TYPES, cardData } from '../cards/db';
 import { current, isDraft } from 'immer';
 import { anyGrantFor, scriptOf } from './registry';
-import { characteristics, hasOwnAbilities, heldMemo, inBase, mayHaveScript, mayLoseAbilities, settled, staticRemoval, typesOf, untouched } from './layers';
+import { anyGrantingStatic, characteristics, hasOwnAbilities, heldMemo, inBase, mayHaveScript, mayLoseAbilities, settled, staticRemoval, typesOf, untouched } from './layers';
 import { replace, whileArriving } from './replace';
 import type {
   ActivatedAbility,
@@ -2428,6 +2428,9 @@ function watchersNow(g: Game): Watchers {
 function grantedTo(g: Game, c: Card): { grant: GrantedTrigger; from: string; index: number }[] {
   const out: { grant: GrantedTrigger; from: string; index: number }[] = [];
   if (c.zone !== 'battlefield') return out;
+  // Given only by a resolved effect on it or by a static ability whose script lists grants. As
+  // it last was (`lki`), it keeps what it had then, even if what gave it is gone (603.10a).
+  if (!c.lki && !c.continuous.some((e) => e.grant) && !anyGrantingStatic(g)) return out;
   for (const m of characteristics(g, c, '6').grants) {
     const grant = scriptOf(m.from).grants?.[m.index];
     if (grant) out.push({ grant, from: m.from, index: m.index });

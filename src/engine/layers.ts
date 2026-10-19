@@ -369,6 +369,7 @@ function exists(g: Game, c: Card, w: Working, e: Entry, l: Layer): boolean {
  */
 function starts(g: Game, c: Card, w: Working, e: Entry, p: LayerParts, l: Layer): boolean {
   if (e.from && (p.loseAll || p.lose) && !scriptFor(e.from).removesAbilities) throw new Error(`${e.from.name}'s static ability removes abilities: its script needs removesAbilities.`);
+  if (e.from && p.grant && !scriptFor(e.from).grants) throw new Error(`${e.from.name}'s static ability gives a triggered ability: its script needs the grants it gives.`);
   if (!e.from && !e.cda && (p.loseAll || p.lose) && !g.abilitiesLost) throw new Error(`An effect that removes ${c.name}'s abilities must be given with addContinuous, which marks the game.`);
   return !!e.parts || exists(g, c, w, e, l);
 }
@@ -467,6 +468,12 @@ function staticSources(g: Game): Sources {
   if (kept) kept.sources = out;
   return out;
 }
+
+/**
+ * Could a static ability on the battlefield give a permanent a triggered ability (`LayerParts.grant`)?
+ * Only one whose script lists the grants it gives (`starts` checks that it does).
+ */
+export const anyGrantingStatic = (g: Game) => staticSources(g).some(({ src }) => !!scriptFor(src).grants);
 
 /**
  * Objects partway through the layers now, by id, so a question about one gets its state so
