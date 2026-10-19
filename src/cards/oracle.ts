@@ -66,6 +66,7 @@ import {
   mill,
   MUST_ATTACK,
   moveCard,
+  nameCard,
   opponentsOf,
   permanent,
   pickCards,
@@ -475,11 +476,12 @@ function targetPhrase(phrase: string, x: Num | null): TargetSpec[] | null {
     const who = / (an opponent controls|you don't control)$/.test(phrase) ? { who: 'opponent' as const } : {};
     return [{ type: 'spell or permanent', label, ...who, filter: (g, c) => c.zone === 'stack' || !isLand(g, c) }];
   }
-  const m = /^(up to (one|two|three|four|five) |any number of |one or two |two |three |four |five )?target (.+)$/.exec(phrase);
+  const m = /^(up to (one|two|three|four|five) |any number of |one or two |two |three |four |five )?(another |other )?target (.+)$/.exec(phrase);
   if (!m) return null;
   const count = m[1]?.trim();
   const many = !!count && count !== 'up to one';
-  const o = object(m[3], many ? 'many' : 'one', x);
+  // "Another target creature", "up to two other target creatures": not this object (115.1, 109.1).
+  const o = object(`${m[3] ? 'other ' : ''}${m[4]}`, many ? 'many' : 'one', x);
   if (!o) return null;
   const one = specFor(o, label);
   if (!count) return [one];
@@ -813,6 +815,8 @@ interface Effect {
   reuse?: boolean;
   /** It happens only if the player asked in the step before didn't pay (118.12a). */
   unlessPaid?: boolean;
+  /** "You may pay {N}. If you do, ...": the "may" is a payment (118.12). */
+  mayPay?: { cost?: string; life?: number };
   /** A bot hint the card's script takes from it (`CardScript.ai`). */
   ai?: CardScript['ai'];
 }
@@ -926,16 +930,16 @@ function findOf(phrase: string): Find | null {
   if (phrase === 'a card') return { label: 'a card' };
   // "An instant card or a card with flash": a card type or a keyword, either will do.
   if (phrase === 'an instant card or a card with flash') return { types: ['Instant'], keywords: ['flash'], label: phrase };
-  const m0 = /^(?:an?|up to \S+|\S+) (.+?) cards?$/.exec(phrase);
+  const m0 = /^(?:an?|up to \S+|\S+) (.+?) cards?( with mana value (?:\d+|x) or less)?$/.exec(phrase);
   if (!m0) return null;
-  const what = m0[1];
+  const what = m0[1] + (m0[2] ?? '');
   if (what === 'basic land') return { basic: true, types: ['Land'], label: phrase };
   let m = /^((?:plains|island|swamp|mountain|forest)(?:(?:,|,? or) (?:plains|island|swamp|mountain|forest))*)$/.exec(what);
   if (m) return { subtypes: m[1].split(/,? or |, /).map(capital), label: phrase };
   m = /^basic (plains|island|swamp|mountain|forest)$/.exec(what);
   if (m) return { basic: true, subtypes: [capital(m[1])], label: phrase };
-  m = /^((?:creature|artifact|enchantment|land|instant|sorcery|planeswalker|legendary)(?: or (?:creature|artifact|enchantment|land|instant|sorcery|planeswalker))?)(?: with mana value (\d+) or less)?$/.exec(what);
-  if (m) return { types: m[1].split(' or ').map(capital), ...(m[2] ? { maxMv: parseInt(m[2], 10) } : {}), label: phrase };
+  m = /^((?:creature|artifact|enchantment|land|instant|sorcery|planeswalker|legendary)(?: or (?:creature|artifact|enchantment|land|instant|sorcery|planeswalker))?)(?: with mana value (\d+|x) or less)?$/.exec(what);
+  if (m) return { types: m[1].split(' or ').map(capital), ...(m[2] ? { maxMv: m[2] === 'x' ? -1 : parseInt(m[2], 10) } : {}), label: phrase };
   return null;
 }
 
@@ -952,6 +956,8 @@ function searchEffect(rest: string, searcher: (g: Game, ctx: Ctx, i: number, m: 
   else if ((m = /^search(?:es)? (?:your|their) library for (.+?), (reveal it, )?then shuffle and put (?:that|the) card on top$/.exec(rest))) to = 'top';
   else return null;
   const find = findOf(m[1]) ?? refuse(clause, `a search for "${m[1]}"`);
+  // "With mana value X or less": X as the search starts (107.3a).
+  if (find.maxMv === -1 && !env.x) return refuse(clause, 'X outside a cost');
   const many = /^up to (\S+) /.exec(m[1]);
   if (!many && !/^(?:a|an) /.test(m[1])) return refuse(clause, `a search for "${m[1]}"`);
   const n = many ? count(many[1], env.x, clause) : () => 1;
@@ -963,7 +969,8 @@ function searchEffect(rest: string, searcher: (g: Game, ctx: Ctx, i: number, m: 
       const p = searcher(g, ctx, i, memo);
       if (p === undefined) return false;
       const k = n(g, ctx, memo);
-      search(g, p, to, find, { tapped, reveal, then: q.then, data: q.data, ...(k > 1 ? { count: k } : {}) });
+      const f = find.maxMv === -1 ? { ...find, maxMv: env.x!(g, ctx, memo) } : find;
+      search(g, p, to, f, { tapped, reveal, then: q.then, data: q.data, ...(k > 1 ? { count: k } : {}) });
       return true;
     },
     // "Put it into your graveyard": the engine leaves what it found in the library.
@@ -1188,10 +1195,13 @@ function lookEffect(n: Num, k: Num, random: boolean, filter: Test | null, label:
  * Reads one clause ("draw two cards", "~ deals 3 damage to any target"). The subject may be
  * carried from an earlier clause of the sentence (`st.who`).
  */
-function effect(clause: string, env: Env, st: State): Read {
+function effect(clause0: string, env: Env, st: State): Read {
+  // "That creature's controller" and "that permanent's controller" are "its controller".
+  const clause = clause0.replace(/^(?:that creature's|that permanent's|that spell's) (controller|owner) /, 'its $1 ');
   const subj = /^(you|target player|target opponent|each opponent|each player|each other player|its controller|its owner|that player|they) (.+)$/.exec(clause);
   let subject = (subj?.[1] as Subject | 'they' | undefined) ?? st.who;
   const rest = subj ? subj[2] : clause;
+  if (subject === 'they' && /^can't be regenerated$/.test(rest)) return youEffect(clause, env, st, clause);
   if (subject === 'they') {
     // "They": the player the trigger names, or the players named just before.
     if (env.ev?.player) subject = 'that player';
@@ -1241,6 +1251,35 @@ function youEffect(rest: string, env: Env, st: State, clause: string): Read {
       },
       // A bot keeps what it finds.
       bot: () => ({ type: 'chooseCards', cards: [] }),
+    };
+  }
+  // "Search your library for up to two basic land cards, reveal those cards, put one onto the battlefield tapped
+  // and the other into your hand, then shuffle" (Cultivate): one search (701.23h); the player then picks which one goes onto the battlefield.
+  if (rest === 'search your library for up to two basic land cards, reveal those cards, put one onto the battlefield tapped and the other into your hand, then shuffle') {
+    return {
+      targets: [],
+      choose: (g, ctx, _i, _m, q) => {
+        search(g, ctx.you, 'none', { basic: true, types: ['Land'], label: 'up to two basic land cards' }, { reveal: true, count: 2, then: q.then, data: { ...q.data, phase: 'found' } });
+        return true;
+      },
+      after: (g, c, _i, _m, q) => {
+        const lib = g.players[c.chooser].library;
+        if (c.data.phase === 'found') {
+          const found = c.picked.map((x) => lib.find((y) => y.id === x.id)).filter((x): x is Card => !!x);
+          if (found.length < 2) {
+            found.forEach((x) => enterBattlefield(g, x, { tapped: true }));
+            return true;
+          }
+          pickCards(g, c.chooser, found, { min: 1, max: 1, text: 'put one onto the battlefield tapped (the other goes into your hand)', button: 'Onto Battlefield', then: q.then, data: { ...q.data, phase: 'split', found: found.map((x) => x.id) } });
+          return false;
+        }
+        const ids = c.data.found as string[];
+        const field = lib.find((y) => y.id === c.picked[0]?.id);
+        const hand = lib.find((y) => ids.includes(y.id) && y.id !== field?.id);
+        if (field) enterBattlefield(g, field, { tapped: true });
+        if (hand) moveCard(g, hand, 'hand');
+        return true;
+      },
     };
   }
   // "Draw N cards, then discard N cards" (121, 701.9a): the discards are chosen after the draw.
@@ -1321,6 +1360,21 @@ function youEffect(rest: string, env: Env, st: State, clause: string): Read {
     };
   }
   // Counter (701.6): "counter target spell", "... unless its controller pays {N}" (118.12a).
+  if ((m = /^counter (.+? spell)\. if that spell is countered this way, exile it instead of putting it into its owner's graveyard$/.exec(rest))) {
+    // "Exile it instead" (614.6): a countered spell goes to exile rather than the graveyard.
+    const o = mustObjects(m[1], env, st, clause);
+    if (o.zone !== 'stack' || !o.single || !o.items) return refuse(clause, `can't counter "${m[1]}"`);
+    acted(st, o);
+    return {
+      targets: o.targets,
+      run: (g, ctx, i, memo) => {
+        const [hit] = o.items!(g, ctx, i);
+        if (!hit) return;
+        remember(g, memo, hit.item.card, hit.item.controller);
+        counter(g, hit.ref, { exile: true });
+      },
+    };
+  }
   if ((m = /^counter (.+?)(?: unless its controller pays (\{\d+\}|\{x\}))?$/.exec(rest))) {
     const o = mustObjects(m[1], env, st, clause);
     if (o.zone !== 'stack' || !o.single || !o.items) return refuse(clause, `can't counter "${m[1]}"`);
@@ -1456,6 +1510,8 @@ function youEffect(rest: string, env: Env, st: State, clause: string): Read {
       },
     };
   }
+  // "Put this artifact on top of its owner's library" (Sensei's Divining Top).
+  if (rest === "put ~ on top of its owner's library" && env.permanent) return { targets: [], run: (g, ctx) => void (permanent(g, ctx.self.id) && putOnTop(g, permanent(g, ctx.self.id)!)) };
   // "Shuffle your library" (701.24), as in "You may shuffle."
   if (rest === 'shuffle' || rest === 'shuffle your library') return { targets: [], run: (g, ctx) => shuffle(g, g.players[ctx.you].library) };
   // "Take an extra turn after this one. At the beginning of that turn's end step, you lose the game." (500.7)
@@ -1559,23 +1615,44 @@ function youEffect(rest: string, env: Env, st: State, clause: string): Read {
     acted(st, o);
     return { targets: o.targets, reuse: o.reuse, run: (g, ctx, i, memo) => actOn(g, ctx, i, memo, o).forEach((c) => addCounters(g, c, n(g, ctx, memo), kind)) };
   }
-  // "[Target creature / this / group] gets +N/+N [and gains K] until end of turn" (611.2a, 611.2c).
-  if ((m = /^(?:until end of turn, )?(.+?) gets? ([+-](?:\d+|x))\/([+-](?:\d+|x))(?: and gains? (.+?))?(?: until end of turn)?$/.exec(rest)) && (/until end of turn/.test(rest))) {
-    const [p, t] = [signed(m[2], env, clause), signed(m[3], env, clause)];
-    const keywords = m[4] ? (keywordList(m[4]) ?? refuse(clause, `can't grant "${m[4]}"`)) : [];
-    return pumpEffect(m[1], p, t, keywords, env, st, clause);
+  // "Target creature you control gains protection from the color of your choice until end of turn" (702.16): the colour is chosen as it resolves.
+  if ((m = /^(target .+?) gains protection from the color of your choice until end of turn$/.exec(rest))) {
+    const o = mustObjects(m[1], env, st, clause);
+    if (!o.single || o.targets.some((t) => t.type !== 'creature')) return refuse(clause, `"${m[1]}" isn't one target creature`);
+    acted(st, o);
+    return {
+      targets: o.targets,
+      choose: (g, ctx, i, memo, q) => {
+        const [c] = actOn(g, ctx, i, memo, o);
+        if (!c) return false;
+        nameCard(g, ctx.you, { text: `Choose a colour: ${cardData(c.name).name} gains protection from it until end of turn.`, of: 'color', then: q.then, data: { ...q.data, id: c.id, moves: c.moves } });
+        return true;
+      },
+      after: (g, c) => {
+        const card = permanent(g, c.data.id as string);
+        if (!card || card.moves !== c.data.moves) return;
+        pump(g, card, 0, 0, [protectionFrom(c.name as Color)]);
+        log(g, `${cardData(card.name).name} gains ${protectionFrom(c.name as Color)} until end of turn.`, card.controller, [card]);
+      },
+    };
   }
   // "Gain trample and get +X/+X until end of turn" (Craterhoof Behemoth): the same, the other way round.
   if ((m = /^(.+?) gains? (.+?) and gets? ([+-](?:\d+|x))\/([+-](?:\d+|x)) until end of turn$/.exec(rest))) {
     const keywords = keywordList(m[2]) ?? refuse(clause, `can't grant "${m[2]}"`);
     return pumpEffect(m[1], signed(m[3], env, clause), signed(m[4], env, clause), keywords, env, st, clause);
   }
+  // "[Target creature / this / group] gets +N/+N [and gains K] until end of turn" (611.2a, 611.2c).
+  if ((m = /^(?:until end of turn, )?(.+?) gets? ([+-](?:\d+|x))\/([+-](?:\d+|x))(?: and gains? (.+?))?(?: until end of turn)?$/.exec(rest)) && (/until end of turn/.test(rest))) {
+    const [p, t] = [signed(m[2], env, clause), signed(m[3], env, clause)];
+    const keywords = m[4] ? (keywordList(m[4]) ?? refuse(clause, `can't grant "${m[4]}"`)) : [];
+    return pumpEffect(m[1], p, t, keywords, env, st, clause);
+  }
   if ((m = /^(?:until end of turn, )?(.+?) gains? (.+?)(?: until end of turn)?$/.exec(rest)) && /until end of turn/.test(rest)) {
     const keywords = keywordList(m[2]) ?? refuse(clause, `can't grant "${m[2]}"`);
-    return pumpEffect(m[1], () => 0, () => 0, keywords, env, st, clause);
+    return pumpEffect(m[1], zero, zero, keywords, env, st, clause);
   }
-  if ((m = /^(.+?) can't block this turn$/.exec(rest))) return pumpEffect(m[1], () => 0, () => 0, [CANT_BLOCK], env, st, clause);
-  if ((m = /^(.+?) can't be blocked this turn$/.exec(rest))) return pumpEffect(m[1], () => 0, () => 0, [CANT_BE_BLOCKED], env, st, clause);
+  if ((m = /^(.+?) can't block this turn$/.exec(rest))) return pumpEffect(m[1], zero, zero, [CANT_BLOCK], env, st, clause);
+  if ((m = /^(.+?) can't be blocked this turn$/.exec(rest))) return pumpEffect(m[1], zero, zero, [CANT_BE_BLOCKED], env, st, clause);
   // Create tokens (111.2): listed ones, or ones the text describes.
   if ((m = /^create (.+?)(?: for each (.+))?$/.exec(rest))) {
     const made = tokenList(m[1], env.x, clause);
@@ -1600,15 +1677,19 @@ function youEffect(rest: string, env: Env, st: State, clause: string): Read {
   return refuse(clause, 'no template matches');
 }
 
+const zero: Num = () => 0;
+
 /** "Gets +N/+N and gains K until end of turn" on a target, this, "it", or a group (611.2c: the group as it starts). */
 function pumpEffect(phrase: string, p: Num, t: Num, keywords: string[], env: Env, st: State, clause: string): Read {
   const o = mustObjects(phrase, env, st, clause);
-  if (o.zone !== 'battlefield' || o.targets.some((x) => x.type !== 'creature')) return refuse(clause, `"${phrase}" isn't a target creature or group`);
+  // A permanent that isn't a creature may gain a keyword ("target permanent you control gains hexproof"), but not +N/+N.
+  const keywordsOnly = keywords.length && p === zero && t === zero;
+  if (o.zone !== 'battlefield' || o.targets.some((x) => x.type !== 'creature' && !(keywordsOnly && x.type === 'permanent'))) return refuse(clause, `"${phrase}" isn't a target creature or group`);
   acted(st, o);
   return {
     targets: o.targets,
     reuse: o.reuse,
-    run: (g, ctx, i, memo) => actOn(g, ctx, i, memo, o).filter((c) => isCreature(g, c)).forEach((c) => pump(g, c, p(g, ctx, memo), t(g, ctx, memo), keywords)),
+    run: (g, ctx, i, memo) => actOn(g, ctx, i, memo, o).filter((c) => keywordsOnly || isCreature(g, c)).forEach((c) => pump(g, c, p(g, ctx, memo), t(g, ctx, memo), keywords)),
   };
 }
 
@@ -1696,6 +1777,8 @@ function effects(text: string, env: Env): Effect[] {
     if (next === "at the beginning of that turn's end step, you lose the game" && sentences[k] === 'take an extra turn after this one') sentences.splice(k, 2, `${sentences[k]}. ${next}`);
     else if (/^create .+ token$/.test(sentences[k]) && /^it has "[^"]+"$/.test(next ?? '')) sentences.splice(k, 2, `${sentences[k]} with ${next.slice('it has '.length)}`);
     else if (next === "until end of turn, you don't lose this mana as steps and phases end" && /(?:^| and )add (?:\{[wubrgc]\})+$/.test(sentences[k])) sentences.splice(k, 2, `${sentences[k]}. ${next}`);
+    else if (/^you may pay (?:(?:\{[^}]+\})+|\d+ life)$/.test(sentences[k]) && /^if you do, /.test(next ?? '')) sentences.splice(k, 2, `${sentences[k]}. ${next}`);
+    else if (/^counter target .+ spell$/.test(sentences[k]) && next === "if that spell is countered this way, exile it instead of putting it into its owner's graveyard") sentences.splice(k, 2, `${sentences[k]}. ${next}`);
     else if (/^(?:that player|its controller) may pay (?:\{[^}]+\})+$/.test(sentences[k]) && /^if (?:the player|they|that player) (?:doesn't|don't), /.test(next ?? '')) {
       // "That player may pay {2}. If the player doesn't, you create a Treasure token" is "... unless that player pays {2}" (118.12a).
       const pay = /^(that player|its controller) may pay ((?:\{[^}]+\})+)$/.exec(sentences[k])!;
@@ -1707,7 +1790,16 @@ function effects(text: string, env: Env): Effect[] {
     let sentence = read.sentence;
     let may = false;
     let asker: Effect['asker'];
-    const mayWho = /^(you|its controller|that player) may (.+)$/.exec(sentence);
+    let mayPay: { cost?: string; life?: number } | undefined;
+    // "You may pay {4}. If you do, untap this artifact" (608.2d, 118.12): the payment is the "may".
+    const pay = /^you may pay (?:((?:\{[^}]+\})+)|(\d+) life)\. if you do, (.+)$/.exec(sentence);
+    if (pay) {
+      if (pay[1] && !/^(\{(\d+|[wubrgc])\})+$/.test(pay[1])) refuse(raw, `the payment "${pay[1]}"`);
+      may = true;
+      mayPay = pay[1] ? { cost: pay[1].toUpperCase() } : { life: parseInt(pay[2], 10) };
+      sentence = pay[3];
+    }
+    const mayWho = pay ? null : /^(you|its controller|that player) may (.+)$/.exec(sentence);
     if (mayWho) {
       may = true;
       sentence = mayWho[2];
@@ -1727,13 +1819,13 @@ function effects(text: string, env: Env): Effect[] {
     if (eot) sentence = sentence.slice('until end of turn, '.length);
     // Clauses join with "and", or with ", then" (one after the other); the subject carries on.
     // "Draw N cards, then discard N cards", searches ("..., then shuffle") and looks at the top of a library are one template each.
-    const whole = /^look at the top|mana as steps and phases end$|^take an extra turn/.test(sentence);
+    const whole = /^look at the top|^search (?:your|their) library|mana as steps and phases end$|^take an extra turn/.test(sentence);
     const clauses = whole ? [sentence] : sentence.split(CLAUSE_START).flatMap((c) => (/^draw \S+ cards?, then discard/.test(c) || /then shuffle/.test(c) ? [c] : c.split(/, then /)));
     clauses.forEach((written, k) => {
       const clause = eot && !/until end of turn/.test(written) ? `${written} until end of turn` : written;
       // In a permanent's ability, "it deals" and "it gets" mean the permanent when nothing else came before.
       const c = read.env.permanent && !st.last && !read.env.ev?.object ? clause.replace(/^it (deals|gets|gains|fights) /, '~ $1 ') : clause;
-      const mayPart = may && k === 0 ? { may, ...(asker ? { asker } : {}) } : may && k > 0 ? { joined: true } : {};
+      const mayPart = may && k === 0 ? { may, ...(asker ? { asker } : {}), ...(mayPay ? { mayPay } : {}) } : may && k > 0 ? { joined: true } : {};
       // "[Effect] unless [that player / its controller] pays {N}": the player is asked first (118.12a); the effect, a "you may" too, only if they don't pay.
       const unless = /^(?!counter )(.+) unless (that player|its controller) pays ((?:\{[0-9x]+\})+)$/.exec(c);
       if (unless) {
@@ -1823,7 +1915,9 @@ function build(list: Effect[], key: string, name: string, then: Then, bots: Bots
           s = endOf(s) - 1;
           continue;
         }
-        ask(g, who, { text: questions[s], yes: 'Yes', no: 'No', then: `${key}.${s}`, data: { m } });
+        const pay = step.mayPay;
+        const price = pay?.cost ?? (pay?.life ? `${pay.life} life` : '');
+        ask(g, who, { text: questions[s], ...(pay?.cost ? { cost: pay.cost } : {}), ...(pay?.life ? { life: pay.life } : {}), yes: price ? `Pay ${price}` : 'Yes', no: price ? "Don't Pay" : 'No', then: `${key}.${s}`, data: { m } });
         return;
       }
       if (step.choose) {
@@ -1846,7 +1940,8 @@ function build(list: Effect[], key: string, name: string, then: Then, bots: Bots
     if (!step.may) return;
     const end = endOf(s);
     const text = steps.slice(s, end).map((x) => x.text).join(' and ').replace(/~/g, name);
-    questions[s] = `${text[0].toUpperCase()}${text.slice(1)}?`;
+    const pay = step.mayPay;
+    questions[s] = pay ? `Pay ${pay.cost ?? `${pay.life} life`} to ${text}?` : `${text[0].toUpperCase()}${text.slice(1)}?`;
     then[`${key}.${s}`] = (g, whole) => {
       const { c, m } = c0(whole);
       if (c.yes) runFrom(s, g, c, m, s);
@@ -2034,6 +2129,10 @@ function bonusOf(text: string): StaticBonus | null {
     const keywords = keywordList(m[1]);
     return keywords && { keywords };
   }
+  if ((m = /^can't be blocked(?: and has (.+))?$/.exec(text))) {
+    const keywords = m[1] ? keywordList(m[1]) : [];
+    return keywords && { keywords: [CANT_BE_BLOCKED, ...keywords] };
+  }
   if (text === "can't block" || text === "can't attack or block" || text === "can't attack") {
     return { keywords: text === "can't block" ? [CANT_BLOCK] : text === "can't attack" ? [CANT_ATTACK] : [CANT_ATTACK, CANT_BLOCK] };
   }
@@ -2046,7 +2145,7 @@ function bonusOf(text: string): StaticBonus | null {
  * creature can't be blocked", "This creature gets +1/+1 for each artifact you control".
  */
 function staticLine(line: string, d: CardData): StaticFn | null {
-  let m = /^(.+?) (gets? .+|ha(?:s|ve) "[^"]+"|ha(?:s|ve) .+|can't block|can't attack(?: or block)?)\.$/.exec(line) ?? /^(.+?) (ha(?:s|ve) "[^"]+\.")$/.exec(line);
+  let m = /^(.+?) (gets? .+|ha(?:s|ve) "[^"]+"|ha(?:s|ve) .+|can't be blocked(?: and has .+)?|can't block|can't attack(?: or block)?)\.$/.exec(line) ?? /^(.+?) (ha(?:s|ve) "[^"]+\.")$/.exec(line);
   if (m) {
     const bonus = bonusOf(m[2]);
     if (bonus) {
@@ -2269,6 +2368,37 @@ function cardLine(text: string, original: string, d: CardData, script: CardScrip
   // Kicker [cost] (702.33a): an optional additional cost. What it changes is read with "if this spell was kicked".
   if ((m = /^(multi)?kicker ((?:\{[0-9wubrgcx]\})+)$/.exec(text))) {
     script.kicker = { mana: m[2].toUpperCase(), ...(m[1] ? { multi: true } : {}) };
+    return true;
+  }
+  // Offspring (702.175a), dash (702.109a), evoke (702.74a), plot (702.170a): costs the engine applies.
+  if ((m = /^offspring ((?:\{[0-9wubrgc]\})+)$/.exec(text))) {
+    script.offspring = m[1].toUpperCase();
+    return true;
+  }
+  if ((m = /^(dash|evoke) ((?:\{[0-9wubrgc]\})+)$/.exec(text))) {
+    const mana = m[2].toUpperCase();
+    script.alternativeCosts = [...(script.alternativeCosts ?? []), { label: `${capital(m[1])} ${mana}`, mana, ...(m[1] === 'dash' ? { dash: true } : { evoke: true }) }];
+    return true;
+  }
+  if ((m = /^plot ((?:\{[0-9wubrgc]\})+)$/.exec(text))) {
+    script.plot = m[1].toUpperCase();
+    return true;
+  }
+  // Overload [cost] (702.96a): an alternative cost; the spell's text is read again with "each" for "target" (702.96b).
+  if ((m = /^overload ((?:\{[0-9wubrgc]\})+)$/.exec(text)) && (d.typeLine.includes('Instant') || d.typeLine.includes('Sorcery'))) {
+    const mana = m[1].toUpperCase();
+    script.alternativeCosts = [...(script.alternativeCosts ?? []), { label: `Overload ${mana}`, mana, overload: true }];
+    return true;
+  }
+  // Basic landcycling [cost] (702.29e): "[Cost], Discard this card: Search your library for a basic land card, reveal it, put it into your hand, then shuffle."
+  if ((m = /^basic landcycling ((?:\{[0-9wubrgc]\})+)$/.exec(text))) {
+    const mana = m[1].toUpperCase();
+    addActivated(script, {
+      cost: { mana, discardSelf: true },
+      fromHand: true,
+      text: `Basic landcycling ${mana}`,
+      resolve: (g, { you }) => search(g, you, 'hand', { basic: true, types: ['Land'], label: 'a basic land card' }, { reveal: true }),
+    });
     return true;
   }
   // Flashback [cost] (702.34a): mana only.
@@ -2603,6 +2733,18 @@ const TRIGGERS: [RegExp, (m: RegExpExecArray) => TrigEvent[] | null][] = [
   ],
 ];
 
+/** "[When / Whenever / At] [event], [if condition,] [effect]": the parts, at the first comma that leaves an event the parser knows. */
+function splitTrigger(text: string): [string, string, string | undefined, string] | null {
+  if (!/^(?:when|whenever|at) /.test(text)) return null;
+  for (let at = text.indexOf(', '); at >= 0; at = text.indexOf(', ', at + 1)) {
+    const head = text.slice(0, at);
+    if (!triggerEvent(head)) continue;
+    const m = /^(?:if (.+?), )?(.+)$/.exec(text.slice(at + 2))!;
+    return [text, head, m[1], m[2]];
+  }
+  return [text, text.slice(0, Math.max(0, text.indexOf(', '))), undefined, text.slice(text.indexOf(', ') + 2)];
+}
+
 /** Reads a trigger's event phrase, or null if it isn't one the parser knows. */
 function triggerEvent(phrase: string): TrigEvent[] | null {
   for (const [re, make] of TRIGGERS) {
@@ -2725,6 +2867,8 @@ function readCard(d: CardData): CardScript {
   const mana: ManaAbility[] = [];
   const activated: ActivatedAbility[] = [];
   const spellEffects: Effect[] = [];
+  /** The spell's effect lines, for overload's "each" for "target" (702.96b). */
+  const spellTexts: string[] = [];
   /** "If this spell was kicked, ...": what kicking adds (702.33d). */
   const kicked: Effect[] = [];
   const xSpell = /\{X\}/.test(d.manaCost);
@@ -2798,16 +2942,20 @@ function readCard(d: CardData): CardScript {
         continue;
       }
       spellEffects.push(...effects(text, { permanent: false, x: xSpell ? (_g, ctx) => ctx.self.cast?.x ?? 0 : null, typeLine: d.typeLine }));
+      spellTexts.push(text);
       continue;
     }
     // Triggered abilities (603.1): "[When / Whenever / At] [event], [if condition,] [effect]".
-    const trig = /^((?:when|whenever|at) .+?), (?:if (.+?), )?(.+)$/.exec(text);
+    // The event may have commas of its own ("an Aura, Equipment, or Vehicle spell"): the first split it reads wins.
+    const trig = splitTrigger(text);
     const events = trig && triggerEvent(trig[1]);
     if (trig && events) {
       // An intervening "if" (603.4): checked as it triggers and again as it resolves.
       const cond = trig[2] ? (condition(trig[2]) ?? refuse(original, `the condition "if ${trig[2]}"`)) : null;
       for (const e of events) {
-        const env: Env = { permanent: true, x: null, ev: e.env, typeLine: d.typeLine };
+        // An "enters" ability of a permanent that was a spell with X in its cost uses that X (107.3m).
+        const x: Env['x'] = xSpell && e.hook === 'onEnter' ? (_g, ctx) => ctx.self.cast?.x ?? 0 : null;
+        const env: Env = { permanent: true, x, ev: e.env, typeLine: d.typeLine };
         const { targets, run } = build(effects(trig[3], env), `t${n}${e.hook}`, d.name, then, bots, e.ev);
         const when = cond ? (g: Game, ev: Record<string, unknown> & { self: Card }) => (!e.when || e.when(g, ev)) && cond(g, ev.self, ev.self.controller) : e.when;
         const resolve = cond ? (g: Game, ctx: Ctx) => cond(g, ctx.self, ctx.you) && run(g, ctx) : run;
@@ -2838,6 +2986,8 @@ function readCard(d: CardData): CardScript {
         reduction = (g, self) => creaturesOf(g, self.controller).filter((c) => hasType(g, c, 'Legendary')).length;
       }
       const paid = cost(act[1], original);
+      // An activated ability that adds mana and does something else is still a mana ability (605.1a): ManaAbility can't carry the rest.
+      if (/(?:^|\. |, | and )add (?:\{[wubrgcx]\}|one mana|two mana|\w+ mana)/.test(body)) return refuse(original, 'a mana ability that does more than add mana');
       const { targets, run } = build(effects(body, { permanent: true, x: paid.x ? (_g, ctx) => ctx.x ?? 0 : null, typeLine: d.typeLine }), `a${n}`, d.name, then, bots);
       activated.push({
         cost: paid.cost,
@@ -2876,6 +3026,15 @@ function readCard(d: CardData): CardScript {
     }
   }
   if (spell && script.modal && spellEffects.length) return refuse(d.name, 'a modal spell with other effects');
+  const overload = script.alternativeCosts?.findIndex((a) => a.overload) ?? -1;
+  if (overload >= 0) {
+    // Overloaded, it has no targets (702.96b): every "target" reads "each".
+    const each = spellTexts.flatMap((t) => effects(t.replace(/\btarget\b/g, 'each'), { permanent: false, x: null, typeLine: d.typeLine }));
+    const over = build(each, 'o', d.name, then, bots);
+    if (over.targets.length || !script.onResolve) return refuse(d.name, 'an overload the parser can\'t read');
+    const normal = script.onResolve;
+    script.onResolve = (g, ctx) => (ctx.self.cast?.alt === overload ? over.run(g, ctx) : normal(g, ctx));
+  }
   if (spell && script.onResolve && /^add /.test(spellEffects[0]?.text ?? '') && spellEffects.length === 1) script.ai = 'ritual';
   const hint = spellEffects.find((e) => e.ai)?.ai;
   if (spell && hint) script.ai = hint;
