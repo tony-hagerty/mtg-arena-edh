@@ -1,6 +1,7 @@
 // The Hashaton deck's hand scripts and the rules they needed: the clauses that could go wrong.
+import { produce } from 'immer';
 import { describe, expect, it } from 'vitest';
-import { applyAction, applyBotAction, botAction, canBlock, colorsOf, counterCount, has, isCreature, makeCard, maxHandSize, stats, subtypesOf, hasType } from '../src/engine';
+import { applyAction, applyBotAction, botAction, canBlock, colorsOf, counterCount, has, isCreature, makeCard, manaAbilities, maxHandSize, stats, subtypesOf, hasType } from '../src/engine';
 import type { Action, Game, PlayerId, TargetRef } from '../src/engine';
 import { byName, emptyGame, put, run } from './helpers';
 import './fixtures';
@@ -482,5 +483,56 @@ describe('Vohar and the Jin-Gitaxias', () => {
     });
     expect(maxHandSize(g, 0)).toBe(7);
     expect(maxHandSize(g, 1)).toBe(0);
+  });
+});
+
+describe("Serra's Emissary and Reflecting Pool", () => {
+  it("Serra's Emissary: you and your creatures have protection from the chosen card type", () => {
+    let g = emptyGame((d) => {
+      human(d);
+      put(d, 0, "Serra's Emissary", 'hand');
+      put(d, 0, 'Plains', 'battlefield', 7);
+      put(d, 0, 'Psychic Frog');
+      put(d, 1, 'Bitter Triumph', 'hand');
+      put(d, 1, 'Swamp', 'battlefield', 2);
+    });
+    g = run(g, cast(g, "Serra's Emissary"));
+    g = settle(g, (x) => (x.decision?.type === 'name' ? { type: 'name', name: 'Instant' } : null));
+    const frog = byName(g, 0, 'Psychic Frog')!;
+    expect(byName(g, 0, "Serra's Emissary")!.chosen).toBe('Instant');
+    expect(has(g, frog, 'protection from instants')).toBe(true);
+    g = produce(g, (d) => {
+      d.priority = 1;
+    });
+    // An instant can't target a creature you control.
+    expect(applyAction(g, cast(g, 'Bitter Triumph', { extra: 1, targets: [card(frog)] }, 'hand', 1))).toBe(g);
+  });
+
+  it('Reflecting Pool adds any type of mana a land you control could produce (106.7)', () => {
+    const colorsOf = (g: Game, pid: PlayerId) => manaAbilities(g, byName(g, pid, 'Reflecting Pool')!).flatMap((a) => a.colors);
+    let g = emptyGame((d) => {
+      put(d, 0, 'Reflecting Pool');
+    });
+    // Alone, or with only another Reflecting Pool, it can't produce any mana.
+    expect(colorsOf(g, 0)).toEqual([]);
+    g = emptyGame((d) => {
+      put(d, 0, 'Reflecting Pool', 'battlefield', 2);
+    });
+    expect(colorsOf(g, 0)).toEqual([]);
+    g = emptyGame((d) => {
+      put(d, 0, 'Reflecting Pool', 'battlefield', 2);
+      put(d, 0, 'Island');
+      put(d, 0, 'Cephalid Coliseum');
+      put(d, 0, 'Swamp');
+    });
+    expect(colorsOf(g, 0)).toEqual(['U', 'B']);
+    // An Exotic Orchard you control could produce what an opponent's lands could.
+    g = emptyGame((d) => {
+      put(d, 0, 'Reflecting Pool');
+      put(d, 0, 'Exotic Orchard');
+      put(d, 1, 'Exotic Orchard');
+      put(d, 1, 'Forest');
+    });
+    expect(colorsOf(g, 0)).toEqual(['G']);
   });
 });

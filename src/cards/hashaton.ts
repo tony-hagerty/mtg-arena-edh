@@ -58,6 +58,10 @@ import {
   bounce,
   addEffect,
   copyItem,
+  finishEnter,
+  landColors,
+  nameCard,
+  protectionFromType,
 } from '../engine/rules';
 import type { Card, CardScript, Game, Mode, PlayerId, TargetRef, TargetSpec } from '../engine/types';
 import { exileTop } from './kraum-tymna';
@@ -492,6 +496,19 @@ registerScripts({
       }
     },
   },
+  "Serra's Emissary": {
+    // "As this creature enters, choose a card type." A replacement effect (614.12a): the
+    // choice is made before it is on the battlefield, so nothing can respond in between.
+    replaceEnter: (g, c, controller) => {
+      nameCard(g, controller, { text: 'Choose a card type.', of: 'card type', then: 'type', script: c.id });
+      return true;
+    },
+    then: { type: (g, { self, name, data }) => finishEnter(g, self, data, { chosen: name }) },
+    // "You and creatures you control have protection from the chosen card type." (702.16a, 702.16j)
+    static: (g, self, c) => (self.chosen && c.controller === self.controller && isCreature(g, c) ? { keywords: [protectionFromType(self.chosen)] } : null),
+    protectsPlayer: (g, self, pid, source) => !!self.chosen && pid === self.controller && hasType(g, source, self.chosen),
+    botChoice: { type: () => ({ type: 'name', name: 'Creature' }) },
+  },
   "Sheoldred, Whispering One": {
     // Swampwalk is the engine's (702.14c).
     onUpkeep: [
@@ -732,6 +749,17 @@ registerScripts({
         if (!p) return;
         draw(g, p.id, 3);
         chooseToDiscard(g, p.id, 3);
+      },
+    },
+  },
+  'Reflecting Pool': {
+    // "{T}: Add one mana of any type that a land you control could produce." Itself included,
+    // so it adds nothing when it is your only source (106.7). Colourless is a type of mana.
+    mana: {
+      amount: 1,
+      colors: (g, self) => {
+        const all = new Set(g.players[self.controller].battlefield.filter((c) => isLand(g, c)).flatMap((c) => landColors(g, c)));
+        return (['W', 'U', 'B', 'R', 'G', 'C'] as const).filter((x) => all.has(x));
       },
     },
   },

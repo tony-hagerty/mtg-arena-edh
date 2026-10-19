@@ -769,17 +769,26 @@ function allManaAbilities(g: Game, c: Card): ManaAbility[] {
   return [...out, ...listOf(m), ...gained, ...borrowed];
 }
 
+/** Lands whose types of mana are being worked out, so lands that look at each other stop (106.7). */
+const couldProduce = new Set<string>();
+
 /**
- * The types of mana a land could produce (106.7), for Fellwar Stone and Exotic Orchard.
- * Costs and conditions are ignored. Abilities whose colours depend on other permanents
- * don't count, so two Orchards can't feed each other.
+ * The types of mana a land could produce (106.7), for Fellwar Stone, Exotic Orchard and
+ * Reflecting Pool. Costs and conditions are ignored. An ability whose colours depend on other
+ * lands counts what those could produce, but a land already being worked out adds nothing, so
+ * two Reflecting Pools alone produce nothing while two Orchards and a Forest each give {G}.
  */
 export function landColors(g: Game, c: Card): ManaSym[] {
+  if (couldProduce.has(c.id)) return [];
+  couldProduce.add(c.id);
   const out = new Set<ManaSym>();
-  for (const ab of allManaAbilities(g, c)) {
-    if (typeof ab.colors === 'function') continue;
-    const colors = ab.colors === 'any' ? WUBRG : ab.colors === 'identity' ? (g.players[c.controller].colors as ManaSym[]) : ab.colors;
-    colors.forEach((x) => out.add(x));
+  try {
+    for (const ab of allManaAbilities(g, c)) {
+      const colors = typeof ab.colors === 'function' ? ab.colors(g, c) : ab.colors === 'any' ? WUBRG : ab.colors === 'identity' ? (g.players[c.controller].colors as ManaSym[]) : ab.colors;
+      colors.forEach((x) => out.add(x));
+    }
+  } finally {
+    couldProduce.delete(c.id);
   }
   return [...out];
 }
