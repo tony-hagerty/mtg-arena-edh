@@ -227,17 +227,17 @@ button {
 
 /* Each mat runs 2rem off its edge of the screen, so only its inner corners are rounded. */
 .seat-top::before {
-  inset: -2rem 0.8rem 0.4rem;
+  inset: -2rem 1.2rem -1rem;
   --rim: radial-gradient(46% 0.8rem at 50% 2rem, var(--rim-color), transparent);
 }
 
 .seat-left::before {
-  inset: 0.8rem 0.4rem 0.8rem -2rem;
+  inset: 0.8rem -0.4rem 0.8rem -2rem;
   --rim: radial-gradient(0.8rem 46% at 2rem 50%, var(--rim-color), transparent);
 }
 
 .seat-right::before {
-  inset: 0.8rem -2rem 0.8rem 0.4rem;
+  inset: 0.8rem -2rem 0.8rem -0.4rem;
   --rim: radial-gradient(0.8rem 46% at calc(100% - 2rem) 50%, var(--rim-color), transparent);
 }
 
@@ -741,17 +741,43 @@ button {
   gap: 0.8rem 0.5rem;
 }
 
-/* Stacked cards overlap along the row, whichever way the row runs. */
+/*
+  Stacked cards overlap along the row, whichever way the row runs, each showing a tenth of
+  its width past the next (PILE_STEP in Board.tsx). The cards under the top one are a step
+  darker and each casts a shadow onto the one under it, so the pile shows its depth.
+*/
 .stack .tile + .tile {
-  margin-left: calc(var(--tw) * -0.86);
+  margin-left: calc(var(--tw) * -0.9);
 }
 
 .seat-left .stack .tile + .tile {
-  margin: calc(var(--tw) * -0.86) 0 0;
+  margin: calc(var(--tw) * -0.9) 0 0;
 }
 
 .seat-right .stack .tile + .tile {
-  margin: 0 0 calc(var(--tw) * -0.86);
+  margin: 0 0 calc(var(--tw) * -0.9);
+}
+
+.stack .tile + .tile {
+  box-shadow:
+    -0.25em 0 0.35em rgba(0, 0, 0, 0.6),
+    0 0.45em 1em rgba(0, 0, 0, 0.5);
+}
+
+.seat-left .stack .tile + .tile {
+  box-shadow:
+    0 -0.25em 0.35em rgba(0, 0, 0, 0.6),
+    0.45em 0 1em rgba(0, 0, 0, 0.5);
+}
+
+.seat-right .stack .tile + .tile {
+  box-shadow:
+    0 0.25em 0.35em rgba(0, 0, 0, 0.6),
+    -0.45em 0 1em rgba(0, 0, 0, 0.5);
+}
+
+.stack > .tile:not(:last-child) > .tile-face {
+  filter: brightness(0.78);
 }
 
 .opp-back {
@@ -775,8 +801,8 @@ button {
 
 /* Your mat: between the side seats, from your creatures down past the bottom edge. */
 .me-mat {
-  left: 37.5rem;
-  right: 37.5rem;
+  left: 37.7rem;
+  right: 37.7rem;
   top: calc(100% - 54.4rem);
   bottom: -2rem;
   --inward: 0deg;
@@ -819,17 +845,32 @@ button {
 
 /* ---------- permanents ---------- */
 
+/*
+  A permanent is drawn as a small card: a bevelled frame in its frame colour, the art set
+  into it with a soft inner shadow, a name bar across the top, and a P/T box on the bottom
+  right corner. Sizes are in em, and the tile's font-size is a tenth of its width (--tw),
+  so everything scales with the tile; the text has a floor in rem so it stays readable on
+  the smallest tiles. Around the edges, with room kept for each: the pile count (top left),
+  counters (right, below the name), the summoning-sick mark (left, below the name), keyword
+  icons (bottom left) and the P/T box (bottom right). The ability mark sits in the name bar.
+*/
+
 /* The tile is the upright box a permanent takes up on screen: it glows, tilts and is clicked. */
 .tile {
   --frame: var(--f-artifact);
+  /* How thick the frame is around the art. */
+  --bezel: 0.26em;
+  /* The name bar's text size: a tenth of the tile, but never below 1.05rem. */
+  --name-size: max(0.9em, 1.05rem);
   position: relative;
   flex: none;
   width: var(--tw);
   aspect-ratio: 5 / 4;
   font-size: calc(var(--tw) / 10);
-  border-radius: 0.5em;
-  background: var(--panel-solid);
-  box-shadow: 0 0.35em 0.9em rgba(0, 0, 0, 0.8);
+  border-radius: 0.55em;
+  box-shadow:
+    0 0.12em 0.2em rgba(0, 0, 0, 0.55),
+    0 0.45em 1em rgba(0, 0, 0, 0.6);
   /* Its own stacking context, so the cards attached to it stay above the table (.tile-attached). */
   isolation: isolate;
 }
@@ -841,8 +882,9 @@ button {
   aspect-ratio: 4 / 5;
 }
 
-/* The card itself, centred in the tile and turned with everything on it. */
-.tile-face {
+/* The card itself, centred in the tile and turned with everything on it. The frame is its background. */
+.tile-face,
+.tile-attached {
   position: absolute;
   left: 50%;
   top: 50%;
@@ -850,8 +892,14 @@ button {
   aspect-ratio: 5 / 4;
   translate: -50% -50%;
   rotate: var(--face);
+  border-radius: 0.55em;
+  background:
+    linear-gradient(155deg, rgba(255, 255, 255, 0.32), transparent 28%, transparent 62%, rgba(0, 0, 0, 0.42)),
+    var(--frame);
+  box-shadow:
+    inset 0 0 0 0.05em rgba(0, 0, 0, 0.65),
+    inset 0 0.07em 0 0.05em rgba(255, 255, 255, 0.22);
 }
-
 
 .frame-W { --frame: var(--f-W); }
 .frame-U { --frame: var(--f-U); }
@@ -861,18 +909,23 @@ button {
 .frame-gold { --frame: var(--f-gold); }
 .frame-land { --frame: var(--f-land); }
 
+/* The art, set into the frame: a dark keyline, and shade at the top and bottom so the name and icons read over it. */
 .tile-art {
   position: absolute;
-  inset: 0;
-  border-radius: 0.5em;
-  border: 0.22em solid color-mix(in srgb, var(--frame) 70%, #000);
+  inset: var(--bezel);
+  border-radius: 0.34em;
+  background-color: var(--panel-solid);
   background-size: cover;
   background-position: center 22%;
+  box-shadow:
+    inset 0 0 0 0.06em rgba(0, 0, 0, 0.75),
+    inset 0 0.3em 0.7em rgba(0, 0, 0, 0.35),
+    inset 0 -1.6em 1.6em -0.6em rgba(0, 0, 0, 0.55);
 }
 
 /* A tile whose art didn't load shows its type line and rules text instead (TextCard.tsx). */
 .tile-text {
-  padding: 1.85em 0.5em 0.4em;
+  padding: calc(var(--name-size) * 1.6 + 0.2em) 0.5em 0.4em;
   overflow: hidden;
   color: #e8e2d0;
   font-family: var(--serif);
@@ -894,21 +947,36 @@ button {
   white-space: pre-line;
 }
 
+/* Your commander: a gold keyline inside the frame. */
 .tile.commander .tile-art {
-  border-color: var(--gold);
+  box-shadow:
+    inset 0 0 0 0.12em var(--gold),
+    inset 0 0.3em 0.7em rgba(0, 0, 0, 0.35),
+    inset 0 -1.6em 1.6em -0.6em rgba(0, 0, 0, 0.55);
 }
 
+/* The name bar: a plate in the frame colour across the top of the art. */
 .tile-name {
   position: absolute;
-  inset: 0.22em 0.22em auto 0.22em;
+  inset: var(--bezel) var(--bezel) auto;
   padding: 0 0.45em;
-  font: 600 0.92em/1.5em var(--serif);
+  font: 600 var(--name-size) / 1.55 var(--serif);
   color: var(--text-card);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  background: linear-gradient(90deg, color-mix(in srgb, var(--frame) 60%, #000), rgba(8, 10, 14, 0.85));
-  border-radius: 0.3em 0.3em 0 0;
+  text-shadow: 0 0.06em 0.12em #000;
+  background: linear-gradient(180deg, color-mix(in srgb, var(--frame) 46%, #262a33), color-mix(in srgb, var(--frame) 30%, #0b0c10));
+  border-radius: 0.3em 0.3em 0.12em 0.12em;
+  box-shadow:
+    inset 0 0.06em 0 rgba(255, 255, 255, 0.2),
+    0 0.08em 0 rgba(0, 0, 0, 0.6),
+    0 0.12em 0.3em rgba(0, 0, 0, 0.45);
+}
+
+/* Room for the ability mark at the bar's right end. */
+.tile-face:has(.tile-ability) > .tile-name {
+  padding-right: 1.3em;
 }
 
 .tile-name .crown {
@@ -916,17 +984,23 @@ button {
   margin-right: 0.3em;
 }
 
+/* Power and toughness (or loyalty, or defense): a raised box on the corner, like a card's. */
 .tile-pt {
   position: absolute;
-  right: -0.35em;
-  bottom: -0.35em;
-  padding: 0 0.45em;
-  font: 700 1.75em/1.3em var(--serif);
+  right: -0.3em;
+  bottom: -0.3em;
+  min-width: 2.3em;
+  padding: 0 0.32em;
+  font: 700 max(1.7em, 1.5rem) / 1.25 var(--serif);
+  text-align: center;
   color: #fff;
-  background: linear-gradient(#333843, #14161b);
-  border: 0.07em solid var(--edge-light);
+  text-shadow: 0 0.06em 0.1em #000;
+  background: linear-gradient(180deg, #414754, #181b22 70%);
+  border: 0.06em solid color-mix(in srgb, var(--frame) 55%, #e4e8ef);
   border-radius: 0.3em;
-  box-shadow: 0 0.1em 0.3em rgba(0, 0, 0, 0.8);
+  box-shadow:
+    inset 0 0.06em 0 rgba(255, 255, 255, 0.25),
+    0 0.1em 0.3em rgba(0, 0, 0, 0.85);
   /* Above .tile-tapmark, so tapping dims the card but not its P/T, loyalty or defense. */
   z-index: 1;
 }
@@ -941,16 +1015,14 @@ button {
 
 /* A planeswalker's loyalty (306.5c): a shield, where a creature's P/T goes. */
 .tile-pt.tile-loyalty {
-  min-width: 1.3em;
-  text-align: center;
+  min-width: 1.5em;
   border-radius: 0.2em 0.2em 50% 50%;
   background: linear-gradient(#4a4f5c, #1b1d24);
 }
 
 /* A battle's defense (310.4c). */
 .tile-pt.tile-defense {
-  min-width: 1.3em;
-  text-align: center;
+  min-width: 1.5em;
   color: #ffd27a;
   background: linear-gradient(#5c3b2a, #24150e);
   border-color: #d9a066;
@@ -963,12 +1035,16 @@ button {
   text-align: center;
 }
 
+/* Keyword icons along the bottom, wrapping upward rather than into the P/T box. */
 .tile-keywords {
   position: absolute;
-  left: 0.3em;
-  bottom: 0.3em;
+  left: calc(var(--bezel) + 0.15em);
+  bottom: calc(var(--bezel) + 0.15em);
+  max-width: calc(100% - 4.6em);
   display: flex;
+  flex-wrap: wrap-reverse;
   gap: 0.15em;
+  font-size: max(1em, 0.95rem);
 }
 
 .tile-keywords i {
@@ -976,36 +1052,43 @@ button {
   height: 1.5em;
   display: grid;
   place-items: center;
-  font-size: 1.05em;
+  font-size: 1em;
   color: #fff;
-  background: var(--panel);
+  background: radial-gradient(circle at 50% 35%, #2a303b, #0b0d12 75%);
   border: 0.06em solid var(--edge-light);
   border-radius: 50%;
+  box-shadow: 0 0.06em 0.18em rgba(0, 0, 0, 0.8);
 }
 
+/* Counters (122): pills on the right edge, below the name bar. */
 .tile-counters {
   position: absolute;
-  right: -0.5em;
-  top: 1.5em;
-  min-width: 1.9em;
-  padding: 0 0.3em;
-  font: 700 1.25em/1.9em 'Segoe UI', sans-serif;
-  text-align: center;
-  background: radial-gradient(circle at 35% 30%, #7ec8ff, #1d5fb8);
-  border: 0.08em solid #fff;
-  border-radius: 1em;
-}
-
-.tile-counters {
+  right: -0.45em;
+  top: 30%;
   display: flex;
   flex-direction: column;
+  gap: 0.2em;
+  font: 700 max(1.2em, 1.1rem) / 1.6 'Segoe UI', sans-serif;
   /* Above .tile-tapmark, like the P/T box, so a tapped card's counters stay readable. */
   z-index: 1;
 }
 
+.tile-counters span {
+  min-width: 1.7em;
+  padding: 0 0.35em;
+  text-align: center;
+  color: #fff;
+  text-shadow: 0 0.05em 0.1em rgba(0, 0, 0, 0.6);
+  background: radial-gradient(circle at 35% 30%, #7ec8ff, #1d5fb8);
+  border: 0.07em solid rgba(255, 255, 255, 0.9);
+  border-radius: var(--r-pill);
+  box-shadow: 0 0.08em 0.25em rgba(0, 0, 0, 0.7);
+}
+
 /* -1/-1 counters (122.1a) */
 .tile-counters .minus {
-  color: #ffb3a8;
+  color: #ffd0c8;
+  background: radial-gradient(circle at 35% 30%, #ff8a78, #a8261a);
 }
 
 /*
@@ -1018,49 +1101,66 @@ button {
 */
 .tile-attached {
   --frame: var(--f-artifact);
-  position: absolute;
-  left: 50%;
-  top: 50%;
-  width: var(--tw);
-  aspect-ratio: 5 / 4;
-  translate: -50% -50%;
-  rotate: var(--face);
   /*
-    After the turn, so "up" is the top of the face at every seat. Each one shows 2.3em more,
-    or less once there are more than three (--n), so the fan stays within 7em.
+    After the turn, so "up" is the top of the face at every seat. Each one shows 2.2em more,
+    or less once there are more than three (--n), so the fan stays within 6.6em.
   */
-  transform: translateY(calc(-1 * min(2.3em, 7em / var(--n)) * (var(--i) + 1)));
+  transform: translateY(calc(-1 * min(2.2em, 6.6em / var(--n)) * (var(--i) + 1)));
   z-index: -1;
-  border-radius: 0.5em;
-  /* Shows if the art doesn't load. */
-  background: var(--frame);
-  box-shadow: 0 -0.2em 0.6em rgba(0, 0, 0, 0.7);
+  box-shadow:
+    inset 0 0 0 0.05em rgba(0, 0, 0, 0.65),
+    inset 0 0.07em 0 0.05em rgba(255, 255, 255, 0.22),
+    0 -0.15em 0.5em rgba(0, 0, 0, 0.6);
   cursor: pointer;
+}
+
+/* Under the host, they read a step darker, so the host stays in front. */
+.tile-attached > .tile-art {
+  filter: brightness(0.8);
 }
 
 .tile-attached:hover {
   outline: 0.15em solid var(--play);
 }
 
-.tile-sick {
-  position: absolute;
-  left: 0.35em;
-  top: 1.6em;
-  font-size: 1.6em;
-  color: #fff;
-  opacity: 0.85;
-  filter: drop-shadow(0 0 0.15em #000);
+.tile-attached:hover > .tile-art {
+  filter: none;
 }
 
+/* Summoning sick (302.6): a moon in a dark disc on the left, below the name. */
+.tile-sick {
+  position: absolute;
+  left: -0.35em;
+  top: 30%;
+  width: 1.6em;
+  height: 1.6em;
+  display: grid;
+  place-items: center;
+  font-size: max(1.15em, 1.1rem);
+  color: #cfe3ff;
+  background: radial-gradient(circle at 50% 35%, #2f3a52, #0c1019 75%);
+  border: 0.07em solid #7f93b8;
+  border-radius: 50%;
+  box-shadow: 0 0.08em 0.25em rgba(0, 0, 0, 0.7);
+  z-index: 1;
+}
+
+/* The art of a creature that can't attack or tap yet is a little cooler and flatter. */
+.tile.sick .tile-art {
+  filter: saturate(0.7) brightness(0.92);
+}
+
+/* Has an activated ability: a gold diamond at the right end of the name bar. */
 .tile-ability {
   position: absolute;
-  right: 0.5em;
-  top: 2em;
-  width: 0.9em;
-  height: 0.9em;
+  right: calc(var(--bezel) + 0.5em);
+  top: calc(var(--bezel) + var(--name-size) * 0.775);
+  width: 0.75em;
+  height: 0.75em;
+  translate: 0 -50%;
   transform: rotate(45deg);
-  background: #ffd76a;
-  box-shadow: 0 0 0.4em #000;
+  background: linear-gradient(135deg, #fff1bf, #e4b546 55%, #9a7420);
+  box-shadow: 0 0 0.25em rgba(0, 0, 0, 0.9);
 }
 
 /* Turning a card pushes its counters and P/T toward the next card: keep them on top of it. */
@@ -1068,29 +1168,38 @@ button {
   z-index: 1;
 }
 
+/* Tapped (701.26): turned, and the art dims and greys so it reads as used at a glance. */
+.tile.tapped .tile-art {
+  filter: saturate(0.45) brightness(0.72);
+}
+
 .tile-tapmark {
   position: absolute;
   inset: 0;
-  border-radius: 0.5em;
-  background: rgba(6, 8, 14, 0.55);
+  border-radius: 0.55em;
+  background: rgba(6, 8, 14, 0.38);
 }
 
+/* A pile's count: use the whole pile with it. */
 .tile-badge {
   position: absolute;
   left: -0.7em;
-  top: -0.9em;
-  padding: 0 0.4em;
-  font: 700 1.3em/1.4em 'Segoe UI', sans-serif;
-  background: var(--panel);
-  border: 0.08em solid #fff;
-  border-radius: 0.3em;
+  top: -0.8em;
+  padding: 0 0.45em;
+  font: 700 max(1.3em, 1.2rem) / 1.45 'Segoe UI', sans-serif;
+  color: var(--text);
+  background: linear-gradient(180deg, #2a303b, #0d0f14);
+  border: 0.08em solid var(--edge-light);
+  border-radius: var(--r-pill);
+  box-shadow: 0 0.1em 0.3em rgba(0, 0, 0, 0.8);
   z-index: 2;
 }
 
 /* The badge uses the whole pile, so it lights up on its own when the pointer is on it. */
 .tile-badge:hover {
-  background: var(--play);
   color: #05060a;
+  background: var(--play);
+  border-color: #fff;
 }
 
 /* ---------- cards drawn as text, when an image doesn't load (TextCard.tsx) ---------- */

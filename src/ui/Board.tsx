@@ -14,6 +14,9 @@ import { clickCrown, clickPlayer, useView } from './view';
 
 const vars = (v: Record<string, string | number>) => v as CSSProperties;
 
+/** How much of each card under the top one a pile shows, as a share of the tile's width. Keep in step with `.stack .tile + .tile` in styles.css. */
+const PILE_STEP = 0.1;
+
 /** Tile width (rem) that lets `n` tiles share a row, capped at `max`. */
 const fit = (n: number, width: number, max: number, gap = 0.8) => Math.min(max, (width - gap * (n - 1)) / Math.max(n, 1));
 
@@ -41,7 +44,7 @@ function CreatureRow({ player, width, max, className, wrap }: { player: Player; 
     const key = stackable && !attached ? [c.name, c.tapped, floating(player, c), c.sick, JSON.stringify(c.counters), c.damage, c.continuous.length, ...choice].join('|') : c.id;
     groups.set(key, [...(groups.get(key) ?? []), c]);
   }
-  const units = [...groups.values()].reduce((n, s) => n + 1 + 0.14 * (s.length - 1), 0);
+  const units = [...groups.values()].reduce((n, s) => n + 1 + PILE_STEP * (s.length - 1), 0);
   const oneRow = fit(units, width, max);
   const wrapped = wrap ? fit(Math.ceil(units / 2), width, Math.min(max, 9.5)) : 0;
   const twoRows = wrapped > oneRow;
@@ -85,7 +88,7 @@ function BackRow({ player, width, max, className, split }: { player: Player; wid
     const key = attachmentsOf(g, c).length ? c.id : `${c.name}|${c.tapped}|${floating(player, c)}`;
     stacks.set(key, [...(stacks.get(key) ?? []), c]);
   }
-  const landUnits = [...stacks.values()].reduce((n, s) => n + 1 + 0.14 * (s.length - 1), 0);
+  const landUnits = [...stacks.values()].reduce((n, s) => n + 1 + PILE_STEP * (s.length - 1), 0);
   const tw = split
     ? Math.min(fit(landUnits, width, max, 1.2), fit(others.length, width, max, 1.2))
     : fit(landUnits + others.length + phased.length, width, max, 1.2);
