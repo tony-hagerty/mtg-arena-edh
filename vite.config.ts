@@ -84,16 +84,27 @@ function gameServer(): Plugin {
   };
 }
 
+/** The bot games that took longest when last measured, longest first (see BotGamesFirst). */
+const SLOW_GAMES = ['hashaton-pair-94', 'kuja-71', 'starter-decks-11', 'counters-auras-22', 'planeswalkers-35', 'hashaton-pair-95', 'kraum-tymna-65', 'kraum-tymna-62', 'counterspells-12', 'faces-and-tokens-47', 'counterspells-14', 'costs-6'];
+
 /**
- * Starts the bot-vs-bot games (tests/simulation/) first. They take far longer than any
- * other file, and with no timings from an earlier run (a fresh checkout, CI) Vitest would
- * start the biggest files first, leaving the games for the end on one or two workers.
+ * Starts the bot-vs-bot games (tests/simulation/, one file each) first. They take far longer
+ * than any other file, so the run takes as long as the last game to finish. Vitest orders
+ * files by how long they took last time, longest first. With no timings from an earlier run
+ * (a fresh checkout, CI) it would order them by size, and every game file is the same size,
+ * so the games that were slowest when last measured go first.
  */
 class BotGamesFirst extends BaseSequencer {
   async sort(files: TestSpecification[]) {
     const sorted = await super.sort(files);
+    const name = (f: TestSpecification) => f.moduleId.replaceAll('\\', '/').split('/').pop()!.replace('.test.ts', '');
     const game = (f: TestSpecification) => f.moduleId.replaceAll('\\', '/').includes('/tests/simulation/');
-    return [...sorted.filter(game), ...sorted.filter((f) => !game(f))];
+    const games = sorted.filter(game);
+    if (games.some((f) => !this.ctx.cache.getTestSpecificationResult(f))) {
+      const rank = (f: TestSpecification) => (SLOW_GAMES.includes(name(f)) ? SLOW_GAMES.indexOf(name(f)) : SLOW_GAMES.length);
+      games.sort((a, b) => rank(a) - rank(b));
+    }
+    return [...games, ...sorted.filter((f) => !game(f))];
   }
 }
 
@@ -110,5 +121,7 @@ export default defineConfig(({ mode }) => ({
     // Every core: the tests keep them busy, and the main process hardly needs one.
     maxWorkers: '100%',
     sequence: { sequencer: BotGamesFirst },
+    // `npm run test:games` runs the tests tagged `game`, `npm run test:quick` the rest.
+    tags: [{ name: 'game', description: 'Plays a whole game with bots: the games in tests/simulation/ and a few others.' }],
   },
 }));

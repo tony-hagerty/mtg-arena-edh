@@ -1,5 +1,5 @@
-// Bot-vs-bot games for the files in this folder. Each file is a few games, so Vitest plays
-// the files at the same time on different cores: one file of them all took most of the run.
+// Plays a bot-vs-bot game for the files in this folder (see games.ts: one game a file, so
+// Vitest plays them at the same time on every core), checking the game after every action.
 import { applyBotAction, botAction, newGame } from '../../src/engine';
 import type { Card, Game } from '../../src/engine';
 import type { DeckDef } from '../../src/cards/db';
