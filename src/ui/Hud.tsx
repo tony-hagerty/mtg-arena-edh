@@ -13,6 +13,7 @@ import type { Hover } from './store';
 import { type Seat, cx, deckColor, faceUp, hoverProps, seatOf } from './util';
 import { STEP_NAMES, activateFromHand, cancel, clickStackItem, pickAbility, pickMana, pickTapCreature, pickManaDiscard, pickManaSacrifice, pickFace, pickMode, playHandCard, setAbilityX, setChoices, shiftDivision, exileForMana, plotCard, useView } from './view';
 import type { AbilityOption, Btn } from './view';
+import { leftStack, newGame } from './zone-moves';
 
 // ---------- phase tracker + buttons (bottom right) ----------
 
@@ -583,6 +584,21 @@ function LogText({ entry }: { entry: Pick<LogEntry, 'text' | 'cards'> }) {
   );
 }
 
+/**
+ * The log lines a stack item resolving wrote (608.2): every line added by a change that took
+ * something off the stack. They flash once as they appear, so a resolve is seen in the log too.
+ */
+function useResolvedLines(g: Game) {
+  const seen = useRef({ g, lines: new Set<number>() });
+  const was = seen.current.g;
+  if (was !== g) {
+    if (newGame(was, g)) seen.current.lines = new Set();
+    else if (leftStack(was, g).length) for (let i = was.log.length; i < g.log.length; i++) seen.current.lines.add(i);
+    seen.current.g = g;
+  }
+  return seen.current.lines;
+}
+
 export function LogPanel() {
   const g = useView().g;
   const show = useStore((s) => s.showLog);
@@ -591,6 +607,7 @@ export function LogPanel() {
   const manualDamage = useStore((s) => s.settings.manualDamage);
   const tableGame = useStore((s) => s.tableGame);
   const lines = useRef<HTMLDivElement>(null);
+  const resolved = useResolvedLines(g);
   useEffect(() => {
     lines.current?.scrollTo({ top: lines.current.scrollHeight });
   }, [g.log.length, show]);
@@ -637,7 +654,7 @@ export function LogPanel() {
                 const line = human !== null && l.private?.players.includes(human) ? l.private : l;
                 const color = l.player === undefined ? '#fff' : deckColor(g.players[l.player].colors);
                 return (
-                  <div key={start + i} className={cx('log-line', l.text.startsWith('Turn ') && 'turn')} style={{ '--deck': color } as CSSProperties}>
+                  <div key={start + i} className={cx('log-line', l.text.startsWith('Turn ') && 'turn', resolved.has(start + i) && 'resolved')} style={{ '--deck': color } as CSSProperties}>
                     <LogText entry={line} />
                   </div>
                 );
@@ -806,6 +823,7 @@ export function StackPanel() {
           <div
             key={item.id}
             data-stack={item.id}
+            data-stack-card={item.kind === 'spell' ? item.card.id : undefined}
             className={cx('stack-item', i === g.stack.length - 1 && !paying && 'top', targetStack.has(item.id) && 'targetable')}
             onClick={() => clickStackItem(item.id)}
             title={triggerText(item)}
@@ -820,7 +838,7 @@ export function StackPanel() {
         );
       })}
       {paying && (
-        <div key={`paying-${paying.card.id}`} className="stack-item top paying" {...hoverProps(data(paying.card))}>
+        <div key={`paying-${paying.card.id}`} data-paying={paying.card.id} className="stack-item top paying" {...hoverProps(data(paying.card))}>
           <CardImage d={data(paying.card)} alt={label(paying.card)} draggable={false} />
           <span className="stack-tag">Pay to {paying.kind === 'spell' ? 'cast' : 'activate'}</span>
         </div>
