@@ -4,6 +4,7 @@ import { applyAction, applyBotAction, botAction, castCost, costText, has, makeCa
 import type { Action, Game, PlayerId, TargetRef } from '../src/engine';
 import { produce } from 'immer';
 import { byName, emptyGame, put, run } from './helpers';
+import './fixtures';
 
 const pass = { type: 'pass' } as const;
 const player = (id: PlayerId): TargetRef => ({ kind: 'player', id });
@@ -96,6 +97,112 @@ describe('Ketramose, the New Dawn', () => {
     expect(g.players[1].exile).toHaveLength(1);
     expect(g.players[0].hand).toHaveLength(0);
     expect(g.players[0].life).toBe(40);
+  });
+});
+
+// "Whenever one or more ..." triggers once for each event, however many things it did (603.2, 603.2e).
+describe('one trigger for one event', () => {
+  it("Bojuka Bog exiling a graveyard of three cards (the Oracle parser's template) draws one card", () => {
+    let g = emptyGame((d) => {
+      put(d, 0, 'Ketramose, the New Dawn');
+      put(d, 0, 'Bojuka Bog', 'hand');
+      put(d, 1, 'Plains', 'graveyard', 3);
+      top(d, 0, plenty);
+    });
+    g = settle(run(g, { type: 'playLand', card: byName(g, 0, 'Bojuka Bog', 'hand')!.id }));
+    expect(g.players[1].exile).toHaveLength(3);
+    expect(g.players[0].hand).toHaveLength(1);
+    expect(g.players[0].life).toBe(39);
+  });
+
+  it('a board wipe exiling several permanents, Ketramose among them, draws once (603.10a)', () => {
+    let g = emptyGame((d) => {
+      put(d, 0, 'Ketramose, the New Dawn');
+      put(d, 0, 'Final Judgment', 'hand');
+      put(d, 0, 'Plains', 'battlefield', 6);
+      put(d, 1, 'Serra Angel', 'battlefield', 2);
+      put(d, 2, 'Serra Angel');
+      top(d, 0, plenty);
+    });
+    g = settle(run(g, cast(g, 'Final Judgment')));
+    expect(g.players.reduce((n, p) => n + p.exile.length, 0)).toBe(4);
+    expect(g.players[0].hand).toHaveLength(1);
+    expect(g.players[0].life).toBe(39);
+  });
+
+  it('Ketramose exiled on its own sees itself go (603.10a)', () => {
+    let g = emptyGame((d) => {
+      put(d, 0, 'Ketramose, the New Dawn');
+      put(d, 0, 'Swords to Plowshares', 'hand');
+      put(d, 0, 'Plains');
+      top(d, 0, plenty);
+    });
+    g = settle(run(g, cast(g, 'Swords to Plowshares', { targets: [card(byName(g, 0, 'Ketramose, the New Dawn')!)] })));
+    expect(byName(g, 0, 'Ketramose, the New Dawn', 'exile')).toBeTruthy();
+    expect(g.players[0].hand).toHaveLength(1);
+  });
+
+  it('two separate exile events draw twice', () => {
+    let g = emptyGame((d) => {
+      put(d, 0, 'Ketramose, the New Dawn');
+      put(d, 0, 'Bojuka Bog', 'hand');
+      put(d, 0, 'Final Judgment', 'hand');
+      put(d, 0, 'Plains', 'battlefield', 6);
+      put(d, 1, 'Plains', 'graveyard', 3);
+      put(d, 1, 'Serra Angel', 'battlefield', 2);
+      top(d, 0, plenty);
+    });
+    g = settle(run(g, { type: 'playLand', card: byName(g, 0, 'Bojuka Bog', 'hand')!.id }));
+    g = settle(run(g, cast(g, 'Final Judgment')));
+    expect(g.players[0].hand).toHaveLength(2);
+    expect(g.players[0].life).toBe(38);
+  });
+
+  it('Rakdos Charm exiling a graveyard (a hand script) draws one card', () => {
+    let g = emptyGame((d) => {
+      put(d, 0, 'Ketramose, the New Dawn');
+      put(d, 0, 'Rakdos Charm', 'hand');
+      put(d, 0, 'Swamp');
+      put(d, 0, 'Mountain');
+      put(d, 1, 'Plains', 'graveyard', 3);
+      top(d, 0, plenty);
+    });
+    g = settle(run(g, cast(g, 'Rakdos Charm', { modes: [0], targets: [player(1)] })));
+    expect(g.players[1].exile).toHaveLength(3);
+    expect(g.players[0].hand).toHaveLength(1);
+    expect(g.players[0].life).toBe(39);
+  });
+
+  it('Mnemonic Betrayal exiling every opponent graveyard draws one card', () => {
+    let g = emptyGame((d) => {
+      put(d, 0, 'Ketramose, the New Dawn');
+      put(d, 0, 'Mnemonic Betrayal', 'hand');
+      put(d, 0, 'Island', 'battlefield', 2);
+      put(d, 0, 'Swamp', 'battlefield', 2);
+      for (const pid of [1, 2, 3] as PlayerId[]) put(d, pid, 'Plains', 'graveyard', 2);
+      top(d, 0, plenty);
+    });
+    g = settle(run(g, cast(g, 'Mnemonic Betrayal')));
+    expect(g.players.slice(1).every((p) => p.exile.length === 2)).toBe(true);
+    expect(g.players[0].hand).toHaveLength(1);
+    expect(g.players[0].life).toBe(39);
+  });
+
+  it("Wicked Role making each opponent lose 1 life triggers Emet-Selch's \"one or more opponents lose life\" once", () => {
+    let g = emptyGame((d) => {
+      put(d, 0, 'Emet-Selch of the Third Seat');
+      put(d, 0, 'Lightning Bolt', 'graveyard');
+      // An Aura attached to nothing goes to the graveyard (704.5m), so its ability triggers.
+      put(d, 0, 'Wicked Role').isToken = true;
+    });
+    const emet = (x: { card: { name: string }; hook?: string }) => x.card.name === 'Emet-Selch of the Third Seat' && x.hook === 'onLifeLossTogether';
+    for (let i = 0; i < 20 && g.players[1].life === 40; i++) g = g.decision ? applyBotAction(g, botAction(g, g.priority)) : applyAction(g, pass);
+    expect(g.players.map((p) => p.life)).toEqual([40, 39, 39, 39]);
+    // One trigger, waiting for its target or on the stack, with everyone who lost life.
+    const waiting = g.decision?.type === 'targets' ? [g.decision.item] : [];
+    const triggered = [...waiting, ...g.triggers, ...g.stack].filter(emet);
+    expect(triggered).toHaveLength(1);
+    expect((triggered[0].event as { losses: unknown[] }).losses).toHaveLength(3);
   });
 });
 

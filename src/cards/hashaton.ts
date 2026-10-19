@@ -23,6 +23,7 @@ import {
   enterBattlefield,
   enterTogether,
   exile,
+  exileAll,
   gainLife,
   hasType,
   impending,
@@ -187,17 +188,8 @@ const archon: Pick<CardScript, 'then'> = {
  * objects they became in exile (400.7).
  */
 function livingDeath(g: Game) {
-  const exiled: Card[] = [];
-  simultaneously(g, () => {
-    for (const p of g.players.filter((x) => !x.lost)) {
-      for (const c of p.graveyard.filter((x) => hasType(g, x, 'Creature'))) {
-        moveCard(g, c, 'exile');
-        const there = g.players[c.owner].exile.find((x) => x.id === c.id);
-        if (there) exiled.push(there);
-      }
-    }
-  });
-  if (exiled.length) log(g, `Every creature card in a graveyard is exiled: ${exiled.map(label).join(', ')}.`, undefined, exiled);
+  const dead = g.players.filter((p) => !p.lost).flatMap((p) => p.graveyard.filter((x) => hasType(g, x, 'Creature')));
+  const exiled = exileAll(g, dead, `Every creature card in a graveyard is exiled: ${dead.map(label).join(', ')}.`);
   dieMany(g, g.players.filter((p) => !p.lost).flatMap((p) => creaturesOf(g, p.id)), 'is sacrificed');
   const back = exiled.filter((c) => c.zone === 'exile');
   // Each player puts the cards they exiled, which are their own, onto the battlefield.
@@ -285,11 +277,7 @@ registerScripts({
       { type: 'permanent', optional: true, label: 'up to two target artifacts and/or enchantments', filter: (g, c) => hasType(g, c, 'Artifact') || hasType(g, c, 'Enchantment') },
       { type: 'permanent', optional: true, distinctFrom: 0, label: 'a second target artifact or enchantment', filter: (g, c) => hasType(g, c, 'Artifact') || hasType(g, c, 'Enchantment') },
     ],
-    onEnter: (g, { targets }) => {
-      simultaneously(g, () => {
-        for (const t of targets) exile(g, refCard(g, t));
-      });
-    },
+    onEnter: (g, { targets }) => void exileAll(g, targets.map((t) => refCard(g, t)).filter((c) => c?.zone === 'battlefield')),
     // "Plainscycling {2}" (702.29e).
     activated: typecycling('Plains', '{2}'),
   },
