@@ -49,14 +49,19 @@ are from the Comprehensive Rules in `docs/rules/`.
 - **The log:** lines are in the third person ("Player 2 casts"), except for the one person
   alone against bots (`Player.you`). A line that names a hidden card, like the one found
   searching a library into a hand (701.23e), carries a `private` version that only the
-  searcher's log shows; everyone else reads "for a card".
+  searcher's log shows; everyone else reads "for a card". A card put onto the battlefield
+  from a graveyard or exile, by whatever effect (Reanimate, Kaya's Ghostform, persist),
+  gets a line from the engine (`logReturns`): "Serra Angel returns to the battlefield",
+  with "under Player 1's control" when its controller isn't its owner (110.2a). Cards
+  coming back together share a line; a land played from exile keeps its "plays" line.
 - **One player's view:** `viewFor(game, seat)` (src/engine/view.ts) is the game as that
   player may know it, for the host's server to send each player. Other hands, every
   library and cards exiled face down they may not look at (406.3) become blank stand-ins
   (`isHidden`) whose ids only say where they are, so the counts stay right (402.3) but no
   id follows a hidden card. A choice in front of the player shows what it needs: their
-  library while they search it, sorted so its order stays hidden (701.23a, 401.2), or the
-  cards they pick from. Private log lines read in full only for their player, and the
+  library while they search it, sorted so its order stays hidden (701.23a, 401.2), the
+  cards they pick from, or the card the choice is about (a fetched shock land asking as it
+  enters, 614.12a). Private log lines read in full only for their player, and the
   random seed is dropped. `viewFor(game, null)` is an onlooker's view.
 - **The game server:** under `npm run dev` and in the .exe, the page plays through a game
   server on the same computer (`server/game/`). `GameHost` alone holds the whole game,

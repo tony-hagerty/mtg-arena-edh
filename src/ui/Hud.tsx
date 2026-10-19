@@ -834,9 +834,13 @@ export function ExitConfirm() {
 
 /** The card a hover target shows, or null for a name that is neither a card nor a token key. */
 function hoverData(hover: Hover): CardData | null {
-  if (hover.d) return hover.d;
+  return hover.d ?? knownCard(hover.name);
+}
+
+/** The card or token with this name or key, or null if there is none: a missing card shows nothing rather than stopping the screen. */
+function knownCard(name: string): CardData | null {
   try {
-    return cardData(hover.name);
+    return cardData(name);
   } catch {
     return null;
   }
@@ -981,6 +985,7 @@ export function SpellFlash() {
   const rem = useRem();
   const spell = g.lastSpell;
   const [shown, setShown] = useState<typeof spell>(null);
+  const d = shown && knownCard(shown.name);
   useEffect(() => {
     if (!spell) return;
     setShown(spell);
@@ -990,7 +995,7 @@ export function SpellFlash() {
   }, [spell?.seq]);
   return (
     <AnimatePresence>
-      {shown && !g.stack.length && (
+      {shown && d && !g.stack.length && (
         <motion.div
           key={shown.seq}
           className="spell-flash"
@@ -999,7 +1004,7 @@ export function SpellFlash() {
           exit={{ opacity: 0, scale: 0.9 }}
         >
           <div className="spell-caster">{flashCaption(shown, shown.caster === me ? null : g.players[shown.caster].name)}</div>
-          <CardImage d={cardData(shown.name)} alt={cardData(shown.name).name} draggable={false} />
+          <CardImage d={d} alt={d.name} draggable={false} />
           {shown.ability && <div className="spell-ability">{shown.ability === 'triggered' ? 'Trigger' : 'Ability'}</div>}
         </motion.div>
       )}
