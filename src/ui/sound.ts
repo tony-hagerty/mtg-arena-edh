@@ -1,4 +1,4 @@
-// Interface sounds (no music), synthesized in synth.ts. Clicks on buttons and target-glowing
+// Interface sounds, synthesized in synth.ts (the music is music.ts). Clicks on buttons and target-glowing
 // cards are heard from one listener here; hand cards play their own (Card.tsx), and the
 // game's moves are heard by watching the store's game.
 import { gameSound } from './game-sounds';

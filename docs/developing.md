@@ -67,9 +67,11 @@ src/ui/         App.tsx               menu or game screen; GameScreen.tsx lays t
                 sound.ts              plays the interface sounds: clicks, hand cards, game moves
                 synth.ts              how each sound is made (Web Audio, no sound files)
                 game-sounds.ts        which sound a change of game state makes (gameSound)
+                music.ts              plays the background music (Web Audio: harp, bass, drum, reverb)
+                music-score.ts        the music's notes from a seed, and when it plays (musicLevel)
                 zone-moves.ts         which cards changed zones between two games (zoneMoves)
                 Flights.tsx           cards flying between zones, drawn from that diff
-                SoundControl.tsx      the menu's volume slider and the in-game Sound button
+                SoundControl.tsx      mute buttons and volume sliders for sound and music
                 fullscreen.ts, rem.ts Alt+Enter fullscreen; the root font-size as a hook
                 util.ts               small helpers: class names, deck colours, hover props
                 styles.css            all styling

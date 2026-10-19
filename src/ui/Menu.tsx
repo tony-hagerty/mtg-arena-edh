@@ -7,7 +7,7 @@ import { clearFetchedCards, fetchCards, fetchedCount, requestFor } from '../card
 import { downloadRequests, keptRequests, reportRequests, writesFile } from './card-requests';
 import { type SeatPlayer, useStore } from './store';
 import { HostTable, JoinTable, MenuFrame, SavedGames, TableEnded, WaitingRoom } from './LobbyScreen';
-import { SoundControl } from './SoundControl';
+import { MusicControl, SoundControl } from './SoundControl';
 import { useArtLoads } from './TextCard';
 import { cx, deckColor } from './util';
 
@@ -55,6 +55,7 @@ function DeckMenu({ go }: { go: (screen: MenuScreen) => void }) {
         </div>
         <div className="menu-sound">
           <SoundControl />
+          <MusicControl />
         </div>
       </header>
       <main className="menu-main">

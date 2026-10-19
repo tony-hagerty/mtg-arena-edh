@@ -172,13 +172,20 @@ The log is bottom-left, under one bar; point at a button on it (or tab to it) fo
 **Log**, the bar's left half, folds the log away and back. On the right:
 
 - **Pause** (‖, a table's game only) pauses the game for everyone at the table.
-- **Settings** (the gear) opens a small panel: **Bot speed** (1×, 2×, 4×), **Sound** (mute
-  and a volume slider), and **Combat damage**, Auto or By hand, for dividing an attacker's
-  damage among its blockers or trampling over. `Esc` or a click elsewhere closes it.
+- **Settings** (the gear) opens a small panel: **Bot speed** (1×, 2×, 4×), **Sound** and
+  **Music** (each a mute button and a volume slider), and **Combat damage**, Auto or By
+  hand, for dividing an attacker's damage among its blockers or trampling over. `Esc` or a
+  click elsewhere closes it.
 - **Exit** (the door) asks before leaving the game for the deck menu.
 
-The deck menu has the same mute button and volume slider in its top-right corner. Sound
+The deck menu has the same sound and music controls in its top-right corner. Sound, music
 and damage choices are saved in the browser.
+
+The music is made as it plays, so it never loops: a harp arpeggio over a plucked bass and a
+soft frame drum, with a melody and a shaker coming and going as it builds and eases off. It
+starts, fading in, with your first click or key press (browsers keep a page silent until
+then), plays quietly on the deck menu and a little louder in a game, pauses while the window
+is hidden, and fades out when a game ends.
 
 ## If the game crashes
 
