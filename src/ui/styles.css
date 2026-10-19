@@ -128,19 +128,24 @@ button {
 /* ---------- table ---------- */
 
 /*
-  The table: dark slate with a fine grain and a slow mottle, lit from above, darker toward
-  the edges. It stays quiet so the cards are what you look at. Seats are mats laid on it
-  (.seat-mat below). The vignette is part of the background, so it never dims a card.
+  The table: dark slate flagstones in a running bond, grass and moss in the joints, under a
+  fine grain and a slow mottle, lit from above and darker toward the edges. The stones are
+  translucent, so the light still falls across them, and low in contrast so the cards are
+  what you look at. Seats are mats laid on it (.seat-mat below). The vignette is part of the
+  background, so it never dims a card. The stone tile is a seamless SVG (its stones are drawn
+  nine times, once per neighbouring tile, so the joints run across the edges).
 */
 .board {
   --grain: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='220' height='220'%3E%3Cfilter id='g'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 .07 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23g)'/%3E%3C/svg%3E");
   --mottle: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='1000' height='1000'%3E%3Cfilter id='m'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.004' numOctaves='3' seed='7' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 .5 0 0 0 0 .6 0 0 0 0 .78 0 0 0 .16 -.05'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23m)'/%3E%3C/svg%3E");
+  --stones: url("data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 width=%22360%22 height=%22360%22%3E%3Cg id=%22s%22%3E%3Cpath d=%22M343 -0 406 5 412 57 397 56 337 60Z%22 fill=%22rgb(40, 48, 58)%22 fill-opacity=%220.41%22 stroke=%22%2304070a%22 stroke-opacity=%22.8%22 stroke-width=%222.6%22 stroke-linejoin=%22round%22/%3E%3Cpath d=%22M412 5 493 -1 498 59 418 57Z%22 fill=%22rgb(38, 52, 44)%22 fill-opacity=%220.41%22 stroke=%22%2304070a%22 stroke-opacity=%22.8%22 stroke-width=%222.6%22 stroke-linejoin=%22round%22/%3E%3Cpath d=%22M499 -1 551 5 556 60 504 59Z%22 fill=%22rgb(40, 48, 58)%22 fill-opacity=%220.36%22 stroke=%22%2304070a%22 stroke-opacity=%22.8%22 stroke-width=%222.6%22 stroke-linejoin=%22round%22/%3E%3Cpath d=%22M557 5 637 -1 630 54 562 60Z%22 fill=%22rgb(52, 56, 62)%22 fill-opacity=%220.41%22 stroke=%22%2304070a%22 stroke-opacity=%22.8%22 stroke-width=%222.6%22 stroke-linejoin=%22round%22/%3E%3Cpath d=%22M643 -1 693 -0 694 60 636 54Z%22 fill=%22rgb(40, 48, 58)%22 fill-opacity=%220.39%22 stroke=%22%2304070a%22 stroke-opacity=%22.8%22 stroke-width=%222.6%22 stroke-linejoin=%22round%22/%3E%3Cpath d=%22M148 67 220 68 223 129 152 135Z%22 fill=%22rgb(46, 52, 60)%22 fill-opacity=%220.47%22 stroke=%22%2304070a%22 stroke-opacity=%22.8%22 stroke-width=%222.6%22 stroke-linejoin=%22round%22/%3E%3Cpath d=%22M226 68 332 66 326 139 229 129Z%22 fill=%22rgb(38, 52, 44)%22 fill-opacity=%220.37%22 stroke=%22%2304070a%22 stroke-opacity=%22.8%22 stroke-width=%222.6%22 stroke-linejoin=%22round%22/%3E%3Cpath d=%22M338 66 414 62 422 132 332 139Z%22 fill=%22rgb(46, 52, 60)%22 fill-opacity=%220.35%22 stroke=%22%2304070a%22 stroke-opacity=%22.8%22 stroke-width=%222.6%22 stroke-linejoin=%22round%22/%3E%3Cpath d=%22M420 62 502 67 505 135 428 132Z%22 fill=%22rgb(46, 52, 60)%22 fill-opacity=%220.33%22 stroke=%22%2304070a%22 stroke-opacity=%22.8%22 stroke-width=%222.6%22 stroke-linejoin=%22round%22/%3E%3Cpath d=%22M42 140 138 142 136 200 39 205Z%22 fill=%22rgb(38, 52, 44)%22 fill-opacity=%220.44%22 stroke=%22%2304070a%22 stroke-opacity=%22.8%22 stroke-width=%222.6%22 stroke-linejoin=%22round%22/%3E%3Cpath d=%22M144 142 215 137 207 204 142 200Z%22 fill=%22rgb(46, 52, 60)%22 fill-opacity=%220.35%22 stroke=%22%2304070a%22 stroke-opacity=%22.8%22 stroke-width=%222.6%22 stroke-linejoin=%22round%22/%3E%3Cpath d=%22M221 137 300 141 304 199 213 204Z%22 fill=%22rgb(46, 52, 60)%22 fill-opacity=%220.32%22 stroke=%22%2304070a%22 stroke-opacity=%22.8%22 stroke-width=%222.6%22 stroke-linejoin=%22round%22/%3E%3Cpath d=%22M306 141 391 140 397 205 310 199Z%22 fill=%22rgb(46, 52, 60)%22 fill-opacity=%220.47%22 stroke=%22%2304070a%22 stroke-opacity=%22.8%22 stroke-width=%222.6%22 stroke-linejoin=%22round%22/%3E%3Cpath d=%22M56 214 138 206 134 274 59 282Z%22 fill=%22rgb(46, 52, 60)%22 fill-opacity=%220.32%22 stroke=%22%2304070a%22 stroke-opacity=%22.8%22 stroke-width=%222.6%22 stroke-linejoin=%22round%22/%3E%3Cpath d=%22M144 206 231 209 225 282 140 274Z%22 fill=%22rgb(40, 48, 58)%22 fill-opacity=%220.42%22 stroke=%22%2304070a%22 stroke-opacity=%22.8%22 stroke-width=%222.6%22 stroke-linejoin=%22round%22/%3E%3Cpath d=%22M237 209 266 213 273 277 231 282Z%22 fill=%22rgb(40, 48, 58)%22 fill-opacity=%220.36%22 stroke=%22%2304070a%22 stroke-opacity=%22.8%22 stroke-width=%222.6%22 stroke-linejoin=%22round%22/%3E%3Cpath d=%22M272 213 352 205 350 278 337 277 279 277Z%22 fill=%22rgb(46, 52, 60)%22 fill-opacity=%220.42%22 stroke=%22%2304070a%22 stroke-opacity=%22.8%22 stroke-width=%222.6%22 stroke-linejoin=%22round%22/%3E%3Cpath d=%22M358 205 408 214 415 282 356 278Z%22 fill=%22rgb(38, 52, 44)%22 fill-opacity=%220.41%22 stroke=%22%2304070a%22 stroke-opacity=%22.8%22 stroke-width=%222.6%22 stroke-linejoin=%22round%22/%3E%3Cpath d=%22M12 287 101 284 107 353 20 362Z%22 fill=%22rgb(52, 56, 62)%22 fill-opacity=%220.42%22 stroke=%22%2304070a%22 stroke-opacity=%22.8%22 stroke-width=%222.6%22 stroke-linejoin=%22round%22/%3E%3Cpath d=%22M107 284 227 288 227 362 113 353Z%22 fill=%22rgb(40, 48, 58)%22 fill-opacity=%220.45%22 stroke=%22%2304070a%22 stroke-opacity=%22.8%22 stroke-width=%222.6%22 stroke-linejoin=%22round%22/%3E%3Cpath d=%22M233 288 304 281 297 355 233 362Z%22 fill=%22rgb(52, 56, 62)%22 fill-opacity=%220.31%22 stroke=%22%2304070a%22 stroke-opacity=%22.8%22 stroke-width=%222.6%22 stroke-linejoin=%22round%22/%3E%3Cpath d=%22M310 281 374 287 366 362 303 355Z%22 fill=%22rgb(46, 52, 60)%22 fill-opacity=%220.34%22 stroke=%22%2304070a%22 stroke-opacity=%22.8%22 stroke-width=%222.6%22 stroke-linejoin=%22round%22/%3E%3Cpath d=%22M337 60L343 -0L406 5%22 fill=%22none%22 stroke=%22%23fff%22 stroke-opacity=%22.05%22 stroke-width=%221.6%22/%3E%3Cpath d=%22M418 57L412 5L493 -1%22 fill=%22none%22 stroke=%22%23fff%22 stroke-opacity=%22.05%22 stroke-width=%221.6%22/%3E%3Cpath d=%22M504 59L499 -1L551 5%22 fill=%22none%22 stroke=%22%23fff%22 stroke-opacity=%22.05%22 stroke-width=%221.6%22/%3E%3Cpath d=%22M562 60L557 5L637 -1%22 fill=%22none%22 stroke=%22%23fff%22 stroke-opacity=%22.05%22 stroke-width=%221.6%22/%3E%3Cpath d=%22M636 54L643 -1L693 -0%22 fill=%22none%22 stroke=%22%23fff%22 stroke-opacity=%22.05%22 stroke-width=%221.6%22/%3E%3Cpath d=%22M152 135L148 67L220 68%22 fill=%22none%22 stroke=%22%23fff%22 stroke-opacity=%22.05%22 stroke-width=%221.6%22/%3E%3Cpath d=%22M229 129L226 68L332 66%22 fill=%22none%22 stroke=%22%23fff%22 stroke-opacity=%22.05%22 stroke-width=%221.6%22/%3E%3Cpath d=%22M332 139L338 66L414 62%22 fill=%22none%22 stroke=%22%23fff%22 stroke-opacity=%22.05%22 stroke-width=%221.6%22/%3E%3Cpath d=%22M428 132L420 62L502 67%22 fill=%22none%22 stroke=%22%23fff%22 stroke-opacity=%22.05%22 stroke-width=%221.6%22/%3E%3Cpath d=%22M39 205L42 140L138 142%22 fill=%22none%22 stroke=%22%23fff%22 stroke-opacity=%22.05%22 stroke-width=%221.6%22/%3E%3Cpath d=%22M142 200L144 142L215 137%22 fill=%22none%22 stroke=%22%23fff%22 stroke-opacity=%22.05%22 stroke-width=%221.6%22/%3E%3Cpath d=%22M213 204L221 137L300 141%22 fill=%22none%22 stroke=%22%23fff%22 stroke-opacity=%22.05%22 stroke-width=%221.6%22/%3E%3Cpath d=%22M310 199L306 141L391 140%22 fill=%22none%22 stroke=%22%23fff%22 stroke-opacity=%22.05%22 stroke-width=%221.6%22/%3E%3Cpath d=%22M59 282L56 214L138 206%22 fill=%22none%22 stroke=%22%23fff%22 stroke-opacity=%22.05%22 stroke-width=%221.6%22/%3E%3Cpath d=%22M140 274L144 206L231 209%22 fill=%22none%22 stroke=%22%23fff%22 stroke-opacity=%22.05%22 stroke-width=%221.6%22/%3E%3Cpath d=%22M231 282L237 209L266 213%22 fill=%22none%22 stroke=%22%23fff%22 stroke-opacity=%22.05%22 stroke-width=%221.6%22/%3E%3Cpath d=%22M279 277L272 213L352 205%22 fill=%22none%22 stroke=%22%23fff%22 stroke-opacity=%22.05%22 stroke-width=%221.6%22/%3E%3Cpath d=%22M356 278L358 205L408 214%22 fill=%22none%22 stroke=%22%23fff%22 stroke-opacity=%22.05%22 stroke-width=%221.6%22/%3E%3Cpath d=%22M20 362L12 287L101 284%22 fill=%22none%22 stroke=%22%23fff%22 stroke-opacity=%22.05%22 stroke-width=%221.6%22/%3E%3Cpath d=%22M113 353L107 284L227 288%22 fill=%22none%22 stroke=%22%23fff%22 stroke-opacity=%22.05%22 stroke-width=%221.6%22/%3E%3Cpath d=%22M233 362L233 288L304 281%22 fill=%22none%22 stroke=%22%23fff%22 stroke-opacity=%22.05%22 stroke-width=%221.6%22/%3E%3Cpath d=%22M303 355L310 281L374 287%22 fill=%22none%22 stroke=%22%23fff%22 stroke-opacity=%22.05%22 stroke-width=%221.6%22/%3E%3C/g%3E%3Cuse href=%22%23s%22 x=%22-360%22 y=%22-360%22/%3E%3Cuse href=%22%23s%22 x=%22-360%22 y=%220%22/%3E%3Cuse href=%22%23s%22 x=%22-360%22 y=%22360%22/%3E%3Cuse href=%22%23s%22 x=%220%22 y=%22-360%22/%3E%3Cuse href=%22%23s%22 x=%220%22 y=%22360%22/%3E%3Cuse href=%22%23s%22 x=%22360%22 y=%22-360%22/%3E%3Cuse href=%22%23s%22 x=%22360%22 y=%220%22/%3E%3Cuse href=%22%23s%22 x=%22360%22 y=%22360%22/%3E%3Cellipse cx=%22276%22 cy=%2256%22 rx=%229%22 ry=%229%22 fill=%22%234f7d3a%22 fill-opacity=%22.11%22/%3E%3Cellipse cx=%22338%22 cy=%2265%22 rx=%2211%22 ry=%228%22 fill=%22%234f7d3a%22 fill-opacity=%22.11%22/%3E%3Cellipse cx=%22332%22 cy=%2261%22 rx=%2210%22 ry=%228%22 fill=%22%234f7d3a%22 fill-opacity=%22.11%22/%3E%3Cellipse cx=%22333%22 cy=%22143%22 rx=%2210%22 ry=%226%22 fill=%22%234f7d3a%22 fill-opacity=%22.11%22/%3E%3Cellipse cx=%2260%22 cy=%22133%22 rx=%2210%22 ry=%228%22 fill=%22%234f7d3a%22 fill-opacity=%22.11%22/%3E%3Cellipse cx=%22145%22 cy=%2265%22 rx=%2210%22 ry=%227%22 fill=%22%234f7d3a%22 fill-opacity=%22.11%22/%3E%3Cellipse cx=%2237%22 cy=%22210%22 rx=%2210%22 ry=%226%22 fill=%22%234f7d3a%22 fill-opacity=%22.11%22/%3E%3Cellipse cx=%22138%22 cy=%22136%22 rx=%227%22 ry=%228%22 fill=%22%234f7d3a%22 fill-opacity=%22.11%22/%3E%3Cellipse cx=%22143%22 cy=%22202%22 rx=%2212%22 ry=%229%22 fill=%22%234f7d3a%22 fill-opacity=%22.11%22/%3E%3Cellipse cx=%22213%22 cy=%22134%22 rx=%2213%22 ry=%225%22 fill=%22%234f7d3a%22 fill-opacity=%22.11%22/%3E%3Cellipse cx=%22216%22 cy=%22209%22 rx=%229%22 ry=%226%22 fill=%22%234f7d3a%22 fill-opacity=%22.11%22/%3E%3Cellipse cx=%2240%22 cy=%22135%22 rx=%228%22 ry=%228%22 fill=%22%234f7d3a%22 fill-opacity=%22.11%22/%3E%3Cellipse cx=%2240%22 cy=%22206%22 rx=%227%22 ry=%226%22 fill=%22%234f7d3a%22 fill-opacity=%22.11%22/%3E%3Cellipse cx=%2253%22 cy=%22285%22 rx=%229%22 ry=%228%22 fill=%22%234f7d3a%22 fill-opacity=%22.11%22/%3E%3Cellipse cx=%22139%22 cy=%22278%22 rx=%2210%22 ry=%226%22 fill=%22%234f7d3a%22 fill-opacity=%22.11%22/%3E%3Cellipse cx=%22105%22 cy=%22280%22 rx=%2211%22 ry=%226%22 fill=%22%234f7d3a%22 fill-opacity=%22.11%22/%3E%3Cpath d=%22M339 63Q343 61 345 59%22 stroke=%22%235d8c3f%22 stroke-opacity=%220.30%22 stroke-width=%221.3%22 fill=%22none%22 stroke-linecap=%22round%22/%3E%3Cpath d=%22M339 62Q340 59 344 55%22 stroke=%22%235d8c3f%22 stroke-opacity=%220.30%22 stroke-width=%221.3%22 fill=%22none%22 stroke-linecap=%22round%22/%3E%3Cpath d=%22M337 63Q336 58 337 53%22 stroke=%22%237faa58%22 stroke-opacity=%220.30%22 stroke-width=%221.3%22 fill=%22none%22 stroke-linecap=%22round%22/%3E%3Cpath d=%22M335 61Q335 56 333 51%22 stroke=%22%237faa58%22 stroke-opacity=%220.30%22 stroke-width=%221.3%22 fill=%22none%22 stroke-linecap=%22round%22/%3E%3Cpath d=%22M54 61Q53 56 53 52%22 stroke=%22%236f9e4b%22 stroke-opacity=%220.30%22 stroke-width=%221.3%22 fill=%22none%22 stroke-linecap=%22round%22/%3E%3Cpath d=%22M55 59Q58 55 62 52%22 stroke=%22%236f9e4b%22 stroke-opacity=%220.30%22 stroke-width=%221.3%22 fill=%22none%22 stroke-linecap=%22round%22/%3E%3Cpath d=%22M55 61Q59 58 62 55%22 stroke=%22%237faa58%22 stroke-opacity=%220.30%22 stroke-width=%221.3%22 fill=%22none%22 stroke-linecap=%22round%22/%3E%3Cpath d=%22M50 60Q46 58 43 56%22 stroke=%22%236f9e4b%22 stroke-opacity=%220.30%22 stroke-width=%221.3%22 fill=%22none%22 stroke-linecap=%22round%22/%3E%3Cpath d=%22M55 60Q54 56 55 53%22 stroke=%22%235d8c3f%22 stroke-opacity=%220.30%22 stroke-width=%221.3%22 fill=%22none%22 stroke-linecap=%22round%22/%3E%3Cpath d=%22M194 64Q196 59 195 54%22 stroke=%22%236f9e4b%22 stroke-opacity=%220.32%22 stroke-width=%221.3%22 fill=%22none%22 stroke-linecap=%22round%22/%3E%3Cpath d=%22M197 65Q197 62 200 61%22 stroke=%22%235d8c3f%22 stroke-opacity=%220.32%22 stroke-width=%221.3%22 fill=%22none%22 stroke-linecap=%22round%22/%3E%3Cpath d=%22M196 62Q194 58 192 55%22 stroke=%22%236f9e4b%22 stroke-opacity=%220.32%22 stroke-width=%221.3%22 fill=%22none%22 stroke-linecap=%22round%22/%3E%3Cpath d=%22M194 62Q197 58 201 55%22 stroke=%22%236f9e4b%22 stroke-opacity=%220.32%22 stroke-width=%221.3%22 fill=%22none%22 stroke-linecap=%22round%22/%3E%3Cpath d=%22M196 63Q198 61 200 59%22 stroke=%22%235d8c3f%22 stroke-opacity=%220.32%22 stroke-width=%221.3%22 fill=%22none%22 stroke-linecap=%22round%22/%3E%3Cpath d=%22M274 56Q275 53 277 50%22 stroke=%22%237faa58%22 stroke-opacity=%220.37%22 stroke-width=%221.3%22 fill=%22none%22 stroke-linecap=%22round%22/%3E%3Cpath d=%22M277 56Q280 52 280 48%22 stroke=%22%236f9e4b%22 stroke-opacity=%220.37%22 stroke-width=%221.3%22 fill=%22none%22 stroke-linecap=%22round%22/%3E%3Cpath d=%22M277 57Q277 53 275 49%22 stroke=%22%235d8c3f%22 stroke-opacity=%220.37%22 stroke-width=%221.3%22 fill=%22none%22 stroke-linecap=%22round%22/%3E%3Cpath d=%22M275 57Q273 56 269 55%22 stroke=%22%236f9e4b%22 stroke-opacity=%220.37%22 stroke-width=%221.3%22 fill=%22none%22 stroke-linecap=%22round%22/%3E%3Cpath d=%22M279 57Q279 51 277 47%22 stroke=%22%235d8c3f%22 stroke-opacity=%220.37%22 stroke-width=%221.3%22 fill=%22none%22 stroke-linecap=%22round%22/%3E%3Cpath d=%22M144 139Q141 138 140 136%22 stroke=%22%236f9e4b%22 stroke-opacity=%220.39%22 stroke-width=%221.3%22 fill=%22none%22 stroke-linecap=%22round%22/%3E%3Cpath d=%22M144 137Q142 132 140 127%22 stroke=%22%237faa58%22 stroke-opacity=%220.39%22 stroke-width=%221.3%22 fill=%22none%22 stroke-linecap=%22round%22/%3E%3Cpath d=%22M149 137Q153 134 156 132%22 stroke=%22%237faa58%22 stroke-opacity=%220.39%22 stroke-width=%221.3%22 fill=%22none%22 stroke-linecap=%22round%22/%3E%3Cpath d=%22M147 137Q147 133 147 131%22 stroke=%22%237faa58%22 stroke-opacity=%220.39%22 stroke-width=%221.3%22 fill=%22none%22 stroke-linecap=%22round%22/%3E%3Cpath d=%22M149 137Q146 133 145 130%22 stroke=%22%236f9e4b%22 stroke-opacity=%220.39%22 stroke-width=%221.3%22 fill=%22none%22 stroke-linecap=%22round%22/%3E%3Cpath d=%22M224 132Q226 126 225 121%22 stroke=%22%237faa58%22 stroke-opacity=%220.41%22 stroke-width=%221.3%22 fill=%22none%22 stroke-linecap=%22round%22/%3E%3Cpath d=%22M225 133Q230 131 232 129%22 stroke=%22%237faa58%22 stroke-opacity=%220.41%22 stroke-width=%221.3%22 fill=%22none%22 stroke-linecap=%22round%22/%3E%3Cpath d=%22M227 131Q226 127 227 123%22 stroke=%22%237faa58%22 stroke-opacity=%220.41%22 stroke-width=%221.3%22 fill=%22none%22 stroke-linecap=%22round%22/%3E%3Cpath d=%22M227 133Q228 128 227 124%22 stroke=%22%236f9e4b%22 stroke-opacity=%220.41%22 stroke-width=%221.3%22 fill=%22none%22 stroke-linecap=%22round%22/%3E%3Cpath d=%22M225 132Q223 129 222 127%22 stroke=%22%237faa58%22 stroke-opacity=%220.41%22 stroke-width=%221.3%22 fill=%22none%22 stroke-linecap=%22round%22/%3E%3Cpath d=%22M226 133Q226 128 226 124%22 stroke=%22%237faa58%22 stroke-opacity=%220.41%22 stroke-width=%221.3%22 fill=%22none%22 stroke-linecap=%22round%22/%3E%3Cpath d=%22M223 131Q223 127 224 125%22 stroke=%22%235d8c3f%22 stroke-opacity=%220.41%22 stroke-width=%221.3%22 fill=%22none%22 stroke-linecap=%22round%22/%3E%3Cpath d=%22M334 63Q330 60 329 57%22 stroke=%22%237faa58%22 stroke-opacity=%220.38%22 stroke-width=%221.3%22 fill=%22none%22 stroke-linecap=%22round%22/%3E%3Cpath d=%22M334 64Q328 61 325 58%22 stroke=%22%236f9e4b%22 stroke-opacity=%220.38%22 stroke-width=%221.3%22 fill=%22none%22 stroke-linecap=%22round%22/%3E%3Cpath d=%22M334 62Q336 58 341 56%22 stroke=%22%235d8c3f%22 stroke-opacity=%220.38%22 stroke-width=%221.3%22 fill=%22none%22 stroke-linecap=%22round%22/%3E%3Cpath d=%22M331 62Q329 59 327 57%22 stroke=%22%236f9e4b%22 stroke-opacity=%220.38%22 stroke-width=%221.3%22 fill=%22none%22 stroke-linecap=%22round%22/%3E%3Cpath d=%22M334 62Q337 60 339 58%22 stroke=%22%237faa58%22 stroke-opacity=%220.38%22 stroke-width=%221.3%22 fill=%22none%22 stroke-linecap=%22round%22/%3E%3Cpath d=%22M331 64Q331 62 334 60%22 stroke=%22%235d8c3f%22 stroke-opacity=%220.38%22 stroke-width=%221.3%22 fill=%22none%22 stroke-linecap=%22round%22/%3E%3Cpath d=%22M329 62Q330 57 331 53%22 stroke=%22%235d8c3f%22 stroke-opacity=%220.38%22 stroke-width=%221.3%22 fill=%22none%22 stroke-linecap=%22round%22/%3E%3Cpath d=%22M332 141Q332 137 331 134%22 stroke=%22%237faa58%22 stroke-opacity=%220.31%22 stroke-width=%221.3%22 fill=%22none%22 stroke-linecap=%22round%22/%3E%3Cpath d=%22M334 141Q333 136 331 132%22 stroke=%22%237faa58%22 stroke-opacity=%220.31%22 stroke-width=%221.3%22 fill=%22none%22 stroke-linecap=%22round%22/%3E%3Cpath d=%22M330 143Q333 140 338 138%22 stroke=%22%237faa58%22 stroke-opacity=%220.31%22 stroke-width=%221.3%22 fill=%22none%22 stroke-linecap=%22round%22/%3E%3Cpath d=%22M332 142Q333 138 332 136%22 stroke=%22%237faa58%22 stroke-opacity=%220.31%22 stroke-width=%221.3%22 fill=%22none%22 stroke-linecap=%22round%22/%3E%3Cpath d=%22M333 143Q334 138 338 134%22 stroke=%22%235d8c3f%22 stroke-opacity=%220.31%22 stroke-width=%221.3%22 fill=%22none%22 stroke-linecap=%22round%22/%3E%3Cpath d=%22M330 143Q332 140 337 138%22 stroke=%22%235d8c3f%22 stroke-opacity=%220.31%22 stroke-width=%221.3%22 fill=%22none%22 stroke-linecap=%22round%22/%3E%3Cpath d=%22M147 63Q150 62 151 60%22 stroke=%22%235d8c3f%22 stroke-opacity=%220.35%22 stroke-width=%221.3%22 fill=%22none%22 stroke-linecap=%22round%22/%3E%3Cpath d=%22M146 65Q149 61 154 58%22 stroke=%22%235d8c3f%22 stroke-opacity=%220.35%22 stroke-width=%221.3%22 fill=%22none%22 stroke-linecap=%22round%22/%3E%3Cpath d=%22M145 63Q146 61 149 59%22 stroke=%22%237faa58%22 stroke-opacity=%220.35%22 stroke-width=%221.3%22 fill=%22none%22 stroke-linecap=%22round%22/%3E%3Cpath d=%22M147 65Q143 62 140 59%22 stroke=%22%237faa58%22 stroke-opacity=%220.35%22 stroke-width=%221.3%22 fill=%22none%22 stroke-linecap=%22round%22/%3E%3Cpath d=%22M149 65Q146 62 142 59%22 stroke=%22%236f9e4b%22 stroke-opacity=%220.35%22 stroke-width=%221.3%22 fill=%22none%22 stroke-linecap=%22round%22/%3E%3Cpath d=%22M145 65Q144 62 146 59%22 stroke=%22%235d8c3f%22 stroke-opacity=%220.35%22 stroke-width=%221.3%22 fill=%22none%22 stroke-linecap=%22round%22/%3E%3Cpath d=%22M143 64Q143 60 143 58%22 stroke=%22%236f9e4b%22 stroke-opacity=%220.29%22 stroke-width=%221.3%22 fill=%22none%22 stroke-linecap=%22round%22/%3E%3Cpath d=%22M139 63Q140 60 140 57%22 stroke=%22%235d8c3f%22 stroke-opacity=%220.29%22 stroke-width=%221.3%22 fill=%22none%22 stroke-linecap=%22round%22/%3E%3Cpath d=%22M140 63Q137 61 135 59%22 stroke=%22%237faa58%22 stroke-opacity=%220.29%22 stroke-width=%221.3%22 fill=%22none%22 stroke-linecap=%22round%22/%3E%3Cpath d=%22M139 62Q143 60 146 58%22 stroke=%22%236f9e4b%22 stroke-opacity=%220.29%22 stroke-width=%221.3%22 fill=%22none%22 stroke-linecap=%22round%22/%3E%3Cpath d=%22M142 61Q139 59 137 56%22 stroke=%22%236f9e4b%22 stroke-opacity=%220.29%22 stroke-width=%221.3%22 fill=%22none%22 stroke-linecap=%22round%22/%3E%3Cpath d=%22M183 65Q183 61 180 58%22 stroke=%22%237faa58%22 stroke-opacity=%220.35%22 stroke-width=%221.3%22 fill=%22none%22 stroke-linecap=%22round%22/%3E%3Cpath d=%22M179 67Q182 65 182 64%22 stroke=%22%236f9e4b%22 stroke-opacity=%220.35%22 stroke-width=%221.3%22 fill=%22none%22 stroke-linecap=%22round%22/%3E%3Cpath d=%22M182 67Q185 64 188 62%22 stroke=%22%236f9e4b%22 stroke-opacity=%220.35%22 stroke-width=%221.3%22 fill=%22none%22 stroke-linecap=%22round%22/%3E%3Cpath d=%22M272 58Q270 55 270 52%22 stroke=%22%235d8c3f%22 stroke-opacity=%220.33%22 stroke-width=%221.3%22 fill=%22none%22 stroke-linecap=%22round%22/%3E%3Cpath d=%22M276 57Q273 54 273 51%22 stroke=%22%236f9e4b%22 stroke-opacity=%220.33%22 stroke-width=%221.3%22 fill=%22none%22 stroke-linecap=%22round%22/%3E%3Cpath d=%22M273 57Q275 54 276 52%22 stroke=%22%236f9e4b%22 stroke-opacity=%220.33%22 stroke-width=%221.3%22 fill=%22none%22 stroke-linecap=%22round%22/%3E%3Cpath d=%22M38 207Q38 204 40 202%22 stroke=%22%236f9e4b%22 stroke-opacity=%220.36%22 stroke-width=%221.3%22 fill=%22none%22 stroke-linecap=%22round%22/%3E%3Cpath d=%22M35 208Q33 205 33 201%22 stroke=%22%236f9e4b%22 stroke-opacity=%220.36%22 stroke-width=%221.3%22 fill=%22none%22 stroke-linecap=%22round%22/%3E%3Cpath d=%22M40 207Q38 204 39 202%22 stroke=%22%235d8c3f%22 stroke-opacity=%220.36%22 stroke-width=%221.3%22 fill=%22none%22 stroke-linecap=%22round%22/%3E%3Cpath d=%22M35 209Q33 206 31 203%22 stroke=%22%237faa58%22 stroke-opacity=%220.36%22 stroke-width=%221.3%22 fill=%22none%22 stroke-linecap=%22round%22/%3E%3Cpath d=%22M40 208Q39 203 35 199%22 stroke=%22%235d8c3f%22 stroke-opacity=%220.36%22 stroke-width=%221.3%22 fill=%22none%22 stroke-linecap=%22round%22/%3E%3Cpath d=%22M39 208Q37 205 36 202%22 stroke=%22%236f9e4b%22 stroke-opacity=%220.36%22 stroke-width=%221.3%22 fill=%22none%22 stroke-linecap=%22round%22/%3E%3Cpath d=%22M35 208Q31 206 29 204%22 stroke=%22%237faa58%22 stroke-opacity=%220.36%22 stroke-width=%221.3%22 fill=%22none%22 stroke-linecap=%22round%22/%3E%3Cpath d=%22M215 135Q213 131 213 128%22 stroke=%22%237faa58%22 stroke-opacity=%220.31%22 stroke-width=%221.3%22 fill=%22none%22 stroke-linecap=%22round%22/%3E%3Cpath d=%22M217 133Q219 130 222 128%22 stroke=%22%235d8c3f%22 stroke-opacity=%220.31%22 stroke-width=%221.3%22 fill=%22none%22 stroke-linecap=%22round%22/%3E%3Cpath d=%22M215 133Q216 129 214 125%22 stroke=%22%237faa58%22 stroke-opacity=%220.31%22 stroke-width=%221.3%22 fill=%22none%22 stroke-linecap=%22round%22/%3E%3Cpath d=%22M215 133Q217 129 220 126%22 stroke=%22%236f9e4b%22 stroke-opacity=%220.31%22 stroke-width=%221.3%22 fill=%22none%22 stroke-linecap=%22round%22/%3E%3Cpath d=%22M216 132Q213 128 210 125%22 stroke=%22%237faa58%22 stroke-opacity=%220.31%22 stroke-width=%221.3%22 fill=%22none%22 stroke-linecap=%22round%22/%3E%3Cpath d=%22M216 134Q215 132 211 130%22 stroke=%22%236f9e4b%22 stroke-opacity=%220.31%22 stroke-width=%221.3%22 fill=%22none%22 stroke-linecap=%22round%22/%3E%3Cpath d=%22M216 133Q215 127 214 123%22 stroke=%22%236f9e4b%22 stroke-opacity=%220.31%22 stroke-width=%221.3%22 fill=%22none%22 stroke-linecap=%22round%22/%3E%3Cpath d=%22M215 207Q211 205 210 204%22 stroke=%22%236f9e4b%22 stroke-opacity=%220.33%22 stroke-width=%221.3%22 fill=%22none%22 stroke-linecap=%22round%22/%3E%3Cpath d=%22M216 207Q215 204 213 201%22 stroke=%22%237faa58%22 stroke-opacity=%220.33%22 stroke-width=%221.3%22 fill=%22none%22 stroke-linecap=%22round%22/%3E%3Cpath d=%22M216 207Q214 201 212 197%22 stroke=%22%236f9e4b%22 stroke-opacity=%220.33%22 stroke-width=%221.3%22 fill=%22none%22 stroke-linecap=%22round%22/%3E%3Cpath d=%22M211 208Q212 206 215 204%22 stroke=%22%235d8c3f%22 stroke-opacity=%220.33%22 stroke-width=%221.3%22 fill=%22none%22 stroke-linecap=%22round%22/%3E%3Cpath d=%22M212 208Q210 205 206 203%22 stroke=%22%237faa58%22 stroke-opacity=%220.33%22 stroke-width=%221.3%22 fill=%22none%22 stroke-linecap=%22round%22/%3E%3Cpath d=%22M304 201Q301 196 299 192%22 stroke=%22%236f9e4b%22 stroke-opacity=%220.39%22 stroke-width=%221.3%22 fill=%22none%22 stroke-linecap=%22round%22/%3E%3Cpath d=%22M302 201Q302 196 301 192%22 stroke=%22%236f9e4b%22 stroke-opacity=%220.39%22 stroke-width=%221.3%22 fill=%22none%22 stroke-linecap=%22round%22/%3E%3Cpath d=%22M304 202Q306 199 311 197%22 stroke=%22%237faa58%22 stroke-opacity=%220.39%22 stroke-width=%221.3%22 fill=%22none%22 stroke-linecap=%22round%22/%3E%3Cpath d=%22M308 201Q305 198 303 195%22 stroke=%22%236f9e4b%22 stroke-opacity=%220.39%22 stroke-width=%221.3%22 fill=%22none%22 stroke-linecap=%22round%22/%3E%3Cpath d=%22M306 201Q303 197 302 195%22 stroke=%22%237faa58%22 stroke-opacity=%220.39%22 stroke-width=%221.3%22 fill=%22none%22 stroke-linecap=%22round%22/%3E%3Cpath d=%22M305 201Q308 196 308 191%22 stroke=%22%237faa58%22 stroke-opacity=%220.39%22 stroke-width=%221.3%22 fill=%22none%22 stroke-linecap=%22round%22/%3E%3Cpath d=%22M306 201Q311 199 313 197%22 stroke=%22%236f9e4b%22 stroke-opacity=%220.39%22 stroke-width=%221.3%22 fill=%22none%22 stroke-linecap=%22round%22/%3E%3Cpath d=%22M36 136Q32 134 28 132%22 stroke=%22%237faa58%22 stroke-opacity=%220.38%22 stroke-width=%221.3%22 fill=%22none%22 stroke-linecap=%22round%22/%3E%3Cpath d=%22M35 136Q33 132 29 129%22 stroke=%22%235d8c3f%22 stroke-opacity=%220.38%22 stroke-width=%221.3%22 fill=%22none%22 stroke-linecap=%22round%22/%3E%3Cpath d=%22M39 137Q38 135 34 134%22 stroke=%22%237faa58%22 stroke-opacity=%220.38%22 stroke-width=%221.3%22 fill=%22none%22 stroke-linecap=%22round%22/%3E%3Cpath d=%22M36 136Q36 133 35 131%22 stroke=%22%237faa58%22 stroke-opacity=%220.38%22 stroke-width=%221.3%22 fill=%22none%22 stroke-linecap=%22round%22/%3E%3Cpath d=%22M35 208Q37 205 41 203%22 stroke=%22%236f9e4b%22 stroke-opacity=%220.39%22 stroke-width=%221.3%22 fill=%22none%22 stroke-linecap=%22round%22/%3E%3Cpath d=%22M36 208Q34 206 32 205%22 stroke=%22%235d8c3f%22 stroke-opacity=%220.39%22 stroke-width=%221.3%22 fill=%22none%22 stroke-linecap=%22round%22/%3E%3Cpath d=%22M36 206Q38 205 40 204%22 stroke=%22%235d8c3f%22 stroke-opacity=%220.39%22 stroke-width=%221.3%22 fill=%22none%22 stroke-linecap=%22round%22/%3E%3Cpath d=%22M39 207Q42 204 45 201%22 stroke=%22%237faa58%22 stroke-opacity=%220.39%22 stroke-width=%221.3%22 fill=%22none%22 stroke-linecap=%22round%22/%3E%3Cpath d=%22M36 206Q38 203 41 200%22 stroke=%22%237faa58%22 stroke-opacity=%220.39%22 stroke-width=%221.3%22 fill=%22none%22 stroke-linecap=%22round%22/%3E%3Cpath d=%22M39 208Q43 206 44 205%22 stroke=%22%237faa58%22 stroke-opacity=%220.39%22 stroke-width=%221.3%22 fill=%22none%22 stroke-linecap=%22round%22/%3E%3Cpath d=%22M199 138Q199 135 199 133%22 stroke=%22%237faa58%22 stroke-opacity=%220.26%22 stroke-width=%221.3%22 fill=%22none%22 stroke-linecap=%22round%22/%3E%3Cpath d=%22M198 137Q197 134 198 132%22 stroke=%22%236f9e4b%22 stroke-opacity=%220.26%22 stroke-width=%221.3%22 fill=%22none%22 stroke-linecap=%22round%22/%3E%3Cpath d=%22M196 137Q199 136 202 134%22 stroke=%22%235d8c3f%22 stroke-opacity=%220.26%22 stroke-width=%221.3%22 fill=%22none%22 stroke-linecap=%22round%22/%3E%3Cpath d=%22M234 207Q233 201 234 196%22 stroke=%22%235d8c3f%22 stroke-opacity=%220.34%22 stroke-width=%221.3%22 fill=%22none%22 stroke-linecap=%22round%22/%3E%3Cpath d=%22M233 206Q230 203 228 200%22 stroke=%22%236f9e4b%22 stroke-opacity=%220.34%22 stroke-width=%221.3%22 fill=%22none%22 stroke-linecap=%22round%22/%3E%3Cpath d=%22M230 206Q232 204 236 202%22 stroke=%22%235d8c3f%22 stroke-opacity=%220.34%22 stroke-width=%221.3%22 fill=%22none%22 stroke-linecap=%22round%22/%3E%3Cpath d=%22M231 208Q231 202 229 197%22 stroke=%22%237faa58%22 stroke-opacity=%220.34%22 stroke-width=%221.3%22 fill=%22none%22 stroke-linecap=%22round%22/%3E%3Cpath d=%22M276 280Q277 276 279 273%22 stroke=%22%237faa58%22 stroke-opacity=%220.42%22 stroke-width=%221.3%22 fill=%22none%22 stroke-linecap=%22round%22/%3E%3Cpath d=%22M276 279Q274 277 270 275%22 stroke=%22%236f9e4b%22 stroke-opacity=%220.42%22 stroke-width=%221.3%22 fill=%22none%22 stroke-linecap=%22round%22/%3E%3Cpath d=%22M272 278Q274 274 275 271%22 stroke=%22%236f9e4b%22 stroke-opacity=%220.42%22 stroke-width=%221.3%22 fill=%22none%22 stroke-linecap=%22round%22/%3E%3Cpath d=%22M271 281Q274 278 274 276%22 stroke=%22%236f9e4b%22 stroke-opacity=%220.42%22 stroke-width=%221.3%22 fill=%22none%22 stroke-linecap=%22round%22/%3E%3Cpath d=%22M271 281Q271 277 271 275%22 stroke=%22%236f9e4b%22 stroke-opacity=%220.42%22 stroke-width=%221.3%22 fill=%22none%22 stroke-linecap=%22round%22/%3E%3Cpath d=%22M271 279Q273 277 277 276%22 stroke=%22%235d8c3f%22 stroke-opacity=%220.42%22 stroke-width=%221.3%22 fill=%22none%22 stroke-linecap=%22round%22/%3E%3Cpath d=%22M53 286Q56 284 59 283%22 stroke=%22%237faa58%22 stroke-opacity=%220.42%22 stroke-width=%221.3%22 fill=%22none%22 stroke-linecap=%22round%22/%3E%3Cpath d=%22M56 285Q60 282 61 279%22 stroke=%22%235d8c3f%22 stroke-opacity=%220.42%22 stroke-width=%221.3%22 fill=%22none%22 stroke-linecap=%22round%22/%3E%3Cpath d=%22M55 285Q55 280 56 277%22 stroke=%22%235d8c3f%22 stroke-opacity=%220.42%22 stroke-width=%221.3%22 fill=%22none%22 stroke-linecap=%22round%22/%3E%3Cpath d=%22M57 286Q53 282 51 279%22 stroke=%22%236f9e4b%22 stroke-opacity=%220.42%22 stroke-width=%221.3%22 fill=%22none%22 stroke-linecap=%22round%22/%3E%3Cpath d=%22M52 285Q49 280 48 276%22 stroke=%22%237faa58%22 stroke-opacity=%220.42%22 stroke-width=%221.3%22 fill=%22none%22 stroke-linecap=%22round%22/%3E%3Cpath d=%22M51 286Q54 284 56 282%22 stroke=%22%237faa58%22 stroke-opacity=%220.42%22 stroke-width=%221.3%22 fill=%22none%22 stroke-linecap=%22round%22/%3E%3Cpath d=%22M239 208Q238 205 239 202%22 stroke=%22%237faa58%22 stroke-opacity=%220.27%22 stroke-width=%221.3%22 fill=%22none%22 stroke-linecap=%22round%22/%3E%3Cpath d=%22M241 208Q243 204 242 202%22 stroke=%22%237faa58%22 stroke-opacity=%220.27%22 stroke-width=%221.3%22 fill=%22none%22 stroke-linecap=%22round%22/%3E%3Cpath d=%22M243 207Q247 205 249 203%22 stroke=%22%235d8c3f%22 stroke-opacity=%220.27%22 stroke-width=%221.3%22 fill=%22none%22 stroke-linecap=%22round%22/%3E%3Cpath d=%22M239 209Q238 206 235 204%22 stroke=%22%236f9e4b%22 stroke-opacity=%220.27%22 stroke-width=%221.3%22 fill=%22none%22 stroke-linecap=%22round%22/%3E%3Cpath d=%22M165 201Q161 198 160 196%22 stroke=%22%235d8c3f%22 stroke-opacity=%220.34%22 stroke-width=%221.3%22 fill=%22none%22 stroke-linecap=%22round%22/%3E%3Cpath d=%22M166 198Q167 194 165 191%22 stroke=%22%235d8c3f%22 stroke-opacity=%220.34%22 stroke-width=%221.3%22 fill=%22none%22 stroke-linecap=%22round%22/%3E%3Cpath d=%22M165 198Q163 196 162 194%22 stroke=%22%236f9e4b%22 stroke-opacity=%220.34%22 stroke-width=%221.3%22 fill=%22none%22 stroke-linecap=%22round%22/%3E%3Cpath d=%22M166 199Q165 195 165 191%22 stroke=%22%237faa58%22 stroke-opacity=%220.34%22 stroke-width=%221.3%22 fill=%22none%22 stroke-linecap=%22round%22/%3E%3Cpath d=%22M167 200Q165 197 165 194%22 stroke=%22%235d8c3f%22 stroke-opacity=%220.34%22 stroke-width=%221.3%22 fill=%22none%22 stroke-linecap=%22round%22/%3E%3Cpath d=%22M109 280Q107 278 105 276%22 stroke=%22%235d8c3f%22 stroke-opacity=%220.35%22 stroke-width=%221.3%22 fill=%22none%22 stroke-linecap=%22round%22/%3E%3Cpath d=%22M110 281Q114 277 116 273%22 stroke=%22%236f9e4b%22 stroke-opacity=%220.35%22 stroke-width=%221.3%22 fill=%22none%22 stroke-linecap=%22round%22/%3E%3Cpath d=%22M105 280Q105 274 106 269%22 stroke=%22%237faa58%22 stroke-opacity=%220.35%22 stroke-width=%221.3%22 fill=%22none%22 stroke-linecap=%22round%22/%3E%3Cpath d=%22M108 280Q103 275 101 272%22 stroke=%22%235d8c3f%22 stroke-opacity=%220.35%22 stroke-width=%221.3%22 fill=%22none%22 stroke-linecap=%22round%22/%3E%3Cpath d=%22M110 281Q108 277 108 273%22 stroke=%22%236f9e4b%22 stroke-opacity=%220.35%22 stroke-width=%221.3%22 fill=%22none%22 stroke-linecap=%22round%22/%3E%3Cpath d=%22M108 281Q108 277 108 274%22 stroke=%22%236f9e4b%22 stroke-opacity=%220.35%22 stroke-width=%221.3%22 fill=%22none%22 stroke-linecap=%22round%22/%3E%3Cpath d=%22M303 279Q300 277 296 276%22 stroke=%22%235d8c3f%22 stroke-opacity=%220.31%22 stroke-width=%221.3%22 fill=%22none%22 stroke-linecap=%22round%22/%3E%3Cpath d=%22M302 278Q304 272 305 268%22 stroke=%22%236f9e4b%22 stroke-opacity=%220.31%22 stroke-width=%221.3%22 fill=%22none%22 stroke-linecap=%22round%22/%3E%3Cpath d=%22M306 278Q301 276 299 274%22 stroke=%22%236f9e4b%22 stroke-opacity=%220.31%22 stroke-width=%221.3%22 fill=%22none%22 stroke-linecap=%22round%22/%3E%3Cpath d=%22M305 279Q301 275 299 272%22 stroke=%22%235d8c3f%22 stroke-opacity=%220.31%22 stroke-width=%221.3%22 fill=%22none%22 stroke-linecap=%22round%22/%3E%3Cpath d=%22M303 277Q307 275 311 273%22 stroke=%22%237faa58%22 stroke-opacity=%220.31%22 stroke-width=%221.3%22 fill=%22none%22 stroke-linecap=%22round%22/%3E%3Cpath d=%22M304 278Q302 275 298 272%22 stroke=%22%237faa58%22 stroke-opacity=%220.31%22 stroke-width=%221.3%22 fill=%22none%22 stroke-linecap=%22round%22/%3E%3Cpath d=%22M85 280Q85 277 87 274%22 stroke=%22%235d8c3f%22 stroke-opacity=%220.35%22 stroke-width=%221.3%22 fill=%22none%22 stroke-linecap=%22round%22/%3E%3Cpath d=%22M82 280Q78 277 76 275%22 stroke=%22%236f9e4b%22 stroke-opacity=%220.35%22 stroke-width=%221.3%22 fill=%22none%22 stroke-linecap=%22round%22/%3E%3Cpath d=%22M85 281Q85 279 83 277%22 stroke=%22%236f9e4b%22 stroke-opacity=%220.35%22 stroke-width=%221.3%22 fill=%22none%22 stroke-linecap=%22round%22/%3E%3Cpath d=%22M81 280Q80 277 80 274%22 stroke=%22%237faa58%22 stroke-opacity=%220.35%22 stroke-width=%221.3%22 fill=%22none%22 stroke-linecap=%22round%22/%3E%3C/svg%3E");
   background:
     /* the vignette */
     radial-gradient(ellipse 78% 72% at 50% 46%, transparent 50%, rgba(1, 2, 5, 0.5) 82%, rgba(1, 2, 5, 0.82)),
     /* light from above */
     radial-gradient(ellipse 55% 46% at 50% 42%, rgba(196, 214, 245, 0.07), transparent 75%),
     var(--grain) 0 0 / 22rem 22rem,
+    var(--stones) 0 0 / 36rem 36rem,
     var(--mottle) center / cover no-repeat,
     radial-gradient(ellipse 110% 95% at 50% 42%, #17202d, var(--board) 48%, #080b11);
 }
@@ -1630,23 +1635,30 @@ button {
 
 /* ---------- prompt, buttons, phases ---------- */
 
-/* X, kicker and alternative costs, announced before targets (601.2b). Sits under the prompt. */
+/* X, kicker, modes and alternative costs, announced before targets (601.2b): rows of chips in the prompt band. */
 .cast-options {
-  position: absolute;
-  left: 0;
-  right: 0;
-  top: calc(50% - 7.5rem);
-  width: fit-content;
-  margin: 0 auto;
-  padding: 1rem 2rem;
   display: flex;
   flex-direction: column;
+  align-items: center;
   gap: 0.8rem;
-  background: var(--panel);
-  border: 0.15rem solid var(--gold);
-  border-radius: 1.2rem;
-  box-shadow: var(--shadow-lg);
-  z-index: 21;
+  text-shadow: none;
+}
+
+/* A spell with nothing to announce but how it is cast (plot) has no rows: only the band's buttons. */
+.cast-options:empty {
+  display: none;
+}
+
+/* The band's own buttons: go on (Cast, Continue), do something else with the card instead (plot), or cancel. */
+.prompt-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 0.8rem;
+  margin-top: 0.2rem;
+  font: 400 1.6rem 'Segoe UI', sans-serif;
+  text-shadow: none;
 }
 
 .cast-row {
@@ -1667,7 +1679,7 @@ button {
   text-align: center;
 }
 
-:is(.cast-options, .damage-split, .paste-commanders) .chip {
+:is(.cast-options, .prompt-actions, .damage-split, .paste-commanders) .chip {
   min-width: 4rem;
   padding: 0.4rem 1.2rem;
   font: 600 1.6rem 'Segoe UI', sans-serif;
@@ -1688,12 +1700,12 @@ button {
   text-align: left;
 }
 
-:is(.cast-options, .damage-split, .paste-commanders) .chip.on {
+:is(.cast-options, .prompt-actions, .damage-split, .paste-commanders) .chip.on {
   border-color: var(--gold);
   background: #3a3324;
 }
 
-:is(.cast-options, .damage-split, .paste-commanders) .chip:disabled {
+:is(.cast-options, .prompt-actions, .damage-split, .paste-commanders) .chip:disabled {
   opacity: 0.4;
 }
 
@@ -1741,7 +1753,9 @@ button {
 
 /*
   The prompt: a band across the middle of the table in the same plate as the controls, a
-  gold hairline above and below fading out at the ends.
+  gold hairline above and below fading out at the ends. While a spell is announced the
+  cast options and their buttons sit in it under the words (Hud.tsx `Prompt`); only those
+  take the pointer, so the table under the words stays hoverable.
 */
 .prompt {
   position: absolute;
@@ -1749,8 +1763,14 @@ button {
   right: 0;
   top: calc(50% - 11rem);
   width: fit-content;
+  max-width: 110rem;
   margin: 0 auto;
   padding: 0.6rem 9rem 0.7rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.9rem;
+  text-align: center;
   font: 600 2.2rem var(--serif);
   color: var(--text);
   text-shadow: 0 0.15rem 0.3rem #000;
@@ -1759,6 +1779,14 @@ button {
   border-image: linear-gradient(90deg, transparent, rgba(210, 170, 66, 0.7) 25%, rgba(255, 223, 154, 0.85) 50%, rgba(210, 170, 66, 0.7) 75%, transparent) 1;
   pointer-events: none;
   z-index: 20;
+}
+
+.prompt.with-options {
+  padding-bottom: 1.3rem;
+}
+
+.prompt :is(.cast-options, .prompt-actions) {
+  pointer-events: auto;
 }
 
 /*
@@ -2766,6 +2794,53 @@ button {
     0 0.8rem 2rem #000;
 }
 
+/*
+  A card landing on a battlefield tile folds into it (Flights.tsx `settle`): the copy's frame
+  closes in on the card's art box, which swells to the tile's size and slides to where the
+  tile's art is, while the tile fades in under it. The copy is clipped, not resized, so its
+  art stays still as the frame closes.
+*/
+.flight-card {
+  position: absolute;
+  inset: 0;
+}
+
+.flight-card.settling {
+  animation: flight-settle var(--settle, 0.45s) cubic-bezier(0.4, 0, 0.2, 1) forwards;
+}
+
+@keyframes flight-settle {
+  from {
+    clip-path: inset(0 0 0 0 round 4.75% / 3.5%);
+    transform: none;
+    opacity: 1;
+  }
+  55% {
+    opacity: 1;
+  }
+  to {
+    /* A card's art box: 11% down, 7% in from each side, 44% up from the bottom. Scaled up, its middle slides to the card's. */
+    clip-path: inset(11% 7% 44% 7% round 5%);
+    transform: translateY(19%) scale(1.16);
+    opacity: 0;
+  }
+}
+
+/* The tile under a folding card: hidden until the fold starts, then in over its second half. */
+.tile.landing {
+  animation: tile-land var(--settle, 0.45s) ease-out both;
+}
+
+@keyframes tile-land {
+  from,
+  35% {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
 /* A ring flaring once over a permanent: a token appearing, or the source of an ability that resolved. */
 .flare {
   position: absolute;
@@ -2934,6 +3009,30 @@ button {
   overflow-y: auto;
   /* room for the lift and glow of a hovered or picked card */
   padding: 0.8rem;
+}
+
+/* Cards from more than one place (Highway Robbery: a card in hand or a land on the table): each place under its own heading. */
+.picker-cards.grouped {
+  flex-direction: column;
+  /* One column: wrapping would start a second column beside the first when the groups are taller than the window. */
+  flex-wrap: nowrap;
+  align-items: stretch;
+  gap: 1.6rem;
+}
+
+.picker-group h3 {
+  margin: 0 0 0.8rem;
+  padding-bottom: 0.4rem;
+  font: 600 1.8rem var(--serif);
+  color: var(--gold-light);
+  border-bottom: 0.1rem solid var(--line);
+}
+
+.picker-group-cards {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 1.2rem;
 }
 
 .picker-card {

@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import type { CSSProperties } from 'react';
 import { createPortal } from 'react-dom';
 import { MotionGlobalConfig, motion, useReducedMotion } from 'motion/react';
 import { data } from '../engine';
@@ -44,6 +45,13 @@ interface Flight {
   fade: boolean;
   /** The real card, hidden until this lands. */
   hidden: HTMLElement | null;
+  /**
+   * It lands on a battlefield tile, which looks nothing like the card: instead of vanishing
+   * on landing, the copy folds into the tile's art while the tile fades in under it.
+   */
+  morph: boolean;
+  /** The fold is under way (`.flight-card.settling`). */
+  settling?: boolean;
 }
 
 /** A ring that flares once over a card: a token appearing, an ability's source as the ability resolves. */
@@ -164,6 +172,7 @@ function plan(prev: Game, next: Game, me: PlayerId | null, spots: Map<string, Sp
       resolve: m.from?.zone === 'stack',
       fade: !exact,
       hidden: hides ? el : null,
+      morph: exact && m.to.zone === 'battlefield' && el.classList.contains('tile'),
     });
   }
   for (const item of leftStack(prev, next)) {
@@ -173,14 +182,18 @@ function plan(prev: Game, next: Game, me: PlayerId | null, spots: Map<string, Sp
     if (!source) continue;
     const from = items.get(item.id);
     if (from && flights.length < MAX_FLIGHTS) {
-      flights.push({ key: `item-${item.id}`, card: item.id, d: data(item.card), from, to: { ...spotOf(source, false, rem), turn: from.turn }, delay: 0, resolve: true, fade: true, hidden: null });
+      flights.push({ key: `item-${item.id}`, card: item.id, d: data(item.card), from, to: { ...spotOf(source, false, rem), turn: from.turn }, delay: 0, resolve: true, fade: true, hidden: null, morph: false });
     }
     if (source.classList.contains('tile')) flare(`resolve-${item.id}`, source, 'resolve');
   }
   return { flights, flares };
 }
 
-const reveal = (f: Flight) => f.hidden?.style.removeProperty('visibility');
+const reveal = (f: Flight) => {
+  f.hidden?.style.removeProperty('visibility');
+  f.hidden?.style.removeProperty('--settle');
+  f.hidden?.classList.remove('landing');
+};
 
 /**
  * Draws the flights. Mounted once with the table. A new change while cards are still flying
@@ -228,9 +241,18 @@ export function Flights() {
   useEffect(() => () => live.current.forEach(reveal), []);
 
   const time = 0.5 / Math.sqrt(speed);
+  const settleTime = 0.45 / Math.sqrt(speed);
   const land = (f: Flight) => {
     reveal(f);
-    setFlights((all) => all.filter((x) => x !== f));
+    setFlights((all) => all.filter((x) => x.key !== f.key));
+  };
+  // Landed on a tile: the tile shows and fades in (.tile.landing) while the copy folds into it.
+  const settle = (f: Flight) => {
+    if (!f.hidden) return land(f);
+    f.hidden.style.setProperty('--settle', `${settleTime}s`);
+    f.hidden.classList.add('landing');
+    f.hidden.style.removeProperty('visibility');
+    setFlights((all) => all.map((x) => (x.key === f.key ? { ...x, settling: true } : x)));
   };
   return createPortal(
     <div className="flights">
@@ -255,11 +277,13 @@ export function Flights() {
               opacity: f.fade ? [1, 1, 0] : 1,
             }}
             transition={{ duration: time * (1 + hold), delay: f.delay / Math.sqrt(speed), times: [0, hold / (1 + hold), 1], ease: [0.3, 0.7, 0.3, 1] }}
-            onAnimationComplete={() => land(f)}
+            onAnimationComplete={() => (f.morph ? settle(f) : land(f))}
           >
-            {/* The back is under the face too, so a card whose image is still loading isn't an empty frame. */}
-            <div className="card-back" />
-            {f.d && <CardImage d={f.d} alt="" draggable={false} />}
+            <div className={f.settling ? 'flight-card settling' : 'flight-card'} style={{ '--settle': `${settleTime}s` } as CSSProperties} onAnimationEnd={() => f.settling && land(f)}>
+              {/* The back is under the face too, so a card whose image is still loading isn't an empty frame. */}
+              <div className="card-back" />
+              {f.d && <CardImage d={f.d} alt="" draggable={false} />}
+            </div>
           </motion.div>
         );
       })}
