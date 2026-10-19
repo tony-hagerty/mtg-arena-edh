@@ -1,7 +1,7 @@
 // Queries and effect primitives. Everything here either reads a Game or mutates an
 // Immer draft of one; turn structure and action handling live in engine.ts.
 import { CREATURE_TYPES, cardData } from '../cards/db';
-import { scriptOf } from './registry';
+import { anyGrantFor, scriptOf } from './registry';
 import { characteristics, hasOwnAbilities, heldMemo, mayLoseAbilities, settled, staticRemoval, typesOf } from './layers';
 import { replace, whileArriving } from './replace';
 import type {
@@ -2329,6 +2329,10 @@ const isCard = (v: unknown): v is Card => typeof v === 'object' && v !== null &&
  * waits in `g.triggers` and goes on the stack the next time a player would get priority (603.3).
  */
 export function trigger<H extends TriggerHook>(g: Game, source: Card, hook: H, event: TriggerEvents[H]) {
+  // Nothing to look at: its card has no ability on this event, and no card can give it one.
+  // Its abilities now are its card's less any it lost (613.1f), so it can't have gained one.
+  // Asked of every permanent for every event, so this keeps the layers out of most of them.
+  if (!scriptFor(source)[hook] && !anyGrantFor(hook)) return;
   const raw = abilitiesOf(g, source)[hook] as Trigger<object> | Trigger<object>[] | undefined;
   const own = (Array.isArray(raw) ? raw : raw ? [raw] : []).map((t, i) => ({ t, extra: Array.isArray(raw) ? { trigger: i } : {} }));
   // Abilities other cards give it (613.1f), until end of turn or while they apply.
@@ -2386,7 +2390,11 @@ let watchers: Watchers | null = null;
 
 function watchersNow(g: Game): Watchers {
   const all = lookBack ?? battlefield(g);
-  return { doublers: all.filter((x) => abilitiesOf(g, x).doublesTriggers), suppressors: all.filter((x) => abilitiesOf(g, x).suppressesTriggers) };
+  // Its card has the ability before abilitiesOf asks whether it lost it (613.1f).
+  return {
+    doublers: all.filter((x) => scriptFor(x).doublesTriggers && abilitiesOf(g, x).doublesTriggers),
+    suppressors: all.filter((x) => scriptFor(x).suppressesTriggers && abilitiesOf(g, x).suppressesTriggers),
+  };
 }
 
 /**
