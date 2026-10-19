@@ -32,8 +32,9 @@
  * again after each effect applies (613.8c). Only an ability that looked at a characteristic
  * this layer can change can depend on anything, so most layers need no extra asking.
  */
+import { current, isDraft, original } from 'immer';
 import { CREATURE_TYPES, SUBTYPES, cardData } from '../cards/db';
-import { anyRemovingScript, hasRemovingScript, hasStaticScript } from './registry';
+import { anyRemovingScript, hasRemovingScript, hasStaticScript, scriptHas } from './registry';
 import { CANT_ATTACK, CANT_BLOCK, MUST_ATTACK, SUPPORTED_KEYWORDS, battlefield, counterCount, data, hasReconfigure, permanent, scriptFor } from './rules';
 import type { Card, CardScript, Characteristics, ContinuousEffect, Game, LayerParts } from './types';
 
@@ -329,13 +330,12 @@ function apply(w: Working, p: LayerParts, l: Layer) {
  */
 export function staticRemoval(g: Game): boolean {
   if (!anyRemovingScript()) return false;
-  const isHeld = held?.g === g;
-  const isFrozen = !isHeld && Object.isFrozen(g) && Object.isFrozen(g.players);
-  const known = isHeld ? held!.removing : isFrozen ? removing.get(g) : undefined;
-  if (known !== undefined) return known;
+  const base = untouched(g);
+  if (base) return staticRemoval(base);
+  const kept = keptFor(g);
+  if (kept?.removing !== undefined) return kept.removing;
   const any = battlefield(g).some(mayRemove);
-  if (isHeld) held!.removing = any;
-  else if (isFrozen) removing.set(g, any);
+  if (kept) kept.removing = any;
   return any;
 }
 
@@ -347,7 +347,6 @@ export function staticRemoval(g: Game): boolean {
  */
 export const mayLoseAbilities = (g: Game, c: Card) =>
   c.zone === 'battlefield' && ((!!g.abilitiesLost && c.continuous.some((e) => e.loseAll || e.lose)) || staticRemoval(g));
-const removing = new WeakMap<Game, boolean>();
 /** Does `c`'s script, on any face, have a static ability that can take abilities away? */
 const mayRemove = (c: Card) => (c.copy ? !!scriptFor(c).removesAbilities : namesOf(c).some(hasRemovingScript));
 
@@ -370,6 +369,7 @@ function exists(g: Game, c: Card, w: Working, e: Entry, l: Layer): boolean {
  */
 function starts(g: Game, c: Card, w: Working, e: Entry, p: LayerParts, l: Layer): boolean {
   if (e.from && (p.loseAll || p.lose) && !scriptFor(e.from).removesAbilities) throw new Error(`${e.from.name}'s static ability removes abilities: its script needs removesAbilities.`);
+  if (e.from && p.grant && !scriptFor(e.from).grants) throw new Error(`${e.from.name}'s static ability gives a triggered ability: its script needs the grants it gives.`);
   if (!e.from && !e.cda && (p.loseAll || p.lose) && !g.abilitiesLost) throw new Error(`An effect that removes ${c.name}'s abilities must be given with addContinuous, which marks the game.`);
   return !!e.parts || exists(g, c, w, e, l);
 }
@@ -431,6 +431,15 @@ const scriptNames = new Map<string, string[]>();
 function mayHaveStatic(c: Card): boolean {
   return !!c.copy || namesOf(c).some(hasStaticScript);
 }
+/**
+ * Could `c`'s script have property `key` (a trigger hook, `doublesTriggers`, ...)? A quick
+ * look at the names its scripts are under, before `scriptFor` works out which applies: false
+ * means it can't; true means look at `scriptFor(c)`. A copy has the script of what it copies.
+ */
+export function mayHaveScript(c: Card, key: string): boolean {
+  return !!c.copy || namesOf(c).some((n) => scriptHas(n, key));
+}
+
 /** The names `c`'s scripts can be registered under: the card's and each face's. */
 function namesOf(c: Card): string[] {
   let names = scriptNames.get(c.name);
@@ -443,14 +452,11 @@ function namesOf(c: Card): string[] {
 
 type StaticFn = NonNullable<CardScript['static']>;
 type Sources = { src: Card; fn: StaticFn }[];
-const frozenSources = new WeakMap<Game, Sources>();
 
 /** The permanents with static abilities (611.3), in battlefield order. */
 function staticSources(g: Game): Sources {
-  const isHeld = held?.g === g;
-  const isFrozen = !isHeld && Object.isFrozen(g) && Object.isFrozen(g.players);
-  const known = isHeld ? held!.sources : isFrozen ? frozenSources.get(g) : undefined;
-  if (known) return known;
+  const kept = keptFor(g);
+  if (kept?.sources) return kept.sources;
   const out: Sources = [];
   for (const p of g.players) {
     if (p.lost) continue;
@@ -459,10 +465,15 @@ function staticSources(g: Game): Sources {
       if (fn) out.push({ src, fn });
     }
   }
-  if (isHeld) held!.sources = out;
-  else if (isFrozen) frozenSources.set(g, out);
+  if (kept) kept.sources = out;
   return out;
 }
+
+/**
+ * Could a static ability on the battlefield give a permanent a triggered ability (`LayerParts.grant`)?
+ * Only one whose script lists the grants it gives (`starts` checks that it does).
+ */
+export const anyGrantingStatic = (g: Game) => staticSources(g).some(({ src }) => !!scriptFor(src).grants);
 
 /**
  * Objects partway through the layers now, by id, so a question about one gets its state so
@@ -471,10 +482,29 @@ function staticSources(g: Game): Sources {
 const working = new Map<string, { w: Working; depth: number }>();
 /** For each object partway, from the first asked: has its answer seen an object below it partway? */
 const tainted: boolean[] = [];
-/** Answers for games that can't change any more: Immer freezes every state it makes. */
-const frozen = new WeakMap<Game, WeakMap<Card, Result>>();
-/** Answers kept while a game doesn't change (`settled`). */
-let held: { g: Game; answers: WeakMap<Card, Result>; sources?: Sources; removing?: boolean; memos?: Map<string, Map<string, unknown>> } | null = null;
+/** What is known about one game that doesn't change: each permanent's characteristics, and more. */
+interface Kept {
+  g: Game;
+  answers: WeakMap<Card, Result>;
+  sources?: Sources;
+  removing?: boolean;
+  memos?: Map<string, Map<string, unknown>>;
+}
+/** What is known about each game that can't change any more: Immer freezes every state it makes. */
+const keptFrozen = new WeakMap<Game, Kept>();
+/** What is known about the game `settled` holds unchanged: a draft's for the length of `settled`, a frozen game's for good. */
+let held: Kept | null = null;
+
+const isFrozenGame = (g: Game) => Object.isFrozen(g) && Object.isFrozen(g.players);
+
+/** What is known about `g`, if anything can be: while `settled` holds it, or for good once it is frozen. */
+function keptFor(g: Game): Kept | null {
+  if (held?.g === g) return held;
+  if (!isFrozenGame(g)) return null;
+  let kept = keptFrozen.get(g);
+  if (!kept) keptFrozen.set(g, (kept = { g, answers: new WeakMap() }));
+  return kept;
+}
 
 interface Result {
   chars: Characteristics;
@@ -488,7 +518,8 @@ interface Result {
  */
 export function settled<T>(g: Game, fn: () => T): T {
   if (held) return fn();
-  held = { g, answers: new WeakMap() };
+  // A frozen game keeps what is worked out about it for good, for every later question.
+  held = isFrozenGame(g) ? keptFor(g)! : { g, answers: new WeakMap() };
   try {
     return fn();
   } finally {
@@ -497,25 +528,21 @@ export function settled<T>(g: Game, fn: () => T): T {
 }
 
 /**
- * A place to keep other answers about `g` by card id while `settled` holds it unchanged, like
- * the types of mana a land could produce. Null when it isn't held.
+ * A place to keep other answers about `g` by card id while it doesn't change, like the types
+ * of mana a land could produce: while `settled` holds it, or for good once it is frozen.
+ * Null when `g` can still change.
  */
 export function heldMemo<T>(g: Game, kind: string): Map<string, T> | null {
-  if (held?.g !== g) return null;
-  held.memos ??= new Map();
-  let m = held.memos.get(kind);
-  if (!m) held.memos.set(kind, (m = new Map()));
+  const kept = keptFor(g);
+  if (!kept) return null;
+  kept.memos ??= new Map();
+  let m = kept.memos.get(kind);
+  if (!m) kept.memos.set(kind, (m = new Map()));
   return m as Map<string, T>;
 }
 
 /** Where answers about `g` are kept, if they can be. */
-function storeFor(g: Game): WeakMap<Card, Result> | null {
-  if (held?.g === g) return held.answers;
-  if (!Object.isFrozen(g) || !Object.isFrozen(g.players)) return null;
-  let store = frozen.get(g);
-  if (!store) frozen.set(g, (store = new WeakMap()));
-  return store;
-}
+const storeFor = (g: Game): WeakMap<Card, Result> | null => keptFor(g)?.answers ?? null;
 
 /**
  * The characteristics of `c` with every continuous effect applied (613.1), up to layer
@@ -525,6 +552,8 @@ function storeFor(g: Game): WeakMap<Card, Result> | null {
  * `temporary: false` leaves out effects with a duration, for the bots' sense of what lasts.
  */
 export function characteristics(g: Game, c: Card, upTo: Layer = '7d', temporary = true): Characteristics {
+  const base = untouched(g);
+  if (base) return characteristics(base, inBase(c), upTo, temporary);
   if (c.lki) return c.lki;
   if (reading && c.zone === 'battlefield') reading.push({ id: c.id, upTo: LAYERS.indexOf(upTo), temporary });
   const partial = working.get(c.id);
@@ -547,14 +576,43 @@ export function characteristics(g: Game, c: Card, upTo: Layer = '7d', temporary 
 }
 
 /** A card off the battlefield: its copiable values, with its characteristic-defining abilities applied (604.3). */
-function offBattlefield(g: Game, c: Card): Characteristics {
+function offBattlefield(g: Game, draft: Card): Characteristics {
+  const c = plain(draft);
   const { version: _, ...w } = start(c);
   const basePT = definesPT(c);
   if (basePT) ({ power: w.power, toughness: w.toughness } = basePT(g, c));
   return w;
 }
 
-function layers(g: Game, c: Card, upTo: Layer, temporary: boolean): { chars: Characteristics; clean: boolean } {
+/** Immer's own key for a draft's state (a registered symbol, so the same in every copy of Immer). */
+const DRAFT_STATE = Symbol.for('immer-state');
+
+/**
+ * The finished game draft `g` was made from, while nothing in the draft has changed yet;
+ * otherwise undefined. Immer marks a draft's root as changed as soon as anything inside it
+ * changes, so an unchanged root means the draft is still exactly that game. Questions asked
+ * before an action changes anything (is this cast legal?) can then be answered from the
+ * finished game, where answers are kept, instead of through the draft. If Immer's draft state
+ * ever looks different, this says undefined and the draft is read as usual.
+ */
+export function untouched(g: Game): Game | undefined {
+  const state = (g as unknown as Record<symbol, { modified_?: unknown; base_?: Game } | undefined>)[DRAFT_STATE];
+  return state && state.modified_ === false && state.base_ && Object.isFrozen(state.base_) ? state.base_ : undefined;
+}
+
+/** `c` as it is in the finished game `untouched` gave. */
+export const inBase = (c: Card): Card => (isDraft(c) ? original(c)! : c);
+
+/**
+ * `c` as a plain object. Inside `produce` a card is an Immer draft, and every property read
+ * through a draft goes through its proxy, which is slow: the layers read a card's counters,
+ * effects and copy values over and over. Immer's `current` gives the card as it is now, for
+ * a card nothing has changed yet the very object the draft was made from, so it costs little.
+ */
+const plain = (c: Card): Card => (isDraft(c) ? current(c) : c);
+
+function layers(g: Game, draft: Card, upTo: Layer, temporary: boolean): { chars: Characteristics; clean: boolean } {
+  const c = plain(draft);
   const w = start(c);
   const depth = tainted.length;
   working.set(c.id, { w, depth });

@@ -77,8 +77,9 @@ src/ui/         App.tsx               menu or game screen; GameScreen.tsx lays t
                 styles.css            all styling
 tests/                                Vitest: card coverage, rules, the UI casting flow,
                                       bot-vs-bot games
-                simulation/           bot-vs-bot games, a few to a file so they run on
-                                      every core at once; play.ts plays one out
+                simulation/           bot-vs-bot games, one file each so they run on
+                                      every core at once: games.ts lists them (deck
+                                      sets and seeds), play.ts plays one out
                 fixtures.ts           scripts for cards not in the pool yet, for testing
                 fixture-cards.json    their names; fetch-cards writes their data to
                                       fixtures.generated.json
@@ -153,6 +154,72 @@ The root font-size scales with the window so the screen is always at least 192 Ã
 A wider or taller window gets extra `rem` on that side instead of empty bars. So place
 things from an edge or the middle (`right: 2rem`, `top: calc(100% - 12rem)`), not from a
 fixed spot on a 192 Ã— 108 grid.
+
+## Tests
+
+Three commands, the same tests split two ways:
+
+| Command | Runs | For |
+| --- | --- | --- |
+| `npm test` | everything | before you push: it must pass |
+| `npm run test:quick` | everything but whole games | while you work |
+| `npm run test:games` | the whole games only | after an engine or bot change |
+
+While working on one thing, run its file: `npx vitest run tests/engine.test.ts`.
+
+**Whole games** are the tests tagged `game` (`it(name, { tags: ['game'] }, ...)`): every
+game in `tests/simulation/`, and the few others that play one out with bots (seats at each
+table size, `viewFor` through a game, a game through the lobby and the game server). They
+are most of the run's time. `test:quick` skips them; `test:games` runs only them.
+
+**The bot games** in `tests/simulation/` are the engine's regression set: bots play each to
+a finish, and `play.ts` checks the game after every action (every card in one place, every
+commander home, no state-based action left undone). `games.ts` lists every deck set and the
+seeds it is played with; each game has its own file, `<set>-<seed>.test.ts`, which is one
+line, `play('<set>', <seed>)`, so Vitest spreads the games over every core and the run takes
+about as long as the slowest game. Keep the seeds. To add a game, add the seed (or a new set)
+to `games.ts` and a file for it: `tests/games-table.test.ts` fails until the two match.
+
+Vitest starts the files that took longest last time first. With no timings from an earlier
+run (a fresh checkout, CI), `BotGamesFirst` in `vite.config.ts` starts the games, the
+slowest ones measured (`SLOW_GAMES`) first.
+
+**Profiling.** `npm run profile-game -- <seed>` plays one game under Node's CPU profiler and
+prints the functions that took the most time, by their own code and with what they call.
+By default it is the suite's slowest game (two Hashaton decks, seed 94); add `starter` for
+the four starter decks (`npm run profile-game -- 44 starter`), or a deck set from `games.ts`
+(`npm run profile-game -- 71 kuja`). The raw `.cpuprofile` it names opens in Chrome's
+DevTools (Performance, Load profile).
+
+### Keeping the engine fast
+
+The bots try moves on copies of the game, so the engine's speed is the bots' speed, in the
+app as in the tests. What keeps it fast, and what to keep in mind when changing it:
+
+- **Reading through drafts is slow.** Inside `produce`, every property read goes through an
+  Immer proxy. Ask questions of a finished (frozen) game where you can: there the layers keep
+  their answers (`characteristics` memoizes per frozen game).
+- **`settle` runs between drafts.** `applyAction` applies the action in one `produce`, then
+  `settle` asks its questions (`sbaPending`, `wantsPriority`) of the finished game and makes
+  each change in a `produce` of its own. If you add a state-based action to `checkState`,
+  add its condition to `sbaPending` too; `tests/state-checks.test.ts` and the bot games check
+  the two agree.
+- **An untouched draft is its finished game.** Until a draft changes, `untouched(g)` gives
+  the game it came from, and the legality checks at the start of an action (`canCast`,
+  `canActivate`, `legalTargets` and a few more) ask that game instead.
+- **A plain copy for a big read inside a draft.** Where a step that has already changed the
+  draft must read a lot (planning a payment in `pay`, checking targets again in
+  `resolveTop`), it reads `current(g)`, a plain copy, and uses ids from it.
+- **`settled(g, fn)`** keeps each permanent's characteristics while `fn` only reads `g`; wrap
+  a read-only pass over many permanents in it. For a frozen game what it works out is kept
+  for good.
+- **A bot's trial moves** (`simulate`, `withoutLookahead`) skip auto-pay's lookahead and the
+  log.
+- **The registry knows which names have what.** `registerScripts` notes, for every property
+  of a script (each trigger hook, `doublesTriggers`, `grants`), which names have it, so an
+  event offered to every permanent skips the ones that can't have the ability by name alone
+  (`mayHaveScript`). Register scripts only through `registerScripts`, and don't add to a
+  script after registering it.
 
 ## Adding a card
 
