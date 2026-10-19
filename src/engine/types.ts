@@ -792,6 +792,8 @@ export interface CastChoice extends Then {
   maxMv?: number;
   /** "If that spell would be put into your graveyard, exile it instead" (Emet-Selch). */
   graveyardToExile?: boolean;
+  /** Cast "by paying [its madness cost] rather than paying its mana cost" (702.35a). */
+  madness?: boolean;
 }
 
 /**
@@ -1235,6 +1237,8 @@ export interface TriggerEvents {
   onSacrifice: { card: Card; player: PlayerId };
   /** Ward (702.21a), which the engine resolves. `item` is the spell or ability to counter unless its controller pays. */
   onWard: { item: string; cost: WardCost };
+  /** Madness's "When this card is exiled this way" (702.35a): the card in exile. */
+  onMadness: object;
   /** "Whenever [a permanent] enters": every permanent, creature or not, as it was as it entered. */
   onPermanentEnters: { entered: Card };
   /**
@@ -1543,6 +1547,8 @@ export interface CardScript extends Triggers {
     warp?: boolean;
     /** Impending N (702.176a): the permanent enters with N time counters and isn't a creature while it has one. See `impending`. */
     impending?: number;
+    /** Madness (702.35a): only when its madness ability lets its owner cast it from exile. See `madness`. */
+    madness?: boolean;
   }[];
   /**
    * While this permanent is on the battlefield: a replacement effect that changes how much
@@ -1707,5 +1713,5 @@ export interface CardScript extends Triggers {
 /** Hooks that every permanent on the battlefield hears, not only the card the event is about. */
 export type BroadcastHook = Exclude<
   TriggerHook,
-  'onEnter' | 'onDies' | 'onAttack' | 'onBlock' | 'onCombatDamageToPlayer' | 'onDefeat' | 'onChapter' | 'onLevel' | 'onStorm' | 'onDelayed' | 'onTapped' | 'onWard' | 'onLeave' | 'onCounters' | 'onReflexive' | 'onEvoked' | 'onOffspring'
+  'onEnter' | 'onDies' | 'onAttack' | 'onBlock' | 'onCombatDamageToPlayer' | 'onDefeat' | 'onChapter' | 'onLevel' | 'onStorm' | 'onDelayed' | 'onTapped' | 'onWard' | 'onMadness' | 'onLeave' | 'onCounters' | 'onReflexive' | 'onEvoked' | 'onOffspring'
 >;

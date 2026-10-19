@@ -701,3 +701,37 @@ describe('Hostage Taker', () => {
     expect(byName(g, 1, 'Serra Angel', 'exile')).toBeUndefined();
   });
 });
+
+describe('Shadowgrange Archfiend and madness', () => {
+  const setup = () =>
+    emptyGame((d) => {
+      human(d);
+      put(d, 0, 'Psychic Frog');
+      put(d, 0, 'Shadowgrange Archfiend', 'hand');
+      put(d, 0, 'Swamp', 'battlefield', 3);
+      put(d, 1, 'Serra Angel');
+      put(d, 1, 'Psychic Frog');
+      put(d, 2, 'Looter il-Kor');
+    });
+  const discardIt = (g: Game) => run(g, { type: 'activate', card: byName(g, 0, 'Psychic Frog')!.id, activated: 0, discard: [byName(g, 0, 'Shadowgrange Archfiend', 'hand')!.id] });
+
+  it('discarded, it is exiled and may be cast for {2}{B} and 8 life; each opponent sacrifices its biggest creature', () => {
+    let g = discardIt(setup());
+    g = settle(g, (x) => (x.decision?.type === 'cast' ? { type: 'cast', card: byName(x, 0, 'Shadowgrange Archfiend', 'exile')!.id, alt: 0, targets: [] } : null));
+    expect(byName(g, 0, 'Shadowgrange Archfiend')).toBeDefined();
+    expect(byName(g, 1, 'Serra Angel')).toBeUndefined();
+    expect(byName(g, 1, 'Psychic Frog')).toBeDefined();
+    expect(byName(g, 2, 'Looter il-Kor')).toBeUndefined();
+    // 40 - 8 life, + 4 for Serra Angel's power.
+    expect(g.players[0].life).toBe(36);
+  });
+
+  it("can't be cast for its mana cost that way, and goes to the graveyard if not cast", () => {
+    let g = discardIt(setup());
+    g = settle(g, (x) => (x.decision?.type === 'cast' ? { type: 'answer', yes: false } : null));
+    expect(byName(g, 0, 'Shadowgrange Archfiend', 'graveyard')).toBeDefined();
+    g = discardIt(setup());
+    g = until(g, (x) => x.decision?.type === 'cast');
+    expect(applyAction(g, { type: 'cast', card: byName(g, 0, 'Shadowgrange Archfiend', 'exile')!.id, targets: [] })).toBe(g);
+  });
+});
