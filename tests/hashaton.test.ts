@@ -735,3 +735,49 @@ describe('Shadowgrange Archfiend and madness', () => {
     expect(applyAction(g, { type: 'cast', card: byName(g, 0, 'Shadowgrange Archfiend', 'exile')!.id, targets: [] })).toBe(g);
   });
 });
+
+describe('Metamorphosis Fanatic and miracle', () => {
+  const setup = () =>
+    emptyGame((d) => {
+      human(d);
+      d.active = 3;
+      d.priority = 3;
+      d.step = 'end';
+      put(d, 0, 'Swamp', 'battlefield', 2);
+      put(d, 0, 'Serra Angel', 'graveyard');
+      top(d, 0, ['Metamorphosis Fanatic', 'Plains', 'Plains']);
+      for (const pid of [1, 2, 3] as PlayerId[]) top(d, pid, plenty());
+    });
+
+  it('revealed as the first card drawn in a turn, it may be cast for {1}{B}; the creature returns with a lifelink counter', () => {
+    let g = until(setup(), (x) => asked(x)?.then === '@miracle');
+    expect(g.active).toBe(0);
+    g = run(g, { type: 'answer', yes: true });
+    g = until(g, (x) => x.decision?.type === 'cast');
+    const fanatic = byName(g, 0, 'Metamorphosis Fanatic', 'hand')!;
+    // Only for its miracle cost.
+    expect(applyAction(g, { type: 'cast', card: fanatic.id, targets: [] })).toBe(g);
+    g = run(g, { type: 'cast', card: fanatic.id, alt: 0, targets: [] });
+    g = settle(g, (x) => (x.decision?.type === 'targets' ? { type: 'chooseTargets', targets: [card(byName(x, 0, 'Serra Angel', 'graveyard')!)] } : null));
+    expect(byName(g, 0, 'Metamorphosis Fanatic')).toBeDefined();
+    const angel = byName(g, 0, 'Serra Angel')!;
+    expect(counterCount(angel, 'lifelink')).toBe(1);
+    expect(has(g, angel, 'lifelink')).toBe(true);
+  });
+
+  it('not revealed, or not the first card drawn, it stays in hand', () => {
+    let g = until(setup(), (x) => asked(x)?.then === '@miracle');
+    g = run(g, { type: 'answer', yes: false });
+    expect(g.triggers).toHaveLength(0);
+    expect(byName(g, 0, 'Metamorphosis Fanatic', 'hand')).toBeDefined();
+    // A second draw in the turn isn't asked about.
+    g = emptyGame((d) => {
+      d.players[0].drawn = 1;
+      top(d, 0, ['Metamorphosis Fanatic']);
+      put(d, 0, 'Vohar, Vodalian Desecrator');
+    });
+    g = run(g, { type: 'activate', card: byName(g, 0, 'Vohar, Vodalian Desecrator')!.id, activated: 0 });
+    g = until(g, (x) => !!asked(x) || (!x.stack.length && !x.decision));
+    expect(asked(g)?.then).not.toBe('@miracle');
+  });
+});

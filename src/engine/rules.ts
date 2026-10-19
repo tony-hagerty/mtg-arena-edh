@@ -7,6 +7,7 @@ import { replace, whileArriving } from './replace';
 import type {
   ActivatedAbility,
   BroadcastHook,
+  CastVia,
   AskChoice,
   Choice,
   CopyInfo,
@@ -569,10 +570,10 @@ export function altCostsOf(g: Game, c: Card, face = 0, pid = c.owner): number[] 
   // paying its mana cost, for {2} after being airbent, or as a plotted card: only one can be
   // paid (118.9a, 702.34a, 702.138a, 701.65a, 702.170d).
   if (c.zone === 'graveyard' || freeCast(g, c) || exileCast(c)) return [];
-  // Warp is cast only from the hand (702.185a). A madness cost is paid only when madness lets
-  // its owner cast it, and then nothing else can be (702.35a).
-  const madness = madnessCast(g, c);
-  const alts = (scriptFor(c, 'stack', face).alternativeCosts ?? []).map((a) => ((a.warp && c.zone !== 'hand') || !a.madness !== !madness ? { ...a, when: () => false } : a));
+  // Warp is cast only from the hand (702.185a). A madness or miracle cost is paid only when
+  // that ability's trigger lets its owner cast it, and then nothing else can be (702.35a, 702.94a).
+  const via = castVia(g, c);
+  const alts = (scriptFor(c, 'stack', face).alternativeCosts ?? []).map((a) => ((a.warp && c.zone !== 'hand') || a.via !== via ? { ...a, when: () => false } : a));
   const self = { ...c, controller: pid };
   // One that exiles a card from the caster's hand, or sacrifices a permanent, needs one that fits (118.9).
   const canExile = (i: number) => !alts[i].exile || g.players[pid].hand.some((x) => x.id !== c.id && alts[i].exile!.filter(g, x, self));
@@ -612,8 +613,8 @@ export function flashbackCost(g: Game, c: Card): string | undefined {
 }
 
 /** Is `c` being cast without paying its mana cost while a spell resolves (608.2g, Beseech the Mirror)? */
-/** Is `c` the card its madness ability lets its owner cast now, for its madness cost (702.35a)? */
-export const madnessCast = (g: Game, c: Card) => g.decision?.type === 'cast' && g.decision.choice.card === c.id && !!g.decision.choice.madness;
+/** If `c` is the card its madness or miracle ability lets its owner cast now, which (702.35a, 702.94a). */
+export const castVia = (g: Game, c: Card): CastVia | undefined => (g.decision?.type === 'cast' && g.decision.choice.card === c.id ? g.decision.choice.via : undefined);
 
 export const freeCast = (g: Game, c: Card) => g.decision?.type === 'cast' && g.decision.choice.card === c.id && g.decision.choice.free;
 
@@ -2886,8 +2887,15 @@ function drawOne(g: Game, pid: PlayerId) {
     p.drewFromEmpty = true;
     return;
   }
+  const first = p.drawn === 0;
   moveCard(g, top, 'hand');
   p.drawn++;
+  // Miracle (702.94a): the first card drawn this turn may be revealed as it is drawn.
+  const miracle = first && top.zone === 'hand' ? scriptFor(top).alternativeCosts?.find((a) => a.via === 'miracle') : undefined;
+  if (miracle) {
+    const cost = [miracle.mana, miracle.life && `${miracle.life} life`].filter(Boolean).join(' and ');
+    ask(g, pid, { text: `Reveal ${label(top)}? Then you may cast it for its miracle cost, ${cost}.`, yes: 'Reveal', no: "Don't Reveal", then: '@miracle', script: top.id, data: { id: top.id, moves: top.moves } });
+  }
   broadcast(g, 'onDraw', { player: pid });
 }
 
@@ -3421,7 +3429,7 @@ export function offerCast(
   g: Game,
   pid: PlayerId,
   card: Card,
-  q: { free: boolean; maxMv?: number; graveyardToExile?: boolean; madness?: boolean; text: string; then?: string; data?: Record<string, unknown> },
+  q: { free: boolean; maxMv?: number; graveyardToExile?: boolean; via?: CastVia; text: string; then?: string; data?: Record<string, unknown> },
 ) {
   queue(g, { kind: 'cast', player: pid, source: sourceName(g), card: card.id, ...q });
 }
@@ -3514,7 +3522,7 @@ export function discard(g: Game, c: Card) {
 }
 
 /** Does `c` have madness (702.35a)? */
-const hasMadness = (c: Card) => !!scriptFor(c).alternativeCosts?.some((a) => a.madness);
+const hasMadness = (c: Card) => !!scriptFor(c).alternativeCosts?.some((a) => a.via === 'madness');
 
 /**
  * Puts a card being discarded into its owner's graveyard, or with madness into exile instead,
@@ -3526,11 +3534,14 @@ function discardTo(g: Game, c: Card) {
   if (c.zone === 'exile') g.triggers.push({ id: `s${g.nextId++}`, kind: 'triggered', controller: c.owner, card: snapshot(c), hook: 'onMadness', event: {}, targets: [] });
 }
 
+/** "Miracle [cost]" (702.94a): revealed as the first card drawn in a turn, its owner may cast it for this alternative cost. */
+export const miracle = (mana: string): NonNullable<CardScript['alternativeCosts']>[number] => ({ label: 'Miracle', mana, via: 'miracle' });
+
 /**
  * "Madness [cost]" (702.35a): discarded, it is exiled, and its owner may then cast it for this
  * alternative cost (702.35b) or put it into their graveyard.
  */
-export const madness = (mana: string, life?: number): NonNullable<CardScript['alternativeCosts']>[number] => ({ label: 'Madness', mana, ...(life ? { life } : {}), madness: true });
+export const madness = (mana: string, life?: number): NonNullable<CardScript['alternativeCosts']>[number] => ({ label: 'Madness', mana, ...(life ? { life } : {}), via: 'madness' });
 
 /** The player discards their hand (Lion's Eye Diamond): every card at once (701.9a). */
 export function discardHand(g: Game, pid: PlayerId) {

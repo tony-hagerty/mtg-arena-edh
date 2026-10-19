@@ -781,6 +781,9 @@ export interface PlayerChoice extends Then {
  * A player may cast `card` while a spell resolves (608.2g), without paying its mana cost
  * if `free`. Answered by a `cast` action for that card, or `answer` no.
  */
+/** Keyword abilities whose trigger lets a card be cast for its own alternative cost (702.35a, 702.94a). */
+export type CastVia = 'madness' | 'miracle';
+
 export interface CastChoice extends Then {
   kind: 'cast';
   player: PlayerId;
@@ -792,8 +795,8 @@ export interface CastChoice extends Then {
   maxMv?: number;
   /** "If that spell would be put into your graveyard, exile it instead" (Emet-Selch). */
   graveyardToExile?: boolean;
-  /** Cast "by paying [its madness cost] rather than paying its mana cost" (702.35a). */
-  madness?: boolean;
+  /** Cast "by paying [its madness or miracle cost] rather than paying its mana cost" (702.35a, 702.94a). */
+  via?: CastVia;
 }
 
 /**
@@ -1239,6 +1242,8 @@ export interface TriggerEvents {
   onWard: { item: string; cost: WardCost };
   /** Madness's "When this card is exiled this way" (702.35a): the card in exile. */
   onMadness: object;
+  /** Miracle's "When you reveal this card this way" (702.94a): the card in hand. */
+  onMiracle: object;
   /** "Whenever [a permanent] enters": every permanent, creature or not, as it was as it entered. */
   onPermanentEnters: { entered: Card };
   /**
@@ -1547,8 +1552,8 @@ export interface CardScript extends Triggers {
     warp?: boolean;
     /** Impending N (702.176a): the permanent enters with N time counters and isn't a creature while it has one. See `impending`. */
     impending?: number;
-    /** Madness (702.35a): only when its madness ability lets its owner cast it from exile. See `madness`. */
-    madness?: boolean;
+    /** Madness or miracle (702.35a, 702.94a): only when that ability's trigger lets its owner cast it. See `madness`, `miracle`. */
+    via?: CastVia;
   }[];
   /**
    * While this permanent is on the battlefield: a replacement effect that changes how much
@@ -1713,5 +1718,5 @@ export interface CardScript extends Triggers {
 /** Hooks that every permanent on the battlefield hears, not only the card the event is about. */
 export type BroadcastHook = Exclude<
   TriggerHook,
-  'onEnter' | 'onDies' | 'onAttack' | 'onBlock' | 'onCombatDamageToPlayer' | 'onDefeat' | 'onChapter' | 'onLevel' | 'onStorm' | 'onDelayed' | 'onTapped' | 'onWard' | 'onMadness' | 'onLeave' | 'onCounters' | 'onReflexive' | 'onEvoked' | 'onOffspring'
+  'onEnter' | 'onDies' | 'onAttack' | 'onBlock' | 'onCombatDamageToPlayer' | 'onDefeat' | 'onChapter' | 'onLevel' | 'onStorm' | 'onDelayed' | 'onTapped' | 'onWard' | 'onMadness' | 'onMiracle' | 'onLeave' | 'onCounters' | 'onReflexive' | 'onEvoked' | 'onOffspring'
 >;
