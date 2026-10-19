@@ -34,7 +34,7 @@
  */
 import { current, isDraft, original } from 'immer';
 import { CREATURE_TYPES, SUBTYPES, cardData } from '../cards/db';
-import { anyRemovingScript, hasRemovingScript, hasStaticScript } from './registry';
+import { anyRemovingScript, hasRemovingScript, hasStaticScript, scriptHas } from './registry';
 import { CANT_ATTACK, CANT_BLOCK, MUST_ATTACK, SUPPORTED_KEYWORDS, battlefield, counterCount, data, hasReconfigure, permanent, scriptFor } from './rules';
 import type { Card, CardScript, Characteristics, ContinuousEffect, Game, LayerParts } from './types';
 
@@ -430,6 +430,15 @@ const scriptNames = new Map<string, string[]>();
 function mayHaveStatic(c: Card): boolean {
   return !!c.copy || namesOf(c).some(hasStaticScript);
 }
+/**
+ * Could `c`'s script have property `key` (a trigger hook, `doublesTriggers`, ...)? A quick
+ * look at the names its scripts are under, before `scriptFor` works out which applies: false
+ * means it can't; true means look at `scriptFor(c)`. A copy has the script of what it copies.
+ */
+export function mayHaveScript(c: Card, key: string): boolean {
+  return !!c.copy || namesOf(c).some((n) => scriptHas(n, key));
+}
+
 /** The names `c`'s scripts can be registered under: the card's and each face's. */
 function namesOf(c: Card): string[] {
   let names = scriptNames.get(c.name);
