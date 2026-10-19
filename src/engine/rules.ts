@@ -2,7 +2,7 @@
 // Immer draft of one; turn structure and action handling live in engine.ts.
 import { CREATURE_TYPES, cardData } from '../cards/db';
 import { scriptOf } from './registry';
-import { characteristics, hasOwnAbilities, removesAbilities, settled, typesOf } from './layers';
+import { characteristics, hasOwnAbilities, heldMemo, mayLoseAbilities, settled, staticRemoval, typesOf } from './layers';
 import { replace, whileArriving } from './replace';
 import type {
   ActivatedAbility,
@@ -240,7 +240,7 @@ function stripped(s: CardScript, lost: string[] | null): CardScript {
  */
 export function abilitiesOf(g: Game, c: Card): CardScript {
   const s = scriptFor(c);
-  const ch = c.lki ?? (c.zone === 'battlefield' && removesAbilities(g) ? characteristics(g, c, '6') : null);
+  const ch = c.lki ?? (mayLoseAbilities(g, c) ? characteristics(g, c, '6') : null);
   if (!ch || (ch.own !== false && !ch.lost?.length)) return s;
   return stripped(s, ch.own === false ? null : ch.lost);
 }
@@ -252,7 +252,8 @@ export function abilitiesOf(g: Game, c: Card): CardScript {
  * apply to it yet (611.2c).
  */
 function enteringAbilities(g: Game, c: Card, script: CardScript, opts: { controller: PlayerId; face?: number; copy?: CopyInfo }): CardScript {
-  if (!removesAbilities(g)) return script;
+  // No resolved effect can apply to it yet (611.2c): only a static ability could take its abilities away.
+  if (!staticRemoval(g)) return script;
   const there: Card = { ...c, zone: 'battlefield', controller: opts.controller, face: opts.face ?? 0, copy: opts.copy ?? null, continuous: [], counters: {}, counterTs: undefined, lki: undefined, attachedTo: null, ts: g.nextId };
   return hasOwnAbilities(g, there) ? script : stripped(script, null);
 }
@@ -262,7 +263,7 @@ function enteringAbilities(g: Game, c: Card, script: CardScript, opts: { control
  * left: its last known information if something on the battlefield takes abilities away, so
  * what it had then counts, or else just a copy.
  */
-export const rememberPermanent = (g: Game, c: Card): Card => (removesAbilities(g) ? lastKnown(g, c) : snapshot(c));
+export const rememberPermanent = (g: Game, c: Card): Card => (mayLoseAbilities(g, c) ? lastKnown(g, c) : snapshot(c));
 
 /** A static ability's effect gives a permanent triggered ability `index` of `self`'s `grants` (`LayerParts.grant`). */
 export const grantOf = (self: Card, index = 0): LayerParts => ({ grant: { from: scriptName(self), index } });
@@ -854,18 +855,45 @@ function allManaAbilities(g: Game, c: Card): ManaAbility[] {
   return [...out, ...listOf(m), ...gained, ...borrowed];
 }
 
-/** Lands whose types of mana are being worked out, so lands that look at each other stop (106.7). */
-const couldProduce = new Set<string>();
+/** Lands whose types of mana are being worked out, innermost last, so lands that look at each other stop (106.7). */
+const couldProduce: string[] = [];
+/**
+ * While one land's types of mana are worked out: the answers found on the way that are
+ * complete. Kept for as long as the game is held unchanged (`settled`).
+ */
+let produceMemo: Map<string, ManaSym[]> | null = null;
+/** The outermost land in `couldProduce` the current land's answer was cut short at (its index), if any. */
+let cutAt = Infinity;
 
 /**
  * The types of mana a land could produce (106.7), for Fellwar Stone, Exotic Orchard and
  * Reflecting Pool. Costs and conditions are ignored. An ability whose colours depend on other
  * lands counts what those could produce, but a land already being worked out adds nothing, so
  * two Reflecting Pools alone produce nothing while two Orchards and a Forest each give {G}.
+ * A land's answer is remembered while the outermost one is worked out, unless it was cut short
+ * at a land further out, so many lands looking at each other don't take exponentially long.
  */
 export function landColors(g: Game, c: Card): ManaSym[] {
-  if (couldProduce.has(c.id)) return [];
-  couldProduce.add(c.id);
+  const at = couldProduce.indexOf(c.id);
+  if (at >= 0) {
+    cutAt = Math.min(cutAt, at);
+    return [];
+  }
+  const known = produceMemo?.get(c.id);
+  if (known) return known;
+  const outermost = !produceMemo;
+  if (outermost) {
+    produceMemo = heldMemo<ManaSym[]>(g, 'landColors') ?? new Map();
+    const kept = produceMemo.get(c.id);
+    if (kept) {
+      produceMemo = null;
+      return kept;
+    }
+  }
+  const depth = couldProduce.length;
+  const outerCut = cutAt;
+  cutAt = Infinity;
+  couldProduce.push(c.id);
   const out = new Set<ManaSym>();
   try {
     for (const ab of allManaAbilities(g, c)) {
@@ -873,9 +901,13 @@ export function landColors(g: Game, c: Card): ManaSym[] {
       colors.forEach((x) => out.add(x));
     }
   } finally {
-    couldProduce.delete(c.id);
+    couldProduce.pop();
+    if (outermost) produceMemo = null;
   }
-  return [...out];
+  const result = [...out];
+  if (cutAt >= depth) (produceMemo ?? heldMemo<ManaSym[]>(g, 'landColors'))?.set(c.id, result);
+  cutAt = Math.min(outerCut, cutAt);
+  return result;
 }
 
 /** The mana abilities of `c` whose conditions are met now (605.1a), with their colours worked out. */
@@ -1661,7 +1693,8 @@ function bestPayment(g: Game, pid: PlayerId, cost: Cost, spell?: Card, keep: str
  */
 export function pay(g: Game, pid: PlayerId, cost: Cost, spell?: Card, keep: string[] = [], convoke?: string[]): Payment | null {
   // The player chose which creatures convoke (702.51a): those are tapped, and the rest paid as usual.
-  const plan = convoke ? planConvoked(g, pid, cost, spell, keep, convoke) : lookahead ? bestPayment(g, pid, cost, spell, keep) : planPayment(g, pid, cost, spell, keep);
+  // Working out how to pay only reads the game, so each permanent's characteristics are worked out once for it.
+  const plan = settled(g, () => (convoke ? planConvoked(g, pid, cost, spell, keep, convoke) : lookahead ? bestPayment(g, pid, cost, spell, keep) : planPayment(g, pid, cost, spell, keep)));
   if (!plan) return null;
   g.players[pid].pool = plan.pool;
   // Creatures that convoke are tapped as the cost is paid (702.51a, 601.2h).
@@ -1671,7 +1704,7 @@ export function pay(g: Game, pid: PlayerId, cost: Cost, spell?: Card, keep: stri
     log(g, `${says(g.players[pid], 'taps')} ${label(c)} (convoke).`, pid, [c]);
   }
   // Every ability is activated before any of them is sacrificed or deals its damage.
-  const used = plan.uses.filter((x) => !x.convoke).map((u) => ({ c: permanent(g, u.id)!, ab: manaAbilities(g, permanent(g, u.id)!).find((m) => m.index === u.ability)!, creature: u.creature }));
+  const used = settled(g, () => plan.uses.filter((x) => !x.convoke).map((u) => ({ c: permanent(g, u.id)!, ab: manaAbilities(g, permanent(g, u.id)!).find((m) => m.index === u.ability)!, creature: u.creature })));
   for (const { c, ab, creature } of used) useManaAbility(g, pid, c, { ...ab, sacrifice: false }, creature);
   const spent = used.filter((u) => u.ab.sacrifice).map((u) => u.c);
   if (spent.length) dieMany(g, spent, 'is sacrificed');

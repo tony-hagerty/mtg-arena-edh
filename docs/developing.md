@@ -192,11 +192,12 @@ fetched card too, since the card is matched to it by name.
 | Card | Script |
 | --- | --- |
 | Aura | `enchant` and `static: attachedBonus({...})` |
+| Aura on a graveyard card | `enchant: { type: 'graveyard card', ... }`; an effect gives it a new enchant ability with `addLasting(g, aura, { lose: ['enchant'], enchantOf: name })` and the script's `givesEnchant` (Animate Dead) |
 | Equipment | `attachedBonus` with `activated: equip('{2}')` |
 | Vehicle | `activated: crew(3)` |
 | Impending | spread `...impending(4, '{1}{U}{U}')` into the script: its alternative cost and end-step trigger; the engine adds the time counters and "isn't a creature" |
 | Several activated abilities | list them in printed order (`activated: [ab1, equip('{1}')]`); an `activate` action and its stack item name one by `activated` (its index) |
-| Activated ability options | `fromHand`, `when`, `reduction`; costs `discard`, `discardSelf`, `counters`, or `sacrificeOne` permanent that fits a spec ("Sacrifice a creature:") |
+| Activated ability options | `fromHand`, `when`, `reduction`; costs `discard`, `discardSelf`, `counters`, or `sacrificeOne` permanent that fits a spec ("Sacrifice a creature:"), `sacrificeCount` of them ("Sacrifice two ...") |
 | Planeswalker | `loyalty` abilities: `{ cost: -2, text, targets, resolve }`, or `cost: '-X'` |
 | Siege | can add `onDefeat` |
 | Faces (double-faced, split, adventurer) | one script per face, under each face's name ("Delver of Secrets", "Insectile Aberration"); `transform(g, card)` turns one over. A deck may list it by its first face's name. |
@@ -237,7 +238,8 @@ whose static ability takes abilities away sets `removesAbilities: true`, and a r
 spell or ability takes them away only through `addContinuous` (or `addLasting`,
 `untilEndOfTurn`), which sets `Game.abilitiesLost`: until one of those is in the game,
 looking up a permanent's abilities checks nothing but names (the layer system throws if
-either is missing).
+either is missing). After that, only a permanent carrying such an effect has its layers
+worked out for its abilities (`mayLoseAbilities`), unless a static ability can take them away.
 `characteristics` in `layers.ts` applies every effect layer by layer (613.1), each layer
 in timestamp order (613.7) unless one effect depends on another (613.8), so a script
 doesn't think about order. Ask about a permanent through `g`, because another effect may
