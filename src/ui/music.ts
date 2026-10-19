@@ -160,12 +160,14 @@ function note(g: Graph, t: number, n: Note) {
       break;
     }
     case 'drum': {
-      // A frame drum: a low pitch falling fast, with a soft thud of noise for the skin.
-      pluck(0.2);
+      // A frame drum: a low pitch falling fast, with a soft thud of noise for the skin. A 15 ms
+      // rise instead of a pluck's 5 takes the edge off the hit.
+      v.linearRampToValueAtTime(0.12 * n.gain, start + 0.015);
+      v.exponentialRampToValueAtTime(0.0001, end);
       env.connect(g.drums);
       osc(audio, 'sine', 110, env, start, end).frequency.exponentialRampToValueAtTime(48, start + 0.25);
       const skin = audio.createGain();
-      skin.gain.setValueAtTime(0.25 * n.gain, start);
+      skin.gain.setValueAtTime(0.12 * n.gain, start);
       skin.gain.exponentialRampToValueAtTime(0.0001, start + 0.08);
       skin.connect(g.thud);
       burst(g, skin, start, 0.08);
