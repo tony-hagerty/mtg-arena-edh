@@ -753,6 +753,68 @@ describe('choosing the mana by hand (605, 106.1)', () => {
   });
 });
 
+describe('stops and full control in the UI (117.3)', () => {
+  const prompt = () => buildView().prompt;
+  const next = () => buildView().primary?.sub;
+
+  it('says what the human could do at an "ifAble" stop, and the Next button says where it stops (702.74)', () => {
+    // Solitude's evoke cost is a white card from hand, so it can be cast in every step.
+    play((d) => {
+      put(d, 0, 'Solitude', 'hand');
+      put(d, 0, 'Swords to Plowshares', 'hand');
+    });
+    expect(next()).toBe('To Combat');
+    press();
+    expect([game().step, game().priority]).toEqual(['beginCombat', 0]);
+    expect(prompt()).toBe('Beginning of combat. You could cast Solitude, or go on to declare attackers.');
+    expect(next()).toBe('To Main 2');
+    press();
+    expect(game().step).toBe('main2');
+    press();
+    expect([game().active, game().step, game().priority]).toEqual([1, 'upkeep', 0]);
+    expect(prompt()).toBe(`${game().players[1].name}'s turn, upkeep. You could cast Solitude, or pass.`);
+    expect(next()).toBe('To End Step');
+  });
+
+  it('full control stops at every step and says so, holds priority by default, and turns off again', () => {
+    play((d) => {
+      put(d, 0, 'Mountain');
+      put(d, 0, 'Shock', 'hand');
+    });
+    try {
+      useStore.getState().setFullControl(true);
+      expect(useStore.getState().hold).toBe(true);
+      // Main 1 is a stop anyway, so it isn't only full control.
+      expect(prompt()).toBe(null);
+      // Cast Shock: Hold is on, so the human keeps priority over their own spell (117.3c).
+      playHandCard(byName(game(), 0, 'Shock', 'hand')!);
+      clickPlayer(1);
+      press();
+      expect([game().stack.length, game().priority]).toEqual([1, 0]);
+      expect(prompt()).toBe('Respond to your Shock, or let it resolve.');
+      expect(useStore.getState().hold).toBe(true);
+      press(); // Resolve
+      expect([game().stack.length, game().step, game().priority, game().players[1].life]).toEqual([0, 'main1', 0, 38]);
+      expect(next()).toBe('To Combat');
+      press();
+      expect([game().step, game().priority]).toEqual(['beginCombat', 0]);
+      expect(prompt()).toBe('Full control. Beginning of combat. Cast instants, or go on to declare attackers.');
+      expect(next()).toBe('To Attackers');
+      press();
+      expect(game().step).toBe('attackers');
+      expect(prompt()).toBe('Full control. Your turn, declare attackers. Cast instants, or pass.');
+      useStore.getState().setFullControl(false);
+      expect(useStore.getState().hold).toBe(false);
+      // Back to the saved stops: main 2 is the next one.
+      expect(next()).toBe('To Main 2');
+      press();
+      expect([game().step, game().priority]).toEqual(['main2', 0]);
+    } finally {
+      useStore.getState().setFullControl(false);
+    }
+  });
+});
+
 describe('a fetch land in the main phase (117.3b)', () => {
   it.each(['hand script', 'Oracle template'])('after the search the human still has priority in main 1 (%s)', (source) => {
     const hand = scriptOf('Polluted Delta');

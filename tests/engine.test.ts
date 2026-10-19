@@ -14,6 +14,7 @@ import {
   maxX,
   data,
   defaultStops,
+  canAct,
   moveCard,
   addCounters,
   attackOptions,
@@ -1896,6 +1897,110 @@ describe('stops', () => {
     });
     expect(nextStop(theirs, 1)).toBe('end');
     expect(nextStop(theirs, 1, [{ draw: 'always' }, {}, {}, {}])).toBe(null);
+  });
+
+  it('with a pitch spell that has flash, "ifAble" stops fire in every step, and the forecast agrees (702.74)', () => {
+    // Solitude's evoke cost is a white card from hand: no mana needed, so player 0 can cast it any time.
+    const evoke = emptyGame((d) => {
+      put(d, 0, 'Solitude', 'hand');
+      put(d, 0, 'Swords to Plowshares', 'hand');
+    });
+    expect(canAct(evoke, 0)).toBe(true);
+    // Solitude can't pitch itself, so alone it can't be cast.
+    expect(canAct(emptyGame((d) => void put(d, 0, 'Solitude', 'hand')), 0)).toBe(false);
+    // Player 0's turn: the forecast is beginning of combat, and that is where passing stops.
+    expect(nextStop(evoke, 0)).toBe('beginCombat');
+    let g = run(evoke, pass);
+    expect([g.active, g.step, g.priority]).toEqual([0, 'beginCombat', 0]);
+    // Then main 2 (nothing attacks), then the next player's upkeep and end step.
+    expect(nextStop(g, 0)).toBe('main2');
+    g = run(g, pass);
+    expect([g.step, g.priority]).toEqual(['main2', 0]);
+    g = run(g, pass);
+    expect([g.active, g.step, g.priority]).toEqual([1, 'upkeep', 0]);
+    expect(nextStop(g, 0)).toBe('end');
+  });
+
+  describe('full control', () => {
+    const full: ApplyOptions = { fullControl: [0] };
+
+    it('stops in every step a player gets priority, on every turn, but not untap or cleanup (502.4, 514.3)', () => {
+      // The others stop nowhere, so every stop is player 0's.
+      const none = [{}, {}, {}, {}];
+      const opts: ApplyOptions = { ...full, stops: { 1: none, 2: none, 3: none } };
+      let g = emptyGame();
+      const seen: string[] = [];
+      for (let i = 0; i < 12; i++) {
+        expect(g.priority).toBe(0);
+        seen.push(`${g.active} ${g.step}`);
+        const forecast = nextStop(g, 0, undefined, true);
+        const turn = g.active;
+        // Other players pass for nothing in between: the Next button says where it really goes.
+        g = runWith(opts, g, pass);
+        expect(forecast).toBe(g.active === turn ? g.step : null);
+      }
+      // Declare attackers gives priority even when nothing attacks (508.2); blockers and damage are skipped (508.8).
+      expect(seen).toEqual([
+        '0 main1', '0 beginCombat', '0 attackers', '0 endCombat', '0 main2', '0 end',
+        '1 upkeep', '1 draw', '1 main1', '1 beginCombat', '1 attackers', '1 endCombat',
+      ]);
+    });
+
+    it('stops with the stack not empty, its own spell or ability on top too, even when it can only pass', () => {
+      let g = emptyGame((d) => {
+        put(d, 0, 'Mountain');
+        put(d, 0, 'Shock', 'hand');
+        put(d, 1, 'Mountain');
+        put(d, 1, 'Shock', 'hand');
+      });
+      // Cast with hold, as the Hold checkbox does by default in full control: player 0 keeps priority (117.3c).
+      g = runWith(full, g, { type: 'cast', card: byName(g, 0, 'Shock', 'hand')!.id, targets: [{ kind: 'player', id: 1 }], hold: true });
+      expect([g.stack.length, g.priority]).toEqual([1, 0]);
+      // Player 1 responds; player 0, with nothing left to do, still gets priority over it.
+      g = runWith(full, g, pass);
+      expect(g.priority).toBe(1);
+      g = runWith(full, g, { type: 'cast', card: byName(g, 1, 'Shock', 'hand')!.id, targets: [{ kind: 'player', id: 0 }] });
+      expect([g.stack.length, g.priority]).toEqual([2, 0]);
+      expect(canAct(g, 0)).toBe(false);
+      // Each resolution gives the active player priority again (117.3b), with player 0's Shock still on the stack.
+      g = runWith(full, g, pass);
+      expect([g.stack.length, g.priority, g.players[0].life]).toEqual([1, 0, 38]);
+    });
+
+    it('lets priority pass after casting without hold, as the stops would', () => {
+      let g = emptyGame((d) => {
+        put(d, 0, 'Mountain');
+        put(d, 0, 'Shock', 'hand');
+      });
+      g = runWith(full, g, { type: 'cast', card: byName(g, 0, 'Shock', 'hand')!.id, targets: [{ kind: 'player', id: 1 }] });
+      // Nobody else could respond, so it resolved, and player 0 has priority in main 1 again.
+      expect([g.stack.length, g.players[1].life, g.step, g.priority]).toEqual([0, 38, 'main1', 0]);
+    });
+
+    it('only changes the players in it: bots and other people keep their stops', () => {
+      let g = emptyGame();
+      // Every player gets priority in every step (117.3d): player 1 takes it in player 0's main 1.
+      g = runWith({ fullControl: [1] }, g, pass);
+      expect([g.active, g.step, g.priority]).toEqual([0, 'main1', 1]);
+      // Player 0, with nothing to do, isn't stopped in beginning of combat; player 1 is.
+      g = runWith({ fullControl: [1] }, g, pass);
+      expect([g.active, g.step, g.priority]).toEqual([0, 'beginCombat', 1]);
+    });
+
+    it('carries on through a replacement choice (616.1)', () => {
+      let g = emptyGame((d) => {
+        put(d, 0, 'Polluted Delta');
+        d.players[0].library = [];
+        put(d, 0, 'Watery Grave', 'library');
+      });
+      g = runWith(full, g, { type: 'activate', card: byName(g, 0, 'Polluted Delta')!.id, hold: true });
+      expect([g.stack.length, g.priority]).toEqual([1, 0]);
+      g = runWith(full, g, pass);
+      expect(g.decision?.type).toBe('chooseCards');
+      g = runWith(full, g, { type: 'chooseCards', cards: [g.players[0].library[0].id] });
+      g = runWith(full, g, { type: 'answer', yes: false });
+      expect([g.step, g.priority, byName(g, 0, 'Watery Grave')!.tapped]).toEqual(['main1', 0, true]);
+    });
   });
 
   it('matches the defaults when no stops are given', () => {

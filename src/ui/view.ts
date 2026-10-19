@@ -54,6 +54,8 @@ import {
   targetSpecs,
   maxHandSize,
   nextStop,
+  wantsPriority,
+  actionsFor,
   MUST_ATTACK,
   activationCost,
   castableCards,
@@ -865,7 +867,7 @@ export function buildView(): View {
 
   switch (deciding) {
     case undefined:
-      priorityView(view, g, me, s.stops);
+      priorityView(view, g, me, s.stops, s.fullControl);
       break;
     case 'attackers': {
       const target = attackTargetOf(g, me);
@@ -965,25 +967,49 @@ const STEP_SHORT: Partial<Record<Step, string>> = {
   end: 'End Step',
 };
 
-/** Prompt and button for when the human has priority. The button always passes it, and says where to. */
-function priorityView(view: View, g: Game, me: PlayerId, stops: Stops) {
+/**
+ * Why the game stopped for the human when it was only because they could act (an `ifAble`
+ * stop, or someone else's spell to respond to): what they could do, as "cast Solitude".
+ * A pitch spell with flash can be cast in every step, so it is worth saying.
+ */
+function couldDo(g: Game, me: PlayerId): string | null {
+  const { cast, activate, play } = actionsFor(g, me);
+  const ways = [...new Set([...cast.map((c) => `cast ${label(c)}`), ...activate.map((c) => `activate ${label(c)}`), ...play.map((c) => `play ${label(c)}`)])];
+  if (!ways.length) return null;
+  return ways.length <= 2 ? ways.join(' or ') : `${ways.slice(0, 2).join(', ')} or ${ways.length - 2} more`;
+}
+
+/**
+ * Prompt and button for when the human has priority. The button always passes it, and says
+ * where to. In full control (`full`) the game stops at every step, and the prompt says so
+ * where that is the only reason it stopped.
+ */
+function priorityView(view: View, g: Game, me: PlayerId, stops: Stops, full: boolean) {
   const top = g.stack[g.stack.length - 1];
   const myTurn = g.active === me;
+  const mine = absoluteStops(stops, me, g.players.length);
+  const onlyFull = full && !wantsPriority(g, me, mine);
+  const tag = onlyFull ? 'Full control. ' : '';
   if (top) {
     const whose = top.controller === me ? 'your' : `${g.players[top.controller].name}'s`;
-    view.prompt = `Respond to ${whose} ${label(top.card)}, or let it resolve.`;
+    // Stopped because they could respond: say with what.
+    const could = !onlyFull && top.controller !== me && g.holding !== me ? couldDo(g, me) : null;
+    view.prompt = `${tag}Respond to ${whose} ${label(top.card)}${could ? ` (you could ${could})` : ''}, or let it resolve.`;
     view.primary = { label: 'Resolve', sub: label(top.card), tone: 'go', onClick: pass };
     return;
   }
-  if (myTurn && g.step === 'beginCombat') view.prompt = 'Beginning of combat. Cast instants, or go on to declare attackers.';
-  else if (myTurn && g.step === 'blockers') view.prompt = 'Blockers are declared. Cast instants, or continue to combat damage.';
+  // A stop that waits for the human to be able to act: say what they could do.
+  const could = !onlyFull && mine[g.active]?.[g.step] === 'ifAble' ? couldDo(g, me) : null;
+  const act = could ? `You could ${could}` : 'Cast instants';
+  if (myTurn && g.step === 'beginCombat') view.prompt = `${tag}Beginning of combat. ${act}, or go on to declare attackers.`;
+  else if (myTurn && g.step === 'blockers') view.prompt = `${tag}Blockers are declared. ${act}, or continue to combat damage.`;
   else if (!(myTurn && (g.step === 'main1' || g.step === 'main2'))) {
-    // Any other step is one the human set a stop in.
+    // Any other step is one the human set a stop in, or one full control stops in.
     const turn = myTurn ? 'Your turn' : `${g.players[g.active].name}'s turn`;
-    const when = g.step === 'attackers' ? 'attackers are declared' : g.step === 'blockers' ? 'blockers are declared' : STEP_NAMES[g.step].toLowerCase();
-    view.prompt = `${turn}, ${when}. Cast instants, or pass.`;
-  }
-  const to = nextStop(g, me, absoluteStops(stops, me, g.players.length));
+    const when = g.step === 'attackers' && g.combat?.attacks.length ? 'attackers are declared' : g.step === 'blockers' ? 'blockers are declared' : STEP_NAMES[g.step].toLowerCase();
+    view.prompt = `${tag}${turn}, ${when}. ${act}, or pass.`;
+  } else if (onlyFull) view.prompt = `Full control. Your ${STEP_NAMES[g.step].toLowerCase()}.`;
+  const to = nextStop(g, me, mine, full);
   const tone = to === 'attackers' || to === 'blockers' || to === 'damage' ? 'attack' : 'go';
   view.primary = to
     ? { label: 'Next', sub: `To ${STEP_SHORT[to]}`, tone, onClick: pass }
@@ -1216,7 +1242,8 @@ function pay() {
   const t = S().targeting;
   if (!t || !isPaying(t) || t.mode === 'trigger') return;
   const hold = S().hold;
-  useStore.setState({ hold: false });
+  // One use, back to the default: on in full control.
+  useStore.setState({ hold: S().fullControl });
   // A spell dividing damage with one target gives it all (601.2d).
   const total = divideTotal(t);
   const single = total !== null && !t.choices.divide && t.chosen.some(Boolean) ? { divide: t.chosen.map((ref) => (ref ? total : 0)) } : {};
@@ -1552,7 +1579,7 @@ function chooseTarget(ref: TargetRef | null) {
 export function cancel() {
   const t = S().targeting;
   for (const id of [...(t?.tapped ?? [])].reverse()) S().act({ type: 'untapMana', card: id });
-  useStore.setState({ targeting: null, pickedBlockers: [], hold: false });
+  useStore.setState({ targeting: null, pickedBlockers: [], hold: S().fullControl });
 }
 
 function myTurnToAct(): { g: Game; me: PlayerId } | null {

@@ -9,6 +9,7 @@ import type { Game, PlayerId } from '../src/engine';
 import type { StartRequest, ViewMessage } from '../src/net/protocol';
 import { GameHost, handleGameApi } from '../server/game';
 import { listen, makeServer } from '../launcher/serve';
+import { emptyGame } from './helpers';
 
 /** A scheduler the test runs by hand: bots act only when `next` is called. */
 function manualClock() {
@@ -115,6 +116,19 @@ describe('the game host', () => {
     expect(host.full!.players[2].manualDamage).toBe(true);
     host.setPrefs(1, { manualDamage: true });
     expect(host.full!.players[1].manualDamage).toBeFalsy();
+  });
+
+  it('applies a person’s full control: they get priority in every step until they turn it off', () => {
+    const host = new GameHost(() => () => {});
+    host.load(emptyGame((d) => void (d.players[0].isBot = false)));
+    host.setPrefs(0, { fullControl: true });
+    // Main 1 is a stop anyway; beginning of combat only stops in full control.
+    expect(host.act(0, 1, { type: 'pass' })).toBe(true);
+    expect([host.full!.step, host.full!.priority]).toEqual(['beginCombat', 0]);
+    host.setPrefs(0, { fullControl: false });
+    expect(host.act(0, 2, { type: 'pass' })).toBe(true);
+    // Without it, nothing stops the human before main 2.
+    expect([host.full!.step, host.full!.priority]).toEqual(['main2', 0]);
   });
 
   it('starts each game with a new id, and says when there is none', () => {
