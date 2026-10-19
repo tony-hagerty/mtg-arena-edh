@@ -4117,6 +4117,8 @@ function eliminate(g: Game, p: Player, reason: string) {
 function permanentKinds(g: Game) {
   return settled(g, () =>
     battlefield(g).map((c) => ({
+      // Every layer at once: the dying creatures are looked for in the same `settled` (see checkState).
+      chars: characteristics(g, c),
       c,
       creature: isCreature(g, c),
       walker: isPlaneswalker(g, c),
@@ -4151,18 +4153,20 @@ export function checkState(g: Game): boolean {
       }
     }
     // What each permanent is, worked out once while nothing changes, and again after a change.
-    let kinds = permanentKinds(g);
     // Toughness 0 or less (704.5f) ignores indestructible; lethal and deathtouch damage (704.5g-h) destroy.
-    const dying = settled(g, () =>
-      kinds
+    // Both read the same unchanged game, so its permanents are worked out once for both.
+    let kinds!: ReturnType<typeof permanentKinds>;
+    const dying = settled(g, () => {
+      kinds = permanentKinds(g);
+      return kinds
         .filter((k) => k.creature)
         .map((k) => k.c)
         .filter((c) => {
           const s = stats(g, c);
           const lethal = c.damage >= s.toughness || (c.deathtouched && c.damage > 0);
           return s.toughness <= 0 || (lethal && !s.keywords.has('indestructible'));
-        }),
-    );
+        });
+    });
     // A planeswalker with no loyalty (704.5i) and a battle with no defense (704.5v-w) go to
     // the graveyard, except a Siege whose defeat ability hasn't resolved yet. So does a
     // battle with nobody left who can protect it (310.11).
