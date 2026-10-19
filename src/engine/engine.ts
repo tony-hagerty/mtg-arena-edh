@@ -17,6 +17,7 @@ import {
   altCostsOf,
   castCost,
   checkState,
+  sbaPending,
   commanderIndex,
   creaturesOf,
   damageCard,
@@ -281,7 +282,7 @@ export function newGame(opts: NewGameOptions): Game {
   });
   for (const p of g.players) p.commanderDamage = g.players.map((o) => o.commanders.map(() => 0));
   beginMulligans(g, Math.floor(rand(g) * g.players.length));
-  settle(g, true, stops);
+  settle(g, inPlace, true, stops);
   return g;
 }
 
@@ -2704,43 +2705,74 @@ function act(g: Game, a: Action): boolean {
   }
 }
 
+/** Makes one change to `g`: in a draft of it (`produce`), or in place for a game still being made (`newGame`). */
+type Update = (g: Game, change: (d: Game) => void) => Game;
+const inPlace: Update = (g, change) => {
+  change(g);
+  return g;
+};
+const drafted: Update = (g, change) => produce(g, change);
+
 /**
  * Runs the game forward until it needs a player. Each time a player would get priority,
  * state-based actions are checked and waiting triggered abilities go on the stack, until
  * neither does anything more (117.5). Then that player gets priority, or it is passed for
  * them (see `wantsPriority`). `released`: a player in full control who has just cast or
  * activated without `hold`, so it passes for them this once as it would without full control.
+ *
+ * Each change is its own `update`, and the questions in between (are state-based actions
+ * due, does this player want priority) are asked of the game as it is after the last one:
+ * a finished game, where the layers' answers are kept, rather than through a draft. The
+ * changes are the same, in the same order. `stable`: it ended giving a player priority with
+ * the state-based actions checked and nothing to do.
  */
-function settle(g: Game, autoPass: boolean, stops: ApplyOptions['stops'] = {}, fullControl: PlayerId[] = [], released: PlayerId | null = null, checked = false) {
-  settledStable = false;
+function settle(g: Game, update: Update, autoPass: boolean, stops: ApplyOptions['stops'] = {}, fullControl: PlayerId[] = [], released: PlayerId | null = null, checked = false): { g: Game; stable: boolean } {
   for (let guard = 0; guard < 5000; guard++) {
     // A spell or ability is waiting on a choice partway through resolving. Nothing else
     // happens until it has finished, not even state-based actions (608.2).
-    if (g.resolving) return;
+    if (g.resolving) return { g, stable: false };
     // State-based actions are checked whenever a player would get priority (117.5, 704.3).
     // `checked`: they were, finding nothing, and since then priority has only passed from one
     // player to the next. Nothing they look at has changed, so checking would find nothing.
-    if (!checked) checked = checkState(g);
-    if (g.winner !== null) {
-      g.step = 'gameOver';
-      g.combat = null;
-      g.decision = null;
-      return;
+    // Whether any are due is asked first (`sbaPending`); only then is the game changed.
+    if (!checked) {
+      if (sbaPending(g)) {
+        g = update(g, (d) => {
+          checked = checkState(d);
+        });
+      } else checked = g.winner === null;
     }
-    if (g.decision) return;
-    if (putTriggerOnStack(g)) {
+    if (g.winner !== null) {
+      const over = update(g, (d) => {
+        d.step = 'gameOver';
+        d.combat = null;
+        d.decision = null;
+      });
+      return { g: over, stable: false };
+    }
+    if (g.decision) return { g, stable: false };
+    if (g.triggers.length) {
+      g = update(g, (d) => {
+        putTriggerOnStack(d);
+      });
       checked = false;
       continue;
     }
-    if (g.players[g.priority].lost) g.priority = nextLiving(g, g.priority);
-    const full = fullControl.includes(g.priority) && released !== g.priority;
-    if (!autoPass || wantsPriority(g, g.priority, stops[g.priority], full)) {
-      settledStable = checked;
-      return;
+    if (g.players[g.priority].lost) {
+      g = update(g, (d) => {
+        d.priority = nextLiving(d, d.priority);
+      });
     }
-    checked &&= passPriority(g);
+    const full = fullControl.includes(g.priority) && released !== g.priority;
+    if (!autoPass || wantsPriority(g, g.priority, stops[g.priority], full)) return { g, stable: checked };
+    let moved = false;
+    g = update(g, (d) => {
+      moved = passPriority(d);
+    });
+    checked &&= moved;
     released = null;
   }
+  return { g, stable: false };
 }
 
 /**
@@ -2749,8 +2781,6 @@ function settle(g: Game, autoPass: boolean, stops: ApplyOptions['stops'] = {}, f
  * game it makes, so a game in here never changes.
  */
 const sbaChecked = new WeakSet<Game>();
-/** Did the last `settle` end giving a player priority, the state-based actions checked with nothing to do? */
-let settledStable = false;
 /** Did the action `act` just applied only pass priority on to the next player (`passPriority`)? */
 let passedOn = false;
 
@@ -2794,14 +2824,13 @@ function attempt(g: Game, a: Action, opts: Required<Pick<ApplyOptions, 'autoPass
   const run = () => {
     // Passing on priority in a game whose state-based actions were checked changes nothing they look at.
     const checked = a.type === 'pass' && sbaChecked.has(g);
-    let stable = false;
-    const next = produce(g, (draft) => {
+    let legal = false;
+    const acted = produce(g, (draft) => {
       passedOn = false;
-      if (act(draft, a)) {
-        settle(draft, autoPass, stops, fullControl, released, checked && passedOn);
-        stable = settledStable;
-      }
+      legal = act(draft, a);
     });
+    if (!legal) return acted;
+    const { g: next, stable } = settle(acted, drafted, autoPass, stops, fullControl, released, checked && passedOn);
     if (stable && next !== g) sbaChecked.add(next);
     return next;
   };
