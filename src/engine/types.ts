@@ -1008,6 +1008,13 @@ export interface Game {
   spellsCast: number;
   /** Players dealt combat damage this turn. */
   combatDamaged: PlayerId[];
+  /**
+   * Additional beginning phases still to come after this turn's postcombat main phase (Sphinx
+   * of the Second Sun, 500.8), and whether one is under way now: after it the turn goes on to
+   * the next of them, or to the ending phase.
+   */
+  extraBeginnings?: number;
+  inExtraBeginning?: boolean;
   /** Effects that last until end of turn (514.2). */
   effects: TurnEffect[];
   /** Delayed triggered abilities waiting for their moment (603.7). */

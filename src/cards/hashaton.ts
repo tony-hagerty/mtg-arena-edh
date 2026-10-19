@@ -679,6 +679,18 @@ registerScripts({
     },
   },
 
+  'Sphinx of the Second Sun': {
+    // Flying is the engine's. "At the beginning of each of your postcombat main phases, there is
+    // an additional beginning phase after this phase." Its untap, upkeep and draw steps, then the
+    // ending phase (500.8).
+    onPostcombatMain: {
+      when: (_g, { self, player }) => player === self.controller,
+      resolve: (g) => {
+        g.extraBeginnings = (g.extraBeginnings ?? 0) + 1;
+      },
+      text: 'At the beginning of each of your postcombat main phases, there is an additional beginning phase after this phase.',
+    },
+  },
   'Vohar, Vodalian Desecrator': {
     activated: [
       // "{T}: Draw a card, then discard a card. If you discarded an instant or sorcery card this
