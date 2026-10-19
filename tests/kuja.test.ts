@@ -303,7 +303,7 @@ describe('Roles and Auras', () => {
     g = settle(applyAction(g, pass));
     expect(byName(g, 0, 'Serra Angel')).toBeTruthy();
     expect(byName(g, 0, "Kaya's Ghostform", 'graveyard')).toBeTruthy();
-    expect(g.log.some((l) => l.text === `Serra Angel returns to the battlefield under ${g.players[0].name}'s control.`)).toBe(true);
+    expect(g.log.some((l) => l.text === 'Serra Angel returns to the battlefield.')).toBe(true);
   });
 
   it("Kaya's Ghostform returns another player's card under your control, and says so", () => {
