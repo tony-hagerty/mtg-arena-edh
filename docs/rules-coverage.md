@@ -856,7 +856,7 @@ card, naming the clause: it never guesses. Hand scripts always win.
   played: it is never played as a stand-in.
 - `npm run parse-report` prints the cards it scripts on its own and every refusal: for the
   pool (324 of 519 cards with rules text, 62%) and for a corpus of the 600 most-played
-  Commander cards (`tests/parser-corpus.generated.json`: 401 of 590, 68%), whose refusals it
+  Commander cards (`tests/parser-corpus.generated.json`: 405 of 590, 69%), whose refusals it
   groups by opening words and by shape, biggest first. A test plays about 190 pool cards with
   the parsed script and with the hand script and checks the table ends the same; others play
   each template on a made-up card and check a near miss is refused.
