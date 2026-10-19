@@ -1979,6 +1979,7 @@ export function moveCard(g: Game, c: Card, to: Zone) {
   const from = c.zone;
   const happens = replace(g, { kind: 'move', card: c, to });
   if (happens.kind === 'move') to = happens.to;
+  if (from === 'battlefield') leaveAbilitiesBehind(g, c);
   // As it last was on the battlefield, for leaves-the-battlefield abilities (603.10a).
   const last = from === 'battlefield' && watchingLeaves(g) ? lastKnown(g, c) : null;
   if (last && batch && !batch.before) batch.before = battlefield(g).map(snapshot);
@@ -2002,6 +2003,7 @@ export function moveCard(g: Game, c: Card, to: Zone) {
   c.faceDown = false;
   c.known = [];
   c.chosen = null;
+  delete c.monstrous;
   c.linked = [];
   c.tapped = false;
   c.sick = false;
@@ -2156,6 +2158,18 @@ export function tap(g: Game, c: Card) {
 
 /** A copy of a card as it is right now, for an ability or event to remember (113.7a, 603.10a). */
 export const snapshot = (c: Card): Card => ({ ...c, continuous: c.continuous.map((e) => ({ ...e })), counters: { ...c.counters } });
+
+/**
+ * Permanent `c` is leaving the battlefield: its abilities waiting or on the stack go on
+ * without it, using it as it last was there (113.7a, 608.2h), like Giggling Skitterspike's
+ * "damage equal to its power".
+ */
+function leaveAbilitiesBehind(g: Game, c: Card) {
+  const mine = [...g.triggers, ...g.stack].filter((x) => x.kind !== 'spell' && x.card.id === c.id && x.card.moves === c.moves);
+  if (!mine.length) return;
+  const last = lastKnown(g, c);
+  for (const x of mine) x.card = { ...last, ...(x.card.triggeredBy ? { triggeredBy: x.card.triggeredBy } : {}) };
+}
 
 /**
  * A copy of permanent `c` as it last was on the battlefield (603.10a, 608.2h), with its
@@ -3204,6 +3218,22 @@ export const typecycling = (subtype: string, mana: string): ActivatedAbility => 
   fromHand: true,
   text: `${subtype}cycling ${mana}`,
   resolve: (g, { you }) => search(g, you, 'hand', { subtypes: [subtype], label: `a ${subtype} card` }, { reveal: true }),
+});
+
+/**
+ * "{cost}: Monstrosity N" (701.37a): if this permanent isn't monstrous, put N +1/+1 counters on it
+ * and it becomes monstrous. It can be activated while monstrous; it just does nothing.
+ */
+export const monstrosity = (n: number, mana: string): ActivatedAbility => ({
+  cost: { mana },
+  text: `Monstrosity ${n}`,
+  resolve: (g, { self }) => {
+    const c = permanent(g, self.id);
+    if (!c || !sameCard(c, self) || c.monstrous) return;
+    addCounters(g, c, n);
+    c.monstrous = true;
+    log(g, `${label(c)} becomes monstrous.`, c.controller, [c]);
+  },
 });
 
 /** "Crew N": tap other creatures with total power N or more, and this becomes an artifact creature until end of turn (702.122a). */
