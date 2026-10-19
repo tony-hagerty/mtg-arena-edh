@@ -94,6 +94,12 @@ a small rules question, and check each clause before writing code for it.
   is a creature or Kindred card (205.3d).
 - "For as long as ..." and "until your next turn" are durations (611.2b): give them
   to `addContinuous`, don't end the effect by hand.
+- "Has '[triggered ability]'" or "has ward" from a permanent is a layer 6 effect: put the
+  ability in `grants` and give it from `static` with `grantOf(self, i)`, or `{ ward }`. Then
+  an effect that takes abilities away with a later timestamp takes it too (613.7a).
+- "Loses all abilities" is `loseAll`, and "loses flying" is `lose: ['flying']` (113.10b).
+  Restrictions like "can't attack" aren't abilities (113.12) and stay. A card whose static
+  ability takes abilities away (Humility) needs `removesAbilities: true`.
 
 **Numbers.**
 

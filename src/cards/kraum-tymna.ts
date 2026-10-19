@@ -1184,7 +1184,7 @@ registerScripts({
     // "Spells you control can't be countered."
     protectsSpell: (_g, self, _spell, caster) => caster === self.controller,
     // "Other creatures you control have 'Ward—Pay 2 life.'"
-    grantsWard: (g, self, c) => (c.id !== self.id && c.controller === self.controller && isCreature(g, c) ? { life: 2 } : null),
+    static: (g, self, c) => (c.id !== self.id && c.controller === self.controller && isCreature(g, c) ? { ward: { life: 2 } } : null),
   },
   'Rain of Filth': {
     // "Until end of turn, lands you control gain 'Sacrifice this land: Add {B}.'" Only the lands

@@ -22,7 +22,8 @@
  * answered applies the same action again from the same state with the answer. The game is
  * deterministic, so it gets back to the same question and uses the answer there.
  */
-import { battlefield, counterCount, isBattle, isPlaneswalker, isSaga, label, log, num, playerProtected, protectedFrom, says, scriptFor, data } from './rules';
+import { abilitiesOf, battlefield, counterCount, isBattle, isPlaneswalker, isSaga, label, log, num, playerProtected, protectedFrom, says, data } from './rules';
+import { hasOwnAbilities, withoutStatics } from './layers';
 import type { Card, CardScript, Game, PlayerId, ReplaceEvent, Replacement, ReplacementChoice, Zone } from './types';
 
 /**
@@ -88,7 +89,7 @@ function collect(g: Game, ev: ReplaceEvent, from: Card[]): Found[] {
     listOf(rs).forEach((r, i) => out.push({ id: `${id}:${i}`, name: r.name ?? name, r }));
   for (const x of from) {
     if (entering(ev) && (arriving?.has(x.id) || (ev as { card: Card }).card.id === x.id)) continue;
-    const s = scriptFor(x);
+    const s = abilitiesOf(g, x);
     const name = label(x);
     if (s.replaces) add(`${x.id}`, name, s.replaces(g, x, ev));
     if (ev.kind === 'damage') {
@@ -122,7 +123,7 @@ function builtIn(g: Game, ev: ReplaceEvent, add: (id: string, name: string, r: R
       if (ev.player !== undefined && playerProtected(g, ev.player)) add(`p${ev.player}~protection`, 'protection from everything', { instead: { ...ev, amount: 0 } });
       // Protection a permanent gives a player, like Serra's Emissary's "You ... have protection from the chosen card type" (702.16e).
       const pid = ev.player;
-      if (pid !== undefined) for (const x of battlefield(g)) if (scriptFor(x).protectsPlayer?.(g, x, pid, ev.source)) add(`p${pid}~protection~${x.id}`, `protection from ${label(x)}`, { instead: { ...ev, amount: 0 } });
+      if (pid !== undefined) for (const x of battlefield(g)) if (abilitiesOf(g, x).protectsPlayer?.(g, x, pid, ev.source)) add(`p${pid}~protection~${x.id}`, `protection from ${label(x)}`, { instead: { ...ev, amount: 0 } });
       return;
     }
     case 'move': {
@@ -161,7 +162,10 @@ function builtIn(g: Game, ev: ReplaceEvent, add: (id: string, name: string, r: R
     }
     case 'enter': {
       const c = ev.card;
-      const s = scriptFor(c);
+      // Its own abilities count only if it has them as it enters (614.12): it is on the
+      // battlefield by now, so the effect of a Humility already there applies to it.
+      // Static abilities of permanents entering with it don't exist yet as it enters.
+      const [s, own] = withoutStatics([...(arriving ?? [])].filter((id) => id !== c.id), () => [abilitiesOf(g, c), hasOwnAbilities(g, c)] as const);
       // "This enters tapped" (614.1c), or "... unless ...", as it would be on the battlefield (614.12).
       const tapped = typeof s.entersTapped === 'function' ? s.entersTapped(g, c, c.controller) : !!s.entersTapped;
       if (tapped && !ev.tapped) add(`${c.id}~tapped`, label(c), { instead: { ...ev, tapped: true } });
@@ -175,8 +179,8 @@ function builtIn(g: Game, ev: ReplaceEvent, add: (id: string, name: string, r: R
       // A planeswalker enters with its printed loyalty (306.5b), a battle with its printed
       // defense (310.4b), a Saga with a lore counter (714.3a): each an intrinsic ability that
       // is a replacement effect.
-      if (isPlaneswalker(g, c)) add(`${c.id}~loyalty`, label(c), { instead: more({ loyalty: num(data(c).loyalty) }) });
-      if (isBattle(g, c)) add(`${c.id}~defense`, label(c), { instead: more({ defense: num(data(c).defense) }) });
+      if (own && isPlaneswalker(g, c)) add(`${c.id}~loyalty`, label(c), { instead: more({ loyalty: num(data(c).loyalty) }) });
+      if (own && isBattle(g, c)) add(`${c.id}~defense`, label(c), { instead: more({ defense: num(data(c).defense) }) });
       if (isSaga(g, c) && s.chapters?.length) add(`${c.id}~lore`, label(c), { instead: more({ lore: 1 }) });
       return;
     }
@@ -331,7 +335,7 @@ interface Branch {
  * different details, another kind (Notion Thief makes another player draw), or `none`.
  */
 export function replace(g: Game, ev: ReplaceEvent): ReplaceEvent {
-  const from = battlefield(g).filter((x) => replacing(scriptFor(x)));
+  const from = battlefield(g).filter((x) => replacing(abilitiesOf(g, x)));
   const used = new Set<string>();
   const memo = new Map<string, Map<string, ReplaceEvent>>();
 
