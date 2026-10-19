@@ -79,6 +79,82 @@ describe('reading a pasted deck list', () => {
   });
 });
 
+describe("today's export formats (Moxfield, Archidekt, Arena, MTGO, TappedOut, plain text)", () => {
+  const names = (e: { name: string }[]) => e.map((x) => x.name);
+  const counts = (e: { name: string; count: number }[]) => e.map((x) => [x.name, x.count]);
+
+  it('reads "x4" after the name, with or without a set code, and "1 x Name"', () => {
+    const list = parseDeckList('Sol Ring x1\nSwamp x 30\nTyphoid Rats (M19) 120 x1\n1 x Night\'s Whisper');
+    expect(counts(list.cards)).toEqual([
+      ['Sol Ring', 1],
+      ['Swamp', 30],
+      ['Typhoid Rats', 1],
+      ["Night's Whisper", 1],
+    ]);
+  });
+
+  it('reads category headings ("Creatures (12)", "LANDS:", "Instant - 3") as part of the deck', () => {
+    const list = parseDeckList('Commander (1)\n1 Judith, the Scourge Diva\n\nCreatures (1)\n1 Typhoid Rats\n\nLANDS:\n17 Swamp\nInstant - 1\n1 Night\'s Whisper\nArtifacts\n1 Sol Ring');
+    expect(names(list.commanders)).toEqual(['Judith, the Scourge Diva']);
+    expect(names(list.cards)).toEqual(['Typhoid Rats', 'Swamp', "Night's Whisper", 'Sol Ring']);
+    expect(list.unreadable).toEqual([]);
+  });
+
+  it('reads a "Commander: Name" line, and partners on two lines', () => {
+    const one = parseDeckList('Commander: Judith, the Scourge Diva\n1 Sol Ring');
+    expect(names(one.commanders)).toEqual(['Judith, the Scourge Diva']);
+    expect(names(one.cards)).toEqual(['Sol Ring']);
+    const two = parseDeckList("Commander: Kraum, Ludevic's Opus\nCommander: Tymna the Weaver\n1 Sol Ring");
+    expect(names(two.commanders)).toEqual(["Kraum, Ludevic's Opus", 'Tymna the Weaver']);
+    const section = parseDeckList("Commander\n1 Kraum, Ludevic's Opus (C16) 112\n1 Tymna the Weaver (C16) 48 *F*\n\nDeck\n1 Sol Ring");
+    expect(names(section.commanders)).toEqual(["Kraum, Ludevic's Opus", 'Tymna the Weaver']);
+  });
+
+  it('reads Archidekt: "[Commander{top}]" is the commander, "{noDeck}" and maybeboard categories are left out', () => {
+    const list = parseDeckList(
+      [
+        '1x Judith, the Scourge Diva (rna) 185 [Commander{top}]',
+        '1x Sol Ring (c21) 263 [Ramp,Artifact] ^Have,#37d67a^',
+        '1x Doom Blade (m10) 92 [Maybeboard{noDeck}{noPrice},Removal]',
+        '1x Typhoid Rats (m19) 120 *F* [Creature]',
+        '1x Terror (10e) 182 [Sideboard{noDeck}]',
+      ].join('\n'),
+    );
+    expect(names(list.commanders)).toEqual(['Judith, the Scourge Diva']);
+    expect(names(list.cards)).toEqual(['Sol Ring', 'Typhoid Rats']);
+  });
+
+  it('reads MTGO and MWS lines: "SB:" is the sideboard, and a one-card sideboard is the commander', () => {
+    const list = parseDeckList('1 Sol Ring\n17 Swamp\nSB: 1 Judith, the Scourge Diva');
+    expect(names(list.commanders)).toEqual(['Judith, the Scourge Diva']);
+    expect(names(list.cards)).toEqual(['Sol Ring', 'Swamp']);
+  });
+
+  it('reads TappedOut: "*CMDR*" and "#tags" after the name', () => {
+    const list = parseDeckList('1x Judith, the Scourge Diva *CMDR*\n1x Sol Ring #ramp #artifact\n1x Typhoid Rats (M19) *f*');
+    expect(names(list.commanders)).toEqual(['Judith, the Scourge Diva']);
+    expect(names(list.cards)).toEqual(['Sol Ring', 'Typhoid Rats']);
+  });
+
+  it('reads set codes with collector numbers of every shape', () => {
+    const list = parseDeckList('1 Sol Ring (PLST) C21-263\n1 Typhoid Rats (M19) 120p\n1 Swamp (SLD) 1234★\n1 Night\'s Whisper (Y24) 7');
+    expect(names(list.cards)).toEqual(['Sol Ring', 'Typhoid Rats', 'Swamp', "Night's Whisper"]);
+  });
+
+  it("offers the last block of a list with no headings as the commanders, as Moxfield's and MTGO's plain exports put them (903.3)", () => {
+    const black = DECKS.find((d) => d.id === 'black')!;
+    const body = [...Object.entries(black.basics).map(([n, k]) => `${k} ${n}`), ...black.cards.map((c) => `1 ${c}`)].join('\n');
+    const check = checkList(`${body}\n\n1 Judith, the Scourge Diva`, null, '', 'x');
+    expect(check.commanders).toEqual(['Judith, the Scourge Diva']);
+    expect(check.problems).toEqual([]);
+    // A last block that can't lead the deck is just more cards.
+    expect(parseDeckList('1 Sol Ring\n\n1 Typhoid Rats').trailing.map((e) => e.name)).toEqual(['Typhoid Rats']);
+    expect(checkList('1 Sol Ring\n\n1 Typhoid Rats', null, '', 'x').commanders).toEqual([]);
+    // With a heading, the list says where its commanders are.
+    expect(parseDeckList('Deck\n1 Sol Ring\n\n1 Judith, the Scourge Diva').trailing).toEqual([]);
+  });
+});
+
 describe('the paste screen checks', () => {
   const black = DECKS.find((d) => d.id === 'black')!;
 
