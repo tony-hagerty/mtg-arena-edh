@@ -557,10 +557,14 @@ button {
   border-radius: 50%;
   background-size: cover;
   background-position: center 20%;
-  border: 0.3rem solid #232832;
+  /* A dark bezel, the deck's colour as a ring around it, and a fine dark line outside that. */
+  border: 0.3rem solid #15181f;
   box-shadow:
-    0 0 0 0.2rem var(--deck),
-    0 0.5rem 1.4rem rgba(0, 0, 0, 0.85);
+    inset 0 0 0 0.08rem rgba(255, 255, 255, 0.12),
+    inset 0 -1rem 1.6rem rgba(0, 0, 0, 0.35),
+    0 0 0 0.22rem var(--deck),
+    0 0 0 0.32rem rgba(0, 0, 0, 0.7),
+    0 0.6rem 1.6rem rgba(0, 0, 0, 0.85);
   transition: box-shadow 0.2s;
 }
 
@@ -604,17 +608,31 @@ button {
   margin-top: calc(var(--av) * -0.2);
   padding: 0 0.8rem;
   font: 700 calc(var(--av) * 0.3) / 1.25 var(--serif);
+  font-variant-numeric: lining-nums;
   text-align: center;
-  background: linear-gradient(#444c5c, #1a1e26);
+  text-shadow: 0 0.1rem 0.25rem #000;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.14), transparent 45%),
+    linear-gradient(#3b4250, #14171d);
   border: 0.15rem solid var(--edge-light);
-  border-radius: 2rem;
-  box-shadow: var(--shadow-sm);
+  border-radius: var(--r-pill);
+  box-shadow:
+    inset 0 -0.2rem 0.4rem rgba(0, 0, 0, 0.4),
+    var(--shadow-md);
+  transition: border-color 0.4s, color 0.4s;
+}
+
+/* Whose turn it is: the life plate's rim and figures turn gold, with the rays behind the portrait. */
+.avatar.active .avatar-life {
+  color: var(--gold-light);
+  border-color: var(--gold);
 }
 
 .avatar-name {
   z-index: 2;
-  margin-top: 0.2rem;
-  font: 600 1.35rem var(--serif);
+  margin-top: 0.3rem;
+  font: 600 1.45rem var(--serif);
+  letter-spacing: 0.02em;
   white-space: nowrap;
   text-shadow: 0 0.1rem 0.4rem #000, 0 0 0.6rem #000;
 }
@@ -725,6 +743,12 @@ button {
   flex-direction: column;
   gap: 0.3rem;
   z-index: 3;
+}
+
+/* At the top seat the hand is on the portrait's right, so the badges hang on its left. */
+.seat-top .cmd-dmg {
+  left: auto;
+  right: calc(100% + 0.5rem);
 }
 
 .seat-left .cmd-dmg,
@@ -884,8 +908,8 @@ button {
   This row is below the side seats, so it can run wider than the creatures.
 */
 .me-back {
-  left: 30rem;
-  right: 30rem;
+  left: 37.7rem;
+  right: 37.7rem;
   bottom: 26.5rem;
   height: 11.5rem;
 }
@@ -893,6 +917,27 @@ button {
 /* .row.me-back, not .me-back: the gap has to beat the one set on .row.back above. */
 .row.me-back {
   gap: 28rem;
+}
+
+/*
+  A crowded back row wraps onto two lines (BackRow decides). Opponents' rows wrap as a
+  whole, so their lands and other permanents flow on together; each side of yours wraps
+  on its own, lands toward the avatar.
+*/
+.row.back.two-rows {
+  flex-wrap: var(--wrap, wrap);
+  align-content: center;
+  gap: 0.6rem 1.2rem;
+}
+
+.row.back.two-rows > :is(.lands, .others) {
+  display: contents;
+}
+
+.me-back :is(.lands, .others).two-rows {
+  flex-wrap: wrap;
+  align-content: center;
+  row-gap: 0.6rem;
 }
 
 .me-back .lands,
@@ -1481,13 +1526,14 @@ button {
 }
 
 /*
-  Library, graveyard and exile, just right of the log and its buttons (.log ends at 26.6rem).
-  They end at 48.2rem, clear of the hand until it holds a dozen cards.
+  Library, graveyard and exile, just right of the log and its buttons (.log ends at 27rem),
+  on the same bottom line as the log and the controls' plate. They end at 49.4rem, clear of
+  the hand until it holds a dozen cards.
 */
 .me-zones {
   position: absolute;
-  left: 28.2rem;
-  bottom: 2.2rem;
+  left: 29.4rem;
+  bottom: 2rem;
   display: flex;
   align-items: flex-end;
   gap: 1rem;
@@ -2188,8 +2234,8 @@ button {
 */
 .log {
   position: absolute;
-  left: 1.6rem;
-  bottom: 1.6rem;
+  left: 2rem;
+  bottom: 2rem;
   width: 25rem;
   z-index: 20;
 }
