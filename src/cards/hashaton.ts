@@ -70,6 +70,7 @@ import {
   hasSuspend,
   offerCast,
   rand,
+  ENTERING_HOOKS,
 } from '../engine/rules';
 import type { Card, CardScript, Game, Mode, PlayerId, TargetRef, TargetSpec, TokenSpec } from '../engine/types';
 import { cardData } from './db';
@@ -348,6 +349,14 @@ registerScripts({
     },
     // "{5}: Monstrosity 5." (701.37a)
     activated: monstrosity(5, '{5}'),
+  },
+  'Elesh Norn, Mother of Machines': {
+    // Vigilance is the engine's. "If a permanent entering causes a triggered ability of a
+    // permanent you control to trigger, that ability triggers an additional time." "Permanents
+    // entering don't cause abilities of permanents your opponents control to trigger." Whoever
+    // controls the permanent entering; it counts permanents entering with it, itself included.
+    doublesTriggers: (_g, self, source, hook) => ENTERING_HOOKS.includes(hook) && source.controller === self.controller,
+    suppressesTriggers: (g, self, source, hook) => ENTERING_HOOKS.includes(hook) && isOpponent(g, self.controller, source.controller),
   },
   'Kitsa, Otterball Elite': {
     onCast: prowess,

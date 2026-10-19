@@ -883,3 +883,33 @@ describe('Rona', () => {
     }
   });
 });
+
+describe('Elesh Norn, Mother of Machines', () => {
+  it("doubles your permanents' enter triggers and stops your opponents'", () => {
+    let g = emptyGame((d) => {
+      put(d, 0, 'Elesh Norn, Mother of Machines');
+      put(d, 0, 'Nesting Dovehawk');
+      put(d, 0, 'Sister Hospitaller', 'hand');
+      put(d, 0, 'Plains', 'battlefield', 3);
+      put(d, 0, 'Swamp', 'battlefield', 3);
+      put(d, 0, 'Serra Angel', 'graveyard');
+      put(d, 0, 'Psychic Frog', 'graveyard');
+      put(d, 1, 'Nesting Dovehawk');
+      human(d);
+    });
+    const order = ['Serra Angel', 'Psychic Frog'];
+    g = settle(run(g, cast(g, 'Sister Hospitaller')), (x) => (x.decision?.type === 'targets' ? { type: 'chooseTargets', targets: [card(byName(x, 0, order.shift()!, 'graveyard')!)] } : null));
+    // Its own enters ability twice: both creature cards come back, each gaining life.
+    expect(byName(g, 0, 'Serra Angel')).toBeDefined();
+    expect(byName(g, 0, 'Psychic Frog')).toBeDefined();
+    expect(g.players[0].life).toBe(40 + 5 + 2);
+    // A creature token entering: your Dovehawk's ability twice, the opponent's not at all.
+    g = produce(g, (d) => void createToken(d, 1, 'Angel 4/4 flying'));
+    g = settle(g);
+    expect(counterCount(byName(g, 0, 'Nesting Dovehawk')!)).toBe(0);
+    g = produce(g, (d) => void createToken(d, 0, 'Angel 4/4 flying'));
+    g = settle(g);
+    expect(counterCount(byName(g, 0, 'Nesting Dovehawk')!)).toBe(2);
+    expect(counterCount(byName(g, 1, 'Nesting Dovehawk')!)).toBe(0);
+  });
+});

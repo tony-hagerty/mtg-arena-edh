@@ -2232,16 +2232,36 @@ export function trigger<H extends TriggerHook>(g: Game, source: Card, hook: H, e
     .map((x) => ({ t: x.grant.trigger as Trigger<object>, extra: { granted: { from: x.from, index: x.index } } }));
   // Each of a card's abilities for this event triggers on its own (603.2), in printed order,
   // and once more for each effect like Roaming Throne's (603.2d).
-  let times = 0;
+  let times: number | undefined;
   for (const { t, extra } of [...own, ...given]) {
     if (typeof t !== 'function' && t.when && !t.when(g, { self: source, ...event })) continue;
-    times ||= 1 + (watchers ?? watchersNow(g)).doublers.filter((x) => scriptFor(x).doublesTriggers!(g, x, source)).length;
+    times ??= triggerTimes(g, source, hook);
+    if (!times) return;
     const remembered = Object.fromEntries(Object.entries(event).map(([k, v]) => [k, isCard(v) ? snapshot(v) : v]));
     for (let k = 0; k < times; k++) {
       g.triggers.push({ id: `s${g.nextId++}`, kind: 'triggered', controller: source.controller, card: { ...snapshot(source), triggeredBy: remembered }, hook, ...extra, event: remembered, targets: [] });
     }
   }
 }
+
+/**
+ * How many times `source`'s ability on `hook` triggers: once, once more for each effect like
+ * Roaming Throne's (603.2d), or not at all with an effect like Elesh Norn's "don't cause
+ * abilities ... to trigger".
+ */
+export function triggerTimes(g: Game, source: Card, hook: TriggerHook): number {
+  const w = watchers ?? watchersNow(g);
+  if (w.suppressors.some((x) => scriptFor(x).suppressesTriggers!(g, x, source, hook))) return 0;
+  return 1 + w.doublers.filter((x) => scriptFor(x).doublesTriggers!(g, x, source, hook)).length;
+}
+
+/**
+ * The events that are a permanent entering the battlefield, for "If a permanent entering causes
+ * a triggered ability ... to trigger" (Elesh Norn, Mother of Machines): its own "enters"
+ * abilities, keyword ones included, and every "whenever [a permanent] enters". Counters it
+ * enters with are another event (122.6).
+ */
+export const ENTERING_HOOKS: TriggerHook[] = ['onEnter', 'onCreatureEnters', 'onPermanentEnters', 'onLandfall', 'onEvoked', 'onOffspring'];
 
 /**
  * The permanents on the battlefield as they were just before an event that looks back in
@@ -2254,6 +2274,7 @@ let lookBack: Card[] | null = null;
 interface Watchers {
   granters: Card[];
   doublers: Card[];
+  suppressors: Card[];
 }
 
 /** While `broadcast` asks every permanent about one event: the `Watchers`, found once for all of them. */
@@ -2261,7 +2282,7 @@ let watchers: Watchers | null = null;
 
 function watchersNow(g: Game): Watchers {
   const all = lookBack ?? battlefield(g);
-  return { granters: all.filter((x) => scriptFor(x).grants?.length), doublers: all.filter((x) => scriptFor(x).doublesTriggers) };
+  return { granters: all.filter((x) => scriptFor(x).grants?.length), doublers: all.filter((x) => scriptFor(x).doublesTriggers), suppressors: all.filter((x) => scriptFor(x).suppressesTriggers) };
 }
 
 /** The triggered abilities other cards give `c` now: from resolved effects (`LayerParts.grant`), and from permanents on the battlefield. */
@@ -2424,9 +2445,9 @@ function setUp(g: Game, c: Card, opts: EnterOpts): Record<string, number> {
 function entered(g: Game, c: Card, opts: EnterOpts, counters: Record<string, number>) {
   // Evoke: "When this permanent enters, if its evoke cost was paid, its controller sacrifices it" (702.74a).
   const alt = c.cast?.alt !== undefined ? scriptFor(c, 'stack', c.face).alternativeCosts?.[c.cast.alt] : undefined;
-  if (alt?.evoke) g.triggers.push({ id: `s${g.nextId++}`, kind: 'triggered', controller: c.controller, card: snapshot(c), hook: 'onEvoked', event: {}, targets: [] });
+  if (alt?.evoke) for (let k = triggerTimes(g, c, 'onEvoked'); k > 0; k--) g.triggers.push({ id: `s${g.nextId++}`, kind: 'triggered', controller: c.controller, card: snapshot(c), hook: 'onEvoked', event: {}, targets: [] });
   // Offspring: "When this permanent enters, if its offspring cost was paid, create a token that's a copy of it, except it's 1/1" (702.175a).
-  if (c.cast?.offspring) g.triggers.push({ id: `s${g.nextId++}`, kind: 'triggered', controller: c.controller, card: snapshot(c), hook: 'onOffspring', event: {}, targets: [] });
+  if (c.cast?.offspring) for (let k = triggerTimes(g, c, 'onOffspring'); k > 0; k--) g.triggers.push({ id: `s${g.nextId++}`, kind: 'triggered', controller: c.controller, card: snapshot(c), hook: 'onOffspring', event: {}, targets: [] });
   trigger(g, c, 'onEnter', {});
   // Entering with counters is having them put on it (122.6).
   for (const [kind, n] of Object.entries(counters)) trigger(g, c, 'onCounters', { kind, n });
