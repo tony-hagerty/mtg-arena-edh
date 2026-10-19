@@ -18,10 +18,16 @@ are from the Comprehensive Rules in `docs/rules/`.
 - **Pasted decks:** `parseDeckList` in `src/cards/decklist.ts` reads the text,
   `poolName` matches each name to the card pool (any case, either apostrophe, a card
   with faces by its full or first-face name, 712), and `checkList` builds the `DeckDef`
-  and runs `deckProblems`. A card the pool lacks, or one the engine can't play
-  (`unsupported` in `src/cards/support.ts`, the same check as the card-pool test), stops
-  the deck being saved. Saved decks live in `localStorage` (`arena-edh.decks`); one whose
-  cards a newer pool lacks stays on the menu, greyed out with the reason.
+  and runs `deckProblems`. A card the pool lacks, or one not legal in Commander, stops
+  the deck being saved. One the engine can't play (`problemsOf` in
+  `src/cards/support.ts`, the same check as the card-pool test) is listed in
+  `ListCheck.refused`, grouped by the clause the parser named; the player plays it
+  without its rules text (`DeckDef.textless`, see below) or swaps it. Leftover refused
+  cards don't stop saving: the deck is kept but can't be played until they are dealt
+  with (`savedDeckState`). Saved decks live in `localStorage` (`arena-edh.decks`); one
+  whose cards a newer pool lacks stays on the menu, greyed out with the reason.
+  `parseDeckList` reads Arena, Moxfield, Archidekt, MTGO, TappedOut and plain exports
+  (see `tests/decklist.test.ts` for each form).
 - **Cards from Scryfall:** a name the pool lacks is fetched by the browser from
   Scryfall's `/cards/collection` (75 names a request, 100 ms apart), mapped by
   `src/cards/scryfall.ts` (the same mapping `npm run fetch-cards` uses), added with
@@ -650,6 +656,22 @@ These are deliberate cuts for a prototype. The biggest ones come first.
 
 ### Biggest gaps
 
+- **Cards played without their rules text** (approved by the user, from the plan in
+  `docs/plans/speed-parser-polish.md`): a card the game can't read yet may, by the
+  player's choice on the paste screen, be played as a vanilla card. It keeps its printed
+  name, mana cost, colours, types, power and toughness and the keywords the engine
+  applies on its own (`PLAIN_KEYWORDS` in `src/cards/support.ts`), and none of its other
+  rules text works: no triggered, activated or static ability, no "enters tapped", no
+  replacement effect. This is not how the card plays by the rules, so it is never silent:
+  the paste screen lists it under "Played without their rules text" with the clause the
+  game can't read, its tile and hand card carry a "no text" badge and a greyed name bar,
+  the hover preview says so, the log adds "(its rules text doesn't work here)" the first
+  time it is cast or played, and the menu's deck tile counts them. The choice is saved
+  with the deck (`DeckDef.textless`) and undone on the paste screen. A commander is never
+  played this way, nor a card the engine can't frame as a vanilla card (a card with
+  faces, or a keyword that needs a script or changes how it is cast). In the engine,
+  `Card.textless` makes `scriptFor` return the empty script. Once a newer parser or a
+  hand script reads the card, it plays with its text again (`playedDeck`).
 - **Auto-pass:** with something on the stack, the game stops for you only when the top
   object is an opponent's and you could act, or when you held priority. Outside that,
   auto-pass follows your stops (`wantsPriority` in `engine.ts`; the UI passes them in

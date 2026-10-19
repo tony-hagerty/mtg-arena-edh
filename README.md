@@ -9,9 +9,9 @@ This is an unofficial fan prototype. Expect rough edges.
 
 - **Full Commander games** for 2 to 4 players: 40 life, commander tax, 21 commander
   damage, partners, and a proper turn structure with the stack and priority.
-- **Play your own deck.** Paste a list from Arena, Moxfield, MTGO or plain text. Cards
-  the game doesn't know are fetched from [Scryfall](https://scryfall.com) and read from
-  their rules text.
+- **Play your own deck.** Paste a list from Arena, Moxfield, Archidekt, MTGO, TappedOut
+  or plain text. Cards the game doesn't know are fetched from
+  [Scryfall](https://scryfall.com) and read from their rules text.
 - **Bots** fill any empty seat, so you can play alone.
 - **Friends** can share your screen, or join from their own computer with a code.
 - **Eight decks built in**, four two-colour starters and four Commander decks.
@@ -56,8 +56,9 @@ The full guide, covering combat, the stack, stops, special cards and every contr
 The biggest gaps are listed below. The full list is in
 [Rules coverage](docs/rules-coverage.md#known-simplifications).
 
-- Some cards can't be read yet. The paste screen tells you which, so you can swap them
-  out. Each one is noted so it can be added later.
+- Some cards can't be read yet. The paste screen tells you which: swap them out, or play
+  them as plain cards without their rules text, clearly marked. Each one is noted so it
+  can be added later.
 - Bots play a simple game. They skip some combo lines and never hold priority to
   respond to their own spells.
 - A few rules are simplified, mostly ones that rarely come up in play.
