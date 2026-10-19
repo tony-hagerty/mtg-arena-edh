@@ -27,7 +27,7 @@ html {
   Frames     --f-W ... --f-land: the card frame colours, also each deck's seat colour
 */
 :root {
-  --board: #121821;
+  --board: #10161f;
   --board-deep: #05070b;
   --panel: rgba(10, 12, 18, 0.88);
   --panel-solid: #0d0f14;
@@ -127,23 +127,56 @@ button {
 
 /* ---------- table ---------- */
 
+/*
+  The table: dark slate with a fine grain and a slow mottle, lit from above, darker toward
+  the edges. It stays quiet so the cards are what you look at. Seats are mats laid on it
+  (.seat-mat below). The vignette is part of the background, so it never dims a card.
+*/
 .board {
+  --grain: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='220' height='220'%3E%3Cfilter id='g'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 .07 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23g)'/%3E%3C/svg%3E");
+  --mottle: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='1000' height='1000'%3E%3Cfilter id='m'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.004' numOctaves='3' seed='7' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 .5 0 0 0 0 .6 0 0 0 0 .78 0 0 0 .16 -.05'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23m)'/%3E%3C/svg%3E");
   background:
-    linear-gradient(180deg, rgba(14, 9, 5, 0.85), transparent 14rem),
-    radial-gradient(34rem 30rem at 0% 36%, rgba(255, 150, 40, 0.34), transparent 70%),
-    radial-gradient(34rem 30rem at 100% 30%, rgba(255, 150, 40, 0.3), transparent 70%),
-    radial-gradient(110rem 55rem at 50% 62%, rgba(150, 175, 215, 0.2), transparent 70%),
-    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cg fill='none' stroke='%23aab6cc' stroke-opacity='.15' stroke-width='3'%3E%3Cpath d='M0 80 80 0 160 80 80 160Z'/%3E%3Cpath d='M40 80 80 40 120 80 80 120Z'/%3E%3Cpath d='M0 0h160v160H0z'/%3E%3Cpath d='M80 0v40M80 120v40M0 80h40M120 80h40'/%3E%3C/g%3E%3C/svg%3E")
-      0 0 / 16rem 16rem,
-    #1b2029;
+    /* the vignette */
+    radial-gradient(ellipse 78% 72% at 50% 46%, transparent 50%, rgba(1, 2, 5, 0.5) 82%, rgba(1, 2, 5, 0.82)),
+    /* light from above */
+    radial-gradient(ellipse 55% 46% at 50% 42%, rgba(196, 214, 245, 0.07), transparent 75%),
+    var(--grain) 0 0 / 22rem 22rem,
+    var(--mottle) center / cover no-repeat,
+    radial-gradient(ellipse 110% 95% at 50% 42%, #17202d, var(--board) 48%, #080b11);
 }
 
-.board::after {
+/*
+  A seat's mat: a slightly darker cloth running off the player's own edge of the table,
+  faintly outlined, with their deck colour washing in from that edge and a thin lit rim
+  along it. While it is their turn, the rim and the wash turn gold. Drawn under the cards.
+*/
+.seat-mat,
+.opp::before {
   content: '';
   position: absolute;
-  inset: 0;
   pointer-events: none;
-  box-shadow: inset 0 0 22rem 6rem rgba(0, 0, 0, 0.75);
+  border: 0.1rem solid color-mix(in srgb, var(--deck) 10%, rgba(255, 255, 255, 0.035));
+  border-radius: 2.6rem;
+  background:
+    var(--rim) no-repeat,
+    linear-gradient(var(--inward), color-mix(in srgb, var(--deck) 13%, transparent), transparent 50%),
+    rgba(0, 2, 6, 0.16);
+  box-shadow: inset 0 0 2.4rem rgba(0, 0, 0, 0.22);
+  --rim-color: color-mix(in srgb, var(--deck) 75%, #fff);
+  transition: border-color 0.4s, box-shadow 0.4s;
+}
+
+.seat-mat.active,
+.opp.active::before {
+  --rim-color: #ffd58a;
+  border-color: rgba(255, 205, 120, 0.2);
+  background:
+    var(--rim) no-repeat,
+    linear-gradient(var(--inward), rgba(255, 178, 72, 0.13), rgba(255, 178, 72, 0.03) 55%, transparent 75%),
+    rgba(0, 2, 6, 0.12);
+  box-shadow:
+    inset 0 0 2.4rem rgba(0, 0, 0, 0.2),
+    0 0 2.4rem rgba(255, 170, 60, 0.07);
 }
 
 /* ---------- opponents (left, top and right edges) ---------- */
@@ -192,19 +225,20 @@ button {
   --inward: 270deg;
 }
 
-.opp::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  background: linear-gradient(var(--inward), color-mix(in srgb, var(--deck) 20%, transparent), transparent 60%);
-  /* fade out toward the neighbouring seats instead of ending in a hard line */
-  mask-image: linear-gradient(calc(var(--inward) + 90deg), transparent, #000 15%, #000 85%, transparent);
-  transition: background 0.4s;
+/* Each mat runs 2rem off its edge of the screen, so only its inner corners are rounded. */
+.seat-top::before {
+  inset: -2rem 0.8rem 0.4rem;
+  --rim: radial-gradient(46% 0.8rem at 50% 2rem, var(--rim-color), transparent);
 }
 
-.opp.active::before {
-  background: linear-gradient(var(--inward), rgba(255, 165, 55, 0.4), rgba(255, 165, 55, 0.08) 75%, transparent);
+.seat-left::before {
+  inset: 0.8rem 0.4rem 0.8rem -2rem;
+  --rim: radial-gradient(0.8rem 46% at 2rem 50%, var(--rim-color), transparent);
+}
+
+.seat-right::before {
+  inset: 0.8rem -2rem 0.8rem 0.4rem;
+  --rim: radial-gradient(0.8rem 46% at calc(100% - 2rem) 50%, var(--rim-color), transparent);
 }
 
 .opp.lost > :not(.defeated) {
@@ -737,6 +771,16 @@ button {
 .me-front,
 .me-back {
   position: absolute;
+}
+
+/* Your mat: between the side seats, from your creatures down past the bottom edge. */
+.me-mat {
+  left: 37.5rem;
+  right: 37.5rem;
+  top: calc(100% - 54.4rem);
+  bottom: -2rem;
+  --inward: 0deg;
+  --rim: radial-gradient(46% 0.8rem at 50% calc(100% - 2rem), var(--rim-color), transparent);
 }
 
 /* Stays between the side seats, which reach down past its top edge. */
