@@ -112,37 +112,47 @@ function Counters({ card }: { card: Card }) {
 }
 
 /**
- * Auras and Equipment attached to a permanent, tucked behind it with their tops showing.
- * Click one to use it (an Equipment's equip ability), hover to read it.
+ * Auras and Equipment attached to a permanent, fanned out behind it with their name bar and
+ * some art showing (`.tile-attached`). Click one to use it (an Equipment's equip ability),
+ * hover to read it. `host` is the permanent they are attached to.
  */
-function Attachments({ cards }: { cards: Card[] }) {
+function Attachments({ cards, host }: { cards: Card[]; host: Card }) {
   const { glow } = useView();
+  // The last one is furthest out, so it is drawn first: each nearer one covers all of it but its top.
   return (
     <>
-      {cards.map((c, i) => (
-        <div
-          key={c.id}
-          data-card={c.id}
-          className={cx('tile-attached', `frame-${frameOf(data(c))}`, glow.get(c.id) && `glow-${glow.get(c.id)}`)}
-          style={{ '--i': i } as CSSProperties}
-          onClick={(e) => {
-            e.stopPropagation();
-            clickPermanent(c);
-          }}
-          {...hoverProps(data(c))}
-        >
-          <AttachedArt url={data(c).art} />
-          <span>{data(c).name}</span>
-        </div>
-      ))}
+      {cards
+        .map((c, i) => (
+          <div
+            key={c.id}
+            data-card={c.id}
+            className={cx('tile-attached', `frame-${frameOf(data(c))}`, glow.get(c.id) && `glow-${glow.get(c.id)}`)}
+            style={{ '--i': i, '--n': cards.length } as CSSProperties}
+            onClick={(e) => {
+              e.stopPropagation();
+              clickPermanent(c);
+            }}
+            {...hoverProps(data(c))}
+            // Onto the permanent itself: it gets no mouseenter of its own, the pointer never left it.
+            onMouseLeave={(e) => {
+              const tile = e.currentTarget.parentElement!;
+              const onHost = e.relatedTarget instanceof Node && tile.contains(e.relatedTarget) && !(e.relatedTarget as Element).closest?.('.tile-attached');
+              useStore.setState({ hover: onHost ? { name: host.name, d: data(host), el: tile } : null });
+            }}
+          >
+            <AttachedArt url={data(c).art} />
+            <div className="tile-name">{data(c).name}</div>
+          </div>
+        ))
+        .reverse()}
     </>
   );
 }
 
-/** An attachment's art, or just its frame colour if the art doesn't load: its name shows beside it either way. */
+/** An attachment's art, or just its frame colour if the art doesn't load: its name shows on it either way. */
 function AttachedArt({ url }: { url: string }) {
   const ok = useArtLoads(url);
-  return <div className="tile-attached-art" style={ok ? { backgroundImage: `url(${url})` } : undefined} />;
+  return ok ? <div className="tile-art" style={{ backgroundImage: `url(${url})` }} /> : null;
 }
 
 /** The hover text for a permanent's activated abilities: its `activated` one, and each loyalty ability (606). */
@@ -200,7 +210,7 @@ export function Permanent({ card, badge, phased }: { card: Card; badge?: Card[];
       onClick={() => !phased && clickPermanent(card)}
       {...hoverProps(d)}
     >
-      {attached.length > 0 && <Attachments cards={attached} />}
+      {attached.length > 0 && <Attachments cards={attached} host={card} />}
       <div className="tile-face">
         {artOk ? (
           <div className="tile-art" style={{ backgroundImage: `url(${d.art})` }} />
@@ -339,7 +349,7 @@ export function HandCard({
       }}
       onMouseEnter={(e) => {
         setHot(true);
-        useStore.setState({ hover: { name: d.name, d, el: e.currentTarget, hand: true } });
+        useStore.setState({ hover: { name: d.name, d, el: e.currentTarget, pinOnly: true } });
         if (!fly.flying && !held) play('hover');
       }}
       onMouseLeave={() => {
