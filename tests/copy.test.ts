@@ -8,6 +8,7 @@ import {
   activatable,
   activatedAbilities,
   addCounters,
+  addLasting,
   applyAction,
   botAction,
   canActivate,
@@ -140,6 +141,15 @@ describe('Likeness Looter becomes a copy (707.4)', () => {
     const c = byName(g, 0, LOOTER, 'hand')!;
     expect(c.copy).toBeNull();
     expect(c.copyTs).toBeUndefined();
+  });
+
+  it("loses the copy effect's exceptions with its other abilities (707.9a, 113.10)", () => {
+    let g = becomeCopyOf(looterGame(['Shivan Dragon']), 'Shivan Dragon', 6);
+    g = produce(g, (d) => addLasting(d, looter(d), { loseAll: true }));
+    const c = looter(g);
+    expect(activatedAbilities(g, c)).toEqual([]);
+    expect(stats(g, c).keywords.has('flying')).toBe(false);
+    expect(hasType(g, c, 'Dragon')).toBe(true); // still a copy: only its abilities are gone
   });
 });
 

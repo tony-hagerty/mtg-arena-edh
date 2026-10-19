@@ -3,6 +3,7 @@
 import { registerScripts } from '../engine/registry';
 import {
   addCounters,
+  grantOf,
   addEffect,
   addMana,
   allCreatures,
@@ -84,11 +85,7 @@ export const wizardPing: Trigger<TriggerEvents['onCast']> = {
 };
 
 /** A triggered ability one card gives another (613.1f), typed by its hook. */
-export const granted = <H extends TriggerHook>(hook: H, trigger: Trigger<TriggerEvents[H]>, applies?: GrantedTrigger['applies']): GrantedTrigger => ({
-  hook,
-  trigger: trigger as Trigger<never>,
-  ...(applies ? { applies } : {}),
-});
+export const granted = <H extends TriggerHook>(hook: H, trigger: Trigger<TriggerEvents[H]>): GrantedTrigger => ({ hook, trigger: trigger as Trigger<never> });
 
 /** "Enchant creature" (702.5a): the Aura spell targets the creature it will enchant (303.4a). */
 export const enchantCreature: TargetSpec = { type: 'creature', label: 'target creature' };
@@ -351,8 +348,8 @@ registerScripts({
     onEnter: jobSelect,
     // "Equipped creature gets +1/+0, has 'Whenever you cast a noncreature spell, this creature
     // deals 1 damage to each opponent,' and is a Wizard in addition to its other types."
-    static: (_g, self, c) => (self.attachedTo === c.id ? { power: 1, subtypes: ['Wizard'] } : null),
-    grants: [granted('onCast', wizardPing, (_g, self, c) => self.attachedTo === c.id)],
+    static: (_g, self, c) => (self.attachedTo === c.id ? { power: 1, subtypes: ['Wizard'], ...grantOf(self) } : null),
+    grants: [granted('onCast', wizardPing)],
     activated: equip('{3}'),
   },
   'Coalition Relic': {
@@ -458,11 +455,12 @@ registerScripts({
     // deals damage to an opponent, draw a card.' As long as enchanted creature is black, it
     // gets +1/+1 and has 'Whenever this creature deals damage to an opponent, that player
     // discards a card.'" Both apply to a blue and black creature.
-    // Two abilities, each its own effect: the colour is checked in layer 7c, after layer 5 (613.5).
+    // Two abilities, each its own effect: the colour is checked in layer 6, after layer 5 (613.5),
+    // and the same creature gets the +1/+1 in layer 7c (613.6).
     static: (g, self, c) => {
       if (self.attachedTo !== c.id) return null;
       const plus = { power: 1, toughness: 1 };
-      return [isColor(g, c, 'U') ? plus : null, isColor(g, c, 'B') ? plus : null];
+      return [isColor(g, c, 'U') ? { ...plus, ...grantOf(self, 0) } : null, isColor(g, c, 'B') ? { ...plus, ...grantOf(self, 1) } : null];
     },
     grants: [
       granted(
@@ -472,7 +470,6 @@ registerScripts({
           resolve: (g, { you }) => draw(g, you),
           text: 'Whenever this creature deals damage to an opponent, draw a card.',
         },
-        (g, self, c) => self.attachedTo === c.id && isColor(g, c, 'U'),
       ),
       granted(
         'onDamage',
@@ -481,7 +478,6 @@ registerScripts({
           resolve: (g, { player }) => player !== null && chooseToDiscard(g, player, 1),
           text: 'Whenever this creature deals damage to an opponent, that player discards a card.',
         },
-        (g, self, c) => self.attachedTo === c.id && isColor(g, c, 'B'),
       ),
     ],
   },

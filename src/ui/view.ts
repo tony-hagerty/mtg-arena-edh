@@ -47,6 +47,7 @@ import {
   permanent,
   planPayment,
   sacrificeOptions,
+  abilitiesOf,
   scriptFor,
   targetSpecs,
   maxHandSize,
@@ -400,7 +401,7 @@ const isPaying = (t: Targeting) =>
 function costOf(g: Game, t: Targeting): { cost: Cost; text: string } {
   const card = findCard(g, t.cardId)!;
   // A loyalty ability costs loyalty, not mana (606.4). A Class level bar costs mana (716.2a).
-  const script = scriptFor(card);
+  const script = t.mode === 'cast' ? scriptFor(card) : abilitiesOf(g, card);
   const me = S().human ?? card.controller;
   const ab = activatedOf(t, card);
   const cost =
@@ -632,7 +633,7 @@ export function buildView(): View {
     const card = findCard(g, t.cardId)!;
     const ok = activatable(g, me, card);
     const can = (ref: AbilityRef) => ok.some((r) => r.ability === ref.ability && (r.activated ?? 0) === (ref.activated ?? 0));
-    const script = scriptFor(card);
+    const script = abilitiesOf(g, card);
     view.glow.set(card.id, 'picked');
     // Its activated abilities don't have a cost apart from their text, which starts with it.
     const options: AbilityOption[] = [
@@ -779,7 +780,7 @@ export function buildView(): View {
     const card = findCard(g, t.cardId)!;
     const { text } = costOf(g, t);
     const plan = planFor(g, me, t);
-    const script = scriptFor(card);
+    const script = abilitiesOf(g, card);
     const ability = t.mode !== 'activate' ? undefined : t.ability === undefined ? activatedAt(g, card, t.activated) : (script.loyalty ?? script.levels)?.[t.ability];
     view.glow.set(card.id, 'picked');
     view.paying = { card, kind: ability ? 'ability' : 'spell' };
@@ -1135,7 +1136,7 @@ export function pickAbility(ref: AbilityRef) {
   if (!t || !t.pickingAbility || !g || me === null) return;
   const card = findCard(g, t.cardId)!;
   if (!activatable(g, me, card).some((r) => r.ability === ref.ability && (r.activated ?? 0) === (ref.activated ?? 0))) return;
-  const specs = ref.ability === undefined ? (activatedAt(g, card, ref.activated)?.targets ?? []) : (scriptFor(card).loyalty?.[ref.ability].targets ?? []);
+  const specs = ref.ability === undefined ? (activatedAt(g, card, ref.activated)?.targets ?? []) : (abilitiesOf(g, card).loyalty?.[ref.ability].targets ?? []);
   const next = { ...t, pickingAbility: false, ability: ref.ability, activated: ref.activated, specs };
   if (abilityHasX(g, card, ref)) chooseX(next);
   else advance(next);

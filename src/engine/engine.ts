@@ -109,6 +109,7 @@ import {
   battlefield,
   simultaneously,
   itemScript,
+  abilitiesOf,
   scriptFor,
   withoutLookahead,
   escapes,
@@ -117,7 +118,8 @@ import {
   specsFor,
   WARP,
   phaseIn,
-  borrowedFrom,
+  activatedSource,
+  itemActivated,
   activationCost,
   enterTogether,
   settleEntering,
@@ -848,7 +850,7 @@ export function maxX(g: Game, pid: PlayerId, c: Card, choices: CastChoices = {})
  */
 export function canActivate(g: Game, pid: PlayerId, c: Card, ability?: number, activated = 0, x = 0): boolean {
   if (!Number.isInteger(x) || x < 0 || (x > 0 && !abilityHasX(g, c, { ability, activated }))) return false;
-  if (ability !== undefined) return scriptFor(c).levels ? canLevelUp(g, pid, c, ability) : canActivateLoyalty(g, pid, c, ability, x);
+  if (ability !== undefined) return abilitiesOf(g, c).levels ? canLevelUp(g, pid, c, ability) : canActivateLoyalty(g, pid, c, ability, x);
   return canPayActivation(g, pid, c, activated, x) && hasTargetsFor(g, pid, c, activated, x);
 }
 
@@ -893,7 +895,7 @@ export const discardOptions = (g: Game, pid: PlayerId, c: Card): Card[] => g.pla
 
 /** Does ability `ref` of `c` have X in its cost: {X} in an activated ability's mana, or a −X loyalty ability (107.3a)? */
 export function abilityHasX(g: Game, c: Card, ref: AbilityRef): boolean {
-  const script = scriptFor(c);
+  const script = abilitiesOf(g, c);
   if (ref.ability !== undefined) return !script.levels && script.loyalty?.[ref.ability]?.cost === '-X';
   return parseCost(activatedAt(g, c, ref.activated)?.cost.mana ?? '').x > 0;
 }
@@ -925,7 +927,7 @@ const loyaltyChange = (ab: LoyaltyAbility, x: number) => (ab.cost === '-X' ? -x 
  * needs that much loyalty (606.6).
  */
 function canActivateLoyalty(g: Game, pid: PlayerId, c: Card, i: number, x = 0): boolean {
-  const ab = scriptFor(c).loyalty?.[i];
+  const ab = abilitiesOf(g, c).loyalty?.[i];
   if (!ab || c.controller !== pid || c.zone !== 'battlefield' || !timingOk(g, pid, false) || forbidden(g, pid, 'activate', c)) return false;
   if (c.loyaltyTurn === g.turn || loyaltyOf(c) + loyaltyChange(ab, x) < 0) return false;
   return (ab.targets ?? []).every((spec) => spec.optional || legalTargets(g, pid, spec, c).length > 0);
@@ -936,7 +938,7 @@ function canActivateLoyalty(g: Game, pid: PlayerId, c: Card, i: number, x = 0): 
  * only while the Class is the level just below (716.2a).
  */
 function canLevelUp(g: Game, pid: PlayerId, c: Card, i: number): boolean {
-  const bar = scriptFor(c).levels?.[i];
+  const bar = abilitiesOf(g, c).levels?.[i];
   if (!bar || c.controller !== pid || c.zone !== 'battlefield' || !timingOk(g, pid, false) || forbidden(g, pid, 'activate', c)) return false;
   return c.level === i + 1 && !!planPayment(g, pid, parseCost(bar.cost));
 }
@@ -946,7 +948,7 @@ function canLevelUp(g: Game, pid: PlayerId, c: Card, i: number): boolean {
  * ability, and its loyalty abilities (606) or Class level bars (716.2) by index.
  */
 export function activatable(g: Game, pid: PlayerId, c: Card): AbilityRef[] {
-  const script = scriptFor(c);
+  const script = abilitiesOf(g, c);
   const refs: AbilityRef[] = [
     ...activatedAbilities(g, c).map((_, i) => ({ activated: i })),
     ...(script.loyalty ?? script.levels ?? []).map((_, i) => ({ ability: i })),
@@ -1252,13 +1254,13 @@ function beginStep(g: Game, step: Step) {
       phaseIn(g, pid);
       // 502.3. Summoning sickness ends too: these have been under control since the turn began (302.6).
       for (const c of p.battlefield) {
-        if (!scriptFor(c).noUntap) c.tapped = false;
+        if (!abilitiesOf(g, c).noUntap) c.tapped = false;
         c.sick = false;
       }
       // Other players' permanents an effect untaps "during each other player's untap step" (502.3).
       for (const o of g.players) {
         if (o.id === pid || o.lost) continue;
-        for (const c of o.battlefield) if (c.tapped && battlefield(g).some((x) => scriptFor(x).untapsOthersTurn?.(g, x, c, pid))) c.tapped = false;
+        for (const c of o.battlefield) if (c.tapped && battlefield(g).some((x) => abilitiesOf(g, x).untapsOthersTurn?.(g, x, c, pid))) c.tapped = false;
       }
       // No player gets priority in the untap step (502.4).
       beginStep(g, 'upkeep');
@@ -1315,7 +1317,7 @@ function beginStep(g: Game, step: Step) {
 }
 
 /** Does a permanent say player `pid` doesn't lose this mana as steps and phases end (Electro's red mana, 500.5)? */
-const keptMana = (g: Game, pid: PlayerId, m: Mana) => battlefield(g).some((src) => scriptFor(src).keepsMana?.(g, src, pid, m));
+const keptMana = (g: Game, pid: PlayerId, m: Mana) => battlefield(g).some((src) => abilitiesOf(g, src).keepsMana?.(g, src, pid, m));
 
 /** Ends the current step or phase and begins the next. */
 function nextStep(g: Game) {
@@ -1680,7 +1682,7 @@ function resolveTop(g: Game) {
         trigger(g, cls, 'onLevel', { level: cls.level });
       }
     } else if (item.kind === 'activated') {
-      (item.ability === undefined ? activatedAt(g, card, item.activated)! : script.loyalty![item.ability]).resolve(g, ctx);
+      (item.ability === undefined ? itemActivated(item)! : script.loyalty![item.ability]).resolve(g, ctx);
     } else if (item.hook === 'onStorm') {
       // A copy for each other spell cast before it this turn (702.40a).
       const { count, item: spell } = item.event as TriggerEvents['onStorm'];
@@ -1934,7 +1936,7 @@ function flash(g: Game, c: Card, pid: PlayerId, ability?: 'triggered' | 'activat
 /** Activates Class `c`'s level bar `i`: pay its cost, and it becomes level i + 2 when the ability resolves (716.2a). */
 function activateLevel(g: Game, pid: PlayerId, c: Card, i: number, a: Extract<Action, { type: 'activate' }>): boolean {
   if (a.targets?.some(Boolean) || a.crew?.length) return false;
-  pay(g, pid, parseCost(scriptFor(c).levels![i].cost));
+  pay(g, pid, parseCost(abilitiesOf(g, c).levels![i].cost));
   g.stack.push({ id: `s${g.nextId++}`, kind: 'activated', controller: pid, card: snapshot(c), targets: [], ability: i });
   log(g, `${says(g.players[pid], 'activates')} ${label(c)}: Level ${i + 2}.`, pid, [c]);
   flash(g, c, pid, 'activated');
@@ -1988,7 +1990,7 @@ function retarget(g: Game, pid: PlayerId, choice: RetargetChoice, chosen: (Targe
  * this turn (606.3). A −X ability removes the X announced with it (107.3a).
  */
 function activateLoyalty(g: Game, pid: PlayerId, c: Card, i: number, a: Extract<Action, { type: 'activate' }>): boolean {
-  const ab = scriptFor(c).loyalty![i];
+  const ab = abilitiesOf(g, c).loyalty![i];
   const specs = ab.targets ?? [];
   const targets = specs.map((_, k) => a.targets?.[k] ?? null);
   if (!targetsOk(g, pid, c, specs, targets) || a.crew?.length) return false;
@@ -2193,7 +2195,7 @@ function act(g: Game, a: Action): boolean {
       const c = [...p.battlefield, ...p.hand].find((x) => x.id === a.card);
       const x = a.x ?? 0;
       if (!c || !canActivate(g, pid, c, a.ability, a.activated, x)) return false;
-      if (a.ability !== undefined && scriptFor(c).levels) return activateLevel(g, pid, c, a.ability, a);
+      if (a.ability !== undefined && abilitiesOf(g, c).levels) return activateLevel(g, pid, c, a.ability, a);
       if (a.ability !== undefined) return activateLoyalty(g, pid, c, a.ability, a);
       const ab = activatedAt(g, c, a.activated)!;
       const several = activatedAbilities(g, c).length > 1;
@@ -2222,8 +2224,8 @@ function act(g: Game, a: Action): boolean {
       // X is announced as it is activated (107.3a, 602.2b), and kept with the ability on the stack.
       const hasX = abilityHasX(g, c, { activated: a.activated });
       // An ability its source has from another card runs that card's script (Agatha's Soul Cauldron).
-      const lender = borrowedFrom(g, c, a.activated ?? 0);
-      const item: StackItem = { id: `s${g.nextId++}`, kind: 'activated', controller: pid, card: snapshot(c), targets, ...(a.activated && { activated: a.activated }), ...(hasX && { x }), ...(lender && { borrowed: lender }) };
+      const { from: lender, index: scriptIndex } = activatedSource(g, c, a.activated ?? 0);
+      const item: StackItem = { id: `s${g.nextId++}`, kind: 'activated', controller: pid, card: snapshot(c), targets, ...(a.activated && { activated: a.activated }), ...(scriptIndex !== (a.activated ?? 0) && { scriptIndex }), ...(hasX && { x }), ...(lender && { borrowed: lender }) };
       if (sacrificing.length) {
         item.sacrificed = sacrificing.map((x) => lastKnown(g, x!));
         item.sacrificedPower = sacrificing.map((x) => stats(g, x!).power);
@@ -2305,7 +2307,7 @@ function act(g: Game, a: Action): boolean {
       const next = [...g.combat.attacks.filter((x) => x.id !== c.id), { id: c.id, defender: a.defender, target }];
       // "No more than one creature can attack The Eternal Wanderer each combat" (508.1c).
       const attacked = target ? permanent(g, target) : undefined;
-      const most = attacked && scriptFor(attacked).maxAttackers;
+      const most = attacked && abilitiesOf(g, attacked).maxAttackers;
       if (most !== undefined && next.filter((x) => x.target === target).length > most) return false;
       if (!canPayAttacks(g, pid, next)) return false;
       const existing = g.combat.attacks.find((x) => x.id === c.id);
