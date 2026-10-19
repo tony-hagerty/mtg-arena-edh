@@ -138,18 +138,26 @@ describe('background music', () => {
     }
   });
 
-  it('opens quietly, then builds and eases off section by section', () => {
+  it('opens quietly but briefly, then builds and eases off section by section', () => {
     const bars = Array.from({ length: 200 }, composer(9).next);
-    expect(bars[0].energy).toBe(0);
-    expect(bars[0].notes.some((n) => n.voice === 'drum' || n.voice === 'bass')).toBe(false);
+    expect(bars.slice(0, 2).map((b) => b.energy)).toEqual([0, 0]);
+    expect(bars[2].energy).toBe(1);
     expect(new Set(bars.map((b) => b.energy))).toEqual(new Set([0, 1, 2]));
     for (const [i, bar] of bars.entries()) {
       if (i > 0) expect(Math.abs(bar.energy - bars[i - 1].energy)).toBeLessThanOrEqual(1);
-      expect(bar.notes.some((n) => n.voice === 'drum')).toBe(bar.energy >= 1);
+      // A beat in every bar, even the quiet ones; the shaker only at the busiest.
+      expect(bar.notes.some((n) => n.voice === 'drum' && n.at === 0)).toBe(true);
+      expect(bar.notes.some((n) => n.voice === 'bass' && n.at === 0)).toBe(true);
       expect(bar.notes.some((n) => n.voice === 'shaker')).toBe(bar.energy === 2);
-      // The harp keeps every downbeat.
-      for (let b = 0; b < BEATS; b += 2) expect(bar.notes.some((n) => n.voice === 'harp' && Math.abs(n.at - b * bar.beat) < 1e-9)).toBe(true);
     }
+  });
+
+  it('plays the harp now and then, not all the time', () => {
+    const bars = Array.from({ length: 200 }, composer(3).next);
+    const harped = bars.filter((b) => b.notes.some((n) => n.voice === 'harp')).length;
+    expect(harped).toBeGreaterThan(0);
+    expect(harped).toBeLessThan(bars.length / 2);
+    for (const bar of bars) expect(bar.notes.filter((n) => n.voice === 'harp').length).toBeLessThanOrEqual(4);
   });
 
   it('turns MIDI notes into pitches', () => {
