@@ -206,8 +206,12 @@ app as in the tests. What keeps it fast, and what to keep in mind when changing 
 - **An untouched draft is its finished game.** Until a draft changes, `untouched(g)` gives
   the game it came from, and the legality checks at the start of an action (`canCast`,
   `canActivate`, `legalTargets` and a few more) ask that game instead.
+- **A plain copy for a big read inside a draft.** Where a step that has already changed the
+  draft must read a lot (planning a payment in `pay`, checking targets again in
+  `resolveTop`), it reads `current(g)`, a plain copy, and uses ids from it.
 - **`settled(g, fn)`** keeps each permanent's characteristics while `fn` only reads `g`; wrap
-  a read-only pass over many permanents in it.
+  a read-only pass over many permanents in it. For a frozen game what it works out is kept
+  for good.
 - **A bot's trial moves** (`simulate`, `withoutLookahead`) skip auto-pay's lookahead and the
   log.
 
