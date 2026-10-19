@@ -621,3 +621,52 @@ describe('token makers and replacement effects', () => {
     expect(g.players[1].hand).toHaveLength(0);
   });
 });
+
+describe('Giggling Skitterspike', () => {
+  it('deals damage equal to its power to each opponent when it attacks', () => {
+    let g = emptyGame((d) => {
+      put(d, 0, 'Giggling Skitterspike');
+    });
+    g = run(g, pass, { type: 'declareAttack', card: byName(g, 0, 'Giggling Skitterspike')!.id, defender: 1 }, pass);
+    g = until(g, (x) => x.players[2].life < 40);
+    expect(g.players.map((p) => p.life).slice(2)).toEqual([39, 39]);
+  });
+
+  it('when it blocks', () => {
+    let g = emptyGame((d) => {
+      put(d, 1, 'Giggling Skitterspike');
+      put(d, 0, 'Psychic Frog');
+      put(d, 1, 'Plains', 'battlefield', 5);
+    });
+    g = produce(g, (d) => {
+      const s = d.players[1].battlefield[0];
+      s.counters['+1/+1'] = 2;
+    });
+    g = run(g, pass, { type: 'declareAttack', card: byName(g, 0, 'Psychic Frog')!.id, defender: 1 }, pass);
+    while (g.step !== 'blockers') g = run(g, pass);
+    g = run(g, { type: 'declareBlock', blocker: byName(g, 1, 'Giggling Skitterspike')!.id, attacker: byName(g, 0, 'Psychic Frog')!.id });
+    g = until(g, (x) => x.players[0].life < 40);
+    expect([g.players[0].life, g.players[2].life, g.players[3].life]).toEqual([37, 37, 37]);
+  });
+
+  it('when it becomes the target of a spell; Monstrosity 5 only once', () => {
+    let g = emptyGame((d) => {
+      put(d, 0, 'Giggling Skitterspike');
+      put(d, 0, 'Plains', 'battlefield', 10);
+      put(d, 1, 'Bitter Triumph', 'hand');
+      put(d, 1, 'Swamp', 'battlefield', 2);
+      d.priority = 1;
+    });
+    const s = byName(g, 0, 'Giggling Skitterspike')!;
+    g = settle(run(g, cast(g, 'Bitter Triumph', { extra: 1, targets: [card(s)] }, 'hand', 1)));
+    // Indestructible: it survives, and dealt 1 to each opponent.
+    expect(byName(g, 0, 'Giggling Skitterspike')).toBeDefined();
+    expect(g.players.map((p) => p.life)).toEqual([40, 36, 39, 39]);
+    g = settle(run(g, { type: 'activate', card: s.id }));
+    g = settle(run(g, { type: 'activate', card: s.id }));
+    const after = byName(g, 0, 'Giggling Skitterspike')!;
+    expect(after.monstrous).toBe(true);
+    expect(counterCount(after)).toBe(5);
+    expect(stats(g, after).power).toBe(6);
+  });
+});

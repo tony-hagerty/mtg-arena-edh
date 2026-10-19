@@ -1465,6 +1465,11 @@ function blockersDeclared(g: Game) {
       log(g, `${label(c)} is blocked by ${blockers.map(label).join(', ')}.`, a.defender, [c, ...blockers]);
     }
   }
+  // "Whenever this creature blocks" triggers once for each blocker, however many it blocks (509.3a).
+  for (const id of new Set(g.combat!.attacks.flatMap((a) => a.blockers))) {
+    const b = permanent(g, id);
+    if (b) trigger(g, b, 'onBlock', {});
+  }
   g.decision = null;
   g.priority = firstPriority(g); // 509.2
 }

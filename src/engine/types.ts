@@ -364,6 +364,8 @@ export interface Card {
   known: PlayerId[];
   /** A choice made as it entered, such as Cavern of Souls's creature type (614.12a). */
   chosen: string | null;
+  /** Monstrous (701.37b): a designation, kept until it leaves the battlefield. */
+  monstrous?: boolean;
   /** Cards an ability of it exiled, for the ability linked to it (607), like Chrome Mox's. */
   linked: { id: string; moves: number }[];
   /**
@@ -1164,6 +1166,8 @@ export interface TriggerEvents {
   onEnter: object;
   onDies: object;
   onAttack: { defender: PlayerId; target: string | null };
+  /** "Whenever this creature blocks": once each combat, however many it blocks (509.3a). */
+  onBlock: object;
   onCombatDamageToPlayer: { player: PlayerId; amount: number };
   // Table-wide triggers: every permanent on the battlefield that defines one is asked.
   onCreatureEnters: { entered: Card };
@@ -1701,5 +1705,5 @@ export interface CardScript extends Triggers {
 /** Hooks that every permanent on the battlefield hears, not only the card the event is about. */
 export type BroadcastHook = Exclude<
   TriggerHook,
-  'onEnter' | 'onDies' | 'onAttack' | 'onCombatDamageToPlayer' | 'onDefeat' | 'onChapter' | 'onLevel' | 'onStorm' | 'onDelayed' | 'onTapped' | 'onWard' | 'onLeave' | 'onCounters' | 'onReflexive' | 'onEvoked' | 'onOffspring'
+  'onEnter' | 'onDies' | 'onAttack' | 'onBlock' | 'onCombatDamageToPlayer' | 'onDefeat' | 'onChapter' | 'onLevel' | 'onStorm' | 'onDelayed' | 'onTapped' | 'onWard' | 'onLeave' | 'onCounters' | 'onReflexive' | 'onEvoked' | 'onOffspring'
 >;

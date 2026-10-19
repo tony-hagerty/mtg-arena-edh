@@ -64,12 +64,13 @@ import {
   protectionFromType,
   firstDrawInDrawStep,
   transform,
+  monstrosity,
 } from '../engine/rules';
 import type { Card, CardScript, Game, Mode, PlayerId, TargetRef, TargetSpec, TokenSpec } from '../engine/types';
 import { cardData } from './db';
 import { exileTop } from './kraum-tymna';
 import { payThreeLand } from './ketramose';
-import { isOpponent } from './yshtola';
+import { damageEachOpponent, isOpponent } from './yshtola';
 
 // ---------- pieces ----------
 
@@ -223,6 +224,15 @@ const MONUMENT_MODES: Mode[] = [
   },
 ];
 
+// ---------- Giggling Skitterspike ----------
+
+const SKITTER = 'Whenever this creature attacks, blocks, or becomes the target of a spell, it deals damage equal to its power to each opponent.';
+/** Giggling Skitterspike deals damage equal to its power to each opponent: the permanent, or as it last was. */
+const skitter = (g: Game, self: Card, you: PlayerId) => {
+  const c = still(g, self) ?? self;
+  damageEachOpponent(g, c, you, stats(g, c).power);
+};
+
 // ---------- Hashaton ----------
 
 /** Hashaton's token: a copy of the discarded card, "except it's a 4/4 black Zombie" (707.9b). */
@@ -318,6 +328,21 @@ registerScripts({
       c.id !== self.id && c.controller === self.controller && isCreature(g, c) ? { power: 2, toughness: 2 } : null,
       isOpponent(g, self.controller, c.controller) && isCreature(g, c) ? { power: -2, toughness: -2 } : null,
     ],
+  },
+  'Giggling Skitterspike': {
+    // Indestructible is the engine's. "Whenever this creature attacks, blocks, or becomes the
+    // target of a spell, it deals damage equal to its power to each opponent." Its power as the
+    // ability resolves, or as it last was on the battlefield (608.2h). It blocks once a combat
+    // however many it blocks (509.3a); an ability targeting it doesn't count.
+    onAttack: { resolve: (g, ctx) => skitter(g, ctx.self, ctx.you), text: SKITTER },
+    onBlock: { resolve: (g, ctx) => skitter(g, ctx.self, ctx.you), text: SKITTER },
+    onBecomesTarget: {
+      when: (g, { self, target, item }) => target.id === self.id && g.stack.find((x) => x.id === item)?.kind === 'spell',
+      resolve: (g, ctx) => skitter(g, ctx.self, ctx.you),
+      text: SKITTER,
+    },
+    // "{5}: Monstrosity 5." (701.37a)
+    activated: monstrosity(5, '{5}'),
   },
   'Kitsa, Otterball Elite': {
     onCast: prowess,
