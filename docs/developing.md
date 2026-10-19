@@ -154,6 +154,24 @@ A wider or taller window gets extra `rem` on that side instead of empty bars. So
 things from an edge or the middle (`right: 2rem`, `top: calc(100% - 12rem)`), not from a
 fixed spot on a 192 × 108 grid.
 
+### Colours and the table's look
+
+`styles.css` opens with the design tokens on `:root`: surfaces (`--board`, `--panel`,
+`--raised`, `--sunken`), text shades, the gold accent, the action colours (`--play` cyan
+for what can be played, `--target` yellow for what can be chosen, `--attack`, `--block`),
+lines, shadows and radii. Use them rather than new literal colours; the comment above them
+says what each is for. The card frame colours (`--f-W` to `--f-land`) double as each
+deck's seat colour.
+
+- **Seats** are mats (`.opp::before`, and `.seat-mat.me-mat` for yours) running off their
+  own edge, with the deck colour at that edge; they turn gold on that player's turn.
+- **Tiles** take their size from `--tw` (the row sets it; the tile's font-size is a tenth
+  of it), so a tile's parts are sized in `em`, with `rem` floors on text that must stay
+  readable. A pile shows `PILE_STEP` (Board.tsx) of each card under its top one; keep the
+  CSS overlap in step with it.
+- **Back rows** go onto two lines when that gives bigger tiles (`BackRow`'s `depth`).
+- **The card back** is one SVG in `--card-back`, used wherever a card is face down.
+
 ## Adding a card
 
 1. Add its name to a deck in `src/cards/decklists.json`. A deck lists `commanders` (one,
