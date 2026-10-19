@@ -197,6 +197,7 @@ export function Permanent({ card, badge, phased }: { card: Card; badge?: Card[];
         card.tapped && 'tapped',
         attacking && 'attacking',
         blocking && 'blocking',
+        sick && 'sick',
         card.isCommander && 'commander',
         v.mana.has(card.id) && 'mana-source',
         glow && `glow-${glow}`,

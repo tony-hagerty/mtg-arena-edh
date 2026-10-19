@@ -48,7 +48,7 @@ The full guide to the game's screens and controls. For a quick start, see the
   1. **Targets.** Legal targets are highlighted in **yellow**. Click one.
   2. **Pay.** The prompt shows the cost and the lands auto-pay would tap glow. Press
      **Pay** to confirm, or tap lands yourself: the spell is cast as soon as your mana
-     covers the cost.
+     covers the cost. **Cancel** and the **Hold priority** box sit in a row above Pay.
 
   Until it is paid for nothing has happened. The spell isn't on the stack, and Cancel
   untaps any lands you tapped while paying, so you are back exactly where you were.
@@ -78,8 +78,9 @@ The full guide to the game's screens and controls. For a quick start, see the
   ability flies back into the permanent it came from, and the log lines it wrote flash
   gold. A new token flares as it appears. At a higher **Speed** the flights are quicker,
   and with your system set to reduce motion cards just appear where they go.
-- With the stack empty, the game passes for you except at your **stops**. The tracker in
-  the bottom right shows them:
+- With the stack empty, the game passes for you except at your **stops**. The tracker on
+  the controls' plate in the bottom right shows them: a strip of the turn's parts, the
+  current one lit, with the turn and step written under it and the big button below:
 
   | Mark under a step | Meaning              |
   | ----------------- | -------------------- |
@@ -90,7 +91,7 @@ The full guide to the game's screens and controls. For a quick start, see the
   Click a step to cycle it: no stop, ring, dot, no stop. A pip that covers several steps
   (beginning, combat, end) opens one button per step. The untap and cleanup steps can't
   hold a stop: nobody gets priority there (502.4, 514.3).
-- The arrows beside the tracker are the seats (down is you). Click one to see
+- The dial of arrows on the left of the plate, beside the tracker, is the seats (down is you). Click one to see
   and edit the stops for that player's turns; the tracker takes their deck colour. Click
   it again to go back to the current turn. Your turns show orange, everyone else's blue.
 - Default stops (your stops are saved in the browser):
