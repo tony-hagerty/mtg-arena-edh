@@ -2,7 +2,7 @@
 // Immer draft of one; turn structure and action handling live in engine.ts.
 import { CREATURE_TYPES, cardData } from '../cards/db';
 import { current, isDraft } from 'immer';
-import { anyGrantFor, scriptOf } from './registry';
+import { NO_SCRIPT, anyGrantFor, scriptOf } from './registry';
 import { anyGrantingStatic, characteristics, hasOwnAbilities, heldMemo, inBase, mayHaveScript, mayLoseAbilities, settled, staticRemoval, typesOf, untouched } from './layers';
 import { replace, whileArriving } from './replace';
 import type {
@@ -206,6 +206,8 @@ function copyData(copy: CopyInfo): CardData {
  */
 export function scriptFor(c: Card, zone = c.zone, face = c.face): CardScript {
   if (c.copy && zone === 'battlefield') return scriptOf(faceData(cardData(c.copy.name), 'battlefield', c.copy.face).name);
+  // A card played without its rules text (`Card.textless`) is a vanilla card: its printed keywords and nothing else.
+  if (c.textless) return NO_SCRIPT;
   const d = cardData(c.name);
   return scriptOf(d.faces ? faceData(d, zone, face).name : c.name);
 }

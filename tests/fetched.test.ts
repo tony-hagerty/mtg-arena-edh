@@ -134,8 +134,12 @@ describe('a pasted deck with fetched cards', () => {
     await fetchCards(['Morbid Opportunist'], { fetch: fakeScryfall([WARDEN]) });
     expect(hasScript('Morbid Opportunist')).toBe(false);
     const check = checkList('Commander\n1 Lyra Dawnbringer\n\nDeck\n1 Morbid Opportunist', null, '', 'x');
-    expect(check.problems).toContain('Morbid Opportunist: the game can\'t read "Whenever one or more other creatures die, draw a card. This ability triggers only once each turn." yet.');
-    expect(check.deck).toBeNull();
+    // Listed apart from the save problems, with the clause: it no longer stops the deck being saved.
+    expect(check.refused).toMatchObject([
+      { name: 'Morbid Opportunist', heading: '“Whenever one or more other creatures die, draw a card. This ability triggers only once each turn.”', noTextless: null, textless: false },
+    ]);
+    expect(check.problems.some((p) => p.includes("can't read"))).toBe(false);
+    expect(check.deck).toBeNull(); // a two-card deck
     const req = requestFor('Morbid Opportunist', new Date('2026-10-15T12:00:00Z'));
     expect(req).toEqual({
       name: 'Morbid Opportunist',

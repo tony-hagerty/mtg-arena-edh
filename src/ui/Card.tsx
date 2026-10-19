@@ -202,6 +202,7 @@ export function Permanent({ card, badge, phased }: { card: Card; badge?: Card[];
         v.mana.has(card.id) && 'mana-source',
         glow && `glow-${glow}`,
         phased && 'phased-out',
+        card.textless && 'textless',
       )}
       title={phased ? 'Phased out until its controller\'s next untap step' : undefined}
       initial={{ opacity: 0, scale: 0.6 }}
@@ -209,7 +210,7 @@ export function Permanent({ card, badge, phased }: { card: Card; badge?: Card[];
       exit={{ opacity: 0, scale: 0.4, transition: { duration: 0.3 } }}
       transition={SPRING}
       onClick={() => !phased && clickPermanent(card)}
-      {...hoverProps(d)}
+      {...hoverProps(d, { textless: card.textless })}
     >
       {attached.length > 0 && <Attachments cards={attached} host={card} />}
       <div className="tile-face">
@@ -253,6 +254,7 @@ export function Permanent({ card, badge, phased }: { card: Card; badge?: Card[];
         {sick && <i className="tile-sick ms ms-ability-summoning-sickness" title="Summoning sick" />}
         {(activatedAbilities(g, card).length > 0 || abilitiesOf(g, card).loyalty) && <div className="tile-ability" title={abilityText(g, card)} />}
         {card.tapped && <div className="tile-tapmark" />}
+        {card.textless && <TextlessBadge />}
         {badge && (
           <div
             className="tile-badge"
@@ -269,6 +271,13 @@ export function Permanent({ card, badge, phased }: { card: Card; badge?: Card[];
     </motion.div>
   );
 }
+
+/** A card played without its rules text (`Card.textless`): a small plain mark, on its tile and in the hand. */
+const TextlessBadge = () => (
+  <div className="textless-badge" title="Played without its rules text: the game can't read it yet, so it is a plain card here">
+    no text
+  </div>
+);
 
 /** How far up (rem) a hand card must be dragged before letting go plays it. */
 const PLAY_PULL = 9;
@@ -351,7 +360,7 @@ export function HandCard({
       }}
       onMouseEnter={(e) => {
         setHot(true);
-        useStore.setState({ hover: { name: d.name, d, el: e.currentTarget, pinOnly: true } });
+        useStore.setState({ hover: { name: d.name, d, el: e.currentTarget, pinOnly: true, ...(card.textless && { textless: true }) } });
         if (!fly.flying && !held) play('hover');
       }}
       onMouseLeave={() => {
@@ -361,7 +370,7 @@ export function HandCard({
       onClick={() => (glow === 'target' || (v.paying && v.mana.has(card.id))) && playHandCard(card)}
     >
       <motion.div
-        className={cx('hand-card', glow && `glow-${glow}`, held?.armed && glow && 'armed')}
+        className={cx('hand-card', glow && `glow-${glow}`, held?.armed && glow && 'armed', card.textless && 'textless')}
         style={{ originY: 1, transformPerspective: 120 * rem }}
         initial={fly.start ? { opacity: 1, rotateY: 180, ...fly.start } : { opacity: 0, y: 8 * rem }}
         animate={{ opacity: 1, rotateY: 0, ...pose }}
@@ -370,6 +379,7 @@ export function HandCard({
       >
         {fly.flying && <div className="card-back" />}
         <CardImage d={d} draggable={false} />
+        {card.textless && <TextlessBadge />}
         {d.manaCost && (
           <div className="hand-cost">
             <ManaCost cost={d.manaCost} />

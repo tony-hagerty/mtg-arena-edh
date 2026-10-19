@@ -173,6 +173,16 @@ import type {
 /** The five colours, by mana symbol (105.1), for naming a colour. */
 const COLORS = ['W', 'U', 'B', 'R', 'G'];
 
+/**
+ * The log's note the first time a card played without its rules text (`Card.textless`) is
+ * cast or played, so nobody at the table expects its text to work. Empty after that.
+ */
+function textlessNote(c: Card): string {
+  if (!c.textless || c.textlessNoted) return '';
+  c.textlessNoted = true;
+  return " (its rules text doesn't work here)";
+}
+
 // ---------- setup ----------
 
 /** One seat at the table: the deck played there, and who plays it. */
@@ -275,7 +285,9 @@ export function newGame(opts: NewGameOptions): Game {
     };
     // Every commander starts in the command zone, both partners included (903.6, 702.124b).
     for (const name of deck.commanders) p.command.push(makeCard(g, name, seat, 'command', { isCommander: true }));
-    p.library = deckLibrary(deck).map((name) => makeCard(g, name, seat, 'library'));
+    // Cards the deck plays without their rules text (`Card.textless`); a commander never is.
+    const textless = new Set(deck.textless ?? []);
+    p.library = deckLibrary(deck).map((name) => makeCard(g, name, seat, 'library', textless.has(name) ? { textless: true } : {}));
     shuffle(g, p.library); // 103.3
     drawHand(p);
     g.players.push(p);
@@ -2184,7 +2196,7 @@ function act(g: Game, a: Action): boolean {
       p.landsPlayed++;
       // A modal double-faced card is played as one of its land faces (712.12).
       const face = a.face ?? landFaces(g, c)[0];
-      log(g, `${says(p, 'plays')} ${label(c)}.`, pid, [c]);
+      log(g, `${says(p, 'plays')} ${label(c)}${textlessNote(c)}.`, pid, [c]);
       enterBattlefield(g, c, { face, controller: pid, quiet: true });
       g.passes = 0; // the player keeps priority after a special action (117.3c)
       // A choice made as it enters, like Cavern of Souls's creature type (614.12a).
@@ -2313,7 +2325,7 @@ function act(g: Game, a: Action): boolean {
             .join(', '),
       ].filter(Boolean);
       const details = (how.length ? ` (${how.join(', ')})` : '') + (chosen.length ? ` targeting ${chosen.join(' and ')}` : '');
-      log(g, `${says(p, 'casts')} ${label(c)}${details}.`, pid, [c, ...refCards(g, targets)]);
+      log(g, `${says(p, 'casts')} ${label(c)}${details}${textlessNote(c)}.`, pid, [c, ...refCards(g, targets)]);
       flash(g, c, pid);
       if (sacrificed.length) dieMany(g, sacrificed, 'is sacrificed'); // an additional cost, paid with the rest (601.2h)
       // Cards exiled for the cost are exiled together, as one event (601.2h).

@@ -3,7 +3,9 @@ import type { CardScript } from './types';
 // Scripts register themselves here so rules.ts can look them up without importing
 // scripts.ts (which itself imports rules.ts).
 const SCRIPTS: Record<string, CardScript> = {};
-const NONE: CardScript = {};
+/** The empty script: a card that does only what its printed keywords say. */
+export const NO_SCRIPT: CardScript = {};
+const NONE = NO_SCRIPT;
 /** The names whose scripts have a static ability, so the layers can skip the rest quickly. */
 const STATIC = new Set<string>();
 /** The names whose scripts' static abilities can take abilities away (`CardScript.removesAbilities`). */
