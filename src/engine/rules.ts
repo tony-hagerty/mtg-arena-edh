@@ -2010,7 +2010,7 @@ const SECOND_PERSON: Record<string, string> = {
 export const verbFor = (p: Player, verb: string) => (p.you ? (SECOND_PERSON[verb] ?? verb) : verb);
 
 /** Subject + verb for the log: "Cinder casts", or "You cast" for `Player.you`. */
-export const says = (p: Player, verb: string) => `${p.name} ${verbFor(p, verb)}`;
+export const says = (p: Player, verb: string) => `${p.you ? 'You' : p.name} ${verbFor(p, verb)}`;
 
 /** The possessive for this player in the log: "their", or "your" for `Player.you`. */
 export const their = (p: Player) => (p.you ? 'your' : 'their');

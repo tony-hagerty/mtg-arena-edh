@@ -98,6 +98,17 @@ The full guide to the game's screens and controls. For a quick start, see the
     and after blockers are declared.
   - **Other turns:** if you can act, in the upkeep, after attackers (only once something
     attacks) and blockers are declared, and in the end step.
+- When a ring stop or an opponent's spell stops the game only because you could act, the
+  prompt says what you could do ("You could cast Solitude"). A card you can always cast,
+  like Solitude with a white card to exile for its evoke cost, stops you at every ring.
+  The **Next** button says the step it will really stop at.
+- **Full control** (`Ctrl+Shift`): the game stops for you every time you get priority, on
+  every turn, with the stack empty or not (never in untap or cleanup, where nobody gets
+  priority), and **Hold priority** starts ticked, so you keep priority after each spell
+  or ability you cast; untick it to let one go. A small **Full control** tag beside the
+  turn under the tracker shows it is on, and the prompt starts "Full control." where
+  nothing else would have stopped. Press `Ctrl+Shift` again, or click the tag, to go back
+  to your stops. It lasts until you turn it off or close the page.
 
 ## Your commander
 
@@ -163,6 +174,7 @@ The full guide to the game's screens and controls. For a quick start, see the
 | `Space` / `Enter` | the big button |
 | `Esc` | cancel |
 | `Ctrl+Space` | hold priority (see [Turns, priority and the stack](rules-coverage.md#turns-priority-and-the-stack)) |
+| `Ctrl+Shift` (the two alone, then let go) | full control on or off (see [The stack and your stops](#the-stack-and-your-stops)) |
 | Hover a card | full-size view |
 | Right-click a card (in your hand, on the stack, on a graveyard or exile pile, or in the window that opens from one) | bigger view that stays up; left-click off it to close (over that window, the first click closes the view and the next the window) |
 | Click a graveyard or exile pile | look through it; hovering the pile shows its top card |

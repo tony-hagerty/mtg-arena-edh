@@ -1071,7 +1071,7 @@ export interface Game {
    * `answers`, plus the new one, once they answer. The decision and priority it stopped from
    * are restored first.
    */
-  replay?: { action: Action; autoPass: boolean; stops?: unknown; answers: number[]; decision: Decision | null; priority: PlayerId };
+  replay?: { action: Action; autoPass: boolean; stops?: unknown; fullControl?: PlayerId[]; answers: number[]; decision: Decision | null; priority: PlayerId };
   entering?: {
     id: string;
     ready: { id: string; moves: number; opts: object }[];

@@ -39,8 +39,11 @@ export function GameScreen() {
   const attackTarget = useStore((s) => s.attackTarget);
   const pickedBlockers = useStore((s) => s.pickedBlockers);
   const speed = useStore((s) => s.speed);
+  // The stops and full control change the prompt and where the Next button says it goes.
+  const stops = useStore((s) => s.stops);
+  const fullControl = useStore((s) => s.fullControl);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  const view = useMemo(buildView, [game, human, targeting, attackTarget, pickedBlockers]);
+  const view = useMemo(buildView, [game, human, targeting, attackTarget, pickedBlockers, stops, fullControl]);
 
   // Bot driver: whenever a bot has the decision, let it act after a short, readable pause.
   useEffect(() => {

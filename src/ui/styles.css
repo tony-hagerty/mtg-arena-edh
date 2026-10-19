@@ -1533,6 +1533,22 @@ button {
   color: color-mix(in srgb, var(--phase) 45%, #d4dbe9);
 }
 
+/* Full control is on (Ctrl+Shift): small, but plain to see. Clicking turns it off. */
+.full-control {
+  margin-left: 0.6rem;
+  padding: 0.1rem 0.6rem;
+  font: 700 1rem 'Segoe UI', sans-serif;
+  letter-spacing: 0.08rem;
+  text-transform: uppercase;
+  vertical-align: 0.15rem;
+  color: #1a1206;
+  background: #ffc163;
+  border: none;
+  border-radius: 0.6rem;
+  box-shadow: 0 0 0.8rem rgba(255, 170, 60, 0.6);
+  cursor: pointer;
+}
+
 /* A pip covering several steps, split into one button per step. */
 .step-split {
   position: absolute;

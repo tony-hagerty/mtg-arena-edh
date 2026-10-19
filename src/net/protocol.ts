@@ -13,6 +13,8 @@ export interface SeatPrefs {
   stops?: Stops;
   /** They divide combat damage by hand (`Player.manualDamage`). */
   manualDamage?: boolean;
+  /** Full control: the game stops for them every time they get priority (`ApplyOptions.fullControl`). */
+  fullControl?: boolean;
 }
 
 /** POST `${API}/start`: a new game, in place of any game in progress. */

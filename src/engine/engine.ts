@@ -1082,6 +1082,22 @@ export function canAct(g: Game, pid: PlayerId): boolean {
   return settled(g, () => canActNow(g, pid));
 }
 
+/**
+ * What the player with priority could do besides pass, as in `canAct`: the cards they could
+ * cast, the lands they could play and the cards whose abilities they could activate. For
+ * saying why the game stopped for them.
+ */
+export function actionsFor(g: Game, pid: PlayerId): { cast: Card[]; play: Card[]; activate: Card[] } {
+  return settled(g, () => {
+    const p = g.players[pid];
+    return {
+      cast: castableCards(g, pid).filter((c) => canCast(g, pid, c)),
+      play: [...p.hand, ...g.players.flatMap((o) => o.exile)].filter((c) => canPlayLand(g, pid, c)),
+      activate: [...p.battlefield, ...p.hand].filter((c) => activatable(g, pid, c).length > 0),
+    };
+  });
+}
+
 function canActNow(g: Game, pid: PlayerId): boolean {
   const p = g.players[pid];
   return (
@@ -1125,43 +1141,48 @@ export const defaultStops = (pid: PlayerId, players = 4): Stops =>
  *  - with the stack empty: at their stops (see `StopKind`), `defaultStops` unless given.
  *    A stop in declare attackers only counts once something attacks.
  *  - after casting or activating with `hold`: until they act again
+ *  - in full control (`full`): every time they get priority, stack or not (see `ApplyOptions.fullControl`)
  * `applyAction(g, a, { autoPass: false })` turns it off.
  */
-export function wantsPriority(g: Game, pid: PlayerId, stops?: Stops): boolean {
+export function wantsPriority(g: Game, pid: PlayerId, stops?: Stops, full = false): boolean {
   const top = g.stack[g.stack.length - 1];
+  if (full) return true;
   // A player holding priority keeps it, to respond to their own spell (117.3c).
   if (top && g.holding === pid) return true;
   if (top) return top.controller !== pid && canAct(g, pid);
   if (g.step === 'attackers' && !g.combat?.attacks.length) return false;
-  const stop = (stops?.[g.active] ?? (g.active === pid ? OWN_TURN_STOPS : OTHER_TURN_STOPS))[g.step];
-  return stop === 'always' || (stop === 'ifAble' && canAct(g, pid));
+  return stopsAt(g, pid, stops, g.step);
+}
+
+/** The stop `pid` has in `step` of this turn, as in `wantsPriority`: none, or `ifAble` while they can't act, is false. */
+function stopsAt(g: Game, pid: PlayerId, stops: Stops | undefined, step: Step): boolean {
+  const stop = (stops?.[g.active] ?? (g.active === pid ? OWN_TURN_STOPS : OTHER_TURN_STOPS))[step];
+  return stop === 'always' || (!!stop && canAct(step === g.step && g.priority === pid ? g : { ...g, step, priority: pid }, pid));
 }
 
 /**
  * Where the game will next stop for `pid` this turn if they pass now with the stack empty:
  * their next stop (as in `wantsPriority`), or declaring attackers on their own turn. Null:
- * none left this turn.
+ * none left this turn. In full control (`full`), the next step anyone gets priority in.
  * A forecast: what other players do before then can change it.
  */
-export function nextStop(g: Game, pid: PlayerId, stops?: Stops): Step | null {
-  const turnStops = stops?.[g.active] ?? (g.active === pid ? OWN_TURN_STOPS : OTHER_TURN_STOPS);
+export function nextStop(g: Game, pid: PlayerId, stops?: Stops, full = false): Step | null {
   const mine = g.active === pid;
   // Before attackers are declared, whether anyone attacks is a guess: on your turn, if you can;
   // on another's, if they have something to attack with.
   let attacks = (g.combat?.attacks.length ?? 0) > 0;
   for (const step of STEP_ORDER.slice(STEP_ORDER.indexOf(g.step) + 1)) {
+    // Nobody gets priority in the cleanup step (514.3).
     if (step === 'cleanup') break;
     if (step === 'attackers') {
       attacks = attackCandidates(g, g.active).length > 0;
-      // Declaring attackers is a choice, not a stop (508.1).
-      if (mine && attacks) return step;
+      // Declaring attackers is a choice, not a stop (508.1). The active player gets priority afterwards (508.2).
+      if ((mine && attacks) || full) return step;
       if (!attacks) continue;
     }
     // With no attackers, declare blockers and combat damage are skipped (508.8).
     if ((step === 'blockers' || step === 'damage') && !attacks) continue;
-    const stop = turnStops[step];
-    if (stop === 'always') return step;
-    if (stop && canAct({ ...g, step, priority: pid }, pid)) return step;
+    if (full || stopsAt(g, pid, stops, step)) return step;
   }
   return null;
 }
@@ -2684,9 +2705,10 @@ function act(g: Game, a: Action): boolean {
  * Runs the game forward until it needs a player. Each time a player would get priority,
  * state-based actions are checked and waiting triggered abilities go on the stack, until
  * neither does anything more (117.5). Then that player gets priority, or it is passed for
- * them (see `wantsPriority`).
+ * them (see `wantsPriority`). `released`: a player in full control who has just cast or
+ * activated without `hold`, so it passes for them this once as it would without full control.
  */
-function settle(g: Game, autoPass: boolean, stops: ApplyOptions['stops'] = {}) {
+function settle(g: Game, autoPass: boolean, stops: ApplyOptions['stops'] = {}, fullControl: PlayerId[] = [], released: PlayerId | null = null) {
   for (let guard = 0; guard < 5000; guard++) {
     // A spell or ability is waiting on a choice partway through resolving. Nothing else
     // happens until it has finished, not even state-based actions (608.2).
@@ -2701,8 +2723,10 @@ function settle(g: Game, autoPass: boolean, stops: ApplyOptions['stops'] = {}) {
     if (g.decision) return;
     if (putTriggerOnStack(g)) continue;
     if (g.players[g.priority].lost) g.priority = nextLiving(g, g.priority);
-    if (!autoPass || wantsPriority(g, g.priority, stops[g.priority])) return;
+    const full = fullControl.includes(g.priority) && released !== g.priority;
+    if (!autoPass || wantsPriority(g, g.priority, stops[g.priority], full)) return;
     passPriority(g);
+    released = null;
   }
 }
 
@@ -2711,11 +2735,17 @@ export interface ApplyOptions {
   autoPass?: boolean;
   /** Players' own stops, by player id. Anyone left out gets `defaultStops`. */
   stops?: Partial<Record<PlayerId, Stops>>;
+  /**
+   * Players in full control: the game stops for them every time they get priority, with the
+   * stack empty or not, and they keep it after casting or activating unless they act without
+   * `hold`. People only: a UI setting, like the stops.
+   */
+  fullControl?: PlayerId[];
   /** A bot is only trying the move out: auto-pay skips its lookahead to stay fast (see `pay`). */
   simulate?: boolean;
 }
 
-export function applyAction(g: Game, a: Action, { autoPass = true, stops, simulate }: ApplyOptions = {}): Game {
+export function applyAction(g: Game, a: Action, { autoPass = true, stops, fullControl, simulate }: ApplyOptions = {}): Game {
   // A person choosing about replacement effects (616.1): the action they stopped is applied
   // again from where it began, with their answer.
   if (g.decision?.type === 'replacement') {
@@ -2726,17 +2756,20 @@ export function applyAction(g: Game, a: Action, { autoPass = true, stops, simula
       d.priority = r.priority;
       delete d.replay;
     });
-    return attempt(before, r.action, r.autoPass, r.stops as ApplyOptions['stops'], [...r.answers, a.option], simulate);
+    return attempt(before, r.action, { autoPass: r.autoPass, stops: r.stops as ApplyOptions['stops'], fullControl: r.fullControl }, [...r.answers, a.option], simulate);
   }
   if (a.type === 'replacement') return g;
-  return attempt(g, a, autoPass, stops, [], simulate);
+  return attempt(g, a, { autoPass, stops, fullControl }, [], simulate);
 }
 
 /** Applies `a`, with these answers to the replacement questions it asks (`NeedsChoice`); stops to ask the next one. */
-function attempt(g: Game, a: Action, autoPass: boolean, stops: ApplyOptions['stops'], answers: number[], simulate?: boolean): Game {
+function attempt(g: Game, a: Action, opts: Required<Pick<ApplyOptions, 'autoPass'>> & Pick<ApplyOptions, 'stops' | 'fullControl'>, answers: number[], simulate?: boolean): Game {
+  const { autoPass, stops, fullControl } = opts;
+  // Casting or activating without `hold` lets priority pass on, even in full control (117.3c).
+  const released = (a.type === 'cast' || a.type === 'activate') && !a.hold ? g.priority : null;
   const run = () =>
     produce(g, (draft) => {
-      if (act(draft, a)) settle(draft, autoPass, stops);
+      if (act(draft, a)) settle(draft, autoPass, stops, fullControl, released);
     });
   try {
     // A bot trying a move out can't ask anyone: each choice goes the way a bot would take it.
@@ -2744,7 +2777,7 @@ function attempt(g: Game, a: Action, autoPass: boolean, stops: ApplyOptions['sto
   } catch (e) {
     if (!(e instanceof NeedsChoice)) throw e;
     return produce(g, (d) => {
-      d.replay = { action: a, autoPass, stops, answers, decision: g.decision, priority: g.priority };
+      d.replay = { action: a, autoPass, stops, ...(fullControl?.length ? { fullControl } : {}), answers, decision: g.decision, priority: g.priority };
       d.decision = { type: 'replacement', ask: e.choice };
       d.priority = e.choice.player;
     });
