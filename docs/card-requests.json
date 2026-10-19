@@ -1,6 +1,22 @@
 {
   "cards": [
     {
+      "name": "Dark Confidant",
+      "oracleText": "At the beginning of your upkeep, reveal the top card of your library and put that card into your hand. You lose life equal to its mana value.",
+      "clause": "At the beginning of your upkeep, reveal the top card of your library and put that card into your hand. You lose life equal to its mana value.",
+      "reason": "no template matches",
+      "count": 9,
+      "last": "2026-10-19T06:55:48.878Z"
+    },
+    {
+      "name": "Grim Lavamancer",
+      "oracleText": "{R}, {T}, Exile two cards from your graveyard: This creature deals 2 damage to any target.",
+      "clause": "{R}, {T}, Exile two cards from your graveyard: Grim Lavamancer deals 2 damage to any target.",
+      "reason": "the cost \"exile two cards from your graveyard\"",
+      "count": 9,
+      "last": "2026-10-19T06:55:48.878Z"
+    },
+    {
       "name": "Blind Obedience",
       "oracleText": "Extort (Whenever you cast a spell, you may pay {W/B}. If you do, each opponent loses 1 life and you gain that much life.)\nArtifacts and creatures your opponents control enter tapped.",
       "clause": "Extort",

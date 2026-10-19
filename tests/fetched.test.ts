@@ -134,8 +134,10 @@ describe('a pasted deck with fetched cards', () => {
     await fetchCards(['Essence Warden'], { fetch: fakeScryfall([WARDEN]) });
     expect(hasScript('Essence Warden')).toBe(false);
     const check = checkList('Commander\n1 Lyra Dawnbringer\n\nDeck\n1 Essence Warden', null, '', 'x');
-    expect(check.problems).toContain('Essence Warden: the game can\'t read "Whenever another creature enters, you gain 1 life." yet.');
-    expect(check.deck).toBeNull();
+    // Listed apart from the save problems, with the clause: it no longer stops the deck being saved.
+    expect(check.refused).toMatchObject([{ name: 'Essence Warden', heading: '“Whenever another creature enters, you gain 1 life.”', noTextless: null, textless: false }]);
+    expect(check.problems.some((p) => p.includes("can't read"))).toBe(false);
+    expect(check.deck).toBeNull(); // a two-card deck
     const req = requestFor('Essence Warden', new Date('2026-10-15T12:00:00Z'));
     expect(req).toEqual({
       name: 'Essence Warden',

@@ -54,7 +54,7 @@ The full guide to the game's screens and controls. For a quick start, see the
   with a keyword such as ninjutsu: those can only be swapped.
 - **Saving for later:** a deck with cards still to choose for can be saved anyway
   (**Save for Later**). It waits greyed out on the menu with "N cards the game can't play
-  yet", and **Swap them** opens it in the paste screen with those cards at the top of the
+  yet", and **Swap them** (**Swap it** for one) opens it in the paste screen with those cards at the top of the
   list, so you can fix it at your own pace. Saving there replaces it.
 - Cards the game can't read are written down for Claude to script later (see
   [Adding a card](developing.md#adding-a-card)); outside `npm run dev`, **Download

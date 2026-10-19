@@ -346,6 +346,8 @@ export interface RefusedCard {
   heading: string;
   /** The line of its Oracle text the game can't read. */
   line: string;
+  /** `heading` already says all of `line` (the clause is the whole line), so the screen needn't show it twice. */
+  lineInHeading: boolean;
   /** It is one of the deck's commanders. */
   commander: boolean;
   /** Why it can't be played without its rules text, or null if it can (`textlessRefusal`; a commander never can). */
@@ -371,12 +373,21 @@ function refusedCard(name: string, problems: CardProblem[], commanders: string[]
   const heading = text && !whole ? `“${clauseShape(text.clause!, d.name)}”` : first.kind === 'text' ? (first.reason ?? first.text) : first.text;
   const commander = commanders.includes(name);
   const noTextless = commander ? "it's the commander, and a commander's text is the deck" : textlessRefusal(name);
+  const line = text?.line ?? d.oracleText;
+  // Compared as the parser reads them: "this creature" is the card itself, like its name.
+  const same = (t: string) =>
+    clauseShape(t, d.name)
+      .toLowerCase()
+      .replace(/\bthis (creature|artifact|enchantment|land|permanent|spell)\b/g, 'this card')
+      .replace(/[“”".]/g, '')
+      .trim();
   return {
     name,
     problems,
     group: heading.toLowerCase(),
     heading,
-    line: text?.line ?? d.oracleText,
+    line,
+    lineInHeading: same(heading) === same(line),
     commander,
     noTextless,
     textless: noTextless === null && chosen.includes(name),
