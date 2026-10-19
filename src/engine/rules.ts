@@ -1,8 +1,9 @@
 // Queries and effect primitives. Everything here either reads a Game or mutates an
 // Immer draft of one; turn structure and action handling live in engine.ts.
 import { CREATURE_TYPES, cardData } from '../cards/db';
-import { scriptOf } from './registry';
-import { characteristics, hasOwnAbilities, heldMemo, mayLoseAbilities, settled, staticRemoval, typesOf } from './layers';
+import { current, isDraft } from 'immer';
+import { anyGrantFor, scriptOf } from './registry';
+import { anyGrantingStatic, characteristics, hasOwnAbilities, heldMemo, inBase, mayHaveScript, mayLoseAbilities, settled, staticRemoval, typesOf, untouched } from './layers';
 import { replace, whileArriving } from './replace';
 import type {
   ActivatedAbility,
@@ -538,6 +539,9 @@ export const isFree = (cost: Cost) => cost.generic + cost.pips.length + cost.hyb
  * one without vigilance can't tap for mana to pay.
  */
 export function canPayAttacks(g: Game, pid: PlayerId, attacks: { id: string; defender: PlayerId; target: string | null }[]): boolean {
+  // Asked of a draft nothing has changed in yet: the finished game it came from (`untouched`).
+  const base = untouched(g);
+  if (base) return canPayAttacks(base, pid, attacks);
   const cost = attackCost(g, attacks);
   if (isFree(cost)) return true;
   const tapped = attacks.map((a) => permanent(g, a.id)).filter((c): c is Card => !!c && !has(g, c, 'vigilance')).map((c) => c.id);
@@ -1645,15 +1649,20 @@ function convokeSources(g: Game, pid: PlayerId, spell: Card | undefined): Source
 
 /** Whether `pay` looks ahead (`bestPayment`). Off while a bot tries moves out on copies of the game. */
 let lookahead = true;
+/** Whether `log` writes the game log. Off while a bot tries moves out: nobody reads those lines, and no rule reads the log. */
+let logging = true;
 
-/** Runs `fn` with auto-pay's lookahead off, so a bot trying out moves stays fast. */
+/**
+ * Runs `fn` as a bot trying a move out on a copy of the game: auto-pay's lookahead is off,
+ * and nothing is written to the log, so it stays fast.
+ */
 export function withoutLookahead<T>(fn: () => T): T {
-  const was = lookahead;
-  lookahead = false;
+  const was = [lookahead, logging];
+  lookahead = logging = false;
   try {
     return fn();
   } finally {
-    lookahead = was;
+    [lookahead, logging] = was;
   }
 }
 
@@ -1694,7 +1703,11 @@ function bestPayment(g: Game, pid: PlayerId, cost: Cost, spell?: Card, keep: str
 export function pay(g: Game, pid: PlayerId, cost: Cost, spell?: Card, keep: string[] = [], convoke?: string[]): Payment | null {
   // The player chose which creatures convoke (702.51a): those are tapped, and the rest paid as usual.
   // Working out how to pay only reads the game, so each permanent's characteristics are worked out once for it.
-  const plan = settled(g, () => (convoke ? planConvoked(g, pid, cost, spell, keep, convoke) : lookahead ? bestPayment(g, pid, cost, spell, keep) : planPayment(g, pid, cost, spell, keep)));
+  // It reads every mana source many times over, so inside `produce` it reads a plain copy of the
+  // game (Immer's `current`) instead of the draft. The plan names permanents by id.
+  const view = isDraft(g) ? current(g) : g;
+  const as = spell && isDraft(spell) ? current(spell) : spell;
+  const plan = settled(view, () => (convoke ? planConvoked(view, pid, cost, as, keep, convoke) : lookahead ? bestPayment(view, pid, cost, as, keep) : planPayment(view, pid, cost, as, keep)));
   if (!plan) return null;
   g.players[pid].pool = plan.pool;
   // Creatures that convoke are tapped as the cost is paid (702.51a, 601.2h).
@@ -1737,6 +1750,8 @@ export function devotion(g: Game, pid: PlayerId, color: Color): number {
 
 /** What `pid` could choose for target `spec` of `source`. `x`: the X announced for the activated ability choosing it (107.3a), which `spec.filter` may read. */
 export function legalTargets(g: Game, pid: PlayerId, spec: TargetSpec, source: Card, x = 0): TargetRef[] {
+  const base = untouched(g);
+  if (base) return legalTargets(base, pid, spec, inBase(source), x);
   return settled(g, () => findTargets(g, pid, spec, source, x));
 }
 
@@ -2029,6 +2044,7 @@ const cardNames = (cards: Card[]) => {
  * player found searching their library (701.23e); the rest see `text`.
  */
 export function log(g: Game, text: string, player?: PlayerId, cards: Card[] = [], secret?: { players: PlayerId[]; text: string; cards?: Card[] }) {
+  if (!logging) return;
   g.log.push({
     turn: g.turn,
     text,
@@ -2296,8 +2312,21 @@ export function tap(g: Game, c: Card) {
   trigger(g, c, 'onTapped', {});
 }
 
-/** A copy of a card as it is right now, for an ability or event to remember (113.7a, 603.10a). */
-export const snapshot = (c: Card): Card => ({ ...c, continuous: c.continuous.map((e) => ({ ...e })), counters: { ...c.counters } });
+/** Untaps a permanent (701.26b), if it is still there. */
+export function untap(_g: Game, c: Card | undefined) {
+  if (c && c.zone === 'battlefield') c.tapped = false;
+}
+
+/**
+ * A copy of a card as it is right now, for an ability or event to remember (113.7a, 603.10a).
+ * Inside `produce` it copies from `current(c)`, the card as a plain object, so the copy
+ * doesn't read every property through the draft's proxy (it is taken of the whole
+ * battlefield each time a permanent dies).
+ */
+export const snapshot = (draft: Card): Card => {
+  const c = isDraft(draft) ? current(draft) : draft;
+  return { ...c, continuous: c.continuous.map((e) => ({ ...e })), counters: { ...c.counters } };
+};
 
 /**
  * Permanent `c` is leaving the battlefield: its abilities waiting or on the stack go on
@@ -2329,6 +2358,10 @@ const isCard = (v: unknown): v is Card => typeof v === 'object' && v !== null &&
  * waits in `g.triggers` and goes on the stack the next time a player would get priority (603.3).
  */
 export function trigger<H extends TriggerHook>(g: Game, source: Card, hook: H, event: TriggerEvents[H]) {
+  // Nothing to look at: its card has no ability on this event, and no card can give it one.
+  // Its abilities now are its card's less any it lost (613.1f), so it can't have gained one.
+  // Asked of every permanent for every event, so this keeps the layers out of most of them.
+  if (!anyGrantFor(hook) && !(mayHaveScript(source, hook) && scriptFor(source)[hook])) return;
   const raw = abilitiesOf(g, source)[hook] as Trigger<object> | Trigger<object>[] | undefined;
   const own = (Array.isArray(raw) ? raw : raw ? [raw] : []).map((t, i) => ({ t, extra: Array.isArray(raw) ? { trigger: i } : {} }));
   // Abilities other cards give it (613.1f), until end of turn or while they apply.
@@ -2355,7 +2388,7 @@ export function trigger<H extends TriggerHook>(g: Game, source: Card, hook: H, e
  * abilities ... to trigger".
  */
 export function triggerTimes(g: Game, source: Card, hook: TriggerHook): number {
-  const w = watchers ?? watchersNow(g);
+  const w = watchers?.() ?? watchersNow(g);
   if (w.suppressors.some((x) => abilitiesOf(g, x).suppressesTriggers!(g, x, source, hook))) return 0;
   return 1 + w.doublers.filter((x) => abilitiesOf(g, x).doublesTriggers!(g, x, source, hook)).length;
 }
@@ -2381,12 +2414,16 @@ interface Watchers {
   suppressors: Card[];
 }
 
-/** While `broadcast` asks every permanent about one event: the `Watchers`, found once for all of them. */
-let watchers: Watchers | null = null;
+/** While `broadcast` asks every permanent about one event: the `Watchers`, found once for all of them when first needed. */
+let watchers: (() => Watchers) | null = null;
 
 function watchersNow(g: Game): Watchers {
   const all = lookBack ?? battlefield(g);
-  return { doublers: all.filter((x) => abilitiesOf(g, x).doublesTriggers), suppressors: all.filter((x) => abilitiesOf(g, x).suppressesTriggers) };
+  // Its card has the ability before abilitiesOf asks whether it lost it (613.1f).
+  return {
+    doublers: all.filter((x) => mayHaveScript(x, 'doublesTriggers') && scriptFor(x).doublesTriggers && abilitiesOf(g, x).doublesTriggers),
+    suppressors: all.filter((x) => mayHaveScript(x, 'suppressesTriggers') && scriptFor(x).suppressesTriggers && abilitiesOf(g, x).suppressesTriggers),
+  };
 }
 
 /**
@@ -2396,6 +2433,9 @@ function watchersNow(g: Game): Watchers {
 function grantedTo(g: Game, c: Card): { grant: GrantedTrigger; from: string; index: number }[] {
   const out: { grant: GrantedTrigger; from: string; index: number }[] = [];
   if (c.zone !== 'battlefield') return out;
+  // Given only by a resolved effect on it or by a static ability whose script lists grants. As
+  // it last was (`lki`), it keeps what it had then, even if what gave it is gone (603.10a).
+  if (!c.lki && !c.continuous.some((e) => e.grant) && !anyGrantingStatic(g)) return out;
   for (const m of characteristics(g, c, '6').grants) {
     const grant = scriptOf(m.from).grants?.[m.index];
     if (grant) out.push({ grant, from: m.from, index: m.index });
@@ -2459,7 +2499,9 @@ export function broadcast<H extends BroadcastHook>(g: Game, hook: H, event: Trig
   // Triggering only puts abilities in `Game.triggers`, which no characteristic depends on.
   settled(g, () => {
     const outer = watchers;
-    watchers = watchersNow(g);
+    // Only a permanent whose ability triggers asks who doubles or stops it (triggerTimes).
+    let found: Watchers | undefined;
+    watchers = () => (found ??= watchersNow(g));
     try {
       for (const c of battlefield(g)) trigger(g, c, hook, event);
       for (const p of g.players) for (const c of p.graveyard) if (scriptFor(c).fromGraveyard?.includes(hook)) trigger(g, c, hook, event);
@@ -4100,14 +4142,61 @@ function eliminate(g: Game, p: Player, reason: string) {
 }
 
 /**
+ * Would `checkState` do anything to `g`? It asks the questions `checkState` asks before it
+ * changes anything, and changes nothing, so it can be asked of a finished (frozen) game,
+ * where the layers' answers are kept, instead of inside a draft. False: every condition of
+ * 704.5 and 903.10a is false, nobody has won (104.2), and `checkState` would leave `g` as it is.
+ * Keep the two in step: the bot games check after every action that this is false.
+ */
+export function sbaPending(g: Game): boolean {
+  return settled(g, () => {
+    for (const p of g.players) {
+      if (p.lost) continue;
+      if (p.loses || p.life <= 0 || p.commanderDamage.some((from) => from.some((d) => d >= COMMANDER_DAMAGE)) || p.drewFromEmpty) return true;
+    }
+    const kinds = permanentKinds(g);
+    for (const { c, creature, walker, battle, siege, saga, aura } of kinds) {
+      if (creature) {
+        const s = stats(g, c);
+        const lethal = c.damage >= s.toughness || (c.deathtouched && c.damage > 0);
+        if (s.toughness <= 0 || (lethal && !s.keywords.has('indestructible'))) return true;
+      }
+      if (walker && loyaltyOf(c) <= 0) return true;
+      else if (battle && defenseOf(c) <= 0 && !(siege && defeatPending(g, c))) return true;
+      else if (battle && (c.protector === null || !canProtect(g, c, c.protector))) return true;
+      if (saga) {
+        const chapters = abilitiesOf(g, c).chapters?.length ?? 0;
+        if (chapters > 0 && counterCount(c, 'lore') >= chapters && !chapterPending(g, c)) return true;
+      }
+      if (aura && !canEnchant(g, c, attachedObject(g, c))) return true;
+      else if (c.attachedTo && !aura && !canEquip(g, c, permanent(g, c.attachedTo))) return true;
+      if (Math.min(counterCount(c, '+1/+1'), counterCount(c, '-1/-1')) > 0) return true;
+    }
+    const roles = battlefield(g).filter((c) => c.attachedTo && subtypesOf(g, c).includes('Role'));
+    if (roles.some((c) => roles.some((r) => r !== c && r.attachedTo === c.attachedTo && r.controller === c.controller && r.ts > c.ts))) return true;
+    const legendary = new Set(kinds.filter((k) => k.legendary).map((k) => k.c));
+    for (const p of living(g)) {
+      if (!p.isBot && g.decision) continue;
+      const names = p.battlefield.filter((c) => legendary.has(c)).map(label);
+      if (new Set(names).size < names.length) return true;
+    }
+    for (const c of g.players.flatMap((p) => [...p.graveyard, ...p.exile])) if (c.mayReturn && (g.players[c.owner].isBot || !g.decision)) return true;
+    return g.winner === null && (living(g).some((p) => p.wins) || living(g).length <= 1);
+  });
+}
+
+/**
  * State-based actions (704): kills what should be dead, eliminates players who have lost,
  * and sets the winner. Each pass does everything that applies at once, and passes repeat
- * until nothing changes (704.3).
+ * until nothing changes (704.3). True if nothing was left to do and nobody has won: until
+ * the game changes, checking again would do nothing.
  */
 /** What kind of permanent each one is, for the state-based actions (704.5). */
 function permanentKinds(g: Game) {
   return settled(g, () =>
     battlefield(g).map((c) => ({
+      // Every layer at once: the dying creatures are looked for in the same `settled` (see checkState).
+      chars: characteristics(g, c),
       c,
       creature: isCreature(g, c),
       walker: isPlaneswalker(g, c),
@@ -4120,7 +4209,9 @@ function permanentKinds(g: Game) {
   );
 }
 
-export function checkState(g: Game) {
+export function checkState(g: Game): boolean {
+  // Whether a pass found nothing to do: then the game is as the rules leave it (704.3).
+  let stable = false;
   for (let guard = 0; guard < 50; guard++) {
     let changed = false;
     for (const p of g.players) {
@@ -4140,18 +4231,20 @@ export function checkState(g: Game) {
       }
     }
     // What each permanent is, worked out once while nothing changes, and again after a change.
-    let kinds = permanentKinds(g);
     // Toughness 0 or less (704.5f) ignores indestructible; lethal and deathtouch damage (704.5g-h) destroy.
-    const dying = settled(g, () =>
-      kinds
+    // Both read the same unchanged game, so its permanents are worked out once for both.
+    let kinds!: ReturnType<typeof permanentKinds>;
+    const dying = settled(g, () => {
+      kinds = permanentKinds(g);
+      return kinds
         .filter((k) => k.creature)
         .map((k) => k.c)
         .filter((c) => {
           const s = stats(g, c);
           const lethal = c.damage >= s.toughness || (c.deathtouched && c.damage > 0);
           return s.toughness <= 0 || (lethal && !s.keywords.has('indestructible'));
-        }),
-    );
+        });
+    });
     // A planeswalker with no loyalty (704.5i) and a battle with no defense (704.5v-w) go to
     // the graveyard, except a Siege whose defeat ability hasn't resolved yet. So does a
     // battle with nobody left who can protect it (310.11).
@@ -4261,7 +4354,10 @@ export function checkState(g: Game) {
         g.priority = c.owner;
       }
     }
-    if (!changed) break;
+    if (!changed) {
+      stable = true;
+      break;
+    }
   }
   // A player an effect says wins the game does, unless they also lost just now (104.2b, 104.3f).
   const winner = living(g).find((p) => p.wins);
@@ -4279,4 +4375,5 @@ export function checkState(g: Game) {
       log(g, 'The game is a draw.');
     }
   }
+  return stable && g.winner === null;
 }
