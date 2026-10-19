@@ -186,3 +186,17 @@ soft frame drum, with a melody and a shaker coming and going as it builds and ea
 starts, fading in, with your first click or key press (browsers keep a page silent until
 then), plays quietly on the deck menu and a little louder in a game, pauses while the window
 is hidden, and fades out when a game ends.
+
+## If the game crashes
+
+If something goes wrong while the screen is being drawn, an error screen takes the place
+of the table instead of a blank page. It shows the error and the game's last few log
+lines. **Copy Details** copies everything to paste into a message, and **Leave to Menu**
+leaves the game the same way **Exit** does (at a table, you leave the table and the others
+play on).
+
+The Windows program also writes every error to its log: `launcher.log` in the
+`ArenaEDH-data` folder beside `ArenaEDH.exe`, one line per error with the program's build,
+the turn and step, and where in the code it happened. To report a crash, send the copied
+details (or `launcher.log`) and a few words on what was happening: the card that was cast
+or the button that was pressed. At a table, the log is on each player's own computer.

@@ -17,6 +17,7 @@ import {
   damageRooms,
   data,
   findCard,
+  isHidden,
   label,
   legalAssignment,
   nextMulliganBottom,
@@ -261,13 +262,15 @@ function ChoicePicker({ g, choice }: { g: Game; choice: CardChoice }) {
 function AskPanel({ g, choice }: { g: Game; choice: AskChoice }) {
   // The card asking: the one resolving, or one entering or in an opening hand.
   const source = choice.script ? findCard(g, choice.script) : resolvingItem(g)?.card;
+  // A card this seat's view hides has nothing to show (`isHidden`).
+  const shown = source && !isHidden(source) ? source : null;
   const answer = (yes: boolean) => act({ type: 'answer', yes });
   const can = canSayYes(g, choice);
   return (
     <CardPicker
       title={choice.source}
       hint={choice.text}
-      cards={source ? [source] : []}
+      cards={shown ? [shown] : []}
       buttons={() => [
         { label: choice.no, tone: 'plain', onClick: () => answer(false) },
         { label: choice.yes, sub: !can ? "You can't pay" : undefined, tone: 'go', disabled: !can, onClick: () => answer(true) },
@@ -306,7 +309,7 @@ function NamePanel({ g, choice }: { g: Game; choice: NameChoice }) {
         </div>
         <p className="picker-hint">{choice.text}</p>
         <div className="name-row">
-          {source && <CardImage className="name-source" d={data(source)} alt={label(source)} draggable={false} />}
+          {source && !isHidden(source) && <CardImage className="name-source" d={data(source)} alt={label(source)} draggable={false} />}
           <input
             className="name-input"
             list="card-names"

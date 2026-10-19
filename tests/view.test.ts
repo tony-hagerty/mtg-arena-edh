@@ -778,3 +778,21 @@ describe('the card preview (right-click)', () => {
     expect(useStore.getState().hover!.pinOnly).toBeUndefined();
   });
 });
+
+describe('the error screen’s details (ErrorScreen.tsx)', () => {
+  it('names the turn and step and the last log lines, and sends nothing without a program', async () => {
+    const { crashDetails, reportError } = await import('../src/ui/crash');
+    play((d) => {
+      d.turn = 4;
+      put(d, 0, 'Serra Angel');
+    });
+    useStore.setState({ server: null, game: produce(game(), (d) => void d.log.push({ text: 'Seraphine casts Kaya’s Ghostform.' } as Game['log'][number])) });
+    const text = crashDetails(new Error('Unknown card: Wizard'), '\n    at SpellFlash', null);
+    expect(text).toContain('Turn 4, main1');
+    expect(text).toContain('Error: Unknown card: Wizard');
+    expect(text).toContain('at SpellFlash');
+    expect(text).toContain('Seraphine casts Kaya’s Ghostform.');
+    // A page opened from disk has no program to write a log: the error screen is all there is.
+    expect(await reportError('render', new Error('boom'))).toBe(null);
+  });
+});
