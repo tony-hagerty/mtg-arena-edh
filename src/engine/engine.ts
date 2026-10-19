@@ -89,6 +89,7 @@ import {
   discard,
   fitsSpec,
   freeCast,
+  madnessCast,
   hasEscape,
   manaValue,
   permission,
@@ -520,6 +521,14 @@ const ENGINE_THEN: Record<string, (g: Game, ctx: ThenCtx) => void> = {
     const it = permanent(g, data.id as string);
     if (nonland && it && it.moves === data.moves) addCounters(g, it, nonland);
   },
+  // Madness (702.35a): a card its owner didn't cast goes to their graveyard.
+  '@madness': (g, { yes, data, chooser }) => {
+    const c = g.players[chooser].exile.find((x) => x.id === data.id && x.moves === data.moves);
+    if (!yes && c) {
+      log(g, `${says(g.players[chooser], 'puts')} ${label(c)} into ${their(g.players[chooser])} graveyard.`, chooser, [c]);
+      moveCard(g, c, 'graveyard');
+    }
+  },
   // Ward (702.21a): the spell or ability is countered unless its controller paid.
   '@ward': (g, { yes, data }) => {
     if (!yes) counter(g, { kind: 'stack', id: data.item as string });
@@ -751,6 +760,8 @@ function choicesOk(g: Game, pid: PlayerId, c: Card, ch: CastChoices): boolean {
   const oneOf = script.additionalCost?.oneOf;
   if (oneOf ? ch.extra === undefined || !Number.isInteger(ch.extra) || ch.extra < 0 || ch.extra >= oneOf.length : ch.extra !== undefined) return false;
   if (ch.alt !== undefined && !altCostsOf(g, c, face, pid).includes(ch.alt)) return false;
+  // Cast with madness, it is cast for its madness cost (702.35a).
+  if (ch.alt === undefined && madnessCast(g, c)) return false;
   if (ch.protector !== undefined && !(isBattle(g, spell) && canProtect(g, spell, ch.protector))) return false;
   // A gift is promised to an opponent (702.174a), and only by a spell with gift.
   if (ch.gift !== undefined && (!script.gift || ch.gift === pid || g.players[ch.gift]?.lost !== false)) return false;
@@ -833,7 +844,7 @@ export function canCastAs(g: Game, pid: PlayerId, c: Card, face: number, choices
     const ways = graveyardWays(g, c, face);
     const escaping = escapes(g, c).filter((e) => escapeOptions(g, c).length >= e.exile).map((e): CastChoices => ({ face, escape: Array.from({ length: e.exile }, () => '') }));
     routes = [...(ways.flashback || ways.aftermath || ways.permitted ? [{ face }] : []), ...escaping];
-  } else routes = [undefined, ...altCostsOf(g, c, face, pid)].map((alt) => ({ alt, face }));
+  } else routes = [...(madnessCast(g, c) ? [] : [undefined]), ...altCostsOf(g, c, face, pid)].map((alt) => ({ alt, face }));
   // Each of the additional costs it offers a choice of ("pay 5 life or pay {2}").
   const extras: (number | undefined)[] = script.additionalCost?.oneOf ? script.additionalCost.oneOf.map((_, i) => i) : [undefined];
   return routes.some((r) => modeSets.some((modes) => extras.some((extra) => {
@@ -1710,6 +1721,12 @@ function resolveTop(g: Game) {
       // A copy for each other spell cast before it this turn (702.40a).
       const { count, item: spell } = item.event as TriggerEvents['onStorm'];
       for (let i = 0; i < count; i++) copyItem(g, spell, controller);
+    } else if (item.hook === 'onMadness') {
+      // "Its owner may cast it by paying [cost] rather than paying its mana cost. If that
+      // player doesn't, they put this card into their graveyard." (702.35a) Only if it is
+      // still the card exiled this way (400.7).
+      const exiled = g.players[card.owner].exile.find((x) => x.id === card.id && x.moves === card.moves);
+      if (exiled) offerCast(g, card.owner, exiled, { free: false, madness: true, text: `Cast ${label(exiled)} for its madness cost, or put it into your graveyard.`, then: '@madness', data: { id: exiled.id, moves: exiled.moves } });
     } else if (item.hook === 'onWard') {
       // Ward (702.21a): counter the spell or ability unless its controller pays.
       const { item: id, cost } = item.event as TriggerEvents['onWard'];

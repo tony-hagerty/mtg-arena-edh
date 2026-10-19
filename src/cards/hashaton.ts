@@ -65,6 +65,7 @@ import {
   firstDrawInDrawStep,
   transform,
   monstrosity,
+  madness,
 } from '../engine/rules';
 import type { Card, CardScript, Game, Mode, PlayerId, TargetRef, TargetSpec, TokenSpec } from '../engine/types';
 import { cardData } from './db';
@@ -598,6 +599,16 @@ registerScripts({
     protectsPlayer: (g, self, pid, source) => !!self.chosen && pid === self.controller && hasType(g, source, self.chosen),
     botChoice: { type: () => ({ type: 'name', name: 'Creature' }) },
   },
+  'Shadowgrange Archfiend': {
+    // "When this creature enters, each opponent sacrifices a creature with the greatest power
+    // among creatures they control. You gain life equal to the greatest power among creatures
+    // sacrificed this way." Each chooses in turn order, then they are sacrificed at once (101.4,
+    // 701.21a); the powers are as they last were.
+    onEnter: (g, { you }) => shadowgrange(g, you, turnOrder(g, you).filter((o) => isOpponent(g, you, o)), 0, []),
+    then: { shadowgrange: (g, { you, picked, data: d }) => shadowgrange(g, you, d.order as PlayerId[], (d.i as number) + 1, [...(d.chosen as string[]), ...picked.map((c) => c.id)]) },
+    // "Madness—{2}{B}, Pay 8 life." (702.35a)
+    alternativeCosts: [madness('{2}{B}', 8)],
+  },
   "Sheoldred, Whispering One": {
     // Swampwalk is the engine's (702.14c).
     onUpkeep: [
@@ -878,4 +889,20 @@ function balemurk(g: Game, you: PlayerId) {
   const fits = yard.filter((c) => (hasType(g, c, 'Creature') && !subtypesOf(g, c).includes('Avatar')) || hasType(g, c, 'Planeswalker'));
   if (fits.length)
     pickCards(g, you, yard, { min: 0, max: 1, pickable: fits, text: 'You may return a non-Avatar creature card or a planeswalker card from your graveyard to your hand.', button: 'Return', then: 'balemurk' });
+}
+
+/** Shadowgrange Archfiend: the next opponent chooses a creature with the greatest power they control; once all have, they are sacrificed. */
+function shadowgrange(g: Game, you: PlayerId, order: PlayerId[], i: number, chosen: string[]) {
+  for (; i < order.length; i++) {
+    const mine = creaturesOf(g, order[i]);
+    if (!mine.length) continue;
+    const top = Math.max(...mine.map((c) => stats(g, c).power));
+    const options = mine.filter((c) => stats(g, c).power === top);
+    return void pickCards(g, order[i], options, { min: 1, max: 1, text: 'sacrifice a creature with the greatest power among creatures you control', button: 'Sacrifice', then: 'shadowgrange', data: { order, i, chosen, bot: 'sacrifice' } });
+  }
+  const cards = chosen.map((id) => permanent(g, id)).filter((c): c is Card => !!c);
+  if (!cards.length) return;
+  const most = Math.max(...cards.map((c) => stats(g, c).power));
+  dieMany(g, cards, 'is sacrificed');
+  if (most > 0) gainLife(g, you, most);
 }

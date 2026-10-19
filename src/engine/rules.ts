@@ -569,8 +569,10 @@ export function altCostsOf(g: Game, c: Card, face = 0, pid = c.owner): number[] 
   // paying its mana cost, for {2} after being airbent, or as a plotted card: only one can be
   // paid (118.9a, 702.34a, 702.138a, 701.65a, 702.170d).
   if (c.zone === 'graveyard' || freeCast(g, c) || exileCast(c)) return [];
-  // Warp is cast only from the hand (702.185a).
-  const alts = (scriptFor(c, 'stack', face).alternativeCosts ?? []).map((a) => (a.warp && c.zone !== 'hand' ? { ...a, when: () => false } : a));
+  // Warp is cast only from the hand (702.185a). A madness cost is paid only when madness lets
+  // its owner cast it, and then nothing else can be (702.35a).
+  const madness = madnessCast(g, c);
+  const alts = (scriptFor(c, 'stack', face).alternativeCosts ?? []).map((a) => ((a.warp && c.zone !== 'hand') || !a.madness !== !madness ? { ...a, when: () => false } : a));
   const self = { ...c, controller: pid };
   // One that exiles a card from the caster's hand, or sacrifices a permanent, needs one that fits (118.9).
   const canExile = (i: number) => !alts[i].exile || g.players[pid].hand.some((x) => x.id !== c.id && alts[i].exile!.filter(g, x, self));
@@ -610,6 +612,9 @@ export function flashbackCost(g: Game, c: Card): string | undefined {
 }
 
 /** Is `c` being cast without paying its mana cost while a spell resolves (608.2g, Beseech the Mirror)? */
+/** Is `c` the card its madness ability lets its owner cast now, for its madness cost (702.35a)? */
+export const madnessCast = (g: Game, c: Card) => g.decision?.type === 'cast' && g.decision.choice.card === c.id && !!g.decision.choice.madness;
+
 export const freeCast = (g: Game, c: Card) => g.decision?.type === 'cast' && g.decision.choice.card === c.id && g.decision.choice.free;
 
 /**
@@ -3416,7 +3421,7 @@ export function offerCast(
   g: Game,
   pid: PlayerId,
   card: Card,
-  q: { free: boolean; maxMv?: number; graveyardToExile?: boolean; text: string; then?: string; data?: Record<string, unknown> },
+  q: { free: boolean; maxMv?: number; graveyardToExile?: boolean; madness?: boolean; text: string; then?: string; data?: Record<string, unknown> },
 ) {
   queue(g, { kind: 'cast', player: pid, source: sourceName(g), card: card.id, ...q });
 }
@@ -3502,17 +3507,37 @@ export function mill(g: Game, pid: PlayerId, n: number): Card[] {
 /** The player discards a card from their hand (701.9a). "Whenever you discard" abilities trigger. */
 export function discard(g: Game, c: Card) {
   if (c.zone !== 'hand') return;
-  log(g, `${says(g.players[c.owner], 'discards')} ${label(c)}.`, c.owner, [c]);
-  moveCard(g, c, 'graveyard');
+  const mad = hasMadness(c);
+  log(g, `${says(g.players[c.owner], 'discards')} ${label(c)}${mad ? ' into exile (madness)' : ''}.`, c.owner, [c]);
+  discardTo(g, c);
   broadcast(g, 'onDiscard', { card: c, player: c.owner });
 }
+
+/** Does `c` have madness (702.35a)? */
+const hasMadness = (c: Card) => !!scriptFor(c).alternativeCosts?.some((a) => a.madness);
+
+/**
+ * Puts a card being discarded into its owner's graveyard, or with madness into exile instead,
+ * where "When this card is exiled this way" triggers (702.35a).
+ */
+function discardTo(g: Game, c: Card) {
+  if (!hasMadness(c)) return moveCard(g, c, 'graveyard');
+  moveCard(g, c, 'exile');
+  if (c.zone === 'exile') g.triggers.push({ id: `s${g.nextId++}`, kind: 'triggered', controller: c.owner, card: snapshot(c), hook: 'onMadness', event: {}, targets: [] });
+}
+
+/**
+ * "Madness [cost]" (702.35a): discarded, it is exiled, and its owner may then cast it for this
+ * alternative cost (702.35b) or put it into their graveyard.
+ */
+export const madness = (mana: string, life?: number): NonNullable<CardScript['alternativeCosts']>[number] => ({ label: 'Madness', mana, ...(life ? { life } : {}), madness: true });
 
 /** The player discards their hand (Lion's Eye Diamond): every card at once (701.9a). */
 export function discardHand(g: Game, pid: PlayerId) {
   const hand = [...g.players[pid].hand];
   if (!hand.length) return;
   log(g, `${says(g.players[pid], 'discards')} ${their(g.players[pid])} hand: ${hand.map(label).join(', ')}.`, pid, hand);
-  simultaneously(g, () => hand.forEach((c) => moveCard(g, c, 'graveyard')));
+  simultaneously(g, () => hand.forEach((c) => discardTo(g, c)));
   for (const c of hand) broadcast(g, 'onDiscard', { card: c, player: pid });
 }
 
