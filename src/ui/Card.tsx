@@ -310,7 +310,8 @@ export function HandCard({
     // The slot is the card's place in the fan and what the pointer drags; the card inside poses on top of it.
     <motion.div
       ref={slot}
-      layoutId={card.id}
+      layout
+      data-hand={card.id}
       className="hand-slot"
       style={{ left: `${x}rem`, zIndex: held ? 101 : hot ? 100 : index }}
       drag={!fly.flying}
@@ -380,7 +381,7 @@ export function HiddenHandCard({ card, index, total, drawn }: { card: Card; inde
     onLibrary(card.owner, document.querySelector('.hand'), 0, x * rem, HAND_W * rem, HAND_W * 1.4 * rem),
   );
   return (
-    <div className="hand-slot" style={{ left: `${x}rem`, zIndex: index }}>
+    <div className="hand-slot" data-hand={card.id} style={{ left: `${x}rem`, zIndex: index }}>
       <motion.div
         className="card-back"
         style={{ originY: 1 }}
