@@ -2007,8 +2007,13 @@ function putTriggerOnStack(g: Game): boolean {
     return true;
   }
   const [item] = g.triggers.splice(next, 1);
+  // Its modes and targets are worked out from a plain copy of the game (Immer's `current`):
+  // so far only the waiting triggers have changed, so the copy costs little, and the
+  // questions read every permanent. The item itself is read as it is in the draft.
+  const view = isDraft(g) ? current(g) : g;
+  const asked = isDraft(item) ? current(item) : item;
   // A modal triggered ability: its controller chooses the modes as it goes on the stack (603.3c).
-  const modal = item.modes ? null : triggerModeOptions(g, item);
+  const modal = item.modes ? null : triggerModeOptions(view, asked);
   if (modal) {
     // With too few modes that can be chosen, it is removed from the stack (603.3c).
     if (modal.legal.length < modal.min) return true;
@@ -2025,7 +2030,8 @@ function putTriggerOnStack(g: Game): boolean {
     }
   }
   const specs = targetSpecs(g, item);
-  const options = specs.map((spec) => legalTargets(g, item.controller, spec, item.card, item.x));
+  const card = isDraft(item.card) ? current(item.card) : item.card;
+  const options = specs.map((spec) => legalTargets(view, item.controller, spec, card, item.x));
   if (specs.some((spec, i) => !spec.optional && !spec.any && options[i].length === 0)) {
     // A copy keeps the original's targets if there are no new ones (707.10c). An ability
     // that needs a target and has none is removed instead (603.3d).
