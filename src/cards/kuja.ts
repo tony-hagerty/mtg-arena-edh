@@ -324,7 +324,11 @@ registerScripts({
       when: (_g, { self, left, to }) => left.id === self.attachedTo && (to === 'graveyard' || to === 'exile'),
       resolve: (g, { you, left, to }) => {
         const card = wentTo(g, left, to);
-        if (card) enterBattlefield(g, card, { controller: you });
+        if (!card) return;
+        // It may be another player's card (one you took or reanimated), so the log says whose control.
+        const p = g.players[you];
+        log(g, `${label(card)} returns to the battlefield under ${p.you ? 'your' : `${p.name}'s`} control.`, you, [card]);
+        enterBattlefield(g, card, { controller: you });
       },
       text: 'When enchanted permanent dies or is put into exile, return that card to the battlefield under your control.',
     },

@@ -303,6 +303,27 @@ describe('Roles and Auras', () => {
     g = settle(applyAction(g, pass));
     expect(byName(g, 0, 'Serra Angel')).toBeTruthy();
     expect(byName(g, 0, "Kaya's Ghostform", 'graveyard')).toBeTruthy();
+    expect(g.log.some((l) => l.text === `Serra Angel returns to the battlefield under ${g.players[0].name}'s control.`)).toBe(true);
+  });
+
+  it("Kaya's Ghostform returns another player's card under your control, and says so", () => {
+    // Its owner's creature, which player 0 controls (as after Reanimate), dies: it goes to
+    // its owner's graveyard (404.1) and comes back under player 0's control.
+    let g = emptyGame((d) => {
+      const angel = put(d, 1, 'Serra Angel');
+      angel.controller = 0;
+      d.players[1].battlefield.pop();
+      d.players[0].battlefield.push(angel);
+      put(d, 0, "Kaya's Ghostform").attachedTo = angel.id;
+    });
+    g = produce(g, (d) => {
+      d.players[0].battlefield.find((c) => c.name === 'Serra Angel')!.damage = 4;
+    });
+    g = settle(applyAction(g, pass));
+    const angel = byName(g, 0, 'Serra Angel')!;
+    expect(angel.owner).toBe(1);
+    expect(angel.controller).toBe(0);
+    expect(g.log.some((l) => l.text === `Serra Angel returns to the battlefield under ${g.players[0].name}'s control.`)).toBe(true);
   });
 
   it("flashes the Wizard token whose trigger Kaya's Ghostform sets off, by a name the screen can look up", () => {
