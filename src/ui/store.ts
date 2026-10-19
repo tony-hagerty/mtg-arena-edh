@@ -262,6 +262,13 @@ interface Store {
   /** Where the game stops for the human, by seat counted from theirs (see `loadStops`). A UI preference passed to the engine. */
   stops: Stops;
   setStop: (turn: PlayerId, step: Step, kind: StopKind | undefined) => void;
+  /**
+   * Full control (Ctrl+Shift): the game stops for the human every time they get priority and
+   * they keep it after each spell or ability (`ApplyOptions.fullControl`). Off, the stops apply
+   * again. For this visit only, not saved.
+   */
+  fullControl: boolean;
+  setFullControl: (on: boolean) => void;
   settings: Settings;
   /** Changes a setting, saves it, and applies it to the game in progress. */
   setSetting: (change: Partial<Settings>) => void;
@@ -308,6 +315,7 @@ export const useStore = create<Store>()((set, get) => ({
   confirmExit: false,
   speed: 1,
   stops: loadStops(),
+  fullControl: false,
   settings: loadSettings(),
   deck: null,
   savedDecks: loadDecks(),
@@ -318,6 +326,12 @@ export const useStore = create<Store>()((set, get) => ({
     if (!kind) delete stops[turn][step];
     saveStops(stops);
     set({ stops });
+    sendPrefs();
+  },
+
+  setFullControl: (on) => {
+    // Hold priority is the default while it is on (117.3c).
+    set({ fullControl: on, hold: on });
     sendPrefs();
   },
 
@@ -370,7 +384,7 @@ export const useStore = create<Store>()((set, get) => ({
   },
 
   start: (deck) => {
-    const { settings, savedDecks, stops, server } = get();
+    const { settings, savedDecks, stops, server, fullControl } = get();
     // A table's game is the host's to start: a new game here would end it for everyone.
     if (get().tableGame) return;
     const seats = tableOf(deck, settings, savedDecks);
@@ -380,7 +394,7 @@ export const useStore = create<Store>()((set, get) => ({
     // With a server, the game starts there and the screen changes once its first view arrives.
     const game = server ? get().game : newGame({ seed, seats, stops: seatStops });
     if (server) {
-      const prefs = Object.fromEntries(humans.map((h) => [h, { stops: seatStops[h], manualDamage: settings.manualDamage }]));
+      const prefs = Object.fromEntries(humans.map((h) => [h, { stops: seatStops[h], manualDamage: settings.manualDamage, fullControl }]));
       const req: StartRequest = { seed, seats: seats.map(({ deck, human }) => ({ deck, human: !!human })), prefs, cards: fetchedCardsOf(seats.map((s) => s.deck)) };
       // Stop listening to the old game's seat first: its next view would be of the new game.
       remote.unwatch?.();
@@ -564,9 +578,9 @@ function fetchedCardsOf(decks: DeckDef[]) {
 
 /** Tells the server each person's stops and settings, when there is a server. */
 function sendPrefs() {
-  const { server, game, humans, stops, settings } = useStore.getState();
+  const { server, game, humans, stops, settings, fullControl } = useStore.getState();
   if (!server || !game) return;
-  for (const h of humans) server.prefs({ seat: h, prefs: { stops: absoluteStops(stops, h, game.players.length), manualDamage: settings.manualDamage } });
+  for (const h of humans) server.prefs({ seat: h, prefs: { stops: absoluteStops(stops, h, game.players.length), manualDamage: settings.manualDamage, fullControl } });
 }
 
 /**
@@ -585,11 +599,11 @@ function checkOnView(g: Game, a: Action): Game | null {
   }
 }
 
-/** The human's stops go to the engine with every action, bots' included: those decide when the human is asked too. */
+/** The human's stops and full control go to the engine with every action, bots' included: those decide when the human is asked too. */
 function engineOptions(): ApplyOptions {
-  const { game, humans, stops } = useStore.getState();
+  const { game, humans, stops, fullControl } = useStore.getState();
   const n = game?.players.length ?? 4;
-  return { stops: Object.fromEntries(humans.map((h) => [h, absoluteStops(stops, h, n)])) };
+  return { stops: Object.fromEntries(humans.map((h) => [h, absoluteStops(stops, h, n)])), fullControl: fullControl ? humans : [] };
 }
 
 /**

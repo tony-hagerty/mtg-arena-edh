@@ -171,7 +171,9 @@ export class GameHost implements GameService {
   }
 
   private options(): ApplyOptions {
-    return { stops: this.stops() };
+    // Only people are in full control: a bot standing in for one plays as bots do.
+    const fullControl = Object.entries(this.prefs).flatMap(([seat, p]) => (p?.fullControl && !this.game?.players[+seat]?.isBot ? [+seat] : []));
+    return { stops: this.stops(), fullControl };
   }
 
   private message({ seat, sent }: Watcher): ViewMessage {

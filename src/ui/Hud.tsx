@@ -79,6 +79,7 @@ function PhaseTracker() {
   const { g, me } = useView();
   const stops = useStore((s) => s.stops);
   const setStop = useStore((s) => s.setStop);
+  const fullControl = useStore((s) => s.fullControl);
   const [seat, setSeat] = useState<PlayerId | null>(null);
   const [open, setOpen] = useState<number | null>(null);
   const root = useRef<HTMLDivElement>(null);
@@ -162,6 +163,15 @@ function PhaseTracker() {
         </div>
         <div className="phase-label">
           {editing !== null ? `Stops on ${whose(editing)} turns` : `Turn ${g.turn} · ${g.players[g.active].name} · ${STEP_NAMES[g.step]}`}
+          {fullControl && me !== null && (
+            <button
+              className="full-control"
+              title="Full control: the game stops for you at every step and you keep priority after each spell or ability. Ctrl+Shift or click to turn it off."
+              onClick={() => useStore.getState().setFullControl(false)}
+            >
+              Full control
+            </button>
+          )}
         </div>
       </div>
     </div>
@@ -191,7 +201,7 @@ function HoldToggle() {
   return (
     <button
       className={cx('hold-toggle', hold && 'on')}
-      title="Keep priority after this goes on the stack, to respond to it yourself. Ctrl+Space pays and holds."
+      title="Keep priority after this goes on the stack, to respond to it yourself. Ctrl+Space pays and holds. On by default in full control."
       onClick={() => useStore.setState({ hold: !hold })}
     >
       <span className="hold-box">{hold ? '✓' : ''}</span> Hold priority
@@ -235,6 +245,29 @@ export function ActionBar() {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
+  }, []);
+  // Ctrl+Shift, the two alone: full control on or off. It switches as one of them is let go,
+  // so Ctrl+Space (pay and hold) and shortcuts like Ctrl+Shift+I never do.
+  useEffect(() => {
+    let armed = false;
+    const modifier = (e: KeyboardEvent) => e.key === 'Control' || e.key === 'Shift';
+    const onDown = (e: KeyboardEvent) => {
+      armed = modifier(e) && e.ctrlKey && e.shiftKey && !e.altKey && !e.metaKey;
+    };
+    const onUp = (e: KeyboardEvent) => {
+      const s = useStore.getState();
+      if (armed && modifier(e) && latest.current.me !== null && !s.confirmExit) s.setFullControl(!s.fullControl);
+      armed = false;
+    };
+    const onBlur = () => (armed = false);
+    window.addEventListener('keydown', onDown);
+    window.addEventListener('keyup', onUp);
+    window.addEventListener('blur', onBlur);
+    return () => {
+      window.removeEventListener('keydown', onDown);
+      window.removeEventListener('keyup', onUp);
+      window.removeEventListener('blur', onBlur);
+    };
   }, []);
   return (
     <div className="action-bar">
