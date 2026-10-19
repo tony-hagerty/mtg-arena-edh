@@ -32,6 +32,7 @@
  * again after each effect applies (613.8c). Only an ability that looked at a characteristic
  * this layer can change can depend on anything, so most layers need no extra asking.
  */
+import { current, isDraft } from 'immer';
 import { CREATURE_TYPES, SUBTYPES, cardData } from '../cards/db';
 import { anyRemovingScript, hasRemovingScript, hasStaticScript } from './registry';
 import { CANT_ATTACK, CANT_BLOCK, MUST_ATTACK, SUPPORTED_KEYWORDS, battlefield, counterCount, data, hasReconfigure, permanent, scriptFor } from './rules';
@@ -547,14 +548,24 @@ export function characteristics(g: Game, c: Card, upTo: Layer = '7d', temporary 
 }
 
 /** A card off the battlefield: its copiable values, with its characteristic-defining abilities applied (604.3). */
-function offBattlefield(g: Game, c: Card): Characteristics {
+function offBattlefield(g: Game, draft: Card): Characteristics {
+  const c = plain(draft);
   const { version: _, ...w } = start(c);
   const basePT = definesPT(c);
   if (basePT) ({ power: w.power, toughness: w.toughness } = basePT(g, c));
   return w;
 }
 
-function layers(g: Game, c: Card, upTo: Layer, temporary: boolean): { chars: Characteristics; clean: boolean } {
+/**
+ * `c` as a plain object. Inside `produce` a card is an Immer draft, and every property read
+ * through a draft goes through its proxy, which is slow: the layers read a card's counters,
+ * effects and copy values over and over. Immer's `current` gives the card as it is now, for
+ * a card nothing has changed yet the very object the draft was made from, so it costs little.
+ */
+const plain = (c: Card): Card => (isDraft(c) ? current(c) : c);
+
+function layers(g: Game, draft: Card, upTo: Layer, temporary: boolean): { chars: Characteristics; clean: boolean } {
+  const c = plain(draft);
   const w = start(c);
   const depth = tainted.length;
   working.set(c.id, { w, depth });
