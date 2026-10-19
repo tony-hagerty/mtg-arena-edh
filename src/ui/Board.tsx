@@ -98,12 +98,13 @@ function BackRow({ player, width, max, depth, className, split }: { player: Play
     const two = Math.min(fit(Math.ceil(units / 2), width, max, 1.2), (depth - 0.6) / 1.6);
     return two > one && units > 1 ? { tw: two, wrap: true } : { tw: one, wrap: false };
   };
+  const side = (x: { tw: number }) => vars({ '--tw': `${x.tw}rem` });
   const all = sized(landUnits + others.length + phased.length);
   const landSide = split ? sized(landUnits) : all;
   const otherSide = split ? sized(others.length + phased.length) : all;
   return (
-    <div className={cx('row back', className, !split && all.wrap && 'two-rows')} style={vars({ '--tw': `${all.tw}rem` })}>
-      <div className={cx('lands', split && landSide.wrap && 'two-rows')} style={split ? vars({ '--tw': `${landSide.tw}rem` }) : undefined}>
+    <div className={cx('row back', className, !split && all.wrap && 'two-rows')} style={side(all)}>
+      <div className={cx('lands', split && landSide.wrap && 'two-rows')} style={split ? side(landSide) : undefined}>
         {[...stacks.entries()].map(([key, stack]) => (
           <div className="stack" key={key}>
             {stack.map((c, i) => (
@@ -112,7 +113,7 @@ function BackRow({ player, width, max, depth, className, split }: { player: Play
           </div>
         ))}
       </div>
-      <div className={cx('others', split && otherSide.wrap && 'two-rows')} style={split ? vars({ '--tw': `${otherSide.tw}rem` }) : undefined}>
+      <div className={cx('others', split && otherSide.wrap && 'two-rows')} style={split ? side(otherSide) : undefined}>
         <AnimatePresence>
           {others.map((c) => (
             <Permanent key={c.id} card={c} />

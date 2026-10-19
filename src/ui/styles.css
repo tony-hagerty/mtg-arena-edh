@@ -920,14 +920,26 @@ button {
 }
 
 /*
-  A crowded back row wraps onto two lines (BackRow decides). Opponents' rows wrap as a
-  whole, so their lands and other permanents flow on together; each side of yours wraps
-  on its own, lands toward the avatar.
+  A crowded back row goes onto two lines (BackRow decides). It becomes a two-line grid that
+  fills one slot across at a time, so the lines always split evenly however wide the window
+  is. Opponents' rows go as a whole, lands then the rest; each side of yours goes on its
+  own, your lands against the avatar.
 */
 .row.back.two-rows {
-  flex-wrap: var(--wrap, wrap);
+  display: grid;
+  grid-template-rows: auto auto;
+  grid-auto-flow: column;
+  justify-content: center;
   align-content: center;
+  align-items: center;
   gap: 0.6rem 1.2rem;
+}
+
+.seat-left .row.back.two-rows,
+.seat-right .row.back.two-rows {
+  grid-template-rows: none;
+  grid-template-columns: auto auto;
+  grid-auto-flow: row;
 }
 
 .row.back.two-rows > :is(.lands, .others) {
@@ -935,9 +947,20 @@ button {
 }
 
 .me-back :is(.lands, .others).two-rows {
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-rows: auto auto;
+  grid-auto-flow: column;
   align-content: center;
-  row-gap: 0.6rem;
+  align-items: center;
+  gap: 0.6rem 1.2rem;
+}
+
+.me-back .lands.two-rows {
+  justify-content: end;
+}
+
+.me-back .others.two-rows {
+  justify-content: start;
 }
 
 .me-back .lands,
