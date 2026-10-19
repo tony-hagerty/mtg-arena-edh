@@ -1709,18 +1709,21 @@ function dealCombatDamage(g: Game, firstStrike: boolean, struckFirst: Set<string
 
 /**
  * The player with priority passes it on (117.3d). Once every player has passed in a row,
- * the top of the stack resolves, or the step ends if the stack is empty (117.4).
+ * the top of the stack resolves, or the step ends if the stack is empty (117.4). True if
+ * priority only moved on to the next player, and nothing else about the game changed.
  */
-function passPriority(g: Game) {
+function passPriority(g: Game): boolean {
   g.holding = null;
   g.passes++;
   if (g.passes < living(g).length) {
     g.priority = nextLiving(g, g.priority);
+    return true;
   } else if (g.stack.length) {
     resolveTop(g);
   } else {
     nextStep(g);
   }
+  return false;
 }
 
 /**
@@ -2674,7 +2677,7 @@ function act(g: Game, a: Action): boolean {
     case 'pass': {
       switch (deciding) {
         case undefined:
-          passPriority(g);
+          passedOn = passPriority(g);
           return true;
         case 'attackers':
           if (!canPayAttacks(g, pid, g.combat!.attacks)) return false;
@@ -2708,12 +2711,16 @@ function act(g: Game, a: Action): boolean {
  * them (see `wantsPriority`). `released`: a player in full control who has just cast or
  * activated without `hold`, so it passes for them this once as it would without full control.
  */
-function settle(g: Game, autoPass: boolean, stops: ApplyOptions['stops'] = {}, fullControl: PlayerId[] = [], released: PlayerId | null = null) {
+function settle(g: Game, autoPass: boolean, stops: ApplyOptions['stops'] = {}, fullControl: PlayerId[] = [], released: PlayerId | null = null, checked = false) {
+  settledStable = false;
   for (let guard = 0; guard < 5000; guard++) {
     // A spell or ability is waiting on a choice partway through resolving. Nothing else
     // happens until it has finished, not even state-based actions (608.2).
     if (g.resolving) return;
-    checkState(g);
+    // State-based actions are checked whenever a player would get priority (117.5, 704.3).
+    // `checked`: they were, finding nothing, and since then priority has only passed from one
+    // player to the next. Nothing they look at has changed, so checking would find nothing.
+    if (!checked) checked = checkState(g);
     if (g.winner !== null) {
       g.step = 'gameOver';
       g.combat = null;
@@ -2721,14 +2728,31 @@ function settle(g: Game, autoPass: boolean, stops: ApplyOptions['stops'] = {}, f
       return;
     }
     if (g.decision) return;
-    if (putTriggerOnStack(g)) continue;
+    if (putTriggerOnStack(g)) {
+      checked = false;
+      continue;
+    }
     if (g.players[g.priority].lost) g.priority = nextLiving(g, g.priority);
     const full = fullControl.includes(g.priority) && released !== g.priority;
-    if (!autoPass || wantsPriority(g, g.priority, stops[g.priority], full)) return;
-    passPriority(g);
+    if (!autoPass || wantsPriority(g, g.priority, stops[g.priority], full)) {
+      settledStable = checked;
+      return;
+    }
+    checked &&= passPriority(g);
     released = null;
   }
 }
+
+/**
+ * Games a player got priority in with the state-based actions just checked and nothing to
+ * do (`settle`): passing priority on from one needn't check them again. Immer freezes every
+ * game it makes, so a game in here never changes.
+ */
+const sbaChecked = new WeakSet<Game>();
+/** Did the last `settle` end giving a player priority, the state-based actions checked with nothing to do? */
+let settledStable = false;
+/** Did the action `act` just applied only pass priority on to the next player (`passPriority`)? */
+let passedOn = false;
 
 export interface ApplyOptions {
   /** Pass priority for players who have nothing they'd want to do (default true). See `wantsPriority`. */
@@ -2767,10 +2791,20 @@ function attempt(g: Game, a: Action, opts: Required<Pick<ApplyOptions, 'autoPass
   const { autoPass, stops, fullControl } = opts;
   // Casting or activating without `hold` lets priority pass on, even in full control (117.3c).
   const released = (a.type === 'cast' || a.type === 'activate') && !a.hold ? g.priority : null;
-  const run = () =>
-    produce(g, (draft) => {
-      if (act(draft, a)) settle(draft, autoPass, stops, fullControl, released);
+  const run = () => {
+    // Passing on priority in a game whose state-based actions were checked changes nothing they look at.
+    const checked = a.type === 'pass' && sbaChecked.has(g);
+    let stable = false;
+    const next = produce(g, (draft) => {
+      passedOn = false;
+      if (act(draft, a)) {
+        settle(draft, autoPass, stops, fullControl, released, checked && passedOn);
+        stable = settledStable;
+      }
     });
+    if (stable && next !== g) sbaChecked.add(next);
+    return next;
+  };
   try {
     // A bot trying a move out can't ask anyone: each choice goes the way a bot would take it.
     return withReplacementAnswers(simulate ? null : answers, () => (simulate ? withoutLookahead(run) : run()));
