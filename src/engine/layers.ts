@@ -12,6 +12,14 @@
  *    reconfigured Equipment not being a creature (702.151b);
  *  - characteristic-defining abilities (`CardScript.basePT`, 604.3), first in their layer (613.3).
  *
+ * Layer 6 also works out which abilities it has (613.1f): an effect can take them away
+ * (`LayerParts.loseAll`, `lose`). A static ability's effect, or a characteristic-defining
+ * ability's, applies only if its object still has the ability when the effect would start to
+ * apply (113.3d); once started, it goes on in later layers even if the ability is lost (613.6).
+ * Before layer 6 every object has the abilities of its copiable values. In layer 6 an effect
+ * that would come from an ability another permanent loses doesn't apply, whatever the
+ * timestamps: it depends on the effect that takes the ability away (613.8a).
+ *
  * A static ability may look at the object it is deciding about (`isCreature(g, c)`): while an
  * object is being worked out, a question about it gets the answer so far. A question about
  * another object works that one out in full first.
@@ -25,8 +33,8 @@
  * this layer can change can depend on anything, so most layers need no extra asking.
  */
 import { CREATURE_TYPES, SUBTYPES, cardData } from '../cards/db';
-import { hasStaticScript } from './registry';
-import { SUPPORTED_KEYWORDS, counterCount, data, hasReconfigure, permanent, scriptFor } from './rules';
+import { anyRemovingScript, hasRemovingScript, hasStaticScript } from './registry';
+import { CANT_ATTACK, CANT_BLOCK, MUST_ATTACK, SUPPORTED_KEYWORDS, battlefield, counterCount, data, hasReconfigure, permanent, scriptFor } from './rules';
 import type { Card, CardScript, Characteristics, ContinuousEffect, Game, LayerParts } from './types';
 
 /** The layers that change characteristics this engine has effects for, in order (613.1, 613.4). Layers 1-3 come first: see `LayerParts`. */
@@ -39,7 +47,10 @@ const LAYER_OF: Record<keyof LayerParts, Layer> = {
   notTypes: '4',
   subtypes: '4',
   colors: '5',
+  loseAll: '6',
+  lose: '6',
   keywords: '6',
+  ward: '6',
   mana: '6',
   grant: '6',
   activatedOf: '6',
@@ -69,6 +80,8 @@ interface Entry {
   /** A static ability's effect, not yet applying: its ability number `i` of `source`. */
   source?: Source;
   i?: number;
+  /** The permanent whose static ability it is. */
+  from?: Card;
 }
 
 /**
@@ -185,6 +198,9 @@ function start(c: Card): Working {
     keywords: d.keywords.map((k) => k.toLowerCase()),
     power: num(d.power),
     toughness: num(d.toughness),
+    own: true,
+    lost: [],
+    wards: [],
     mana: [],
     grants: [],
     activatedOf: [],
@@ -202,6 +218,15 @@ function changeling(typeLine: string, keywords: string[]): string {
   const { types, subtypes } = typesOf(typeLine);
   return typeLineOf(types, [...subtypes, ...CREATURE_TYPES.filter((t) => !subtypes.includes(t))]);
 }
+
+/** Can a "keywords" part carry this without it being an ability, so it isn't lost with them: a restriction (113.12)? */
+const notAbility = (k: string) => k === CANT_ATTACK || k === CANT_BLOCK || k === MUST_ATTACK;
+/** Flags that are designations, not abilities (701.64b). */
+const DESIGNATIONS = ['harnessed'];
+/** Keyword abilities the engine reads from the keyword list alone, so losing one is taking it off the list (`LayerParts.lose`). */
+const LISTED = ['flying', 'reach', 'deathtouch', 'lifelink', 'trample', 'vigilance', 'haste', 'first strike', 'double strike', 'menace', 'defender', 'hexproof', 'indestructible', 'flash'];
+/** Keyword abilities its script carries, which `lose` takes from the script too (`Characteristics.lost`). */
+const SCRIPTED = ['ward', 'enchant'];
 
 const addAll = (to: string[], xs: string[] | undefined) => {
   for (const x of xs ?? []) if (!to.includes(x)) to.push(x);
@@ -245,7 +270,28 @@ function apply(w: Working, p: LayerParts, l: Layer) {
       break;
     }
     case '6':
+      // An effect that takes abilities away and gives others (Animate Dead's) takes them first.
+      if (p.loseAll) {
+        w.own = false;
+        w.keywords = w.keywords.filter(notAbility);
+        w.flags = w.flags.filter((f) => DESIGNATIONS.includes(f));
+        w.wards = [];
+        w.mana = [];
+        w.grants = [];
+        w.activatedOf = [];
+      }
+      if (p.lose) {
+        for (const k of p.lose) {
+          if (!LISTED.includes(k) && !SCRIPTED.includes(k) && !k.startsWith('protection from')) throw new Error(`Losing "${k}" isn't supported: its script carries it.`);
+        }
+        // Every instance of it (113.10b).
+        w.keywords = w.keywords.filter((k) => !p.lose!.includes(k));
+        if (p.lose.includes('ward')) w.wards = [];
+        const scripted = p.lose.filter((k) => SCRIPTED.includes(k) && !w.lost.includes(k));
+        if (scripted.length) w.lost = [...w.lost, ...scripted];
+      }
       if (p.keywords) addAll((w.keywords = [...w.keywords]), p.keywords);
+      if (p.ward) w.wards = [...w.wards, p.ward];
       if (p.mana) w.mana = [...w.mana, p.mana];
       if (p.grant) w.grants = [...w.grants, p.grant];
       if (p.activatedOf) addAll((w.activatedOf = [...w.activatedOf]), p.activatedOf);
@@ -269,6 +315,51 @@ function apply(w: Working, p: LayerParts, l: Layer) {
       break;
   }
   w.version++;
+}
+
+/**
+ * Is there anything on the battlefield that can take abilities away: an effect from a resolved
+ * spell or ability, or a static ability that says it can (`CardScript.removesAbilities`)? While
+ * there isn't, every permanent has its own abilities, and nothing needs working out.
+ * It is asked for every ability looked at, so it looks only at names until a resolved effect
+ * has taken abilities away in this game (`Game.abilitiesLost`).
+ */
+export function removesAbilities(g: Game): boolean {
+  if (!g.abilitiesLost && !anyRemovingScript()) return false;
+  const isHeld = held?.g === g;
+  const isFrozen = !isHeld && Object.isFrozen(g) && Object.isFrozen(g.players);
+  const known = isHeld ? held!.removing : isFrozen ? removing.get(g) : undefined;
+  if (known !== undefined) return known;
+  const any = battlefield(g).some((c) => mayRemove(c) || (g.abilitiesLost && c.continuous.some((e) => e.loseAll || e.lose)));
+  if (isHeld) held!.removing = any;
+  else if (isFrozen) removing.set(g, any);
+  return any;
+}
+const removing = new WeakMap<Game, boolean>();
+/** Does `c`'s script, on any face, have a static ability that can take abilities away? */
+const mayRemove = (c: Card) => (c.copy ? !!scriptFor(c).removesAbilities : namesOf(c).some(hasRemovingScript));
+
+/** Does permanent `c` have the abilities of its copiable values now (`Characteristics.own`)? */
+export const hasOwnAbilities = (g: Game, c: Card) => (c.lki ? c.lki.own !== false : c.zone !== 'battlefield' || !removesAbilities(g) || characteristics(g, c, '6').own);
+
+/**
+ * Does the ability entry `e` comes from exist as it would start to apply in layer `l` to `c`,
+ * worked out as far as `w`? See the top of this file.
+ */
+function exists(g: Game, c: Card, w: Working, e: Entry, l: Layer): boolean {
+  if (e.cda || e.from?.id === c.id) return w.own;
+  if (!e.from || LAYERS.indexOf(l) < LAYERS.indexOf('6')) return true;
+  return hasOwnAbilities(g, e.from);
+}
+
+/**
+ * Can effect `e` apply to `c` now, doing `p`? A static ability's effect that hasn't started to
+ * apply needs its ability to exist (`exists`); once started, it goes on (613.6).
+ */
+function starts(g: Game, c: Card, w: Working, e: Entry, p: LayerParts, l: Layer): boolean {
+  if (e.from && (p.loseAll || p.lose) && !scriptFor(e.from).removesAbilities) throw new Error(`${e.from.name}'s static ability removes abilities: its script needs removesAbilities.`);
+  if (!e.from && !e.cda && (p.loseAll || p.lose) && !g.abilitiesLost) throw new Error(`An effect that removes ${c.name}'s abilities must be given with addContinuous, which marks the game.`);
+  return !!e.parts || exists(g, c, w, e, l);
 }
 
 /** Does a locked-in effect still apply: has its "for as long as" object stayed (611.2b)? */
@@ -315,7 +406,7 @@ function entries(g: Game, c: Card, temporary: boolean): Entry[] {
     answerOf(source, 0, 0);
     const ts = Math.max(src.ts, src.copyTs ?? -Infinity);
     source.answer.forEach((_, i) => {
-      if (!without.length || !without.some((x) => x.id === src.id && x.i === i)) out.push({ ts, seq: seq++, source, i });
+      if (!without.length || !without.some((x) => x.id === src.id && (x.i === i || x.i === ALL))) out.push({ ts, seq: seq++, source, i, from: src });
     });
   }
   return out.sort((a, b) => (a.cda === b.cda ? 0 : a.cda ? -1 : 1) || a.ts - b.ts || a.seq - b.seq);
@@ -326,13 +417,16 @@ const scriptNames = new Map<string, string[]>();
 
 /** Could permanent `c` have a static ability? A quick check before looking up its script. */
 function mayHaveStatic(c: Card): boolean {
-  if (c.copy) return true;
+  return !!c.copy || namesOf(c).some(hasStaticScript);
+}
+/** The names `c`'s scripts can be registered under: the card's and each face's. */
+function namesOf(c: Card): string[] {
   let names = scriptNames.get(c.name);
   if (!names) {
     const d = cardData(c.name);
     scriptNames.set(c.name, (names = [d.name, c.name, ...(d.faces ?? []).map((f) => f.name)]));
   }
-  return names.some(hasStaticScript);
+  return names;
 }
 
 type StaticFn = NonNullable<CardScript['static']>;
@@ -368,7 +462,7 @@ const tainted: boolean[] = [];
 /** Answers for games that can't change any more: Immer freezes every state it makes. */
 const frozen = new WeakMap<Game, WeakMap<Card, Result>>();
 /** Answers kept while a game doesn't change (`settled`). */
-let held: { g: Game; answers: WeakMap<Card, Result>; sources?: Sources } | null = null;
+let held: { g: Game; answers: WeakMap<Card, Result>; sources?: Sources; removing?: boolean } | null = null;
 
 interface Result {
   chars: Characteristics;
@@ -474,7 +568,7 @@ function applyLayer(g: Game, c: Card, w: Working, l: Layer, group: Entry[], temp
       // Asked again with the object as it is now, unless nothing applied in this layer can have changed the answer.
       const again = first || watches(e, li);
       const p = e.parts ?? (again ? answerOf(e.source!, w.version, e.i!) : (e.source!.answer[e.i!] ?? null));
-      if (p && appliesAt(e, p, l)) live.push({ e, p });
+      if (p && appliesAt(e, p, l) && starts(g, c, w, e, p, l)) live.push({ e, p });
       watching ||= watches(e, li);
     }
     if (!live.length) return;
@@ -482,6 +576,8 @@ function applyLayer(g: Game, c: Card, w: Working, l: Layer, group: Entry[], temp
     // timestamp order, and nothing starts or stops applying along the way.
     if (!watching) {
       for (const { e, p } of live) {
+        // An earlier one may have taken this one's ability away (113.10).
+        if (!e.parts && !exists(g, c, w, e, l)) continue;
         e.parts = p;
         apply(w, p, l);
       }
@@ -493,7 +589,7 @@ function applyLayer(g: Game, c: Card, w: Working, l: Layer, group: Entry[], temp
     const left = next.loop.flatMap((d) => (d.source?.id === undefined ? [] : [{ id: d.source.id, i: d.i! }]));
     const then = left.length ? askWithout(g, c, next.e.source!, li, left, temporary) : undefined;
     const p = then ? (then[next.e.i!] ?? null) : next.p;
-    if (p && appliesAt(next.e, p, l)) {
+    if (p && appliesAt(next.e, p, l) && starts(g, c, w, next.e, p, l)) {
       next.e.parts = p;
       apply(w, p, l);
     }
@@ -587,8 +683,25 @@ function askWithout(g: Game, c: Card, s: Source, li: number, left: { id: string;
   }
 }
 
-/** Static ability effects left out while working out what the game would be without them. */
+/** Static ability effects left out while working out what the game would be without them. `i: ALL` leaves out every one of that permanent's. */
 let without: { id: string; i: number }[] = [];
+const ALL = -1;
+
+/**
+ * Runs `fn` as if the static abilities of permanents `ids` didn't exist yet: for a permanent
+ * entering at the same time as them, whose replacement effects see only continuous effects
+ * that already exist (614.12).
+ */
+export function withoutStatics<T>(ids: string[], fn: () => T): T {
+  if (!ids.length) return fn();
+  const outer = without;
+  without = [...outer, ...ids.map((id) => ({ id, i: ALL }))];
+  try {
+    return fn();
+  } finally {
+    without = outer;
+  }
+}
 
 /** Do two answers do the same thing? A function in one (a mana ability's colours) is worked out when used, so the same code counts as the same. */
 function same(x: unknown, y: unknown): boolean {
