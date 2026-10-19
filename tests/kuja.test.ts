@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { applyAction, applyBotAction, botAction, canBlock, colorsOf, has, makeCard, stats } from '../src/engine';
 import type { Action, Game, PlayerId, TargetRef } from '../src/engine';
 import { produce } from 'immer';
+import { cardData } from '../src/cards/db';
 import { byName, emptyGame, put, run } from './helpers';
 import './fixtures';
 
@@ -302,6 +303,24 @@ describe('Roles and Auras', () => {
     g = settle(applyAction(g, pass));
     expect(byName(g, 0, 'Serra Angel')).toBeTruthy();
     expect(byName(g, 0, "Kaya's Ghostform", 'graveyard')).toBeTruthy();
+  });
+
+  it("flashes the Wizard token whose trigger Kaya's Ghostform sets off, by a name the screen can look up", () => {
+    // The black screen at a table: the Wizard token's "whenever you cast a noncreature spell"
+    // trigger flashed its source as "Wizard", the name it shows, which isn't a card or token
+    // key, so the screen's SpellFlash threw while drawing and both windows went blank.
+    let g = emptyGame((d) => {
+      put(d, 0, "Kaya's Ghostform", 'hand');
+      put(d, 0, 'Swamp');
+      put(d, 0, 'Serra Angel');
+      put(d, 0, 'Wizard 0/1 ping').isToken = true;
+    });
+    g = run(g, cast(g, "Kaya's Ghostform", { targets: [card(byName(g, 0, 'Serra Angel')!)] }));
+    expect(g.lastSpell).toMatchObject({ name: 'Wizard 0/1 ping', ability: 'triggered' });
+    expect(cardData(g.lastSpell!.name).name).toBe('Wizard');
+    g = settle(g);
+    expect(g.players[1].life).toBe(39);
+    expect(byName(g, 0, "Kaya's Ghostform")!.attachedTo).toBe(byName(g, 0, 'Serra Angel')!.id);
   });
 
   it("Kaya's Ghostform doesn't return a token", () => {

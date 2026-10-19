@@ -2022,9 +2022,14 @@ function announceTrigger(g: Game, item: StackItem) {
   flash(g, item.card, item.controller, 'triggered');
 }
 
-/** Shows a spell or ability's source card for a moment as it goes on the stack (`Game.lastSpell`). */
+/**
+ * Shows a spell or ability's source card for a moment as it goes on the stack (`Game.lastSpell`).
+ * The name is one `cardData` finds: a token's own key ("Wizard 0/1 ping"), not the name it
+ * shows ("Wizard"); a card's face or what it copies otherwise.
+ */
 function flash(g: Game, c: Card, pid: PlayerId, ability?: 'triggered' | 'activated') {
-  g.lastSpell = { seq: (g.lastSpell?.seq ?? 0) + 1, name: data(c).name, caster: pid, ...(ability && { ability }) };
+  const name = c.isToken && !c.copy ? c.name : data(c).name;
+  g.lastSpell = { seq: (g.lastSpell?.seq ?? 0) + 1, name, caster: pid, ...(ability && { ability }) };
 }
 
 // ---------- actions ----------
