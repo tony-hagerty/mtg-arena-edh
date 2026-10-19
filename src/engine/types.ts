@@ -121,6 +121,11 @@ export interface LayerParts {
   /** Layer 6: the activated abilities of these cards, by name (Agatha's Soul Cauldron). */
   activatedOf?: string[];
   /**
+   * Layer 6: an enchant ability it gains (702.5a), card `enchantOf`'s `givesEnchant`: Animate
+   * Dead's "enchant creature put onto the battlefield with this Aura".
+   */
+  enchantOf?: string;
+  /**
    * Layer 6: abilities its script reads by name instead of the engine, like harnessed
    * (701.64b) or an ability a Saga's chapter gave it (`hasFlag`).
    */
@@ -178,6 +183,8 @@ export interface Characteristics {
   grants: { from: string; index: number }[];
   /** Cards whose activated abilities it has from effects (layer 6). */
   activatedOf: string[];
+  /** The cards whose `givesEnchant` it has as an enchant ability from effects (layer 6), by name. */
+  enchantOf: string[];
   /** Abilities its script reads by name (`LayerParts.flags`). */
   flags: string[];
 }
@@ -215,6 +222,8 @@ export interface CastInfo {
   alt?: number;
   /** Cast for its dash cost (702.109a). */
   dash?: boolean;
+  /** Cast with suspend (702.62a): a creature spell has haste until its caster loses control of it. */
+  suspend?: boolean;
   /** Cast for its impending cost (702.176a): "this permanent's impending cost was paid". */
   impending?: boolean;
   /** Cast with escape (702.138b). */
@@ -391,6 +400,12 @@ export interface Card {
   known: PlayerId[];
   /** A choice made as it entered, such as Cavern of Souls's creature type (614.12a). */
   chosen: string | null;
+  /** Monstrous (701.37b): a designation, kept until it leaves the battlefield. */
+  monstrous?: boolean;
+  /** It has suspend from an effect, like Delay's "it gains suspend" (702.62a). */
+  suspend?: boolean;
+  /** Cards it exiled "until this leaves the battlefield" (Hostage Taker): they return when it does (610.3). */
+  holds?: { id: string; moves: number }[];
   /** Cards an ability of it exiled, for the ability linked to it (607), like Chrome Mox's. */
   linked: { id: string; moves: number }[];
   /**
@@ -429,6 +444,10 @@ export interface CopyInfo {
   /** A base power and toughness the copy effect sets (707.9b): offspring's 1/1, Saw in Half's halves. */
   power?: number;
   toughness?: number;
+  /** Creature types the copy effect sets, replacing the copied ones (707.9b, 205.1a): Hashaton's "it's a ... Zombie". */
+  creatureTypes?: string[];
+  /** Colours the copy effect sets, replacing the copied ones (707.9b, 105.3): Hashaton's "black". */
+  colors?: Color[];
 }
 
 export interface Player {
@@ -479,6 +498,8 @@ export interface Player {
   lifeLost: number;
   /** Life this player has gained this turn (119.3). */
   lifeGained?: number;
+  /** The creatures this player has attacked with this turn, in any combat (Temple of Civilization). */
+  attackedWith?: string[];
   /**
    * Permanents that phased out while this player controlled them (702.26). They are treated as
    * though they don't exist, so they aren't on the battlefield list, and phase back in during
@@ -526,6 +547,8 @@ export type TurnEffect =
       until?: { player: PlayerId; turn: number };
       lasting?: boolean;
       ifSubtype?: string;
+      /** "If that spell would be put into your graveyard, exile it instead" (Vohar): a spell cast with this permission. */
+      graveyardToExile?: boolean;
     }
   /** Card `card` in a graveyard has flashback this turn, its flashback cost its mana cost (Flashback, Stingcaster Mage). */
   | { kind: 'flashback'; card: string; moves: number }
@@ -784,8 +807,8 @@ export interface NameChoice extends Then {
   player: PlayerId;
   source: string;
   text: string;
-  /** What is named. Left out, a card. A colour is named by its mana symbol: W, U, B, R or G. */
-  of?: 'creature type' | 'color';
+  /** What is named. Left out, a card. A colour is named by its mana symbol: W, U, B, R or G. A card type by its name (`CARD_TYPES`). */
+  of?: 'creature type' | 'color' | 'card type';
 }
 
 /** A player chooses a player, such as "an opponent" (Wishclaw Talisman). */
@@ -801,6 +824,9 @@ export interface PlayerChoice extends Then {
  * A player may cast `card` while a spell resolves (608.2g), without paying its mana cost
  * if `free`. Answered by a `cast` action for that card, or `answer` no.
  */
+/** Keyword abilities whose trigger lets a card be cast: for its madness or miracle cost (702.35a, 702.94a), or free with suspend (702.62a). */
+export type CastVia = 'madness' | 'miracle' | 'suspend';
+
 export interface CastChoice extends Then {
   kind: 'cast';
   player: PlayerId;
@@ -812,6 +838,8 @@ export interface CastChoice extends Then {
   maxMv?: number;
   /** "If that spell would be put into your graveyard, exile it instead" (Emet-Selch). */
   graveyardToExile?: boolean;
+  /** Cast "by paying [its madness or miracle cost] rather than paying its mana cost" (702.35a, 702.94a). */
+  via?: CastVia;
 }
 
 /**
@@ -1021,6 +1049,13 @@ export interface Game {
   spellsCast: number;
   /** Players dealt combat damage this turn. */
   combatDamaged: PlayerId[];
+  /**
+   * Additional beginning phases still to come after this turn's postcombat main phase (Sphinx
+   * of the Second Sun, 500.8), and whether one is under way now: after it the turn goes on to
+   * the next of them, or to the ending phase.
+   */
+  extraBeginnings?: number;
+  inExtraBeginning?: boolean;
   /** Effects that last until end of turn (514.2). */
   effects: TurnEffect[];
   /** Delayed triggered abilities waiting for their moment (603.7). */
@@ -1134,6 +1169,8 @@ export interface TargetSpec {
     | 'creature or planeswalker'
     | 'player or planeswalker'
     | 'spell or ability'
+    /** A spell on the stack or a permanent (Sink into Stupor): `who` and `filter` apply to both. */
+    | 'spell or permanent'
     /** A card in a graveyard (Sevinne's Reclamation). */
     | 'graveyard card';
   who?: 'you' | 'opponent' | 'any'; // whose permanent / which player
@@ -1188,6 +1225,8 @@ export interface TriggerEvents {
   onEnter: object;
   onDies: object;
   onAttack: { defender: PlayerId; target: string | null };
+  /** "Whenever this creature blocks": once each combat, however many it blocks (509.3a). */
+  onBlock: object;
   onCombatDamageToPlayer: { player: PlayerId; amount: number };
   // Table-wide triggers: every permanent on the battlefield that defines one is asked.
   onCreatureEnters: { entered: Card };
@@ -1195,7 +1234,8 @@ export interface TriggerEvents {
   /** A planeswalker that isn't also a creature dies (Cruel Celebrant). */
   onPlaneswalkerDies: { dead: Card };
   onCreatureAttacks: { attacker: Card; defender: PlayerId; target: string | null };
-  onCast: { card: Card; caster: PlayerId };
+  /** `item`: the spell as it was cast, for "copy that spell" after it may have left the stack (707.10). */
+  onCast: { card: Card; caster: PlayerId; item: StackItem };
   /** A spell is copied (707.10): magecraft's "whenever you cast or copy an instant or sorcery spell" (207.2c). `controller` controls the copy. */
   onCopy: { card: Card; controller: PlayerId };
   onDraw: { player: PlayerId };
@@ -1252,6 +1292,14 @@ export interface TriggerEvents {
   onSacrifice: { card: Card; player: PlayerId };
   /** Ward (702.21a), which the engine resolves. `item` is the spell or ability to counter unless its controller pays. */
   onWard: { item: string; cost: WardCost };
+  /** Madness's "When this card is exiled this way" (702.35a): the card in exile. */
+  onMadness: object;
+  /** Miracle's "When you reveal this card this way" (702.94a): the card in hand. */
+  onMiracle: object;
+  /** Suspend's "At the beginning of your upkeep, if this card is suspended, remove a time counter from it" (702.62a). */
+  onSuspendUpkeep: object;
+  /** Suspend's "When the last time counter is removed from this card, if it's exiled, you may play it" (702.62a). */
+  onSuspendCast: object;
   /** "Whenever [a permanent] enters": every permanent, creature or not, as it was as it entered. */
   onPermanentEnters: { entered: Card };
   /**
@@ -1308,7 +1356,14 @@ export type Trigger<E> =
        * chosen as it goes on the stack (603.3c), each with its own targets. `resolve` reads
        * `ctx.modes`. `bot`: the modes a bot chooses.
        */
-      modes?: { min: number; max: number; modes: Mode[]; bot?: (g: Game, pid: PlayerId, self: Card) => number[] };
+      modes?: {
+        min: number;
+        max: number;
+        modes: Mode[];
+        bot?: (g: Game, pid: PlayerId, self: Card) => number[];
+        /** "Choose one that hasn't been chosen this turn" (Monument to Endurance): a mode its source chose this turn can't be chosen again. */
+        oncePerTurn?: boolean;
+      };
     };
 
 /**
@@ -1423,10 +1478,14 @@ export interface ActivatedAbility {
     crew?: number;
     life?: number;
     discard?: number;
+    /** "Discard a creature card" (Tortured Existence): only cards that fit can be discarded for `discard`. */
+    discardFilter?: (g: Game, c: Card) => boolean;
     discardSelf?: boolean;
     counters?: { kind: string; n: number };
     /** "Sacrifice a creature:": one permanent its controller controls that fits, chosen as it is activated. */
     sacrificeOne?: TargetSpec;
+    /** "Sacrifice two other artifacts and/or creatures" (Mondrak): how many different ones fit `sacrificeOne`. One if left out. */
+    sacrificeCount?: number;
     /** "Spend only black mana on X" (Crypt Rats): each X in `mana` is paid with mana of this colour. */
     xColor?: ManaSym;
     /** "Exile this [permanent]" (Relic of Progenitus). */
@@ -1514,8 +1573,11 @@ export interface CardScript extends Triggers {
     optional?: boolean;
     discard?: number;
     life?: number | 'x';
-    /** "Pay 5 life or pay {2}" (Redirect Lightning): the caster pays one of these, chosen as it is cast (`CastChoices.extra`). */
-    oneOf?: { label: string; mana?: string; life?: number }[];
+    /**
+     * "Pay 5 life or pay {2}" (Redirect Lightning), "discard a card or pay 3 life" (Bitter
+     * Triumph): the caster pays one of these, chosen as it is cast (`CastChoices.extra`).
+     */
+    oneOf?: { label: string; mana?: string; life?: number; discard?: number }[];
   };
   /**
    * Gift (702.174): "Gift a [token]". The caster may promise an opponent a gift as they
@@ -1546,6 +1608,8 @@ export interface CardScript extends Triggers {
     warp?: boolean;
     /** Impending N (702.176a): the permanent enters with N time counters and isn't a creature while it has one. See `impending`. */
     impending?: number;
+    /** Madness or miracle (702.35a, 702.94a): only when that ability's trigger lets its owner cast it. See `madness`, `miracle`. */
+    via?: CastVia;
   }[];
   /**
    * While this permanent is on the battlefield: a replacement effect that changes how much
@@ -1557,9 +1621,15 @@ export interface CardScript extends Triggers {
   changesDamage?: (g: Game, self: Card, source: Card, to: { player?: PlayerId; card?: Card }, combat: boolean) => DamageChange | null;
   /**
    * An Aura's enchant ability (702.5): what it can be attached to. It is also the Aura
-   * spell's target (303.4a). Its `who` is from the Aura's controller's side.
+   * spell's target (303.4a). Its `who` is from the Aura's controller's side. A `'graveyard
+   * card'` one enchants a card in a graveyard (Animate Dead).
    */
   enchant?: TargetSpec;
+  /**
+   * An enchant ability one of its effects gives it (`LayerParts.enchantOf`), like Animate
+   * Dead's "enchant creature put onto the battlefield with this Aura". Its `filter` gets the Aura as `source`.
+   */
+  givesEnchant?: TargetSpec;
   /**
    * Its activated abilities (602): one, or a list in printed order when it has several
    * (Deathrite Shaman). An action or stack item names one by its index (`activated`).
@@ -1575,6 +1645,8 @@ export interface CardScript extends Triggers {
   levels?: { cost: string; text: string }[];
   /** "You have no maximum hand size" (402.2). */
   noMaxHandSize?: boolean;
+  /** While this permanent is on the battlefield: how much it changes `pid`'s maximum hand size (402.2), like "Each opponent's maximum hand size is reduced by seven". */
+  handSize?: (g: Game, self: Card, pid: PlayerId) => number;
   /**
    * Continuations: what happens after a choice made partway through resolving (608.2d).
    * A choice names one with `then`; the resolving spell or ability's script runs it.
@@ -1668,10 +1740,14 @@ export interface CardScript extends Triggers {
    */
   removesAbilities?: boolean;
   /**
-   * While this permanent is on the battlefield: is it a Roaming Throne for `source`? "If a
-   * triggered ability of [a permanent] triggers, it triggers an additional time" (603.2d).
+   * While this permanent is on the battlefield: is it a Roaming Throne for `source`'s ability
+   * on `hook`? "If a triggered ability of [a permanent] triggers, it triggers an additional time" (603.2d).
    */
-  doublesTriggers?: (g: Game, self: Card, source: Card) => boolean;
+  doublesTriggers?: (g: Game, self: Card, source: Card, hook: TriggerHook) => boolean;
+  /** While this permanent is on the battlefield: does `source`'s ability on `hook` not trigger at all? "Permanents entering don't cause abilities of permanents your opponents control to trigger." */
+  suppressesTriggers?: (g: Game, self: Card, source: Card, hook: TriggerHook) => boolean;
+  /** While this permanent is on the battlefield: does player `pid` have protection from `source` (702.16)? "You ... have protection from the chosen card type." */
+  protectsPlayer?: (g: Game, self: Card, pid: PlayerId, source: Card) => boolean;
   /** While this permanent is on the battlefield: does player `pid` have shroud (702.18a)? "You have shroud." */
   givesShroud?: (g: Game, self: Card, pid: PlayerId) => boolean;
   /**
@@ -1711,5 +1787,5 @@ export interface CardScript extends Triggers {
 /** Hooks that every permanent on the battlefield hears, not only the card the event is about. */
 export type BroadcastHook = Exclude<
   TriggerHook,
-  'onEnter' | 'onDies' | 'onAttack' | 'onCombatDamageToPlayer' | 'onDefeat' | 'onChapter' | 'onLevel' | 'onStorm' | 'onDelayed' | 'onTapped' | 'onWard' | 'onLeave' | 'onCounters' | 'onReflexive' | 'onEvoked' | 'onOffspring'
+  'onEnter' | 'onDies' | 'onAttack' | 'onBlock' | 'onCombatDamageToPlayer' | 'onDefeat' | 'onChapter' | 'onLevel' | 'onStorm' | 'onDelayed' | 'onTapped' | 'onWard' | 'onMadness' | 'onMiracle' | 'onSuspendUpkeep' | 'onSuspendCast' | 'onLeave' | 'onCounters' | 'onReflexive' | 'onEvoked' | 'onOffspring'
 >;

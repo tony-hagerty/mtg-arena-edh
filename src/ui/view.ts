@@ -4,6 +4,7 @@ import { createContext, useContext } from 'react';
 import {
   activatable,
   canPlot,
+  discardsFor,
   abilityHasX,
   activatedAbilities,
   activatedAt,
@@ -18,6 +19,7 @@ import {
   canTapForMana,
   canUntapMana,
   altCostsOf,
+  castsForAlt,
   canActivate,
   castCost,
   castTargets,
@@ -272,8 +274,8 @@ function handAbility(g: Game, me: PlayerId, card: Card): AbilityRef | undefined 
 function sacrificeNeeds(t: Targeting): { spec: TargetSpec; alt: number | undefined; optional: boolean }[] {
   const card = findCard(S().game!, t.cardId);
   // An ability's "Sacrifice a creature" cost (Goblin Bombardment).
-  const one = card && activatedOf(t, card)?.cost.sacrificeOne;
-  if (one) return [{ spec: one, alt: undefined, optional: false }];
+  const cost = card && activatedOf(t, card)?.cost;
+  if (cost?.sacrificeOne) return Array.from({ length: cost.sacrificeCount ?? 1 }, () => ({ spec: cost.sacrificeOne!, alt: undefined, optional: false }));
   if (!card || t.mode !== 'cast') return [];
   const script = scriptFor(asSpell(card, t.choices.face));
   const alt = t.choices.alt === undefined ? undefined : script.alternativeCosts?.[t.choices.alt];
@@ -352,12 +354,15 @@ function isDelving(t: Targeting): boolean {
   return delveOptions(g!, me, card).some((x) => !t.choices.escape?.includes(x.id)) && castCost(g!, card, t.choices, me).generic > 0;
 }
 
+/** Which cards an ability's "Discard a creature card" cost can discard: any, for a spell. */
+const discardFilterOf = (t: Targeting, card: Card) => (t.mode === 'cast' ? undefined : activatedOf(t, card)?.cost.discardFilter);
+
 /** The targets are chosen and an ability's or a spell's "Discard a card" cost still needs its cards (118.8). */
 function isDiscarding(t: Targeting): boolean {
   if (t.chosen.length < t.specs.length || t.announcing || isSacrificing(t)) return false;
   const card = findCard(S().game!, t.cardId);
   if (!card) return false;
-  const n = t.mode === 'cast' ? (scriptFor(asSpell(card, t.choices.face)).additionalCost?.discard ?? 0) : (activatedOf(t, card)?.cost.discard ?? 0);
+  const n = t.mode === 'cast' ? discardsFor(scriptFor(asSpell(card, t.choices.face)), t.choices.extra) : (activatedOf(t, card)?.cost.discard ?? 0);
   return n > (t.discard?.length ?? 0);
 }
 
@@ -467,7 +472,10 @@ function announceOf(g: Game, me: PlayerId, card: Card, choices: CastChoices): An
         : null,
     kicker: script.kicker && !land ? { text: costText(parseCost(script.kicker.mana)), most } : null,
     offspring: script.offspring && !land ? { text: costText(parseCost(script.offspring)), payable: payable({ ...choices, offspring: true }) } : null,
-    extraCosts: script.additionalCost?.oneOf && !land ? script.additionalCost.oneOf.map((o, i) => ({ label: o.label, payable: payable({ ...choices, extra: i }) })) : null,
+    extraCosts:
+      script.additionalCost?.oneOf && !land
+        ? script.additionalCost.oneOf.map((o, i) => ({ label: o.label, payable: discardOptions(g, me, card).length >= discardsFor(script, i) && payable({ ...choices, extra: i }) }))
+        : null,
     plot: canPlot(g, me, card) ? scriptFor(card).plot! : null,
     handMana: card.zone === 'hand' && canTapForMana(g, me, card),
     handAbility: handAb ? activatedAt(g, card, handAb.activated)!.text : null,
@@ -587,7 +595,7 @@ export function buildView(): View {
             : deciding === 'ask'
               ? `${who} is deciding`
               : deciding === 'name'
-                ? `${who} is naming ${g.decision?.type === 'name' && g.decision.choice.of ? (g.decision.choice.of === 'color' ? 'a colour' : 'a creature type') : 'a card'}`
+                ? `${who} is naming ${g.decision?.type === 'name' && g.decision.choice.of ? (g.decision.choice.of === 'color' ? 'a colour' : `a ${g.decision.choice.of}`) : 'a card'}`
                 : deciding === 'player'
                   ? `${who} is choosing a player`
                   : deciding === 'number'
@@ -732,7 +740,7 @@ export function buildView(): View {
   // --- choosing the cards to discard for an ability's cost ---
   if (t && isDiscarding(t)) {
     const card = findCard(g, t.cardId)!;
-    for (const c of discardOptions(g, me, card)) if (!t.discard?.includes(c.id)) view.glow.set(c.id, 'target');
+    for (const c of discardOptions(g, me, card, discardFilterOf(t, card))) if (!t.discard?.includes(c.id)) view.glow.set(c.id, 'target');
     view.glow.set(card.id, 'picked');
     view.prompt = `${label(card)}: choose a card in your hand to discard.`;
     view.secondary = { label: 'Cancel', tone: 'cancel', onClick: cancel };
@@ -1071,9 +1079,10 @@ function defaultChoices(g: Game, me: PlayerId, card: Card, face: number): CastCh
   const spell = asSpell(card, face, me);
   // "Pay 5 life or pay {2}": the first of the additional costs it offers that can be paid.
   const oneOf = scriptFor(asSpell(card, face)).additionalCost?.oneOf;
-  const extra = oneOf ? Math.max(0, oneOf.findIndex((_, i) => planPayment(g, me, castCost(g, card, { face, escape, extra: i }, me), spell))) : undefined;
+  const canDiscard = (i: number) => discardOptions(g, me, card).length >= discardsFor(scriptFor(asSpell(card, face)), i);
+  const extra = oneOf ? Math.max(0, oneOf.findIndex((_, i) => canDiscard(i) && planPayment(g, me, castCost(g, card, { face, escape, extra: i }, me), spell))) : undefined;
   const alts = ways ? [] : altCostsOf(g, card, face, me);
-  const alt = planPayment(g, me, castCost(g, card, { face, escape, extra }, me), spell) ? undefined : alts.find((i) => planPayment(g, me, castCost(g, card, { alt: i, face, extra }, me), spell));
+  const alt = planPayment(g, me, castCost(g, card, { face, escape, extra }, me), spell) && !castsForAlt(g, card) ? undefined : alts.find((i) => planPayment(g, me, castCost(g, card, { alt: i, face, extra }, me), spell));
   // An X paid in life ("pay X life", Toxic Deluge) starts at 0, not at all the player's life.
   const hasX = !paysFlashback(g, card, { face, escape }) && parseCost(data(asSpell(card, face)).manaCost).x > 0;
   const choices: CastChoices = {
@@ -1380,7 +1389,7 @@ export function chooseDelve(ids: string[]) {
 /** Picks a card in the hand to discard for an ability's cost. Paying comes next. */
 function chooseDiscard(g: Game, me: PlayerId, t: Targeting, card: Card) {
   const source = findCard(g, t.cardId)!;
-  if (!discardOptions(g, me, source).some((c) => c.id === card.id) || t.discard?.includes(card.id)) return;
+  if (!discardOptions(g, me, source, discardFilterOf(t, source)).some((c) => c.id === card.id) || t.discard?.includes(card.id)) return;
   const next = { ...t, discard: [...(t.discard ?? []), card.id] };
   useStore.setState({ targeting: next });
   if (isPaying(next) && paidUp(g, me, next)) pay();

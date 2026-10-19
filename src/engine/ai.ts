@@ -44,6 +44,7 @@ import {
   commanderDamageFrom,
   creaturesOf,
   data,
+  discardsFor,
   defenseOf,
   fight,
   isBattle,
@@ -278,9 +279,11 @@ function castChoices(g: Game, pid: PlayerId, c: Card): CastChoices[] {
     const extra = script.additionalCost?.sacrifice
       ? [...(script.additionalCost.optional ? [undefined] : []), ...cheapest(sacrificeOptions(g, pid, c, face)).slice(0, 1).map((x) => x.id)]
       : [undefined];
-    // "Discard a card": the ones the bot wants least.
-    const n = script.additionalCost?.discard ?? 0;
-    const discard = n ? discardOptions(g, pid, c).sort((a, b) => cardWant(g, pid, a) - cardWant(g, pid, b)).slice(0, n).map((x) => x.id) : undefined;
+    // "Discard a card": the ones the bot wants least, for the additional cost it chose.
+    const discardFor = (extra?: number) => {
+      const n = discardsFor(script, extra);
+      return n ? discardOptions(g, pid, c).sort((a, b) => cardWant(g, pid, a) - cardWant(g, pid, b)).slice(0, n).map((x) => x.id) : undefined;
+    };
     const lifeX = script.additionalCost?.life === 'x';
     const gifts = script.gift ? [undefined, ...opponentsOf(g, pid).map((o) => o.id)] : [undefined];
     const modeSets = script.modal ? modeChoices(g, pid, c, face) : [undefined];
@@ -292,6 +295,7 @@ function castChoices(g: Game, pid: PlayerId, c: Card): CastChoices[] {
         for (const add of extra) {
           if (add && way.sacrifice?.includes(add)) continue;
           const sacrifice = [...(way.sacrifice ?? []), ...(add ? [add] : [])];
+          const discard = discardFor(way.extra);
           const base: CastChoices = { ...way, sacrifice: sacrifice.length ? sacrifice : undefined, ...(discard ? { discard } : {}), modes, ...(face ? { face } : {}) };
           // Delve (702.66a): exiles the cards the bot wants least, as many as the generic mana they can pay for.
           if (data(asSpell(c, face)).keywords.includes('Delve')) {
@@ -425,10 +429,10 @@ function activations(g: Game, pid: PlayerId, c: Card, ref: AbilityRef): Action[]
   const crew = ab?.cost.crew ? crewChoice(g, pid, c, activated) : undefined;
   if (crew === null) return [];
   const n = ab?.cost.discard ?? 0;
-  const discard = n ? [...discardOptions(g, pid, c)].sort((a, b) => cardWant(g, pid, a) - cardWant(g, pid, b)).slice(0, n).map((x) => x.id) : undefined;
-  // "Sacrifice a creature": the least valuable one, and not the source itself if there is another.
-  const fodder = ab?.cost.sacrificeOne ? [...activationSacrificeOptions(g, pid, c, activated)].sort((a, b) => sacrificeWorth(g, a) - sacrificeWorth(g, b)) : [];
-  const victim = fodder.find((x) => x.id !== c.id) ?? fodder[0];
+  const discard = n ? [...discardOptions(g, pid, c, ab?.cost.discardFilter)].sort((a, b) => cardWant(g, pid, a) - cardWant(g, pid, b)).slice(0, n).map((x) => x.id) : undefined;
+  // "Sacrifice a creature": the least valuable ones, and not the source itself if there are others.
+  const fodder = ab?.cost.sacrificeOne ? [...activationSacrificeOptions(g, pid, c, activated)].sort((a, b) => Number(a.id === c.id) - Number(b.id === c.id) || sacrificeWorth(g, a) - sacrificeWorth(g, b)) : [];
+  const victims = fodder.slice(0, ab?.cost.sacrificeCount ?? 1);
   // "Exile a creature you control": the least valuable one, not the source if there is another.
   const exilable = ab?.cost.exileOne ? [...activationExileOptions(g, pid, c, activated)].sort((a, b) => sacrificeWorth(g, a) - sacrificeWorth(g, b)) : [];
   const exiled = exilable.find((x) => x.id !== c.id) ?? exilable[0];
@@ -445,7 +449,7 @@ function activations(g: Game, pid: PlayerId, c: Card, ref: AbilityRef): Action[]
       targets,
       crew,
       ...(discard ? { discard } : {}),
-      ...(victim ? { sacrifice: [victim.id] } : {}),
+      ...(victims.length ? { sacrifice: victims.map((x) => x.id) } : {}),
       ...(exiled ? { exile: [exiled.id] } : {}),
       ...(graveyard ? { graveyard } : {}),
     })),
@@ -976,8 +980,9 @@ function cardChoice(g: Game, pid: PlayerId): Action {
       .slice(0, n)
       .map((c) => c.id);
   // Sacrifice (701.21a) and discard (701.9a) the least valuable; populate (701.36a) copies the best token.
-  if (choice.kind === 'pick' && choice.then === '@sacrifice') return { type: 'chooseCards', cards: valued((c) => worth(g, c), min) };
-  if (choice.kind === 'pick' && choice.then === '@discard') return { type: 'chooseCards', cards: valued((c) => cardWant(g, pid, c), min) };
+  // A card's own continuation that sacrifices or discards what is picked says so in `data.bot`.
+  if (choice.kind === 'pick' && (choice.then === '@sacrifice' || choice.data?.bot === 'sacrifice')) return { type: 'chooseCards', cards: valued((c) => worth(g, c), min) };
+  if (choice.kind === 'pick' && (choice.then === '@discard' || choice.data?.bot === 'discard')) return { type: 'chooseCards', cards: valued((c) => cardWant(g, pid, c), min) };
   if (choice.kind === 'pick' && choice.data?.populate) return { type: 'chooseCards', cards: valued((c) => -worth(g, c), 1) };
   if (choice.kind === 'pick') return { type: 'chooseCards', cards: best(Math.max(min, Math.min(max, 1))) };
   const hand = g.players[pid].hand;
@@ -1009,6 +1014,8 @@ function choiceAnswer(g: Game, pid: PlayerId): Action {
   if (d.type === 'player') return { type: 'choosePlayer', player: d.choice.options[0] };
   if (d.type === 'name' && d.choice.of === 'creature type') return { type: 'name', name: 'Human' };
   if (d.type === 'name' && d.choice.of === 'color') return { type: 'name', name: preferredColor(g, pid) };
+  // A card type: creatures are what usually attack and block.
+  if (d.type === 'name' && d.choice.of === 'card type') return { type: 'name', name: 'Creature' };
   if (d.type === 'name') {
     const lib = [...g.players[pid].library].sort((a, b) => cardWant(g, pid, b) - cardWant(g, pid, a));
     return { type: 'name', name: lib.length ? cardData(lib[0].name).name : 'Island' };
@@ -1108,7 +1115,7 @@ export function applyBotAction(g: Game, a: Action, opts?: ApplyOptions): Game {
   if (next === g && g.decision?.type === 'triggerModes') next = applyAction(g, modesFor(g, g.decision.item), opts);
   if (next === g && g.decision?.type === 'chooseCards') next = applyAction(g, cardChoice(g, g.priority), opts);
   if (next === g && g.decision?.type === 'ask') next = applyAction(g, { type: 'answer', yes: false }, opts);
-  if (next === g && g.decision?.type === 'name') next = applyAction(g, { type: 'name', name: g.decision.choice.of ? 'Human' : 'Island' }, opts);
+  if (next === g && g.decision?.type === 'name') next = applyAction(g, { type: 'name', name: g.decision.choice.of === 'card type' ? 'Creature' : g.decision.choice.of ? 'Human' : 'Island' }, opts);
   if (next === g && g.decision?.type === 'player') next = applyAction(g, { type: 'choosePlayer', player: g.decision.choice.options[0] }, opts);
   if (next === g && g.decision?.type === 'number') next = applyAction(g, { type: 'chooseNumber', n: g.decision.choice.decline ? null : g.decision.choice.min }, opts);
   if (next === g && g.decision?.type === 'cast') next = applyAction(g, { type: 'answer', yes: false }, opts);
