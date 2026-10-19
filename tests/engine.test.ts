@@ -2194,6 +2194,16 @@ describe('combo turns: searches, choices, mana, storm, taxes and extra turns (se
       expect(byName(g, 0, 'Underground Sea')!.tapped).toBe(false);
     });
 
+    it('logs the person playing alone as "You" with the verb to match: "You pay 1 life."', () => {
+      let g = emptyGame((d) => {
+        // Seat 0 keeps its bot name here; in a real game it is called "You" as well.
+        d.players[0].you = true;
+        put(d, 0, 'Polluted Delta');
+      });
+      g = run(g, { type: 'activate', card: byName(g, 0, 'Polluted Delta')!.id });
+      expect(g.log.map((l) => l.text)).toEqual(expect.arrayContaining(['You pay 1 life.', 'You activate Polluted Delta.']));
+    });
+
     it('Demonic Tutor must find a card (701.23d); Vampiric Tutor puts it on top and costs 2 life', () => {
       let g = emptyGame((d) => {
         put(d, 0, 'Swamp', 'battlefield', 3);
