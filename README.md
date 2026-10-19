@@ -77,13 +77,16 @@ npm run build:single   # one self-contained dist-single/index.html to share
 npm run build:exe      # the Windows program, release/ArenaEDH.exe
 npm run fetch-cards    # pull card data from Scryfall after editing decklists.json
 npm run parse-report   # which cards the Oracle text parser can script, and why not the rest
+npm run fetch-corpus   # refresh the parse report's corpus: the 600 most-played Commander cards
+npm run recheck-requests  # take requested cards the parser now reads out of docs/
 npm run card-requests -- <file>  # merge a downloaded card-requests.json into docs/
 npm run fetch-rules    # refresh docs/rules/ after a new set releases
 npm run profile-game -- <seed>   # one bot game under the CPU profiler: where the time goes
 ```
 
-Behind an HTTPS proxy, run `fetch-cards` as `NODE_USE_ENV_PROXY=1 npm run fetch-cards`
-(Node's `fetch` ignores the proxy otherwise).
+Behind an HTTPS proxy, run `fetch-cards`, `fetch-corpus` and `recheck-requests` with
+`NODE_USE_ENV_PROXY=1` in front, as in `NODE_USE_ENV_PROXY=1 npm run fetch-cards` (Node's
+`fetch` ignores the proxy otherwise).
 
 **Releasing:** set `version` in `package.json`, merge to `main`, then push a matching tag
 (`git tag v0.1.0 && git push origin v0.1.0`). The
