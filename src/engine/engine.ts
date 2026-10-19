@@ -65,6 +65,7 @@ import {
   planPayment,
   rand,
   refCard,
+  refGraveyard,
   refCards,
   returnCommander,
   sameRef,
@@ -1723,7 +1724,7 @@ function resolveTop(g: Game) {
     if (!fizzled && !isPermanentCard(g, card) && card.cast?.gift !== undefined && script.gift) giveGift(g, card, controller);
     if (script.enchant) {
       // An Aura whose target has gone is put into its owner's graveyard (608.3b, 303.4g).
-      const host = refCard(g, targets[0]);
+      const host = script.enchant.type === 'graveyard card' ? refGraveyard(g, targets[0]) : refCard(g, targets[0]);
       if (host) enterBattlefield(g, card, { attachTo: host.id });
       else moveCard(g, card, 'graveyard');
     } else if (isPermanentCard(g, card)) {

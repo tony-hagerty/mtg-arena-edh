@@ -58,6 +58,9 @@ import {
   bounce,
   addEffect,
   addLasting,
+  attach,
+  attachedObject,
+  sacrifice,
   copyItem,
   finishEnter,
   landColors,
@@ -854,6 +857,47 @@ registerScripts({
   },
 
   // ===== Instants and sorceries =====
+  'Animate Dead': {
+    // "Enchant creature card in a graveyard": any graveyard (702.5a). It is also the spell's target (303.4a).
+    enchant: { type: 'graveyard card', label: 'target creature card in a graveyard', filter: (g, c) => hasType(g, c, 'Creature') },
+    // The enchant ability its trigger gives it: "enchant creature put onto the battlefield with this Aura".
+    givesEnchant: { type: 'creature', label: 'creature put onto the battlefield with Animate Dead', filter: (_g, c, self) => self.linked.some((l) => sameCard(c, l)) },
+    // "When this Aura enters, if it's on the battlefield, it loses "enchant creature card in a
+    // graveyard" and gains "enchant creature put onto the battlefield with this Aura." Return
+    // enchanted creature card to the battlefield under your control and attach this Aura to it."
+    // The intervening "if" (603.4) is checked again as it resolves. The swap of enchant
+    // abilities is one effect with no duration (611.2a), the loss applied first (613.1f). The
+    // card leaving the graveyard leaves the Aura on nothing (303.4c) until it is attached; if it
+    // can't be (protection from black), the Aura goes to the graveyard (704.5m) and its leaves
+    // trigger sacrifices the creature.
+    onEnter: (g, { self, you }) => {
+      const me = still(g, self);
+      if (!me) return;
+      const card = attachedObject(g, me);
+      addLasting(g, me, { lose: ['enchant'], enchantOf: 'Animate Dead' });
+      if (card?.zone === 'graveyard') enterBattlefield(g, card, { controller: you, after: { source: self, key: 'animateDead', you } });
+    },
+    then: {
+      // It has entered (after a choice it makes as it enters, if it has one): it is the creature put onto the battlefield with this Aura.
+      animateDead: (g, { self, picked }) => {
+        const me = still(g, self);
+        const creature = picked[0] && permanent(g, picked[0].id);
+        if (!me || !creature) return;
+        me.linked = [{ id: creature.id, moves: creature.moves }];
+        attach(g, me, creature);
+      },
+    },
+    // "When this Aura leaves the battlefield, that creature's controller sacrifices it." The
+    // creature it returned, only while it's still that object (400.7).
+    onLeave: (g, { self }) => {
+      for (const l of self.linked) {
+        const creature = still(g, l);
+        if (creature) sacrifice(g, creature);
+      }
+    },
+    // "Enchanted creature gets -1/-0."
+    static: (_g, self, c) => (self.attachedTo === c.id ? { power: -1 } : null),
+  },
   'Bitter Triumph': {
     // "As an additional cost to cast this spell, discard a card or pay 3 life." (118.8)
     additionalCost: {
