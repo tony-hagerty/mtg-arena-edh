@@ -3,7 +3,7 @@
 import { CREATURE_TYPES, cardData } from '../cards/db';
 import { current, isDraft } from 'immer';
 import { anyGrantFor, scriptOf } from './registry';
-import { characteristics, hasOwnAbilities, heldMemo, mayLoseAbilities, settled, staticRemoval, typesOf } from './layers';
+import { characteristics, hasOwnAbilities, heldMemo, inBase, mayLoseAbilities, settled, staticRemoval, typesOf, untouched } from './layers';
 import { replace, whileArriving } from './replace';
 import type {
   ActivatedAbility,
@@ -539,6 +539,9 @@ export const isFree = (cost: Cost) => cost.generic + cost.pips.length + cost.hyb
  * one without vigilance can't tap for mana to pay.
  */
 export function canPayAttacks(g: Game, pid: PlayerId, attacks: { id: string; defender: PlayerId; target: string | null }[]): boolean {
+  // Asked of a draft nothing has changed in yet: the finished game it came from (`untouched`).
+  const base = untouched(g);
+  if (base) return canPayAttacks(base, pid, attacks);
   const cost = attackCost(g, attacks);
   if (isFree(cost)) return true;
   const tapped = attacks.map((a) => permanent(g, a.id)).filter((c): c is Card => !!c && !has(g, c, 'vigilance')).map((c) => c.id);
@@ -1738,6 +1741,8 @@ export function devotion(g: Game, pid: PlayerId, color: Color): number {
 
 /** What `pid` could choose for target `spec` of `source`. `x`: the X announced for the activated ability choosing it (107.3a), which `spec.filter` may read. */
 export function legalTargets(g: Game, pid: PlayerId, spec: TargetSpec, source: Card, x = 0): TargetRef[] {
+  const base = untouched(g);
+  if (base) return legalTargets(base, pid, spec, inBase(source), x);
   return settled(g, () => findTargets(g, pid, spec, source, x));
 }
 

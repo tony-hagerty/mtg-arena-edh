@@ -140,7 +140,7 @@ import {
   CARD_TYPES,
 } from './rules';
 import type { EnterOpts } from './rules';
-import { settled } from './layers';
+import { inBase, settled, untouched } from './layers';
 import { NeedsChoice, replace, withReplacementAnswers } from './replace';
 import type {
   AbilityRef,
@@ -620,6 +620,9 @@ export function canPlot(g: Game, pid: PlayerId, c: Card): boolean {
 }
 
 export function canPlayLand(g: Game, pid: PlayerId, c: Card, face?: number): boolean {
+  // Asked of a draft nothing has changed in yet: the finished game it came from (`untouched`).
+  const base = untouched(g);
+  if (base) return canPlayLand(base, pid, inBase(c), face);
   const faces = landFaces(g, c);
   if (face !== undefined ? !faces.includes(face) : !faces.length) return false;
   // From a hand, or from exile with an effect that lets them play it (Jeska's Will). Either
@@ -824,6 +827,8 @@ function choicesOk(g: Game, pid: PlayerId, c: Card, ch: CastChoices): boolean {
  * alternative costs. Only the face being cast is checked (709.3a, 712.11c, 715.3a).
  */
 export function canCast(g: Game, pid: PlayerId, c: Card, choices?: CastChoices): boolean {
+  const base = untouched(g);
+  if (base) return canCast(base, pid, inBase(c), choices);
   if (!castableFrom(g, pid, c)) return false;
   if (choices) return settled(g, () => canCastAs(g, pid, c, choices.face ?? 0, choices));
   return settled(g, () => castFaces(c).some((face) => canCastAs(g, pid, c, face)));
@@ -884,6 +889,8 @@ export function maxX(g: Game, pid: PlayerId, c: Card, choices: CastChoices = {})
  * `x` is the X announced for an ability with X in its cost (107.3a); any other must have 0.
  */
 export function canActivate(g: Game, pid: PlayerId, c: Card, ability?: number, activated = 0, x = 0): boolean {
+  const base = untouched(g);
+  if (base) return canActivate(base, pid, inBase(c), ability, activated, x);
   if (!Number.isInteger(x) || x < 0 || (x > 0 && !abilityHasX(g, c, { ability, activated }))) return false;
   if (ability !== undefined) return abilitiesOf(g, c).levels ? canLevelUp(g, pid, c, ability) : canActivateLoyalty(g, pid, c, ability, x);
   return canPayActivation(g, pid, c, activated, x) && hasTargetsFor(g, pid, c, activated, x);
@@ -1049,6 +1056,8 @@ export interface AttackOption {
  * can't attack it, but its controller can when that is someone else, as with a Siege (310.9b).
  */
 export function attackOptions(g: Game, pid: PlayerId): AttackOption[] {
+  const base = untouched(g);
+  if (base) return attackOptions(base, pid);
   const out: AttackOption[] = [];
   for (const o of living(g)) {
     if (o.id !== pid) out.push({ defender: o.id, target: null });
