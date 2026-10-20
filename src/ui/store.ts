@@ -261,6 +261,10 @@ interface Store {
   hover: Hover | null;
   /** Card ids in the order the human arranged their hand. Display only: the engine never sees it. */
   handOrder: string[];
+  /** The first card of the hand that shows, when it holds more than fit on its curve (`handWindow` in table-layout.ts). */
+  handStart: number;
+  /** The human tucked the stack away to see the cards under it. Cleared once the stack is empty. */
+  stackHidden: boolean;
   viewer: { pid: PlayerId; zone: Zone } | null;
   /**
    * A permanent the human is using for mana by hand, while they pick how: which of its mana
@@ -323,9 +327,11 @@ export const useStore = create<Store>()((set, get) => ({
   pickedBlockers: [],
   hover: null,
   handOrder: [],
+  handStart: 0,
+  stackHidden: false,
   viewer: null,
   manaPick: null,
-  showLog: true,
+  showLog: false,
   confirmExit: false,
   speed: 1,
   stops: loadStops(),
@@ -430,6 +436,8 @@ export const useStore = create<Store>()((set, get) => ({
       pickedBlockers: [],
       hover: null,
       handOrder: [],
+      handStart: 0,
+      stackHidden: false,
       viewer: null,
       manaPick: null,
       confirmExit: false,
@@ -506,7 +514,12 @@ export const useStore = create<Store>()((set, get) => ({
 }));
 
 /** What a new person at the screen starts with: nothing the last one was doing carries over. */
-const freshSeat = { handoff: null, targeting: null, attackTarget: null, pickedBlockers: [], handOrder: [], viewer: null, manaPick: null, hover: null };
+// Hiding the stack lasts until it empties: the next spell shows it again.
+useStore.subscribe((s) => {
+  if (s.stackHidden && !s.game?.stack.length) useStore.setState({ stackHidden: false });
+});
+
+const freshSeat = { handoff: null, targeting: null, attackTarget: null, pickedBlockers: [], handOrder: [], handStart: 0, stackHidden: false, viewer: null, manaPick: null, hover: null };
 
 /** The connection's moving parts, outside the store's state: they don't change what's drawn. */
 const remote: { gameId: number; seq: Partial<Record<PlayerId, number>>; waiting: Partial<Record<PlayerId, number>>; unwatch: (() => void) | null; leaving: boolean } = {

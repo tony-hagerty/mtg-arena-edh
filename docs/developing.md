@@ -59,7 +59,6 @@ src/ui/         App.tsx               menu or game screen; GameScreen.tsx lays t
                 LobbyScreen.tsx       hosting a table, joining one with a code, the waiting room
                 view.ts               highlights, prompt, buttons, click handlers
                 Card/Board/Hud.tsx    components
-                River.tsx             the river arcing around your seat, under everything
                 TextCard.tsx          a card drawn as text when its image doesn't load
                 Menu.tsx              deck menu, opponent seats, the paste screen
                 card-requests.ts      sends refused cards to the dev server or a download
@@ -77,6 +76,9 @@ src/ui/         App.tsx               menu or game screen; GameScreen.tsx lays t
                 fullscreen.ts, rem.ts Alt+Enter fullscreen; the root font-size as a hook
                 camera.ts             the camera on the table: its tilt and perspective, the
                                       table's height, and the projection table <-> screen
+                table-layout.ts       where each seat's rows go and how big their cards are
+                                      (seatBox, seatScale), opponents' hand fans, and your
+                                      hand's curve and scroll pills (pure maths, tested)
                 util.ts               small helpers: class names, deck colours, hover props
                 styles.css            all styling
 tests/                                Vitest: card coverage, rules, the UI casting flow,
@@ -164,23 +166,45 @@ things from an edge or the middle (`right: 2rem`, `top: calc(100% - 12rem)`), no
 fixed spot on a 192 × 108 grid.
 
 **The table leans away from you**, like Arena's: `.table` (GameScreen.tsx) is turned by
-`TILT` about its bottom edge under a perspective of `DEPTH`, both in `src/ui/camera.ts`,
-which sets them on the stage as `--tilt` and `--depth`. The table is taller than the
-screen by just enough that, leaned over, its far edge lands on the top of the screen
-(`tableHeight`, set as `--table-h`). So the seats keep placing themselves from the table's
-edges in rem: the top seat moves up with the far edge, nothing is stretched, your edge is
-drawn at full size and the far edge at about 0.9 of it. The opponents' seats make up for
-that: their tiles, piles, hands and avatars are drawn bigger than yours, the top seat's
-rows deeper still, and the side seats' width is `--side-w` on `.table`, which the top seat
-and your creature row fit between. The avatars and the count pills stand up off the table
-to face you: each is turned back by `--tilt` about its bottom edge, which needs
-`transform-style: preserve-3d` on every box from `.table` down to it (a `filter`,
-`opacity` or `overflow` on one of them would flatten it again). That leaves two coordinate spaces. Everything inside `.table` (the
-seats, the river, `.flights-table`) is laid out in the table's own px; the hand, the HUD,
-the arrows and the hover preview sit flat on the screen. `getBoundingClientRect` always
-answers in screen px; `camera()` projects between the two (`toScreen`, `toTable`), which is
-how Flights.tsx lands a copy on a tilted tile: a flight bound for the table is drawn on it,
-in table px, and one bound for the stack or the hand over the screen.
+`TILT` (10°) about its bottom edge under a perspective of `DEPTH`, both in
+`src/ui/camera.ts`, which sets them on the stage as `--tilt` and `--depth`. The table is
+taller than the screen by just enough that, leaned over, its far edge lands on the top of
+the screen (`tableHeight`, set as `--table-h`).
+
+**Seats sit in the corners** (`seatOf` in util.ts: a `Seat` is `{ v: 'top' | 'bottom', h:
+'left' | 'right' | 'full' }`, and `seatClass` gives `seat-bottom-left seat-bottom
+seat-left` and the like). Two players sit bottom left and top right, three leave you the
+whole bottom edge (`full`) and take the top corners, four go bottom left, top left, top
+right, bottom right. Each seat is drawn in two parts:
+
+- **Its rows lie on the table** (`Seat` in Board.tsx, inside `.table`): lands nearest the
+  seat's edge, then the other permanents, then creatures nearest the middle. `seatBox` in
+  `table-layout.ts` lays the seat's box out on the screen (across its half, from right of
+  the portraits to just short of the middle, and from just past the middle of the screen
+  to above the piles and the controls, less the rise of the rows' 5° lean), mirrored for
+  the top and right seats, then projects its corners back onto the table with `camera()`
+  and takes the rectangle inside them. `seatScale` picks the biggest scale (0.7 to 1.45)
+  at which every row fits its length and the rows fit the box's height; past 0.7 a
+  crowded row overlaps (`rowGap`, a negative `--gap`). Cards stay upright for everyone.
+- **Its portrait, piles and an opponent's hand stand on the screen** (`SeatHud`, outside
+  `.table`): the portrait 2.4rem in from the side edge, just below the middle for the
+  bottom seats and above it for the top ones; the library, graveyard and exile along the
+  seat's top or bottom edge; an opponent's hand fanned from a pivot off the screen past
+  their corner (`fanAngle`).
+
+Your hand follows a curve out of the bottom-left corner (`handSlot`): up to seven cards,
+each turned to the curve under it; a bigger hand scrolls (`handStart` in the store, the
+pills from `handPills`). The HUD sits flat on the screen: the log bar at the top in the
+middle, the controls' plate with the seat arrows above it at the bottom in the middle,
+the stack over the middle of the table (`stackHidden` in the store tucks it into a chip).
+
+That leaves two coordinate spaces. Everything inside `.table` (the seats' rows and
+`.flights-table`) is laid out in the table's own px; the hand, the portraits, the piles,
+the HUD, the arrows and the hover preview sit flat on the screen. `getBoundingClientRect`
+always answers in screen px; `camera()` projects between the two (`toScreen`,
+`toTable`), which is how Flights.tsx lands a copy on a tilted tile: a flight bound for the
+table is drawn on it, in table px, and one bound for a pile, the stack or the hand over
+the screen.
 
 ### Colours and the table's look
 
@@ -191,13 +215,14 @@ lines, shadows and radii. Use them rather than new literal colours; the comment 
 says what each is for. The card frame colours (`--f-W` to `--f-land`) double as each
 deck's seat colour.
 
-- **Seats** have no mat of their own: the table is one floor, and the river marks yours
-  off. Whose turn it is shows on their avatar (the rays and the gold life plate).
+- **Seats** have no mat of their own: the table is one floor, and each seat's rows mark
+  its corner. Whose turn it is shows on their avatar (the rays and the gold life plate).
 - **Tiles** take their size from `--tw` (the row sets it; the tile's font-size is a tenth
   of it), so a tile's parts are sized in `em`, with `rem` floors on text that must stay
-  readable. A pile shows `PILE_STEP` (Board.tsx) of each card under its top one; keep the
+  readable. A pile shows `PILE_STEP` (table-layout.ts) of each card under its top one; keep the
   CSS overlap in step with it.
-- **Back rows** go onto two lines when that gives bigger tiles (`BackRow`'s `depth`).
+- **Rows** never wrap: a seat's three rows share its box (`seatScale`), and a row too long
+  for it overlaps its cards (`rowGap`).
 - **The card back** is one SVG in `--card-back`, used wherever a card is face down.
 
 ## Tests

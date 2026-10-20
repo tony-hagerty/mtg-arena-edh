@@ -65,10 +65,24 @@ The full guide to the game's screens and controls. For a quick start, see the
 
 ## Playing cards
 
-- **The table** is seen from a little above your seat, like Arena's: the far seat is
-  smaller and the floor is foreshortened, so the opponents' cards are drawn bigger to make
-  up for it. Portraits and card counts stand up to face you. Hover any card to see it full
-  size.
+- **The table** is seen from a little above your seat, like Arena's, leaning slightly
+  away from you. Everyone sits in a corner: you at the bottom left, the others clockwise
+  in turn order. Two players sit in opposite corners (you bottom left, the opponent top
+  right); at three you have the whole bottom edge and the others take the top corners;
+  at four the seats go bottom left (you), top left, top right, bottom right.
+- **A seat** has three rows, leaning a few degrees toward the middle of its edge: lands
+  nearest its edge, then artifacts, enchantments and the rest, then creatures nearest the
+  middle of the table. Every card stands upright, whoever controls it. The cards grow
+  while a seat's rows have room and shrink as they fill up; a very crowded row overlaps
+  its cards instead. The portrait sits on the seat's side edge, the library, graveyard and
+  exile on its top or bottom edge, and an opponent's hand fans out of their corner, face
+  down, with a count. Hover any card to see it full size.
+- **Your hand** curves out of the bottom-left corner, flat at first and then bending down
+  into the bottom edge. Up to seven cards show; with more, two small pills arc over the
+  middle of the cards. Point at the left one to scroll to earlier cards, the right one to
+  later ones (after a moment, one card at a time); a click moves one card. Each pill's
+  chevrons dim once there is nothing more that way. Pointing at a card stands it up and
+  zooms it.
 - **Glowing cyan** cards can be played. Drag one from your hand up toward the table and
   let go to play a land or cast a spell. Mana is tapped for you (auto-pay, like Arena).
 - Casting a spell or using an ability takes two steps, and **Cancel** (or `Esc`) backs
@@ -83,10 +97,10 @@ The full guide to the game's screens and controls. For a quick start, see the
 - **More than one way to play a card:** when a card can be cast for an alternative cost,
   plotted instead (Highway Robbery), cast as either half, or needs X or kicker, the prompt
   in the middle of the table lists the choices with **Cast** (or **Play**) and **Cancel**
-  beside them, so the whole choice is made right there. The big button in the corner does
+  beside them, so the whole choice is made right there. The big button at the bottom does
   the same as the prompt's Cast.
 - **Paying by hand:** click your lands and mana rocks to tap them. The mana shows in a
-  pill beside your avatar. Costs spend that mana first and auto-tap only for the rest.
+  pill under your portrait. Costs spend that mana first and auto-tap only for the rest.
   A source with a choice (a dual land, a Talisman, Sunken Ruins) asks which ability and
   which mana you want. Click a tapped source again to take its mana back, as long as none
   of it has been spent and using it did nothing else, like dealing you damage.
@@ -105,6 +119,11 @@ The full guide to the game's screens and controls. For a quick start, see the
   is there and you could respond, the game stops for you: cast an instant or use an
   ability, or press **Resolve** to let it happen. The newest thing on the stack happens
   first.
+- The stack shows over the middle of the table, with **Stack · n** under it. **Hide**
+  tucks it into a small chip in the middle, in the colour of the card on top, so you can
+  see the cards under it; click the chip (**Show**) to bring it back. It comes back by
+  itself while you are paying for a spell or can target something on it, and once the
+  stack empties the next spell shows it again.
 - Cards fly to where they go: from a hand to the stack, from the stack to the battlefield
   or the graveyard, from the battlefield to a graveyard or exile pile, back to a hand or
   the command zone. A spell or ability that resolves glows gold as it leaves the stack, an
@@ -114,7 +133,7 @@ The full guide to the game's screens and controls. For a quick start, see the
   **Speed** the flights are quicker,
   and with your system set to reduce motion cards just appear where they go.
 - With the stack empty, the game passes for you except at your **stops**. The tracker on
-  the controls' plate in the bottom right shows them: a strip of the turn's parts, the
+  the controls' plate at the bottom of the screen, in the middle, shows them: a strip of the turn's parts, the
   current one lit, with the turn and step written under it and the big button below:
 
   | Mark under a step | Meaning              |
@@ -126,9 +145,12 @@ The full guide to the game's screens and controls. For a quick start, see the
   Click a step to cycle it: no stop, ring, dot, no stop. A pip that covers several steps
   (beginning, combat, end) opens one button per step. The untap and cleanup steps can't
   hold a stop: nobody gets priority there (502.4, 514.3).
-- The dial of arrows on the left of the plate, beside the tracker, is the seats (down is you). Click one to see
-  and edit the stops for that player's turns; the tracker takes their deck colour. Click
-  it again to go back to the current turn. Your turns show orange, everyone else's blue.
+- The arrows above the plate are the seats, left to right: bottom left (you), top left,
+  top right, bottom right, each pointing at its corner in that player's deck colour (yours
+  points straight down when you have the whole bottom edge). The one whose turn it is is
+  ringed. Click one to see and edit the stops for that player's turns; the tracker takes
+  their deck colour. Click it again to go back to the current turn. Your turns show
+  orange, everyone else's blue.
 - Default stops (your stops are saved in the browser):
   - **Your turn:** always in both main phases; if you can act, at beginning of combat
     and after blockers are declared.
@@ -217,8 +239,9 @@ The full guide to the game's screens and controls. For a quick start, see the
 | Click a graveyard or exile pile | look through it; hovering the pile shows its top card |
 | Hover a card name in the log (dashed underline) | see the card |
 
-The log is bottom-left, under one bar; point at a button on it (or tab to it) for its name.
-**Log**, the bar's left half, folds the log away and back. On the right:
+The log is at the top of the screen, in the middle, under one bar; point at a button on it
+(or tab to it) for its name. **Log**, the bar's left half, folds the log open under the bar
+and away again (it starts folded). On the right:
 
 - **Pause** (‖, a table's game only) pauses the game for everyone at the table.
 - **Settings** (the gear) opens a small panel: **Bot speed** (1×, 2×, 4×), **Sound** and
