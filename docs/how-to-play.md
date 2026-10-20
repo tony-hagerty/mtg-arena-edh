@@ -82,7 +82,10 @@ The full guide to the game's screens and controls. For a quick start, see the
   middle of the cards. Point at the left one to scroll to earlier cards, the right one to
   later ones (after a moment, one card at a time); a click moves one card. Each pill's
   chevrons dim once there is nothing more that way. Pointing at a card stands it up and
-  zooms it.
+  zooms it. What you point at is the card where it sits in the hand, not the zoomed copy:
+  move onto the part of the next card that shows and that one zooms instead, even though
+  the zoomed card is drawn over it. While you drag a card, the cards you pass over stay
+  as they are; pointing works again once you let go.
 - **Glowing cyan** cards can be played. Drag one from your hand up toward the table and
   let go to play a land or cast a spell. Mana is tapped for you (auto-pay, like Arena).
 - Casting a spell or using an ability takes two steps, and **Cancel** (or `Esc`) backs

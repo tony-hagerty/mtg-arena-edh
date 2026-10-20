@@ -200,7 +200,10 @@ right, bottom right. Each seat is drawn in two parts:
 
 Your hand follows a curve out of the bottom-left corner (`handSlot`): up to seven cards,
 each turned to the curve under it; a bigger hand scrolls (`handStart` in the store, the
-pills from `handPills`). The HUD sits flat on the screen: the log bar at the top in the
+pills from `handPills`). A hand card is drawn in a slot that takes no pointer events,
+so its zoom can cover its neighbours; a clear copy of its resting shape (`.hand-hit`)
+takes the hover, the click and the press that starts the drag, and while a card is
+dragged (`holding` in the store) no other card hovers. The HUD sits flat on the screen: the log bar at the top in the
 middle, the controls' plate with the seat arrows above it at the bottom in the middle,
 the stack over the middle of the table (`stackHidden` in the store tucks it into a chip).
 
