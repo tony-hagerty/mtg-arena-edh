@@ -1465,19 +1465,34 @@ button {
 }
 
 /*
-  HAND_W in table-layout.ts is this width. Only the card inside takes the pointer: the slot
-  stays upright while the card turns with the curve, so the slot's own box would catch the
-  pointer over its neighbours. The card's events still reach the slot, which drags.
+  HAND_W in table-layout.ts is this width. The slot and the card drawn in it take no pointer:
+  a zoomed card stands over its neighbours, and the pointer should still reach them. What the
+  pointer is over is .hand-hit, a clear copy of the card at rest. Only a card being dragged
+  takes the pointer itself, so nothing under it hovers on the way.
 */
 .hand-slot {
   position: absolute;
   width: 15rem;
-  touch-action: none;
   pointer-events: none;
 }
 
-.hand-slot > * {
+/* The press was on .hand-hit, which stays put; the card being dragged shows the pressed arrow (.pressed). */
+.hand-slot.held > * {
   pointer-events: auto;
+  cursor: url('./cursor-down.png') 0 0, auto;
+}
+
+/*
+  A hand card's resting place on the curve (HandCard): the card's size (HAND_W by HAND_H in
+  table-layout.ts), turned with it about the middle of its bottom edge, in hand order.
+*/
+.hand-hit {
+  position: absolute;
+  width: 15rem;
+  height: 21rem;
+  transform-origin: 50% 100%;
+  border-radius: 0.75rem;
+  touch-action: none;
 }
 
 /*

@@ -259,6 +259,11 @@ interface Store {
   /** Blockers the human picked that could block more than one attacker: the next attacker they click gets them all. */
   pickedBlockers: string[];
   hover: Hover | null;
+  /**
+   * The hand card being dragged (its id), to rearrange the hand or to play it. While one is
+   * held, no other card hovers: passing over them neither zooms them nor moves `hover`.
+   */
+  holding: string | null;
   /** Card ids in the order the human arranged their hand. Display only: the engine never sees it. */
   handOrder: string[];
   /** The first card of the hand that shows, when it holds more than fit on its curve (`handWindow` in table-layout.ts). */
@@ -326,6 +331,7 @@ export const useStore = create<Store>()((set, get) => ({
   attackTarget: null,
   pickedBlockers: [],
   hover: null,
+  holding: null,
   handOrder: [],
   handStart: 0,
   stackHidden: false,
@@ -435,6 +441,7 @@ export const useStore = create<Store>()((set, get) => ({
       attackTarget: null,
       pickedBlockers: [],
       hover: null,
+      holding: null,
       handOrder: [],
       handStart: 0,
       stackHidden: false,
@@ -519,7 +526,30 @@ useStore.subscribe((s) => {
   if (s.stackHidden && !s.game?.stack.length) useStore.setState({ stackHidden: false });
 });
 
-const freshSeat = { handoff: null, targeting: null, attackTarget: null, pickedBlockers: [], handOrder: [], handStart: 0, stackHidden: false, viewer: null, manaPick: null, hover: null };
+const freshSeat = { handoff: null, targeting: null, attackTarget: null, pickedBlockers: [], handOrder: [], handStart: 0, stackHidden: false, viewer: null, manaPick: null, hover: null, holding: null };
+
+/**
+ * The pointer came onto a card's resting place in the human's hand (`hover.el`, its
+ * `.hand-hit`, see HandCard): it becomes `hover`, for right-click to pin. Nothing hovers
+ * while a hand card is held, so dragging one across the others leaves them be. Returns
+ * whether the card took the hover.
+ */
+export function hoverHandCard(hover: Hover) {
+  if (useStore.getState().holding) return false;
+  useStore.setState({ hover });
+  return true;
+}
+
+/**
+ * The pointer left a hand card's resting place `el`. Its hover goes, unless a hand card is
+ * held or another card has taken the hover already. Returns whether the card stops hovering.
+ */
+export function leaveHandCard(el: HTMLElement) {
+  const s = useStore.getState();
+  if (s.holding) return false;
+  if (s.hover?.el === el) useStore.setState({ hover: null });
+  return true;
+}
 
 /** The connection's moving parts, outside the store's state: they don't change what's drawn. */
 const remote: { gameId: number; seq: Partial<Record<PlayerId, number>>; waiting: Partial<Record<PlayerId, number>>; unwatch: (() => void) | null; leaving: boolean } = {
