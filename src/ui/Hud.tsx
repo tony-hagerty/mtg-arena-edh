@@ -1131,7 +1131,7 @@ export function ArrowLayer() {
         root.querySelectorAll<SVGPathElement>('path[data-from]').forEach((p) => {
           const a = document.querySelector(p.dataset.from!)?.getBoundingClientRect();
           const b = document.querySelector(p.dataset.to!)?.getBoundingClientRect();
-          if (!a || !b) return p.setAttribute('d', '');
+          if (!a || !b) return p.getAttribute('d') && p.setAttribute('d', '');
           const x1 = a.left + a.width / 2 - box.left;
           const y1 = a.top + a.height / 2 - box.top;
           const x2 = b.left + b.width / 2 - box.left;
@@ -1141,7 +1141,9 @@ export function ArrowLayer() {
           const ex = x2 - ((x2 - x1) / len) * trim;
           const ey = y2 - ((y2 - y1) / len) * trim;
           const bend = 0.1;
-          p.setAttribute('d', `M${x1} ${y1} Q${(x1 + ex) / 2 + (ey - y1) * bend} ${(y1 + ey) / 2 - (ex - x1) * bend} ${ex} ${ey}`);
+          const d = `M${x1} ${y1} Q${(x1 + ex) / 2 + (ey - y1) * bend} ${(y1 + ey) / 2 - (ex - x1) * bend} ${ex} ${ey}`;
+          // Written only when it moved: setting it repaints the whole SVG, every frame otherwise.
+          if (p.getAttribute('d') !== d) p.setAttribute('d', d);
         });
       }
       raf = requestAnimationFrame(tick);

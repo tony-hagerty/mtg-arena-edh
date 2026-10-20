@@ -81,6 +81,7 @@ src/ui/         App.tsx               menu or game screen; GameScreen.tsx lays t
                                       hand's curve and scroll pills (pure maths, tested)
                 util.ts               small helpers: class names, deck colours, hover props
                 styles.css            all styling
+                cursor.png            the mouse cursor (see Credits)
 tests/                                Vitest: card coverage, rules, the UI casting flow,
                                       bot-vs-bot games
                 simulation/           bot-vs-bot games, one file each so they run on
@@ -93,8 +94,6 @@ tests/                                Vitest: card coverage, rules, the UI casti
                                       the Oracle text of the 600 most-played Commander
                                       cards, which the parse report scores the parser on
                                       (npm run fetch-corpus; never edited by hand)
-public/         cursor.png            the mouse cursor, and cursor-down.png while a
-                                      button is held (see Credits)
 docs/rules/     INDEX.md              official Comprehensive Rules, one file per rule
                                       (npm run fetch-rules)
 docs/           card-scripting.md     how to script a card from its exact wording
@@ -290,6 +289,38 @@ app as in the tests. What keeps it fast, and what to keep in mind when changing 
   event offered to every permanent skips the ones that can't have the ability by name alone
   (`mayHaveScript`). Register scripts only through `registerScripts`, and don't add to a
   script after registering it.
+
+### Keeping the table fast
+
+What the browser spends its time on while the table is up, measured in
+`docs/plans/performance.md`, and the rules that came out of it:
+
+- **Never change the cursor on the whole page.** A cursor change repaints the element it
+  changes, and the cursor is set on every element (`* { cursor: var(--cursor) }`), so a
+  class on `<html>` that switched it repainted and re-rastered the whole screen on every
+  press and release, 300 to 600 ms a time. That is why there is no pressed-in arrow. The
+  same goes for anything else that changes a painted property on every element at once.
+- **The stage background is expensive to paint.** `--grain`, `--mottle` and `--stones`
+  are SVG textures, two of them `feTurbulence` filters that take hundreds of milliseconds
+  to rasterize at screen size. Nothing should invalidate the floor's paint per frame or
+  per click.
+- **Tiles are compositor layers** (`.tile { will-change: transform }`): Motion animates
+  them from script, and without a layer each animated frame repainted the table under
+  them. Keep anything Motion animates every frame on its own layer.
+- **The glow pulse composites every frame.** `.board::after` and `.table::after` animate
+  their opacity without end, so the GPU draws every frame even while nothing happens. On a
+  real GPU that is cheap; in a software-rendered browser it halves the frame rate.
+- **A bot thinks inside its timer** (`scheduleBot` in ai.ts, which drives the bots on the
+  screen and on the game server), never in the effect that follows a game change:
+  `botAction` can take 30 to 70 ms and would stretch the frame that draws the last move.
+  The screen's bot waits `BOT_PAUSE_MIN` first, then picks its move, then acts when the
+  move's own pause is up; the server's thinks at once, having no frame to keep smooth.
+- **Write to the DOM only on change.** `ArrowLayer` follows cards every frame; setting an
+  SVG path's `d` repaints the whole full-screen SVG, so it sets it only when it moved.
+- **Every game change re-renders every tile**, through the view context, and that is
+  correct (any move can change any tile). UI-only changes (hover, drag, the hand's order)
+  don't. `Seat` and `SeatHud` are `memo`, so `GameScreen` re-rendering without a new view
+  (a speed or settings change) skips the seats and everything in them.
 
 ## Adding a card
 
