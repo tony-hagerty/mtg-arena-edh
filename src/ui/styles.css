@@ -27,8 +27,17 @@ html {
   Frames     --f-W ... --f-land: the card frame colours, also each deck's seat colour
 */
 :root {
-  /* Prototype: how far the table leans away from you. 0deg is flat. */
-  --tilt: 10deg;
+  /*
+    Prototype: the camera on the table. --tilt is how far the table leans away from you (0deg
+    is flat), --depth the perspective distance (bigger is weaker), --table-sx/-sy the scale
+    that makes the tilted table fill a 16:9 screen again. Arena-like: 30deg, 600rem.
+    Between the two: --tilt: 20deg; --depth: 600rem; --table-sx: 1.04; --table-sy: 1.14.
+    The earlier, gentler look: --tilt: 10deg; --depth: 220rem; --table-sx: 1.06; --table-sy: 1.06.
+  */
+  --tilt: 30deg;
+  --depth: 600rem;
+  --table-sx: 1.04;
+  --table-sy: 1.29;
   --board: #10161f;
   --board-deep: #05070b;
   --panel: rgba(10, 12, 18, 0.88);
@@ -129,7 +138,7 @@ button {
 
 /* Prototype: the table seen from a little above your seat, like Arena. */
 .stage.board {
-  perspective: 220rem;
+  perspective: var(--depth);
   perspective-origin: 50% 100%;
 }
 
@@ -137,7 +146,7 @@ button {
   position: absolute;
   inset: 0;
   transform-origin: 50% 100%;
-  transform: rotateX(var(--tilt)) scale(1.06);
+  transform: rotateX(var(--tilt)) scale(var(--table-sx), var(--table-sy));
 }
 
 /* The floor and the mushrooms' glow tilt with the cards on them, grown past the top and sides so the far edge never shows. */
