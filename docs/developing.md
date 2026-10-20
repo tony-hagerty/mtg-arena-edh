@@ -75,6 +75,8 @@ src/ui/         App.tsx               menu or game screen; GameScreen.tsx lays t
                 Flights.tsx           cards flying between zones, drawn from that diff
                 SoundControl.tsx      mute buttons and volume sliders for sound and music
                 fullscreen.ts, rem.ts Alt+Enter fullscreen; the root font-size as a hook
+                camera.ts             the camera on the table: its tilt and perspective, the
+                                      table's height, and the projection table <-> screen
                 util.ts               small helpers: class names, deck colours, hover props
                 styles.css            all styling
 tests/                                Vitest: card coverage, rules, the UI casting flow,
@@ -160,6 +162,20 @@ The root font-size scales with the window so the screen is always at least 192 Ã
 A wider or taller window gets extra `rem` on that side instead of empty bars. So place
 things from an edge or the middle (`right: 2rem`, `top: calc(100% - 12rem)`), not from a
 fixed spot on a 192 Ã— 108 grid.
+
+**The table leans away from you**, like Arena's: `.table` (GameScreen.tsx) is turned by
+`TILT` about its bottom edge under a perspective of `DEPTH`, both in `src/ui/camera.ts`,
+which sets them on the stage as `--tilt` and `--depth`. The table is taller than the
+screen by just enough that, leaned over, its far edge lands on the top of the screen
+(`tableHeight`, set as `--table-h`). So the seats keep placing themselves from the table's
+edges in rem: the top seat moves up with the far edge, nothing is stretched, your edge is
+drawn at full size and the far edge at about 0.92 of it (the top seat's rows run 8% wider
+to make up for that). That leaves two coordinate spaces. Everything inside `.table` (the
+seats, the river, `.flights-table`) is laid out in the table's own px; the hand, the HUD,
+the arrows and the hover preview sit flat on the screen. `getBoundingClientRect` always
+answers in screen px; `camera()` projects between the two (`toScreen`, `toTable`), which is
+how Flights.tsx lands a copy on a tilted tile: a flight bound for the table is drawn on it,
+in table px, and one bound for the stack or the hand over the screen.
 
 ### Colours and the table's look
 

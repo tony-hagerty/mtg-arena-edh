@@ -5,7 +5,6 @@ import { cardData } from '../cards/db';
 import { COMMANDER_DAMAGE, attachmentsOf, creaturesOf, data, isCreature, isHidden, isLand, permanent } from '../engine';
 import type { Card, ManaSym, Player } from '../engine';
 import { HandBack, HandCard, HiddenHandCard, Permanent } from './Card';
-import { Flights } from './Flights';
 import { CardImage } from './TextCard';
 import { useRem } from './rem';
 import { useStore } from './store';
@@ -362,8 +361,9 @@ export function OpponentPanel({ player }: { player: Player }) {
           <Piles player={player} />
         </div>
       </header>
-      <BackRow player={player} width={side ? 60 : 104} max={11} depth={9.3} className="opp-back" />
-      <CreatureRow player={player} width={side ? 61 : 111} max={side ? 14 : 14.5} className="opp-front" wrap={side} />
+      {/* The top seat is on the far edge, drawn at about 0.92 of its size (camera.ts): its rows run 8% wider so its tiles keep their width on screen. */}
+      <BackRow player={player} width={side ? 60 : 113} max={side ? 11 : 12} depth={side ? 9.3 : 10.1} className="opp-back" />
+      <CreatureRow player={player} width={side ? 61 : 120} max={side ? 14 : 15.7} className="opp-front" wrap={side} />
       {player.lost && <div className="defeated">Defeated</div>}
     </section>
   );
@@ -395,8 +395,8 @@ function arranged(hand: Card[], order: string[]) {
   return [...hand].sort((a, b) => rank(a) - rank(b));
 }
 
-export function PlayerField({ player }: { player: Player }) {
-  const { g } = useView();
+/** Your hand, kept out of the tilted table so dragging a card tracks the pointer. */
+export function PlayerHand({ player }: { player: Player }) {
   const hand = arranged(
     player.hand,
     useStore((s) => s.handOrder),
@@ -413,6 +413,20 @@ export function PlayerField({ player }: { player: Player }) {
     useStore.setState({ handOrder: ids });
   };
   return (
+    <div className="hand" data-hand-of={player.id}>
+      {hand.map((c, i) => {
+        const d = drawn.includes(c.id) ? drawn.indexOf(c.id) : undefined;
+        // Watching the bots, nobody sits at the bottom, so that seat's hand is hidden too (`viewFor`).
+        if (isHidden(c)) return <HiddenHandCard key={c.id} card={c} index={i} total={hand.length} drawn={d} />;
+        return <HandCard key={c.id} card={c} index={i} total={hand.length} drawn={d} onMove={(to) => moveCard(i, to)} />;
+      })}
+    </div>
+  );
+}
+
+export function PlayerField({ player }: { player: Player }) {
+  const { g } = useView();
+  return (
     <>
       {/* The seat's mat, under everything else of yours. */}
       <div className={cx('seat-mat', 'me-mat', g.active === player.id && 'active')} style={vars({ '--deck': deckColor(player.colors) })} />
@@ -425,16 +439,6 @@ export function PlayerField({ player }: { player: Player }) {
       <div className="me-zones">
         <Piles player={player} />
       </div>
-      <div className="hand" data-hand-of={player.id}>
-        {hand.map((c, i) => {
-          const d = drawn.includes(c.id) ? drawn.indexOf(c.id) : undefined;
-          // Watching the bots, nobody sits at the bottom, so that seat's hand is hidden too (`viewFor`).
-          if (isHidden(c)) return <HiddenHandCard key={c.id} card={c} index={i} total={hand.length} drawn={d} />;
-          return <HandCard key={c.id} card={c} index={i} total={hand.length} drawn={d} onMove={(to) => moveCard(i, to)} />;
-        })}
-      </div>
-      {/* Cards moving between zones, drawn over the whole table. */}
-      <Flights />
     </>
   );
 }
