@@ -81,6 +81,12 @@ src/ui/         App.tsx               menu or game screen; GameScreen.tsx lays t
                                       hand's curve and scroll pills (pure maths, tested)
                 util.ts               small helpers: class names, deck colours, hover props
                 styles.css            all styling
+                three/                the table drawn in 3D (`?table=3d`, a spike: see
+                                      docs/plans/flutter-conversion.md). Table3D.tsx is the
+                                      scene (Three.js through React Three Fiber) and the
+                                      cards' proxies; layout3d.ts where each card lies on the
+                                      table and the camera that matches camera.ts (pure
+                                      maths, tested); textures.ts card faces, back and floor
                 cursor.png            the mouse cursor, and cursor-down.png while a
                                       button is held (see Credits)
 tests/                                Vitest: card coverage, rules, the UI casting flow,
@@ -189,12 +195,18 @@ right, bottom right. Each seat is drawn in two parts:
 - **Its portrait, piles and an opponent's hand stand on the screen** (`SeatHud`, outside
   `.table`): the portrait 2.4rem in from the side edge, just below the middle for the
   bottom seats and above it for the top ones; the library, graveyard and exile along the
-  seat's top or bottom edge; an opponent's hand fanned from a pivot off the screen past
-  their corner (`fanAngle`).
+  seat's top or bottom edge (`.seat-zones`: 9.6rem piles, the library's inner edge 18.8rem
+  from the middle of the screen so it clears the controls and the log bar, and at the
+  bottom raised 9.2rem over the tip of your hand; the bottom seats' rows stop above them,
+  `BOX_ABOVE_EDGE`); an opponent's hand fanned from a pivot off the screen past their
+  corner (`fanAngle`).
 
 Your hand follows a curve out of the bottom-left corner (`handSlot`): up to seven cards,
 each turned to the curve under it; a bigger hand scrolls (`handStart` in the store, the
-pills from `handPills`). The HUD sits flat on the screen: the log bar at the top in the
+pills from `handPills`). A hand card is drawn in a slot that takes no pointer events,
+so its zoom can cover its neighbours; a clear copy of its resting shape (`.hand-hit`)
+takes the hover, the click and the press that starts the drag, and while a card is
+dragged (`holding` in the store) no other card hovers. The HUD sits flat on the screen: the log bar at the top in the
 middle, the controls' plate with the seat arrows above it at the bottom in the middle,
 the stack over the middle of the table (`stackHidden` in the store tucks it into a chip).
 

@@ -82,7 +82,7 @@ import {
 } from '../engine';
 import type { AbilityRef, Action, AttackOption, Card, CastChoices, Cost, Game, ManaSym, ManaUse, Payment, PlayerId, StackItem, Step, Stops, TargetRef, TargetSpec } from '../engine';
 import { absoluteStops, useStore } from './store';
-import type { ManaOption, Targeting } from './store';
+import type { ManaOption, Targeting, UndoStep } from './store';
 
 export type Glow = 'play' | 'attack' | 'block' | 'target' | 'discard' | 'picked';
 
@@ -218,6 +218,27 @@ const S = () => useStore.getState();
 const pass = () => S().act({ type: 'pass' });
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
 
+/** `t` after one choice of the human's, which Ctrl+Z steps back from to `t` (see `undo`). */
+const stepFrom = (t: Targeting, change: Partial<Targeting>): Targeting => ({ ...t, ...change, prev: t });
+
+/** Notes something done outside a spell being cast that Ctrl+Z can take back (see `undo`). */
+const record = (step: UndoStep) => useStore.setState({ undoSteps: [...S().undoSteps, step] });
+
+/** What each of these creatures attacks now, if it does: an attack moved to another target is moved back by Ctrl+Z. */
+function attacksOf(g: Game, ids: string[]): { id: string; was?: AttackOption }[] {
+  return ids.map((id) => {
+    const a = g.combat?.attacks.find((x) => x.id === id);
+    return a ? { id, was: { defender: a.defender, target: a.target } } : { id };
+  });
+}
+
+/** Declares these creatures as attackers of `o`, as one step Ctrl+Z can take back. */
+function declareAll(ids: string[], o: AttackOption) {
+  const before = attacksOf(S().game!, ids);
+  const done = before.filter((x) => declare(x.id, o));
+  if (done.length) record({ kind: 'attack', cards: done });
+}
+
 /**
  * What the human is in the middle of, if anything: a spell or ability they have started
  * (nothing has reached the game yet, so it can be cancelled), or a triggered ability of
@@ -229,14 +250,16 @@ function targetingOf(s: StoreState): Targeting | null {
     const { item } = g.decision;
     const chosen = s.targeting?.mode === 'trigger' ? s.targeting.chosen : [];
     const anyDone = s.targeting?.mode === 'trigger' && !!s.targeting.anyDone;
-    return { mode: 'trigger', cardId: item.card.id, specs: expandSpecs(targetSpecs(g, item), chosen.length, anyDone), chosen, tapped: [], choices: {}, announcing: false, anyDone };
+    const prev = s.targeting?.mode === 'trigger' ? s.targeting.prev : undefined;
+    return { mode: 'trigger', cardId: item.card.id, specs: expandSpecs(targetSpecs(g, item), chosen.length, anyDone), chosen, tapped: [], choices: {}, announcing: false, anyDone, ...(prev ? { prev } : {}) };
   }
   // New targets for a spell or ability (115.7d), like Deflecting Swat's.
   const item = g && g.priority === s.human ? retargetItem(g) : undefined;
   if (item) {
     const chosen = s.targeting?.mode === 'retarget' ? s.targeting.chosen : [];
+    const prev = s.targeting?.mode === 'retarget' ? s.targeting.prev : undefined;
     // As many targets as it has: new targets don't change how many (115.7d).
-    return { mode: 'retarget', cardId: item.card.id, specs: specsFor(targetSpecs(g!, item), item.targets.length), chosen, tapped: [], choices: {}, announcing: false };
+    return { mode: 'retarget', cardId: item.card.id, specs: specsFor(targetSpecs(g!, item), item.targets.length), chosen, tapped: [], choices: {}, announcing: false, ...(prev ? { prev } : {}) };
   }
   return s.targeting?.mode === 'trigger' || s.targeting?.mode === 'retarget' ? null : s.targeting;
 }
@@ -908,7 +931,7 @@ export function buildView(): View {
         view.primary = {
           label: 'All Attack',
           tone: 'attack',
-          onClick: () => target && candidates.forEach((c) => declare(c.id, target)),
+          onClick: () => target && declareAll(candidates.map((c) => c.id), target),
         };
         view.secondary = { label: 'No Attacks', tone: 'plain', onClick: pass };
       }
@@ -1097,7 +1120,7 @@ export function setAbilityX(x: number) {
 /** Done announcing X: on to the ability's targets (601.2c via 602.2b). */
 function confirmAbilityX() {
   const t = S().targeting;
-  if (t?.choosingX) advance({ ...t, choosingX: false });
+  if (t?.choosingX) advance(stepFrom(t, { choosingX: false }));
 }
 
 /**
@@ -1180,7 +1203,7 @@ export function pickAbility(ref: AbilityRef) {
   const card = findCard(g, t.cardId)!;
   if (!activatable(g, me, card).some((r) => r.ability === ref.ability && (r.activated ?? 0) === (ref.activated ?? 0))) return;
   const specs = ref.ability === undefined ? (activatedAt(g, card, ref.activated)?.targets ?? []) : (abilitiesOf(g, card).loyalty?.[ref.ability].targets ?? []);
-  const next = { ...t, pickingAbility: false, ability: ref.ability, activated: ref.activated, specs };
+  const next = stepFrom(t, { pickingAbility: false, ability: ref.ability, activated: ref.activated, specs });
   if (abilityHasX(g, card, ref)) chooseX(next);
   else advance(next);
 }
@@ -1198,7 +1221,7 @@ function confirmAnnounce() {
     S().act({ type: 'playLand', card: card.id, face });
     return;
   }
-  advance({ ...t, announcing: false, specs: castTargets(card, t.choices.modes, face, t.choices.gift, t.choices.alt) });
+  advance(stepFrom(t, { announcing: false, specs: castTargets(card, t.choices.modes, face, t.choices.gift, t.choices.alt) }));
 }
 
 /** From the prompt's cast options: use the card's ability that works from the hand (channel) instead of playing it. */
@@ -1268,12 +1291,26 @@ function payByHand(g: Game, me: PlayerId, t: Targeting, card: Card) {
   if (canTapForMana(g, me, card)) {
     const tapped = tapByHand(g, me, card);
     if (!tapped) return;
-    const next = { ...t, tapped: [...t.tapped, tapped] };
+    const next = stepFrom(t, { tapped: [...t.tapped, tapped] });
     useStore.setState({ targeting: next });
     if (paidUp(S().game!, me, next)) pay();
   } else if (canUntapMana(g, me, card) && S().act({ type: 'untapMana', card: card.id })) {
-    useStore.setState({ targeting: { ...t, tapped: t.tapped.filter((id) => id !== card.id) } });
+    useStore.setState({ targeting: untappedIn(t, card.id) });
   }
+}
+
+/**
+ * `t` and the steps before it, with the mana source `id` no longer tapped for it: the human
+ * took its mana back by hand. A step that did nothing but tap it is gone, so Ctrl+Z doesn't
+ * spend a press on it.
+ */
+function untappedIn(t: Targeting, id: string): Targeting {
+  const tapped = t.tapped.filter((x) => x !== id);
+  if (!t.prev) return { ...t, tapped };
+  const prev = untappedIn(t.prev, id);
+  // A step that tapped mana changed nothing else (`payByHand`, `pickMana`).
+  if (t.tapped.length > t.prev.tapped.length && tapped.length === prev.tapped.length) return prev;
+  return { ...t, tapped, prev };
 }
 
 /** Adds a creature to the crew, or takes it back out. */
@@ -1281,7 +1318,7 @@ function pickCrew(g: Game, me: PlayerId, t: Targeting, card: Card) {
   const vehicle = findCard(g, t.cardId)!;
   if (!crewOptions(g, me, vehicle).some((c) => c.id === card.id)) return;
   const crew = t.crew ?? [];
-  useStore.setState({ targeting: { ...t, crew: crew.includes(card.id) ? crew.filter((id) => id !== card.id) : [...crew, card.id] } });
+  useStore.setState({ targeting: stepFrom(t, { crew: crew.includes(card.id) ? crew.filter((id) => id !== card.id) : [...crew, card.id] }) });
 }
 
 /** Done picking the crew: on to paying, which for crew alone costs nothing, so it goes straight on the stack. */
@@ -1290,7 +1327,7 @@ function confirmCrew() {
   const g = S().game;
   const me = S().human;
   if (!t || !g || me === null) return;
-  const next = { ...t, crewDone: true };
+  const next = stepFrom(t, { crewDone: true });
   useStore.setState({ targeting: next });
   if (paidUp(g, me, next)) pay();
 }
@@ -1299,7 +1336,7 @@ function confirmCrew() {
 function chooseExile(g: Game, me: PlayerId, t: Targeting, card: Card) {
   const spell = findCard(g, t.cardId)!;
   if (!exileOptions(g, me, spell, t.choices.face ?? 0, t.choices.alt!).some((c) => c.id === card.id)) return;
-  const next = { ...t, choices: { ...t.choices, exile: [card.id] } };
+  const next = stepFrom(t, { choices: { ...t.choices, exile: [card.id] } });
   useStore.setState({ targeting: next });
   // An alternative cost with no mana, like Force of Will's, is paid as soon as the card is picked.
   if (paidUp(g, me, next)) pay();
@@ -1311,7 +1348,7 @@ function chooseSacrifice(g: Game, me: PlayerId, t: Targeting, card: Card) {
   const picked = t.choices.sacrifice ?? [];
   const need = sacrificeNeeds(t)[picked.length];
   if (!need || picked.includes(card.id) || !sacrificeOptionsFor(g, me, t, spell, need.alt).some((c) => c.id === card.id)) return;
-  const next = { ...t, choices: { ...t.choices, sacrifice: [...picked, card.id] } };
+  const next = stepFrom(t, { choices: { ...t.choices, sacrifice: [...picked, card.id] } });
   useStore.setState({ targeting: next });
   // A cost that is only a sacrifice, like Flare of Duplication's, is paid as soon as it is picked.
   if (isPaying(next) && paidUp(g, me, next)) pay();
@@ -1325,7 +1362,7 @@ const sacrificeOptionsFor = (g: Game, me: PlayerId, t: Targeting, card: Card, al
 function chooseAbilityExile(g: Game, me: PlayerId, t: Targeting, card: Card) {
   const source = findCard(g, t.cardId)!;
   if (!activationExileOptions(g, me, source, t.activated).some((c) => c.id === card.id)) return;
-  const next = { ...t, exile: [card.id] };
+  const next = stepFrom(t, { exile: [card.id] });
   useStore.setState({ targeting: next });
   if (isPaying(next) && paidUp(g, me, next)) pay();
 }
@@ -1345,7 +1382,7 @@ function pickConvoke(g: Game, me: PlayerId, t: Targeting, card: Card): boolean {
   if (!convokeOptions(g, me, t).some((c) => c.id === card.id)) return false;
   const picked = t.choices.convoke ?? [];
   const convoke = picked.includes(card.id) ? picked.filter((id) => id !== card.id) : [...picked, card.id];
-  const next = { ...t, choices: { ...t.choices, convoke } };
+  const next = stepFrom(t, { choices: { ...t.choices, convoke } });
   if (!planFor(g, me, next)) return true;
   useStore.setState({ targeting: next });
   if (!picked.includes(card.id) && paidUp(g, me, next)) pay();
@@ -1356,13 +1393,13 @@ function pickConvoke(g: Game, me: PlayerId, t: Targeting, card: Card): boolean {
 function finishAny() {
   const t = targetingOf(S());
   if (!t) return;
-  advance({ ...t, specs: t.specs.slice(0, t.chosen.length), anyDone: true });
+  advance(stepFrom(t, { specs: t.specs.slice(0, t.chosen.length), anyDone: true }));
 }
 
 /** Doesn't pay an optional sacrifice, like bargain (702.166a). */
 function skipSacrifice() {
   const t = S().targeting;
-  if (t) useStore.setState({ targeting: { ...t, sacrificeDone: true } });
+  if (t) useStore.setState({ targeting: stepFrom(t, { sacrificeDone: true }) });
 }
 
 /** Picks the other cards to exile for escape, as many as its escape ability says (702.138a). Paying comes next. */
@@ -1370,7 +1407,7 @@ export function chooseEscape(ids: string[]) {
   const t = S().targeting;
   const { game: g, human: me } = S();
   if (!t || !g || me === null || !isEscaping(t) || ids.length !== t.choices.escape!.length) return;
-  const next = { ...t, choices: { ...t.choices, escape: ids } };
+  const next = stepFrom(t, { choices: { ...t.choices, escape: ids } });
   useStore.setState({ targeting: next });
   if (paidUp(g, me, next)) pay();
 }
@@ -1396,7 +1433,7 @@ function confirmDivision() {
   const t = S().targeting;
   const { game: g, human: me } = S();
   if (!t || !g || me === null || !isDividing(t)) return;
-  const next = { ...t, choices: { ...t.choices, divide: draftDivision(t) } };
+  const next = stepFrom(t, { choices: { ...t.choices, divide: draftDivision(t) } });
   useStore.setState({ targeting: next });
   if (isPaying(next) && paidUp(g, me, next)) pay();
 }
@@ -1406,7 +1443,7 @@ export function chooseGraveCost(ids: string[]) {
   const t = S().targeting;
   const { game: g, human: me } = S();
   if (!t || !g || me === null || !isExilingGraveyard(t)) return;
-  const next = { ...t, graveyard: ids };
+  const next = stepFrom(t, { graveyard: ids });
   useStore.setState({ targeting: next });
   if (isPaying(next) && paidUp(g, me, next)) pay();
 }
@@ -1416,7 +1453,7 @@ export function chooseDelve(ids: string[]) {
   const t = S().targeting;
   const { game: g, human: me } = S();
   if (!t || !g || me === null || !isDelving(t)) return;
-  const next = { ...t, choices: { ...t.choices, delve: ids } };
+  const next = stepFrom(t, { choices: { ...t.choices, delve: ids } });
   useStore.setState({ targeting: next });
   if (paidUp(g, me, next)) pay();
 }
@@ -1425,7 +1462,7 @@ export function chooseDelve(ids: string[]) {
 function chooseDiscard(g: Game, me: PlayerId, t: Targeting, card: Card) {
   const source = findCard(g, t.cardId)!;
   if (!discardOptions(g, me, source, discardFilterOf(t, source)).some((c) => c.id === card.id) || t.discard?.includes(card.id)) return;
-  const next = { ...t, discard: [...(t.discard ?? []), card.id] };
+  const next = stepFrom(t, { discard: [...(t.discard ?? []), card.id] });
   useStore.setState({ targeting: next });
   if (isPaying(next) && paidUp(g, me, next)) pay();
 }
@@ -1436,7 +1473,7 @@ function keepTarget() {
   const t = targetingOf(s);
   const g = s.game;
   if (!t || t.mode !== 'retarget' || !g) return;
-  advance({ ...t, chosen: [...t.chosen, retargetItem(g)?.targets[t.chosen.length] ?? null] });
+  advance(stepFrom(t, { chosen: [...t.chosen, retargetItem(g)?.targets[t.chosen.length] ?? null] }));
 }
 
 /** Picks a card in a graveyard as the target (Sevinne's Reclamation). */
@@ -1490,6 +1527,12 @@ export function manaOptions(g: Game, me: PlayerId, card: Card): ManaOption[] {
 function plainOption(options: ManaOption[]): ManaOption | undefined {
   const only = options.length === 1 && options[0].mana.length === 1 ? options[0] : undefined;
   return only && (only.creatures?.length ?? 0) <= 1 && !only.discards && !only.sacrifices ? only : undefined;
+}
+
+/** Uses `card` for mana by hand outside a spell being cast, as a step Ctrl+Z can take back. */
+function tapForMana(g: Game, me: PlayerId, card: Card) {
+  const used = tapByHand(g, me, card);
+  if (used) record({ kind: 'mana', cards: [used] });
 }
 
 /**
@@ -1554,6 +1597,9 @@ export function pickMana(ability: number | null, mana?: ManaSym[]) {
     ...(option.discards && manaPick.discard ? { discard: manaPick.discard } : {}),
     ...(option.sacrifices && manaPick.sacrifice ? { sacrifice: manaPick.sacrifice } : {}),
   };
+  // The pick is one step for Ctrl+Z, however many permanents it uses.
+  const start = targetingOf(S());
+  const used: string[] = [];
   for (const id of [manaPick.cardId, ...(manaPick.group ?? [])]) {
     const t = targetingOf(S());
     const paying = t && isPaying(t) ? t : null;
@@ -1562,8 +1608,10 @@ export function pickMana(ability: number | null, mana?: ManaSym[]) {
     if (!card || !canTapForMana(S().game!, me, card, ability)) continue;
     if (!S().act({ type: 'tapMana', card: id, ability, mana, ...extra })) continue;
     // Cancelling the spell takes the mana back: from the creature tapped for it, or the card.
-    if (paying) useStore.setState({ targeting: { ...paying, tapped: [...paying.tapped, creature ?? id] } });
+    if (paying && start) useStore.setState({ targeting: { ...paying, tapped: [...paying.tapped, creature ?? id], prev: start } });
+    else used.push(creature ?? id);
   }
+  if (used.length) record({ kind: 'mana', cards: used });
   const t = targetingOf(S());
   if (t && isPaying(t) && paidUp(S().game!, me, t)) pay();
 }
@@ -1577,7 +1625,7 @@ function chooseTarget(ref: TargetRef | null) {
   // "Any number of" targets (115.1d): another slot for the next one.
   const spec = t.specs[t.chosen.length];
   const specs = spec?.any && ref && t.mode !== 'retarget' ? [...t.specs, spec] : t.specs;
-  advance({ ...t, chosen: [...t.chosen, ref], specs });
+  advance(stepFrom(t, { chosen: [...t.chosen, ref], specs }));
 }
 
 /**
@@ -1588,6 +1636,82 @@ export function cancel() {
   const t = S().targeting;
   for (const id of [...(t?.tapped ?? [])].reverse()) S().act({ type: 'untapMana', card: id });
   useStore.setState({ targeting: null, pickedBlockers: [], hold: S().fullControl });
+}
+
+/**
+ * Ctrl+Z: takes back the human's latest step that can be taken back, one per press.
+ * - A mana choice left open (the mana picker) closes.
+ * - While a spell is being cast or an ability activated (601.2, 602.2), the last choice made
+ *   for it goes: a target, a sacrifice, a card to discard or exile, a creature to crew or
+ *   convoke, the announcing of its X, kicker or cost, or a mana source tapped to pay, which
+ *   untaps (733.1). With no choice made yet, it is cancelled as Esc does. A triggered ability's
+ *   targets, or new targets, step back the same way but can't be cancelled.
+ * - Otherwise the newest of `undoSteps`: mana used by hand comes back while it is still in the
+ *   pool (`canUntapMana`), and attackers and blockers declared, or blockers picked, are taken
+ *   back while they are still being declared. A step that no longer holds is skipped.
+ * Nothing the game has taken for good (a spell cast, a land played, a pass, a trigger's
+ * targets sent) is undone: those moves clear what came before them (`act` in store.ts).
+ * Returns whether anything was taken back.
+ */
+export function undo(): boolean {
+  const s = S();
+  if (s.manaPick) {
+    useStore.setState({ manaPick: null });
+    return true;
+  }
+  if (!myTurnToAct()) return false;
+  const t = targetingOf(s);
+  if (t?.prev) {
+    // Mana tapped for it since then is taken back, newest first (733.1).
+    for (const id of [...t.tapped].reverse()) if (!t.prev.tapped.includes(id)) S().act({ type: 'untapMana', card: id });
+    useStore.setState({ targeting: t.prev, hover: null });
+    return true;
+  }
+  if (t) {
+    if (t.mode === 'trigger' || t.mode === 'retarget') return false;
+    cancel();
+    return true;
+  }
+  for (let steps = S().undoSteps; steps.length; steps = S().undoSteps) {
+    useStore.setState({ undoSteps: steps.slice(0, -1) });
+    if (takeBack(steps[steps.length - 1])) return true;
+  }
+  return false;
+}
+
+/** Takes back one of `undoSteps`, if it still holds. Returns whether anything changed. */
+function takeBack(step: UndoStep): boolean {
+  const g = S().game!;
+  const deciding = g.decision?.type;
+  const attacks = g.combat?.attacks ?? [];
+  switch (step.kind) {
+    case 'mana':
+      // Not a rule: like Arena, this table lets a mana ability used by hand be taken back
+      // while all its mana is still in the pool. The engine checks that it is (`canUntapMana`).
+      return [...step.cards].reverse().filter((id) => S().act({ type: 'untapMana', card: id })).length > 0;
+    case 'attack':
+      // Attackers can change until they are declared (508.1): an attack moved goes back where it was.
+      if (deciding !== 'attackers') return false;
+      return (
+        step.cards
+          .filter(({ id }) => attacks.some((a) => a.id === id))
+          .filter(({ id, was }) => (was ? declare(id, was) : S().act({ type: 'undeclareAttack', card: id }))).length > 0
+      );
+    case 'block': {
+      // Blockers can change until they are declared (509.1). Those picked for the attacker are picked again.
+      if (deciding !== 'blockers') return false;
+      const back = step.cards.filter((id) => attacks.some((a) => a.blockers.includes(id)) && S().act({ type: 'undeclareBlock', blocker: id }));
+      if (!back.length) return false;
+      useStore.setState({ pickedBlockers: step.picked.filter((id) => back.includes(id)) });
+      return true;
+    }
+    case 'pick': {
+      const now = S().pickedBlockers;
+      if (deciding !== 'blockers' || (now.length === step.before.length && now.every((id) => step.before.includes(id)))) return false;
+      useStore.setState({ pickedBlockers: step.before });
+      return true;
+    }
+  }
 }
 
 function myTurnToAct(): { g: Game; me: PlayerId } | null {
@@ -1619,7 +1743,7 @@ export function playHandCard(card: Card) {
   else if (fromHand) propose('activate', card);
   // A card that can't be cast now but can be plotted (702.170a).
   else if (canPlot(g, me, card)) S().act({ type: 'plot', card: card.id });
-  else if (!g.decision && canTapForMana(g, me, card)) tapByHand(g, me, card);
+  else if (!g.decision && canTapForMana(g, me, card)) tapForMana(g, me, card);
 }
 
 /** From the prompt's cast options: plot the card instead of casting it (702.170a). */
@@ -1637,7 +1761,7 @@ export function exileForMana() {
   useStore.setState({ targeting: null });
   const { game: g, human: me } = S();
   const card = g && findCard(g, t.cardId);
-  if (card && me !== null) tapByHand(g, me, card);
+  if (card && me !== null) tapForMana(g, me, card);
 }
 
 export function clickPermanent(card: Card) {
@@ -1668,15 +1792,19 @@ export function clickPermanent(card: Card) {
     if (card.controller !== me || !canAttack(g, card) || !target) return;
     const existing = g.combat?.attacks.find((a) => a.id === card.id);
     if (sameOption(existing, target)) s.act({ type: 'undeclareAttack', card: card.id });
-    else declare(card.id, target);
+    else declareAll([card.id], target);
     return;
   }
 
   if (deciding === 'blockers') {
     const attacksOnMe = (g.combat?.attacks ?? []).filter((a) => a.defender === me);
     if (card.controller !== me) {
-      const declared = s.pickedBlockers.filter((b) => S().act({ type: 'declareBlock', blocker: b, attacker: card.id }));
-      if (declared.length) useStore.setState({ pickedBlockers: [] });
+      const picked = s.pickedBlockers;
+      const declared = picked.filter((b) => S().act({ type: 'declareBlock', blocker: b, attacker: card.id }));
+      if (declared.length) {
+        useStore.setState({ pickedBlockers: [] });
+        record({ kind: 'block', cards: declared, picked });
+      }
     } else if (attacksOnMe.some((a) => a.blockers.includes(card.id))) {
       s.act({ type: 'undeclareBlock', blocker: card.id });
     } else {
@@ -1686,7 +1814,7 @@ export function clickPermanent(card: Card) {
   }
 
   if (deciding || card.controller !== me) return;
-  if (canTapForMana(g, me, card)) tapByHand(g, me, card);
+  if (canTapForMana(g, me, card)) tapForMana(g, me, card);
   else if (canUntapMana(g, me, card)) s.act({ type: 'untapMana', card: card.id });
   else if (activatable(g, me, card).length) propose('activate', card);
 }
@@ -1700,9 +1828,12 @@ function pickBlockers(g: Game, me: PlayerId, blockers: Card[]) {
   const options = (g.combat?.attacks ?? []).filter((a) => a.defender === me && canBlock(g, blockers[0], permanent(g, a.id)!));
   const ids = blockers.map((c) => c.id);
   const s = S();
-  if (options.length === 1) ids.forEach((b) => S().act({ type: 'declareBlock', blocker: b, attacker: options[0].id }));
-  else if (options.length > 1) {
+  if (options.length === 1) {
+    const declared = ids.filter((b) => S().act({ type: 'declareBlock', blocker: b, attacker: options[0].id }));
+    if (declared.length) record({ kind: 'block', cards: declared, picked: [] });
+  } else if (options.length > 1) {
     const same = s.pickedBlockers.length === ids.length && ids.every((id) => s.pickedBlockers.includes(id));
+    record({ kind: 'pick', before: s.pickedBlockers });
     useStore.setState({ pickedBlockers: same ? [] : ids });
   }
 }
@@ -1738,6 +1869,9 @@ export function clickGroup(cards: Card[]) {
       if (!paying || !isPaying(paying)) break; // paid: the spell is cast
       if (tap ? canTapForMana(g, me, c) : canUntapMana(g, me, c)) payByHand(g, me, paying, c);
     }
+    // The pile was one click: Ctrl+Z takes back all it tapped at once.
+    const end = S().targeting;
+    if (tap && end && end !== t && end.tapped.length > t.tapped.length) useStore.setState({ targeting: { ...end, prev: t } });
     return;
   }
 
@@ -1748,7 +1882,7 @@ export function clickGroup(cards: Card[]) {
     if (!target) return;
     const attacking = (c: Card) => sameOption(g.combat?.attacks.find((a) => a.id === c.id), target);
     if (able.length && able.every(attacking)) able.forEach((c) => S().act({ type: 'undeclareAttack', card: c.id }));
-    else able.filter((c) => !attacking(c)).forEach((c) => declare(c.id, target));
+    else declareAll(able.filter((c) => !attacking(c)).map((c) => c.id), target);
     return;
   }
 
@@ -1766,7 +1900,11 @@ export function clickGroup(cards: Card[]) {
     const tappable = now().filter((c) => canTapForMana(g, me, c));
     const untappable = now().filter((c) => canUntapMana(g, me, c));
     if (tappable.length && choosing(g)) return;
-    if (tappable.length) return tappable.forEach((c) => tapByHand(S().game!, me, c));
+    if (tappable.length) {
+      const used = tappable.map((c) => tapByHand(S().game!, me, c)).filter((id) => id !== null);
+      if (used.length) record({ kind: 'mana', cards: used });
+      return;
+    }
     if (untappable.length) return untappable.forEach((c) => S().act({ type: 'untapMana', card: c.id }));
   }
   clickPermanent(top);

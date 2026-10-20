@@ -23,11 +23,13 @@
     "profile-game": "node scripts/profile-game.mjs"
   },
   "dependencies": {
+    "@react-three/fiber": "^9.8.2",
     "immer": "^11.1.21",
     "mana-font": "^1.18.0",
     "motion": "^14.2.0",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
+    "three": "^0.186.1",
     "zustand": "^5.0.15"
   },
   "devDependencies": {
@@ -35,6 +37,7 @@
     "@types/node": "^26.6.5",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
+    "@types/three": "^0.186.0",
     "@vitejs/plugin-react": "^6.1.2",
     "postject": "^1.0.0-alpha.6",
     "resedit": "^3.1.0",

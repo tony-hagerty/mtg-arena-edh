@@ -70,7 +70,28 @@ export interface Targeting {
   anyDone?: boolean;
   /** The division of a spell's damage among its targets so far (601.2d), before it is confirmed into `choices.divide`. */
   dividing?: number[];
+  /**
+   * What this was before the human's last choice in it (a target, a sacrifice, a mana source
+   * tapped), which Ctrl+Z goes back to (`undo` in view.ts). Left out at the start.
+   */
+  prev?: Targeting;
 }
+
+/**
+ * Something the human did outside a spell or ability being cast that Ctrl+Z can take back
+ * (`undo` in view.ts), newest last. Nothing in it has been sent to the engine for good: mana
+ * still in the pool can be taken back (`canUntapMana`), and attackers and blockers until the
+ * human is done declaring them (508.1, 509.1). A step that no longer holds is skipped.
+ * - `mana`: the permanents one click used for mana.
+ * - `attack`: the creatures one click declared as attackers, and what each attacked before, if it did.
+ * - `block`: the blockers one click declared, and the blockers that were picked for it.
+ * - `pick`: the blockers picked before one click changed them.
+ */
+export type UndoStep =
+  | { kind: 'mana'; cards: string[] }
+  | { kind: 'attack'; cards: { id: string; was?: AttackOption }[] }
+  | { kind: 'block'; cards: string[]; picked: string[] }
+  | { kind: 'pick'; before: string[] };
 
 // Renamed when the defaults change, so everyone starts again from the new ones once.
 const STOPS_KEY = 'arena-edh.stops.v2';
@@ -258,7 +279,14 @@ interface Store {
   attackTarget: AttackOption | null;
   /** Blockers the human picked that could block more than one attacker: the next attacker they click gets them all. */
   pickedBlockers: string[];
+  /** What Ctrl+Z can take back outside a spell or ability being cast, newest last. Any other move clears it. */
+  undoSteps: UndoStep[];
   hover: Hover | null;
+  /**
+   * The hand card being dragged (its id), to rearrange the hand or to play it. While one is
+   * held, no other card hovers: passing over them neither zooms them nor moves `hover`.
+   */
+  holding: string | null;
   /** Card ids in the order the human arranged their hand. Display only: the engine never sees it. */
   handOrder: string[];
   /** The first card of the hand that shows, when it holds more than fit on its curve (`handWindow` in table-layout.ts). */
@@ -325,7 +353,9 @@ export const useStore = create<Store>()((set, get) => ({
   hold: false,
   attackTarget: null,
   pickedBlockers: [],
+  undoSteps: [],
   hover: null,
+  holding: null,
   handOrder: [],
   handStart: 0,
   stackHidden: false,
@@ -434,7 +464,9 @@ export const useStore = create<Store>()((set, get) => ({
       targeting: null,
       attackTarget: null,
       pickedBlockers: [],
+      undoSteps: [],
       hover: null,
+      holding: null,
       handOrder: [],
       handStart: 0,
       stackHidden: false,
@@ -477,8 +509,9 @@ export const useStore = create<Store>()((set, get) => ({
     // Declaring attackers/blockers and tapping for mana keep the current selection; anything else resets it.
     const mana = a.type === 'tapMana' || a.type === 'untapMana';
     const keep = mana || a.type.includes('declare');
-    // A land is still under the pointer after it is tapped, so its preview stays up too.
-    const ui = { ...(mana ? {} : { hover: null }), ...(keep ? {} : { targeting: null, pickedBlockers: [] }) };
+    // A land is still under the pointer after it is tapped, so its preview stays up too. Any
+    // other move can't be taken back, so neither can what came before it (Ctrl+Z).
+    const ui = { ...(mana ? {} : { hover: null }), ...(keep ? {} : { targeting: null, pickedBlockers: [], undoSteps: [] }) };
     if (!server || human === null) {
       const next = applyAction(g, a, engineOptions());
       if (next === g) return false;
@@ -519,7 +552,30 @@ useStore.subscribe((s) => {
   if (s.stackHidden && !s.game?.stack.length) useStore.setState({ stackHidden: false });
 });
 
-const freshSeat = { handoff: null, targeting: null, attackTarget: null, pickedBlockers: [], handOrder: [], handStart: 0, stackHidden: false, viewer: null, manaPick: null, hover: null };
+const freshSeat = { handoff: null, targeting: null, attackTarget: null, pickedBlockers: [], undoSteps: [], handOrder: [], handStart: 0, stackHidden: false, viewer: null, manaPick: null, hover: null, holding: null };
+
+/**
+ * The pointer came onto a card's resting place in the human's hand (`hover.el`, its
+ * `.hand-hit`, see HandCard): it becomes `hover`, for right-click to pin. Nothing hovers
+ * while a hand card is held, so dragging one across the others leaves them be. Returns
+ * whether the card took the hover.
+ */
+export function hoverHandCard(hover: Hover) {
+  if (useStore.getState().holding) return false;
+  useStore.setState({ hover });
+  return true;
+}
+
+/**
+ * The pointer left a hand card's resting place `el`. Its hover goes, unless a hand card is
+ * held or another card has taken the hover already. Returns whether the card stops hovering.
+ */
+export function leaveHandCard(el: HTMLElement) {
+  const s = useStore.getState();
+  if (s.holding) return false;
+  if (s.hover?.el === el) useStore.setState({ hover: null });
+  return true;
+}
 
 /** The connection's moving parts, outside the store's state: they don't change what's drawn. */
 const remote: { gameId: number; seq: Partial<Record<PlayerId, number>>; waiting: Partial<Record<PlayerId, number>>; unwatch: (() => void) | null; leaving: boolean } = {

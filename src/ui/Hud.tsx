@@ -11,7 +11,7 @@ import { MusicControl, SoundControl } from './SoundControl';
 import { useStore } from './store';
 import type { Hover } from './store';
 import { type Seat, cx, deckColor, faceUp, hoverProps, seatOf } from './util';
-import { STEP_NAMES, activateFromHand, cancel, clickStackItem, stackTucked, pickAbility, pickMana, pickTapCreature, pickManaDiscard, pickManaSacrifice, pickFace, pickMode, playHandCard, setAbilityX, setChoices, shiftDivision, exileForMana, plotCard, useView } from './view';
+import { STEP_NAMES, activateFromHand, cancel, clickStackItem, stackTucked, pickAbility, pickMana, pickTapCreature, pickManaDiscard, pickManaSacrifice, pickFace, pickMode, playHandCard, setAbilityX, setChoices, shiftDivision, undo, exileForMana, plotCard, useView } from './view';
 import type { AbilityOption, Btn } from './view';
 import { leftStack, newGame } from './zone-moves';
 
@@ -217,7 +217,7 @@ export function ActionBar() {
   const v = useView();
   const latest = useRef(v);
   latest.current = v;
-  // Space/Enter = main button, Escape = cancel, like Arena.
+  // Space/Enter = main button, Escape = cancel, Ctrl+Z = undo, like Arena.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       // A paused table's game takes no moves, from the keys either.
@@ -225,6 +225,14 @@ export function ActionBar() {
       // While the exit dialog is open the keys belong to it: Esc stays, Enter presses the focused button.
       if (useStore.getState().confirmExit) {
         if (e.code === 'Escape') useStore.setState({ confirmExit: false });
+        return;
+      }
+      // Ctrl+Z (Cmd+Z on a Mac): take back the last step that can be, one per press (`undo`).
+      // Not while typing, where it undoes the typing.
+      if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 'z') {
+        if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+        e.preventDefault();
+        if (!e.repeat && undo()) play('cancel');
         return;
       }
       const { primary, secondary, paying } = latest.current;
@@ -486,8 +494,9 @@ function Symbols({ text }: { text: string }) {
  * Using a permanent for mana by hand, when there is a choice: one row for each of its mana
  * abilities, with a button for each choice of mana it makes (Sunken Ruins: {C}, or {U}{U},
  * {U}{B} or {B}{B}), and the creature to tap or card to discard where its cost needs one.
+ * It sits in the prompt's band (`Prompt`), under the words while paying.
  */
-export function ManaPicker() {
+function ManaPicker() {
   const pick = useStore((s) => s.manaPick);
   const g = useView().g;
   const card = pick && findCard(g, pick.cardId);
@@ -564,21 +573,26 @@ function LoyaltyOptions({ options }: { options: AbilityOption[] }) {
  * The prompt: a band across the middle of the table. While a spell is being announced
  * (601.2b), an ability or X picked, or damage divided, the choices sit in the band under
  * the words, with the buttons that go on or cancel, so the whole decision is made in one
- * place. The big button in the corner does the same as the band's.
+ * place. The big button in the corner does the same as the band's. Using a land or rock
+ * with a choice of mana by hand puts that choice in the band too (`ManaPicker`), under the
+ * words while paying, on its own otherwise.
  */
 export function Prompt() {
   const v = useView();
   const { prompt, announce: a, loyalty, abilityX, divide } = v;
+  const pick = useStore((s) => s.manaPick);
+  const picking = !!pick && !!findCard(v.g, pick.cardId);
   const options = !!(a || loyalty || abilityX || divide);
   // One band for the whole decision: its words change as choices are made, but it stays put.
-  const key = a ? `announce:${a.card.id}` : loyalty ? `ability:${loyalty.card.id}` : abilityX ? `x:${abilityX.card.id}` : divide ? `divide:${divide.card.id}` : prompt;
+  const key = a ? `announce:${a.card.id}` : loyalty ? `ability:${loyalty.card.id}` : abilityX ? `x:${abilityX.card.id}` : divide ? `divide:${divide.card.id}` : (prompt ?? `mana:${pick?.cardId}`);
   return (
     <AnimatePresence>
-      {prompt && (
-        <motion.div key={key} className={cx('prompt', options && 'with-options')} initial={{ opacity: 0, scaleX: 0.8 }} animate={{ opacity: 1, scaleX: 1 }} exit={{ opacity: 0 }}>
+      {(prompt || picking) && (
+        <motion.div key={key} className={cx('prompt', (options || picking) && 'with-options')} initial={{ opacity: 0, scaleX: 0.8 }} animate={{ opacity: 1, scaleX: 1 }} exit={{ opacity: 0 }}>
           {/* Mana costs like "{1}{B}" are drawn as symbols. */}
-          <div className="prompt-text">{prompt.split(/((?:\{[^}]+\})+)/).map((part, i) => (part.startsWith('{') ? <ManaCost key={i} cost={part} /> : part))}</div>
+          {prompt && <div className="prompt-text">{prompt.split(/((?:\{[^}]+\})+)/).map((part, i) => (part.startsWith('{') ? <ManaCost key={i} cost={part} /> : part))}</div>}
           <CastOptions />
+          <ManaPicker />
           {options && (v.primary || v.secondary) && (
             <div className="prompt-actions">
               {/* Announcing, the corner button's small print ("Cast Fireball") is the band's whole label. */}
@@ -927,7 +941,11 @@ export function Preview() {
     const onMove = (e: MouseEvent) => {
       pointer.current = { x: e.clientX, y: e.clientY };
       const s = useStore.getState();
-      if (s.hover && !s.hover.el.contains(e.target as Node)) useStore.setState({ hover: cardAt(s.game, e.target as Element) });
+      // A hand card being dragged keeps the hover: the cards it passes over don't take it (HandCard).
+      if (s.holding) return;
+      // The 3D table's cards (Table3D.tsx) are hovered by raycast, and their proxies take no
+      // pointer events, so the pointer is never "in" them: the table clears those itself.
+      if (s.hover && !s.hover.el.contains(e.target as Node) && !s.hover.el.classList.contains('card-proxy')) useStore.setState({ hover: cardAt(s.game, e.target as Element) });
     };
     window.addEventListener('mousemove', onMove);
     return () => window.removeEventListener('mousemove', onMove);

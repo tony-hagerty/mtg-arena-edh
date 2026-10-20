@@ -75,14 +75,19 @@ The full guide to the game's screens and controls. For a quick start, see the
   middle of the table. Every card stands upright, whoever controls it. The cards grow
   while a seat's rows have room and shrink as they fill up; a very crowded row overlaps
   its cards instead. The portrait sits on the seat's side edge, the library, graveyard and
-  exile on its top or bottom edge, and an opponent's hand fans out of their corner, face
-  down, with a count. Hover any card to see it full size.
+  exile on its top or bottom edge (card-sized, the library nearest the middle; at the
+  bottom they stand just above the tip of your hand, beside the controls), and an
+  opponent's hand fans out of their corner, face down, with a count. Hover any card to see
+  it full size.
 - **Your hand** curves out of the bottom-left corner, flat at first and then bending down
   into the bottom edge. Up to seven cards show; with more, two small pills arc over the
   middle of the cards. Point at the left one to scroll to earlier cards, the right one to
   later ones (after a moment, one card at a time); a click moves one card. Each pill's
   chevrons dim once there is nothing more that way. Pointing at a card stands it up and
-  zooms it.
+  zooms it. What you point at is the card where it sits in the hand, not the zoomed copy:
+  move onto the part of the next card that shows and that one zooms instead, even though
+  the zoomed card is drawn over it. While you drag a card, the cards you pass over stay
+  as they are; pointing works again once you let go.
 - **Glowing cyan** cards can be played. Drag one from your hand up toward the table and
   let go to play a land or cast a spell. Mana is tapped for you (auto-pay, like Arena).
 - Casting a spell or using an ability takes two steps, and **Cancel** (or `Esc`) backs
@@ -94,6 +99,12 @@ The full guide to the game's screens and controls. For a quick start, see the
 
   Until it is paid for nothing has happened. The spell isn't on the stack, and Cancel
   untaps any lands you tapped while paying, so you are back exactly where you were.
+
+  `Ctrl+Z` (`Cmd+Z` on a Mac) steps back one choice at a time instead: the last land you
+  tapped while paying untaps, then the last sacrifice, card to discard or exile, creature
+  to crew or convoke, or target goes, then you are back at the choices for X, kicker or
+  the cost. With nothing chosen yet it cancels, like `Esc`. A triggered ability's targets
+  step back the same way, but it can't be cancelled.
 - **More than one way to play a card:** when a card can be cast for an alternative cost,
   plotted instead (Highway Robbery), cast as either half, or needs X or kicker, the prompt
   in the middle of the table lists the choices with **Cast** (or **Play**) and **Cancel**
@@ -101,9 +112,13 @@ The full guide to the game's screens and controls. For a quick start, see the
   the same as the prompt's Cast.
 - **Paying by hand:** click your lands and mana rocks to tap them. The mana shows in a
   pill under your portrait. Costs spend that mana first and auto-tap only for the rest.
-  A source with a choice (a dual land, a Talisman, Sunken Ruins) asks which ability and
-  which mana you want. Click a tapped source again to take its mana back, as long as none
-  of it has been spent and using it did nothing else, like dealing you damage.
+  A source with a choice (a dual land, a Talisman, Sunken Ruins, Command Tower) asks which
+  ability and which mana you want, in the prompt's band in the middle of the table (under
+  the words while you are paying), with **Cancel** to tap nothing. Click a tapped source
+  again to take its mana back, as long as none of it has been spent and using it did
+  nothing else, like dealing you damage. `Ctrl+Z` does the same for the source you used
+  last whose mana is still there, one press each (a pile used with one click comes back
+  with one press), and closes a mana choice left open.
 - **Piles:** identical lands, and identical creature tokens, pile up with a count (`x7`)
   on top. Click the count to use the whole pile: lands tap for mana together (while
   paying, only as many as the cost needs; a pile of dual lands asks once which mana), or untap together to take the mana back, and
@@ -191,6 +206,10 @@ The full guide to the game's screens and controls. For a quick start, see the
   attack glow yellow: click one to send your next attackers at it instead.
 - **Blocking:** when you are attacked, click your creature. If it could block more than
   one attacker, click the attacker next.
+- **Taking back:** until you press the button that finishes attacking or blocking,
+  `Ctrl+Z` takes back the last attackers you sent (one click's worth, so **All Attack**
+  at once; an attacker you switched to a planeswalker goes back to its old target), the
+  last block, or the last blocker you picked.
 - **Dividing damage:** with **Damage: By hand** on (in the log bar), a window opens in
   the damage step when one of your attackers has a choice: two or more blockers, or
   trample. Use − and + to move damage between the blockers and, with trample, the player
@@ -232,6 +251,7 @@ The full guide to the game's screens and controls. For a quick start, see the
 | --- | --- |
 | `Space` / `Enter` | the big button |
 | `Esc` | cancel |
+| `Ctrl+Z` / `Cmd+Z` | undo the last step that can be: close a mana choice; while casting, step back the last choice (a mana source untaps), or cancel at the start; otherwise take back the last mana still unspent, or the last attacker, block or blocker picked. Never a spell cast, a land played or a pass. |
 | `Ctrl+Space` | hold priority (see [Turns, priority and the stack](rules-coverage.md#turns-priority-and-the-stack)) |
 | `Ctrl+Shift` (the two alone, then let go) | full control on or off (see [The stack and your stops](#the-stack-and-your-stops)) |
 | Hover a card | full-size view |
@@ -252,6 +272,13 @@ and away again (it starts folded). On the right:
 
 The deck menu has the same sound and music controls in its top-right corner. Sound, music
 and damage choices are saved in the browser.
+
+**The 3D table** (a work in progress): add `?table=3d` to the page's address to see the
+table drawn in 3D, with the cards as objects on a lit stone floor, trees and lantern pillars
+around it, and the camera pushing in during combat. Everything plays the same: hover a card
+to read it, click it, drag from your hand. The portraits, piles, hands and the rest stay as
+they are. It needs a browser with WebGPU or WebGL 2 (every current one), and
+`?table=3d&gl=webgl` forces WebGL. The Windows program opens it with `ArenaEDH.exe --table 3d`.
 
 The music is made as it plays, so it never loops: a harp arpeggio over a plucked bass and a
 soft frame drum, with a melody and a shaker coming and going as it builds and eases off. It
