@@ -357,28 +357,32 @@ button {
 
 /*
   Library, graveyard and exile along the seat's top or bottom edge, the library nearest the
-  middle (70.1rem from the side), exile furthest out (56.8rem).
+  middle, its inner edge 18.8rem from the middle of the screen: clear of the controls'
+  plate (36rem wide) at the bottom and the log bar and its lines (25rem) at the top. At the
+  bottom they stand 9.2rem up, over the tip of your hand's curve (the last card's corner
+  reaches 8.5rem up under the exile pile); the bottom seats' rows stop above them
+  (BOX_ABOVE_EDGE and BOX_ABOVE_CONTROLS in table-layout.ts).
 */
 .seat-zones {
   position: absolute;
   display: flex;
   align-items: flex-end;
   gap: 0.75rem;
-  --pile-w: 5.9rem;
+  --pile-w: 9.6rem;
 }
 
 .seat-left .seat-zones,
 .seat-bottom-full .seat-zones {
-  left: 56.8rem;
+  right: calc(50% + 18.8rem);
   flex-direction: row-reverse;
 }
 
 .seat-right .seat-zones {
-  right: 56.8rem;
+  left: calc(50% + 18.8rem);
 }
 
 .seat-bottom .seat-zones {
-  bottom: 1.3rem;
+  bottom: 9.2rem;
 }
 
 .seat-top .seat-zones {
@@ -516,7 +520,8 @@ button {
 
 /* The library: card edges stacked under the top card, more of them the fuller it is. */
 .pile.library .card-back {
-  --d: calc(0.1rem + var(--depth, 1) * 0.12rem);
+  /* 0.1rem and 0.12rem a step on a 5.9rem pile, growing with the pile. */
+  --d: calc(var(--pile-w) * (0.017 + var(--depth, 1) * 0.02));
   box-shadow:
     inset 0 0 0 0.1rem rgba(0, 0, 0, 0.8),
     0.04rem var(--d) 0 #2d333e,
@@ -609,13 +614,21 @@ button {
   inset: -0.6rem auto auto -0.6rem;
   width: 1.75em;
   height: 1.75em;
-  font-size: max(1.1rem, calc(var(--pile-w) * 0.22));
+  font-size: max(1.1rem, calc(var(--pile-w) * 0.17));
   color: var(--text);
   background: linear-gradient(180deg, #2a303b, #0d0f14);
   border: 0.1rem solid var(--edge-light);
   border-radius: 50%;
   box-shadow: var(--shadow-sm);
   z-index: 3;
+}
+
+/* A pile's count, a size up from a hand's to go with the bigger cards. */
+.pile > .count {
+  min-width: 3rem;
+  padding: 0 0.6rem;
+  font-size: 1.6rem;
+  line-height: 2.5rem;
 }
 
 /* ---------- avatars ---------- */
@@ -1717,7 +1730,10 @@ button {
   gold hairline above and below fading out at the ends. While a spell is announced the
   cast options and their buttons sit in it under the words (Hud.tsx `Prompt`); only those
   take the pointer, so the table under the words stays hoverable. It sits in the gap
-  between the top and bottom seats' rows; while the stack is up, just above it.
+  between the top and bottom seats' rows; while the stack is up, just above it. The mana
+  picker (a land or rock with a choice of mana, used by hand) sits in it the same way.
+  It is over the combat and target lines (.arrows, 19) and the log's lines (.log, 20),
+  which reach down toward it while the stack is up, and under the controls and the stack.
 */
 .prompt {
   position: absolute;
@@ -1741,7 +1757,7 @@ button {
   border-block: 0.1rem solid;
   border-image: linear-gradient(90deg, transparent, rgba(210, 170, 66, 0.7) 25%, rgba(255, 223, 154, 0.85) 50%, rgba(210, 170, 66, 0.7) 75%, transparent) 1;
   pointer-events: none;
-  z-index: 20;
+  z-index: 21;
 }
 
 .board:has(.stack-panel) .prompt {
