@@ -555,6 +555,13 @@ function currentTargets(g: Game, me: PlayerId, t: Targeting): TargetRef[] {
   );
 }
 
+/**
+ * Whether the stack shows as a small chip instead of its cards: the human hid it
+ * (`stackHidden`) to see the table under it. It comes back on its own while something on it
+ * can be targeted or a spell or ability is being paid for, since those need it in view.
+ */
+export const stackTucked = (v: Pick<View, 'g' | 'paying' | 'targetStack'>, hidden: boolean) => hidden && v.g.stack.length > 0 && !v.paying && v.targetStack.size === 0;
+
 export function buildView(): View {
   const s = S();
   const g = s.game!;

@@ -1,13 +1,12 @@
 import { useEffect, useMemo } from 'react';
 import type { CSSProperties } from 'react';
 import { botAction, botPause } from '../engine';
-import { OpponentPanel, PlayerField, PlayerHand } from './Board';
+import { PlayerHand, Seat, SeatHud } from './Board';
 import { DEPTH, TILT, useTableSize } from './camera';
 import { Flights } from './Flights';
 import { ActionBar, ArrowLayer, ManaPicker, ExitConfirm, GameOver, LogPanel, Preview, Prompt, SpellFlash, StackPanel, ZoneViewer } from './Hud';
 import { GameVotes, PausedOverlay } from './LobbyScreen';
 import { Decisions, DelvePicker, EscapePicker, GraveCostPicker, GraveyardTargets } from './Picker';
-import { River } from './River';
 import { useStore } from './store';
 import { fromSeat } from './util';
 import { ViewContext, buildView } from './view';
@@ -59,22 +58,23 @@ export function GameScreen() {
   }, [game, speed]);
 
   // You sit at the bottom; the others sit clockwise in turn order after you (see `seatOf`).
-  const [bottom, ...others] = fromSeat(game.players, human);
+  const players = fromSeat(game.players, human);
+  const bottom = players[0];
   const table = useTableSize();
   return (
     <ViewContext.Provider value={view}>
       <div className="stage board" style={{ '--tilt': `${TILT}deg`, '--depth': `${DEPTH}rem`, '--table-h': `${table.h}rem` } as CSSProperties}>
-        {/* The table, leaning away from you (camera.ts). The hand and the HUD stay flat, in screen space. */}
+        {/* The table, leaning away from you (camera.ts): the seats' rows. The portraits, piles, hands and the HUD stay flat, in screen space. */}
         <div className="table">
-          {/* Under everything on the table. */}
-          <River />
-          {others.map((p) => (
-            <OpponentPanel key={p.id} player={p} />
+          {players.map((p) => (
+            <Seat key={p.id} player={p} />
           ))}
-          <PlayerField player={bottom} />
           {/* Cards flying to somewhere on the table land here, over everything on it (Flights). */}
           <div className="flights-table" />
         </div>
+        {players.map((p) => (
+          <SeatHud key={p.id} player={p} you={p === bottom} />
+        ))}
         <PlayerHand player={bottom} />
         {/* Cards moving between zones; the ones bound for the table fly on it (.flights-table), the rest over the screen. */}
         <Flights />

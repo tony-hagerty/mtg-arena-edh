@@ -87,9 +87,6 @@ html {
   --serif: 'Palatino Linotype', 'Book Antiqua', Palatino, Georgia, serif;
   /* Arena-style arrow (cursor.png, see README credits). Its tip is the top-left pixel. */
   --cursor: url('./cursor.png') 0 0, auto;
-  /* How cards are turned and which way rows run. Each opponent's seat overrides these. */
-  --face: 0deg;
-  --dir: row;
 }
 
 * {
@@ -147,32 +144,6 @@ button {
   height: var(--table-h);
   transform-origin: 50% 100%;
   transform: rotateX(var(--tilt));
-  /* How wide the side seats are; the top seat and your creatures fit between them. */
-  --side-w: 40.5rem;
-}
-
-/*
-  The avatars and the count pills on the piles and hands stand up off the table to face
-  you, like a sign on a stand: each is turned back by the table's lean about its own bottom
-  edge, so it is parallel to the screen and seen straight on. That needs one 3D context from
-  .table down to each of them, so every box in between keeps preserve-3d; a filter, opacity
-  below 1 or overflow on one of those boxes would flatten it again (see .opp.lost). The
-  cards, their P/T and everything else on the battlefield lie flat on the table.
-*/
-.table,
-.opp,
-.opp-head,
-.opp-hand,
-.opp-zones,
-.me-avatar,
-.me-zones,
-.table .pile {
-  transform-style: preserve-3d;
-}
-
-.table :is(.avatar, .count, .pile:not(.empty) > .ms) {
-  transform-origin: 50% 100%;
-  transform: rotateX(calc(-1 * var(--tilt)));
 }
 
 /*
@@ -261,124 +232,31 @@ button {
   }
 }
 
-/* ---------- the river (River.tsx) ---------- */
+/* ---------- seats (Board.tsx) ---------- */
 
 /*
-  The river arcing around your seat, drawn in rem (its viewBox is the stage in rem). Dark water
-  cut into the stone, with a dark edge, a shadow inside its upper banks and a lit lip along
-  the lower ones (all painted by the river-inset filter in River.tsx), deeper down the middle, and a current
-  of pale dashes sliding along it; each line of dashes has its own pace (--dur). The dash
-  period is 6rem, so sliding the offset by 6 loops seamlessly.
+  Each player has a corner of the table, or you the whole bottom edge (seatOf in util.ts).
+  Their rows lie on the table (.seat, placed and sized by seatBox and seatScale in
+  table-layout.ts): lands nearest their edge, then the other permanents, then creatures
+  nearest the middle, leaning a few degrees. Everything else of theirs stands flat on the
+  screen (.seat-hud): the portrait on their side edge, the piles on their top or bottom edge,
+  and an opponent's hand fanned out of their corner.
 */
-.river {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  pointer-events: none;
-  overflow: visible;
-}
-
-.river-water path {
-  /* Only its shape counts: the river-inset filter paints the water, edge, shadow and lip from it. */
-  fill: #000;
-}
-
-.river-deep path {
-  fill: none;
-  stroke: rgba(8, 24, 44, 0.7);
-  stroke-width: 2.2;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-  filter: url(#river-soft);
-}
-
-.river-current path {
-  fill: none;
-  stroke: rgba(150, 205, 240, 0.16);
-  stroke-width: 0.32;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-  stroke-dasharray: 1.6 4.4;
-  animation: river-flow var(--dur, 8s) linear infinite;
-}
-
-/* Each line starts part-way through (a negative delay in River.tsx), so the dashes don't march in step. */
-@keyframes river-flow {
-  from {
-    stroke-dashoffset: 0;
-  }
-  to {
-    stroke-dashoffset: -6;
-  }
-}
-
-.river-rocks ellipse {
-  fill: #262c34;
-  stroke: rgba(0, 0, 0, 0.7);
-  stroke-width: 0.12;
-}
-
-.river-rocks .river-wake {
-  fill: rgba(170, 215, 245, 0.12);
-  stroke: none;
-}
-
-/* ---------- opponents (left, top and right edges) ---------- */
-
-/*
-  Each opponent's area is the bottom player's layout turned to face their own edge: hand
-  at the edge, then lands, then creatures nearest the middle. At the side seats --face
-  turns the cards toward their owner and --dir runs each row from their left to their
-  right. The top seat's cards stay upright so they read from the bottom of the table.
-*/
-.opp {
+.seat {
   position: absolute;
   display: flex;
-  gap: 0.5rem;
-}
-
-/*
-  Everything at the opponents' seats is drawn bigger than at yours, since the camera shows it
-  smaller (camera.ts): about 0.9 across and 0.8 deep. The top seat, on the far edge, gets
-  deeper rows still. Both stand a little in from their edge of the table.
-*/
-.seat-top {
-  inset: 7rem var(--side-w) auto;
-  height: 43rem;
   flex-direction: column;
-  --inward: 180deg;
+  justify-content: center;
+  gap: 1.87rem;
 }
 
-.seat-left,
-.seat-right {
-  top: 12rem;
-  bottom: 38rem;
-  width: var(--side-w);
+/* From the seat's own edge inward: at the bottom, lands are the lowest row. */
+.seat.seat-bottom {
+  flex-direction: column-reverse;
 }
 
-.seat-left {
-  left: 0;
-  flex-direction: row;
-  --face: 90deg;
-  --dir: column;
-  --wrap: wrap-reverse;
-  --inward: 90deg;
-}
-
-.seat-right {
-  right: 0;
-  flex-direction: row-reverse;
-  --face: -90deg;
-  --dir: column-reverse;
-  --wrap: wrap;
-  --inward: 270deg;
-}
-
-/* Not on .opp-head itself: a filter there would lay its avatar and counts flat on the table again. */
-.opp.lost > :not(.defeated, .opp-head),
-.opp.lost .opp-head :is(.avatar, .opp-fan, .count, .pile > *),
-.opp.lost .pile::after {
+.seat.lost > .row,
+.seat-hud.lost :is(.avatar, .opp-fan, .pile) {
   filter: grayscale(1) brightness(0.45);
 }
 
@@ -393,104 +271,119 @@ button {
   text-shadow: 0 0.2rem 1rem #000;
 }
 
-.seat-left .defeated,
-.seat-right .defeated {
-  writing-mode: vertical-rl;
+/* Over the screen, under the hand and the HUD; only its parts take the pointer. */
+.seat-hud {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
 }
 
-.seat-right .defeated {
-  rotate: 180deg;
+.seat-hud > * {
+  pointer-events: auto;
 }
 
-/* Avatar, hand and zones along the player's own edge. */
-.opp-head {
-  position: relative;
-  flex: 0 0 15rem;
-  display: grid;
-  grid-template-columns: 1fr auto 1fr;
-  align-items: start;
-  gap: 1.5rem;
-  --av: 9.4rem;
-  --pile-w: 5.4rem;
+/*
+  The portrait, 2.4rem in from the side edge: the bottom seats' just below the middle of the
+  screen, the top seats' ending 12rem above it, so the rows between them stay clear.
+*/
+.seat-avatar {
+  position: absolute;
+  --av: 12.3rem;
 }
 
-.seat-top .avatar {
-  justify-self: end;
-  margin-top: 0.8rem;
+.seat-left .seat-avatar,
+.seat-bottom-full .seat-avatar {
+  left: 2.4rem;
 }
 
-.seat-left .opp-head,
-.seat-right .opp-head {
-  flex-basis: 11.4rem;
+.seat-right .seat-avatar {
+  right: 2.4rem;
+}
+
+.seat-bottom .seat-avatar {
+  top: calc(50% + 5.9rem);
+}
+
+.seat-top .seat-avatar {
+  top: calc(50% - 12rem - var(--av));
+}
+
+/*
+  Library, graveyard and exile along the seat's top or bottom edge, the library nearest the
+  middle (70.1rem from the side), exile furthest out (56.8rem).
+*/
+.seat-zones {
+  position: absolute;
   display: flex;
-  flex-direction: column;
-  justify-content: center;
-  align-items: center;
-  gap: 0.8rem;
-  padding: 0.8rem 0;
+  align-items: flex-end;
+  gap: 0.75rem;
+  --pile-w: 5.9rem;
+}
+
+.seat-left .seat-zones,
+.seat-bottom-full .seat-zones {
+  left: 56.8rem;
+  flex-direction: row-reverse;
+}
+
+.seat-right .seat-zones {
+  right: 56.8rem;
+}
+
+.seat-bottom .seat-zones {
+  bottom: 1.3rem;
+}
+
+.seat-top .seat-zones {
+  top: 1.3rem;
+  align-items: flex-start;
 }
 
 .opp-hand {
-  position: relative;
-  flex: none;
-  width: 40rem;
-  height: 100%;
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
 }
 
-.seat-left .opp-hand,
-.seat-right .opp-hand {
-  order: -1;
-  width: 100%;
-  height: 28rem;
-}
-
-/* A zero-size anchor at the middle of the hand; the cards hang off it past the screen edge. */
+/*
+  The pivot the hand fans out from (FAN_PIVOT_SIDE and FAN_PIVOT_BEYOND in table-layout.ts):
+  off the side edge and beyond the seat's own edge, so only the cards' tops show.
+*/
 .opp-fan {
   position: absolute;
-  left: 50%;
-  top: 8rem;
   width: 0;
   height: 0;
-  rotate: 180deg;
 }
 
-/* The side hands lean 12 degrees toward the top corners, as if seen from across the table. */
 .seat-left .opp-fan {
-  left: 8rem;
-  top: 50%;
-  rotate: 102deg;
+  left: -9.3rem;
 }
 
 .seat-right .opp-fan {
-  left: calc(100% - 8rem);
-  top: 50%;
-  rotate: -102deg;
+  left: calc(100% + 9.3rem);
 }
 
-/* BACK_W in Card.tsx is this width. */
+.seat-bottom .opp-fan {
+  top: calc(100% + 20rem);
+}
+
+.seat-top .opp-fan {
+  top: -20rem;
+}
+
+/* BACK_W and BACK_H in table-layout.ts; the card's bottom is FAN_RADIUS (30.4rem) above the pivot. */
 .opp-fan .card-back {
   position: absolute;
-  top: 0;
-  width: 10.5rem;
-  margin-left: -5.25rem;
+  left: -5.2rem;
+  top: calc(-30.4rem - 14.56rem);
+  width: 10.4rem;
   border-radius: 0.5rem;
 }
 
-.opp-zones {
-  justify-self: start;
-  display: flex;
-  align-items: flex-start;
-  gap: 0.9rem;
-  margin-top: 0.8rem;
-}
-
-.seat-left .opp-zones,
-.seat-right .opp-zones {
-  flex-direction: column;
-  align-items: center;
-  gap: 0.7rem;
-  /* leaves room for the commander damage badges under the avatar */
-  margin-top: 3rem;
+/* The middle of the fan, for cards flying to the hand: turned about the pivot like a card in it, never shown. */
+.opp-hand-spot {
+  visibility: hidden;
+  transform-origin: 50% calc(100% + 30.4rem);
 }
 
 /* How many cards a pile or hand holds: a small raised pill on its corner. */
@@ -511,19 +404,27 @@ button {
   z-index: 3;
 }
 
+/* An opponent's hand count: by the tops of the fanned cards, toward the middle of the seat. */
 .opp-hand .count {
-  inset: 8.5rem auto auto 50%;
-  translate: -50% 0;
+  right: auto;
+  bottom: auto;
+  pointer-events: auto;
 }
 
 .seat-left .opp-hand .count {
-  inset: 50% auto auto 8.5rem;
-  translate: 0 -50%;
+  left: 17.6rem;
 }
 
 .seat-right .opp-hand .count {
-  inset: 50% 8.5rem auto auto;
-  translate: 0 -50%;
+  right: 17.6rem;
+}
+
+.seat-bottom .opp-hand .count {
+  bottom: 20.3rem;
+}
+
+.seat-top .opp-hand .count {
+  top: 20.3rem;
 }
 
 /*
@@ -546,20 +447,13 @@ button {
   Each pile is a card-sized place: the library a deck of backs whose edges thicken with its
   size (--depth, from Board.tsx), the graveyard its top card with a worn, darkened edge,
   exile its top card washed out and ringed in pale blue. Empty, a pile is a quiet outline
-  with its zone's icon. At the side seats the cards in them turn like the permanents.
+  with its zone's icon.
 */
 .pile {
   position: relative;
   width: var(--pile-w);
   aspect-ratio: 5 / 7;
   border-radius: 0.5rem;
-}
-
-/* At the side seats, cards in the piles are turned like permanents (see .tile). */
-.seat-left .pile,
-.seat-right .pile {
-  width: calc(var(--pile-w) * 1.4);
-  aspect-ratio: 7 / 5;
 }
 
 .pile .card-back,
@@ -571,7 +465,6 @@ button {
   width: var(--pile-w);
   height: calc(var(--pile-w) * 1.4);
   translate: -50% -50%;
-  rotate: var(--face);
 }
 
 /* The library: card edges stacked under the top card, more of them the fuller it is. */
@@ -876,26 +769,18 @@ button {
 
 .cmd-dmg {
   position: absolute;
-  left: calc(100% + 0.5rem);
-  top: 0.4rem;
+  left: calc(100% + 0.8rem);
+  top: 0.8rem;
   display: flex;
   flex-direction: column;
   gap: 0.3rem;
   z-index: 3;
 }
 
-/* At the top seat the hand is on the portrait's right, so the badges hang on its left. */
-.seat-top .cmd-dmg {
-  left: auto;
-  right: calc(100% + 0.5rem);
-}
-
-.seat-left .cmd-dmg,
+/* Beside the portrait, on the side away from the screen's edge. */
 .seat-right .cmd-dmg {
-  left: 50%;
-  top: calc(100% + 0.3rem);
-  translate: -50% 0;
-  flex-direction: row;
+  left: auto;
+  right: calc(100% + 0.8rem);
 }
 
 .cmd-dmg span {
@@ -937,177 +822,44 @@ button {
 
 /* ---------- battlefield rows ---------- */
 
+/*
+  One row of a seat. The row sets --tw (the tiles' width) and --gap (the space between its
+  piles, negative once they have to overlap: seatScale and rowGap in table-layout.ts). An
+  empty row takes no room, so the seat's rows close up around it.
+*/
 .row {
   display: flex;
-  flex-direction: var(--dir);
   justify-content: center;
   align-items: center;
-  gap: 0.8rem;
 }
 
-.row.back,
-.lands,
-.others {
-  display: flex;
-  flex-direction: var(--dir);
-  align-items: center;
-  gap: 1.2rem;
+.row:empty {
+  display: none;
+}
+
+.row > * + * {
+  margin-left: var(--gap);
 }
 
 .stack {
   display: flex;
-  flex-direction: var(--dir);
   flex: none;
 }
 
-.row.two-rows {
-  flex-wrap: var(--wrap, wrap);
-  align-content: center;
-  gap: 0.8rem 0.5rem;
-}
-
 /*
-  Stacked cards overlap along the row, whichever way the row runs, each showing a tenth of
-  its width past the next (PILE_STEP in Board.tsx). The cards under the top one are a step
-  darker and each casts a shadow onto the one under it, so the pile shows its depth.
+  Stacked cards overlap along the row, each showing a tenth of its width past the next
+  (PILE_STEP in table-layout.ts). The cards under the top one are a step darker and each
+  casts a shadow onto the one under it, so the pile shows its depth.
 */
 .stack .tile + .tile {
   margin-left: calc(var(--tw) * -0.9);
-}
-
-.seat-left .stack .tile + .tile {
-  margin: calc(var(--tw) * -0.9) 0 0;
-}
-
-.seat-right .stack .tile + .tile {
-  margin: 0 0 calc(var(--tw) * -0.9);
-}
-
-.stack .tile + .tile {
   box-shadow:
     -0.25em 0 0.35em rgba(0, 0, 0, 0.6),
     0 0.45em 1em rgba(0, 0, 0, 0.5);
 }
 
-.seat-left .stack .tile + .tile {
-  box-shadow:
-    0 -0.25em 0.35em rgba(0, 0, 0, 0.6),
-    0.45em 0 1em rgba(0, 0, 0, 0.5);
-}
-
-.seat-right .stack .tile + .tile {
-  box-shadow:
-    0 0.25em 0.35em rgba(0, 0, 0, 0.6),
-    -0.45em 0 1em rgba(0, 0, 0, 0.5);
-}
-
 .stack > .tile:not(:last-child) > .tile-face {
   filter: brightness(0.78);
-}
-
-.opp-back {
-  flex: 0 0 10.6rem;
-}
-
-.opp-front {
-  flex: 0 0 12.2rem;
-}
-
-.seat-top .opp-back {
-  flex-basis: 11.6rem;
-}
-
-.seat-top .opp-front {
-  flex-basis: 15.2rem;
-}
-
-/* Deep enough for a crowded board's two rows. */
-.seat-left .opp-front,
-.seat-right .opp-front {
-  flex-basis: 17.4rem;
-}
-
-.me-front,
-.me-back {
-  position: absolute;
-}
-
-/* Stays between the side seats, which reach down past its top edge. */
-.me-front {
-  left: calc(var(--side-w) + 1rem);
-  right: calc(var(--side-w) + 1rem);
-  bottom: 40rem;
-  height: 14.5rem;
-}
-
-/*
-  Lands sit to the left of the avatar and everything else to its right, level with its top.
-  This row is below the side seats, so it can run wider than the creatures.
-*/
-.me-back {
-  left: 37.7rem;
-  right: 37.7rem;
-  bottom: 26.5rem;
-  height: 11.5rem;
-}
-
-/* .row.me-back, not .me-back: the gap has to beat the one set on .row.back above. */
-.row.me-back {
-  gap: 28rem;
-}
-
-/*
-  A crowded back row goes onto two lines (BackRow decides). It becomes a two-line grid that
-  fills one slot across at a time, so the lines always split evenly however wide the window
-  is. Opponents' rows go as a whole, lands then the rest; each side of yours goes on its
-  own, your lands against the avatar.
-*/
-.row.back.two-rows {
-  display: grid;
-  grid-template-rows: auto auto;
-  grid-auto-flow: column;
-  justify-content: center;
-  align-content: center;
-  align-items: center;
-  gap: 0.6rem 1.2rem;
-}
-
-.seat-left .row.back.two-rows,
-.seat-right .row.back.two-rows {
-  grid-template-rows: none;
-  grid-template-columns: auto auto;
-  grid-auto-flow: row;
-}
-
-.row.back.two-rows > :is(.lands, .others) {
-  display: contents;
-}
-
-.me-back :is(.lands, .others).two-rows {
-  display: grid;
-  grid-template-rows: auto auto;
-  grid-auto-flow: column;
-  align-content: center;
-  align-items: center;
-  gap: 0.6rem 1.2rem;
-}
-
-.me-back .lands.two-rows {
-  justify-content: end;
-}
-
-.me-back .others.two-rows {
-  justify-content: start;
-}
-
-.me-back .lands,
-.me-back .others {
-  flex: 1;
-  min-width: 0;
-}
-
-.me-back .lands {
-  justify-content: flex-end;
 }
 
 /* ---------- permanents ---------- */
@@ -1142,13 +894,6 @@ button {
   isolation: isolate;
 }
 
-/* Side seats see their cards turned a quarter, so the box is tall instead of wide. */
-.seat-left .tile,
-.seat-right .tile {
-  width: calc(var(--tw) * 0.8);
-  aspect-ratio: 4 / 5;
-}
-
 /* The card itself, centred in the tile and turned with everything on it. The frame is its background. */
 .tile-face,
 .tile-attached {
@@ -1158,7 +903,6 @@ button {
   width: var(--tw);
   aspect-ratio: 5 / 4;
   translate: -50% -50%;
-  rotate: var(--face);
   border-radius: 0.55em;
   background:
     linear-gradient(155deg, rgba(255, 255, 255, 0.32), transparent 28%, transparent 62%, rgba(0, 0, 0, 0.42)),
@@ -1619,51 +1363,20 @@ button {
     0 0 1.9em 0.5em var(--attack-glow);
 }
 
-/* ---------- the human's side (bottom) ---------- */
+/* ---------- your mana pool and hand ---------- */
 
-/*
-  The avatar sits just above the hand, its life total clear of the cards and their mana
-  costs. z-index 0 keeps every part of it under the hand.
-*/
-.me-avatar {
-  position: absolute;
-  z-index: 0;
-  left: 0;
-  right: 0;
-  top: calc(100% - 33rem);
-  display: flex;
-  justify-content: center;
-  pointer-events: none;
-  --av: 14rem;
-}
-
-.me-avatar .avatar {
-  pointer-events: auto;
-}
-
-/* The name goes above the portrait, clear of the hand. */
-.me-avatar .avatar-name {
-  position: absolute;
-  bottom: calc(100% + 0.3rem);
-  font-size: 1.6rem;
-}
-
-.me-avatar .cmd-dmg {
-  left: calc(100% + 1rem);
-  top: auto;
-  bottom: 6.2rem;
-  flex-direction: row;
-}
-
+/* The mana floating in your pool, under your portrait's name. */
 .mana-pool {
   position: absolute;
-  right: calc(50% + 8rem);
-  top: 7.5rem;
+  left: 50%;
+  top: calc(100% + 0.6rem);
+  translate: -50% 0;
   display: flex;
   align-items: center;
   gap: 0.7rem;
   padding: 0.45rem 0.55rem;
   font: 700 1.8rem/1 'Segoe UI', sans-serif;
+  white-space: nowrap;
   background: var(--panel);
   border: 0.1rem solid var(--edge);
   border-radius: 2rem;
@@ -1686,34 +1399,81 @@ button {
 }
 
 /*
-  Library, graveyard and exile, just right of the log and its buttons (.log ends at 27rem),
-  on the same bottom line as the log and the controls' plate. They end at 49.4rem, clear of
-  the hand until it holds a dozen cards.
+  Your hand: a zero-size anchor at the screen's bottom-left corner. Each card's slot is
+  placed on the hand's curve from it (HandCard, handSlot in table-layout.ts), in rem.
 */
-.me-zones {
-  position: absolute;
-  left: 29.4rem;
-  bottom: 2rem;
-  display: flex;
-  align-items: flex-end;
-  gap: 1rem;
-  --pile-w: 6rem;
-}
-
 .hand {
   position: absolute;
-  left: 50%;
-  top: calc(100% - 12rem);
+  left: 0;
+  bottom: 0;
   width: 0;
   height: 0;
 }
 
+/*
+  HAND_W in table-layout.ts is this width. Only the card inside takes the pointer: the slot
+  stays upright while the card turns with the curve, so the slot's own box would catch the
+  pointer over its neighbours. The card's events still reach the slot, which drags.
+*/
 .hand-slot {
   position: absolute;
-  top: 0;
   width: 15rem;
-  margin-left: -7.5rem;
   touch-action: none;
+  pointer-events: none;
+}
+
+.hand-slot > * {
+  pointer-events: auto;
+}
+
+/*
+  The scroll pills over a hand too big for its curve (HandPills in Board.tsx). The SVG's
+  units are rem, with y running down from the screen's bottom edge, so the paths come
+  straight from handPills. Only the wide invisible stroke over each pill takes the pointer.
+*/
+.hand-pills {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  width: 100rem;
+  height: 40rem;
+  overflow: visible;
+  pointer-events: none;
+  fill: none;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.pill-rim {
+  stroke: rgba(255, 255, 255, 0.16);
+  stroke-width: 1.27;
+}
+
+.pill-body {
+  stroke: rgba(8, 12, 18, 0.62);
+  stroke-width: 1.07;
+}
+
+.pill-chevron {
+  stroke: #f0f6ff;
+  stroke-width: 0.16;
+  opacity: 0.9;
+  transition: opacity 0.2s;
+}
+
+/* Nothing more that way. */
+.pill-chevron.spent {
+  opacity: 0.25;
+}
+
+.pill-hit {
+  stroke: transparent;
+  stroke-width: 2.93;
+  pointer-events: stroke;
+}
+
+.hand-pills g:hover .pill-rim {
+  stroke: rgba(255, 255, 255, 0.32);
 }
 
 .hand-card {
@@ -1887,13 +1647,15 @@ button {
   The prompt: a band across the middle of the table in the same plate as the controls, a
   gold hairline above and below fading out at the ends. While a spell is announced the
   cast options and their buttons sit in it under the words (Hud.tsx `Prompt`); only those
-  take the pointer, so the table under the words stays hoverable.
+  take the pointer, so the table under the words stays hoverable. It sits in the gap
+  between the top and bottom seats' rows; while the stack is up, just above it.
 */
 .prompt {
   position: absolute;
   left: 0;
   right: 0;
-  top: calc(50% - 11rem);
+  top: 50%;
+  translate: 0 -50%;
   width: fit-content;
   max-width: 110rem;
   margin: 0 auto;
@@ -1913,6 +1675,17 @@ button {
   z-index: 20;
 }
 
+.board:has(.stack-panel) .prompt {
+  top: calc(50% - 17.5rem);
+  translate: 0 -100%;
+}
+
+/* Over the tucked stack's chip. */
+.board:has(.stack-chip) .prompt {
+  top: calc(50% - 2.8rem);
+  translate: 0 -100%;
+}
+
 .prompt.with-options {
   padding-bottom: 1.3rem;
 }
@@ -1928,9 +1701,10 @@ button {
 */
 .action-bar {
   position: absolute;
-  right: 2rem;
-  bottom: 2rem;
-  width: 34rem;
+  left: 50%;
+  bottom: 0.4rem;
+  translate: -50% 0;
+  width: 36rem;
   display: flex;
   flex-direction: column;
   gap: 1rem;
@@ -2173,147 +1947,81 @@ button {
 }
 
 /*
-  Whose turns the stops are for: a dial laid out like the table, one quarter per seat.
-  Each quarter is a whole button, so the target is the wedge, not just its arrow. It sits
-  at the left of the tracker, beside the strip.
+  Whose turns the stops are for: a row of arrows above the controls, one per seat, each
+  pointing at its corner of the table (or straight down for your whole bottom edge) in that
+  player's deck colour (Hud.tsx turns them by --turn). .action-bar's padding is 1.2rem, so
+  the row clears the plate by 0.8rem, and its top stays under the bottom seats' rows
+  (BOX_ABOVE_CONTROLS in table-layout.ts).
 */
 .seat-arrows {
-  position: relative;
-  flex: none;
-  width: 6rem;
-  height: 6rem;
-  border-radius: 50%;
-  overflow: hidden;
-  background: radial-gradient(circle at 50% 35%, #272d3a, #0c0f15 75%);
-  box-shadow:
-    inset 0 0.15rem 0.25rem rgba(255, 255, 255, 0.1),
-    inset 0 -0.3rem 0.6rem rgba(0, 0, 0, 0.55),
-    0 0 0 0.1rem var(--line),
-    0 0.3rem 0.8rem rgba(0, 0, 0, 0.6);
-}
-
-/* The diagonal seams between quarters, and the hub where they meet. Drawn over the buttons, never clickable. */
-.seat-arrows::before,
-.seat-arrows::after {
-  content: '';
   position: absolute;
-  pointer-events: none;
-  z-index: 1;
-}
-
-.seat-arrows::before {
-  inset: 0;
-  background:
-    linear-gradient(45deg, transparent calc(50% - 0.14rem), #07090d calc(50% - 0.04rem), rgba(255, 255, 255, 0.08) calc(50% + 0.05rem), transparent calc(50% + 0.14rem)),
-    linear-gradient(-45deg, transparent calc(50% - 0.14rem), #07090d calc(50% - 0.04rem), rgba(255, 255, 255, 0.08) calc(50% + 0.05rem), transparent calc(50% + 0.14rem));
-}
-
-.seat-arrows::after {
-  left: calc(50% - 0.7rem);
-  top: calc(50% - 0.7rem);
-  width: 1.4rem;
-  height: 1.4rem;
-  border-radius: 50%;
-  background: radial-gradient(circle at 40% 35%, #4a5263, #171b24 70%);
-  box-shadow:
-    0 0 0 0.12rem var(--edge),
-    0 0.2rem 0.5rem rgba(0, 0, 0, 0.8);
-  transition: box-shadow 0.2s ease-out;
-}
-
-/* A seat is picked: the hub's ring takes that player's colour (--phase is set to it). */
-.seat-arrows:has(.on)::after {
-  box-shadow:
-    0 0 0 0.12rem var(--phase),
-    0 0 0.8rem color-mix(in srgb, var(--phase) 60%, transparent),
-    0 0.2rem 0.5rem rgba(0, 0, 0, 0.8);
+  left: 50%;
+  bottom: calc(100% + 2rem);
+  translate: -50% 0;
+  display: flex;
+  gap: 1.07rem;
 }
 
 .seat-arrow {
-  position: absolute;
-  inset: 0;
-  display: flex;
+  display: grid;
+  place-items: center;
+  width: 5.9rem;
+  height: 5.1rem;
   padding: 0;
-  background: transparent;
-  border: none;
-  transition: background 0.2s ease-out;
-}
-
-.seat-arrow.arrow-top {
-  clip-path: polygon(0 0, 100% 0, 50% 50%);
-  align-items: flex-start;
-  justify-content: center;
-}
-
-.seat-arrow.arrow-right {
-  clip-path: polygon(100% 0, 100% 100%, 50% 50%);
-  align-items: center;
-  justify-content: flex-end;
-}
-
-.seat-arrow.arrow-bottom {
-  clip-path: polygon(0 100%, 100% 100%, 50% 50%);
-  align-items: flex-end;
-  justify-content: center;
-}
-
-.seat-arrow.arrow-left {
-  clip-path: polygon(0 0, 0 100%, 50% 50%);
-  align-items: center;
-  justify-content: flex-start;
+  background: rgba(10, 14, 20, 0.86);
+  border: 0.1rem solid var(--line);
+  border-radius: 1.3rem;
+  box-shadow: 0 0.3rem 0.8rem rgba(0, 0, 0, 0.6);
+  transition: background 0.2s ease-out, border-color 0.2s ease-out, box-shadow 0.2s ease-out;
 }
 
 .seat-arrow svg {
-  width: 2rem;
-  height: 2rem;
-  margin: 0.35rem;
-  fill: color-mix(in srgb, var(--deck) 40%, #2a303b);
-  /* A stroke in the fill colour rounds the arrowhead's corners. */
-  stroke: color-mix(in srgb, var(--deck) 40%, #2a303b);
-  stroke-width: 2.5;
-  stroke-linejoin: round;
-  transition: fill 0.2s ease-out, stroke 0.2s ease-out, transform 0.15s ease-out, filter 0.2s ease-out;
+  width: 3.2rem;
+  height: 3.2rem;
+  rotate: var(--turn);
+  fill: color-mix(in srgb, var(--deck) 70%, #2a303b);
+  transition: fill 0.2s ease-out, transform 0.15s ease-out, filter 0.2s ease-out;
 }
 
-/* Whose turn it is now. */
+/* Whose turn it is now: ringed in their colour. */
+.seat-arrow.active {
+  border: 0.15rem solid var(--deck);
+  box-shadow: 0 0 1.6rem var(--deck);
+}
+
 .seat-arrow.active svg {
-  fill: color-mix(in srgb, var(--deck) 75%, #2a303b);
-  stroke: color-mix(in srgb, var(--deck) 75%, #2a303b);
+  fill: var(--deck);
 }
 
 .seat-arrow:hover:not(:disabled),
 .seat-arrow:focus-visible {
-  background: radial-gradient(circle at 50% 50%, transparent 30%, color-mix(in srgb, var(--deck) 22%, transparent));
+  background: color-mix(in srgb, var(--deck) 18%, rgba(10, 14, 20, 0.9));
+  outline: none;
 }
 
 .seat-arrow:hover:not(:disabled) svg,
 .seat-arrow:focus-visible svg {
   fill: color-mix(in srgb, var(--deck) 85%, #fff);
-  stroke: color-mix(in srgb, var(--deck) 85%, #fff);
-}
-
-.seat-arrow:focus-visible {
-  outline: none;
 }
 
 .seat-arrow:active:not(:disabled) svg {
   transform: scale(0.88);
 }
 
+/* Picked: the tracker shows this player's stops. */
 .seat-arrow.on {
-  background: radial-gradient(circle at 50% 50%, transparent 25%, color-mix(in srgb, var(--deck) 45%, transparent));
+  background: color-mix(in srgb, var(--deck) 35%, rgba(10, 14, 20, 0.9));
+  border-color: var(--deck);
 }
 
 .seat-arrow.on svg {
   fill: color-mix(in srgb, var(--deck) 70%, #fff);
-  stroke: color-mix(in srgb, var(--deck) 70%, #fff);
   filter: drop-shadow(0 0.1rem 0.5rem var(--deck));
 }
 
-/* A player who is out: their quarter stays, so the dial keeps its shape, but goes dark. */
+/* A player who is out: their arrow stays, so the row keeps its order, but goes dark. */
 .seat-arrow:disabled svg {
   fill: #232831;
-  stroke: #232831;
 }
 
 .btn {
@@ -2410,15 +2118,15 @@ button {
 /* ---------- log + controls ---------- */
 
 /*
-  Bottom-left corner: one bar, with the log under it reaching down to the bottom edge. The
-  bar is the log's top edge: its left half folds the log, its right half holds the game's
-  controls. The panel is anchored at the bottom, so with the log hidden the bar sits in the
-  corner. Your piles start just right of it (see .me-zones).
+  The top of the screen, in the middle, between the top seats' piles: one bar, with the log
+  folding open under it. Its left half folds the log, its right half holds the game's
+  controls (pause, the settings with the sound, exit).
 */
 .log {
   position: absolute;
-  left: 2rem;
-  bottom: 2rem;
+  left: 50%;
+  top: 1.3rem;
+  translate: -50% 0;
   width: 25rem;
   z-index: 20;
 }
@@ -2516,7 +2224,7 @@ button {
   height: 1.5rem;
 }
 
-/* A button's name, shown above it on hover or keyboard focus. */
+/* A button's name, shown under it on hover or keyboard focus. */
 .log-bar [data-tip] {
   position: relative;
 }
@@ -2524,7 +2232,7 @@ button {
 .log-bar [data-tip]::after {
   content: attr(data-tip);
   position: absolute;
-  bottom: calc(100% + 0.8rem);
+  top: calc(100% + 0.8rem);
   left: 50%;
   z-index: 2;
   padding: 0.4rem 0.8rem;
@@ -2538,21 +2246,21 @@ button {
   border-radius: 0.5rem;
   opacity: 0;
   pointer-events: none;
-  transform: translate(-50%, 0.3rem);
+  transform: translate(-50%, -0.3rem);
   transition: opacity 0.12s, transform 0.12s;
 }
 
 .log-toggle[data-tip]::after {
   left: 0;
-  transform: translate(0, 0.3rem);
+  transform: translate(0, -0.3rem);
 }
 
-/* The last buttons sit near the left edge of the board, so their names hang to the left. */
+/* The last button's name hangs to its left, so it lines up with the bar's edge. */
 .log-tools > :last-child[data-tip]::after,
 .log-tools > :last-child [data-tip]::after {
   left: auto;
   right: 0;
-  transform: translate(0, 0.3rem);
+  transform: translate(0, -0.3rem);
 }
 
 .log-bar [data-tip]:is(:hover, :focus-visible)::after {
@@ -2570,10 +2278,10 @@ button {
   display: none;
 }
 
-/* The settings popover: above the bar, as wide as the log. */
+/* The settings popover: under the bar, as wide as the log. */
 .log-popover {
   position: absolute;
-  bottom: calc(100% + 0.8rem);
+  top: calc(100% + 0.8rem);
   left: 0;
   right: 0;
   z-index: 3;
@@ -2789,19 +2497,127 @@ button {
 }
 
 /* The stack sits where spells flash. Each card overlaps the one before it, so the top of the stack is in front. */
+/*
+  The stack, over the middle of the table, on a dark glow so it reads over the cards under
+  it. Its line under the cards counts it and can hide it; hidden, it is a chip in the middle
+  (.stack-chip) in the colour of what is on top.
+*/
 .stack-panel {
   position: absolute;
-  right: 38.5rem;
-  top: 13rem;
+  left: 50%;
+  top: 50%;
+  translate: -50% -50%;
   width: 19rem;
   z-index: 35;
 }
 
+.stack-panel::before {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 53rem;
+  height: 45rem;
+  translate: -50% -50%;
+  z-index: -1;
+  border-radius: 50%;
+  background: radial-gradient(closest-side, rgba(6, 9, 14, 0.78), rgba(6, 9, 14, 0.55) 60%, rgba(6, 9, 14, 0));
+  pointer-events: none;
+}
+
+.stack-foot {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.8rem;
+  margin-top: 1.6rem;
+}
+
 .stack-title {
-  margin-bottom: 0.5rem;
-  text-align: center;
-  font: 600 1.8rem var(--serif);
-  text-shadow: 0 0.15rem 0.4rem #000, 0 0 0.8rem #000;
+  padding: 0.3rem 1.3rem;
+  font-size: 1.45rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+  color: #c9d6e8;
+  background: rgba(8, 10, 14, 0.8);
+  border-radius: 1.3rem;
+}
+
+.stack-hide {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  height: 2.9rem;
+  padding: 0 1.1rem 0 0.8rem;
+  font-size: 1.45rem;
+  font-weight: 600;
+  color: var(--text);
+  background: rgba(10, 14, 20, 0.9);
+  border: 0.1rem solid rgba(170, 200, 240, 0.3);
+  border-radius: 1.5rem;
+}
+
+.stack-hide:hover,
+.stack-hide:focus-visible {
+  border-color: var(--edge-light);
+  outline: none;
+}
+
+.stack-hide svg {
+  width: 1.9rem;
+  height: 1.9rem;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* The stack tucked away: a chip in the middle, ringed and lit in the top item's frame colour (.frame-*). */
+.stack-chip {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  translate: -50% -50%;
+  z-index: 35;
+  display: flex;
+  align-items: center;
+  gap: 0.8rem;
+  height: 4.3rem;
+  padding: 0 2.2rem;
+  font-size: 1.6rem;
+  font-weight: 700;
+  white-space: nowrap;
+  color: #fff;
+  background: rgba(10, 14, 20, 0.92);
+  border: 0.2rem solid var(--frame);
+  border-radius: 2.2rem;
+  box-shadow:
+    0 0 1.9rem color-mix(in srgb, var(--frame) 55%, transparent),
+    0 0.5rem 1.6rem rgba(0, 0, 0, 0.6);
+  animation: appear 0.15s both;
+}
+
+.stack-chip-dot {
+  width: 1.3rem;
+  height: 1.3rem;
+  border-radius: 50%;
+  background: var(--frame);
+  box-shadow: 0 0 0 0.2rem rgba(255, 255, 255, 0.6);
+}
+
+.stack-chip-show {
+  font-weight: 600;
+  color: #c9d6e8;
+}
+
+.stack-chip:hover,
+.stack-chip:focus-visible {
+  outline: none;
+  box-shadow:
+    0 0 2.6rem var(--frame),
+    0 0.5rem 1.6rem rgba(0, 0, 0, 0.6);
 }
 
 .stack-item {
@@ -2876,8 +2692,8 @@ button {
 /* Big enough to read. It covers part of the table for a moment, which is fine: it's gone in under two seconds. */
 .spell-flash {
   position: absolute;
-  right: 38.5rem;
-  top: 18rem;
+  left: calc(50% - 15rem);
+  top: calc(50% - 25rem);
   width: 30rem;
   text-align: center;
   pointer-events: none;
