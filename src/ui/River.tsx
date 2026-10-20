@@ -118,6 +118,20 @@ function rocks(s: ReturnType<typeof sample>, seed: number) {
   return out;
 }
 
+/**
+ * Everything drawn for a stage `w` by `h` rem. Nothing while the stage has no size: the root
+ * font-size follows the window (styles.css), so a window with no size gives 0 rem and a width and
+ * height of 0, NaN or Infinity, and the channel would have no samples for the rocks to sit on.
+ * It draws normally again once the window has a size.
+ */
+export function riverGeometry(w: number, h: number) {
+  if (!(w > 0 && h > 0) || !Number.isFinite(w) || !Number.isFinite(h)) return [];
+  return channels(w, h).map((c) => {
+    const s = sample(c);
+    return { bank: bankPath(s, c.seed), centre: linePath(s, 0), flows: [linePath(s, -0.28), linePath(s, 0.03), linePath(s, 0.3)], rocks: rocks(s, c.seed) };
+  });
+}
+
 const subscribe = (onChange: () => void) => {
   window.addEventListener('resize', onChange);
   return () => window.removeEventListener('resize', onChange);
@@ -129,10 +143,8 @@ export function River() {
   const rem = useRem();
   const w = useWidth() / rem;
   const h = useHeight() / rem;
-  const parts = channels(w, h).map((c) => {
-    const s = sample(c);
-    return { bank: bankPath(s, c.seed), centre: linePath(s, 0), flows: [linePath(s, -0.28), linePath(s, 0.03), linePath(s, 0.3)], rocks: rocks(s, c.seed) };
-  });
+  const parts = riverGeometry(w, h);
+  if (parts.length === 0) return null;
   return (
     <svg className="river" viewBox={`0 0 ${fmt(w)} ${fmt(h)}`} preserveAspectRatio="none" aria-hidden="true">
       <defs>
