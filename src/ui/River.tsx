@@ -1,11 +1,10 @@
-import { useSyncExternalStore } from 'react';
-import { useRem } from './rem';
+import { useTableSize } from './camera';
 
 /*
   A slow river in a loose arc around your seat: up out of the bottom-left corner, under the
   side seat, across the middle band of the table a little way above your mat, and down into
   the bottom-right corner. It meanders, and a few rocks break its surface. Drawn under
-  everything on the table, in rem (the SVG's viewBox is the stage in rem), so it follows the
+  everything on the table, in rem (the SVG's viewBox is the table in rem), so it follows the
   seats wherever the window puts them (styles.css: .seat-left, .me-mat).
 */
 
@@ -118,17 +117,9 @@ function rocks(s: ReturnType<typeof sample>, seed: number) {
   return out;
 }
 
-const subscribe = (onChange: () => void) => {
-  window.addEventListener('resize', onChange);
-  return () => window.removeEventListener('resize', onChange);
-};
-const useWidth = () => useSyncExternalStore(subscribe, () => window.innerWidth);
-const useHeight = () => useSyncExternalStore(subscribe, () => window.innerHeight);
-
 export function River() {
-  const rem = useRem();
-  const w = useWidth() / rem;
-  const h = useHeight() / rem;
+  // The table, not the screen: it is taller (camera.ts), and the arc keeps its place from the bottom edge.
+  const { w, h } = useTableSize();
   const parts = channels(w, h).map((c) => {
     const s = sample(c);
     return { bank: bankPath(s, c.seed), centre: linePath(s, 0), flows: [linePath(s, -0.28), linePath(s, 0.03), linePath(s, 0.3)], rocks: rocks(s, c.seed) };
