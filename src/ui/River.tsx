@@ -1,11 +1,10 @@
-import { useSyncExternalStore } from 'react';
-import { useRem } from './rem';
+import { useTableSize } from './camera';
 
 /*
   A slow river in a loose arc around your seat: up out of the bottom-left corner, under the
   side seat, across the middle band of the table a little way above your mat, and down into
   the bottom-right corner. It meanders, and a few rocks break its surface. Drawn under
-  everything on the table, in rem (the SVG's viewBox is the stage in rem), so it follows the
+  everything on the table, in rem (the SVG's viewBox is the table in rem), so it follows the
   seats wherever the window puts them (styles.css: .seat-left, .me-mat).
 */
 
@@ -49,7 +48,7 @@ const meander = (t: number, a1: number, k1: number, p1: number, a2: number, k2: 
 /** The width wanders too, by a quarter either way. */
 const wander = (base: number, t: number, p: number) => base * (1 + 0.22 * Math.sin(TAU * 3.7 * t + p) + 0.12 * Math.sin(TAU * 8.3 * t + p * 1.7));
 
-/** The river for a stage `w` by `h` rem: one channel, left edge to right edge. */
+/** The river for a table `w` by `h` rem: one channel, left edge to right edge. */
 function channels(w: number, h: number): Channel[] {
   return [
     {
@@ -119,7 +118,7 @@ function rocks(s: ReturnType<typeof sample>, seed: number) {
 }
 
 /**
- * Everything drawn for a stage `w` by `h` rem. Nothing while the stage has no size: the root
+ * Everything drawn for a table `w` by `h` rem. Nothing while the table has no size: the root
  * font-size follows the window (styles.css), so a window with no size gives 0 rem and a width and
  * height of 0, NaN or Infinity, and the channel would have no samples for the rocks to sit on.
  * It draws normally again once the window has a size.
@@ -132,17 +131,9 @@ export function riverGeometry(w: number, h: number) {
   });
 }
 
-const subscribe = (onChange: () => void) => {
-  window.addEventListener('resize', onChange);
-  return () => window.removeEventListener('resize', onChange);
-};
-const useWidth = () => useSyncExternalStore(subscribe, () => window.innerWidth);
-const useHeight = () => useSyncExternalStore(subscribe, () => window.innerHeight);
-
 export function River() {
-  const rem = useRem();
-  const w = useWidth() / rem;
-  const h = useHeight() / rem;
+  // The table, not the screen: it is taller (camera.ts), and the arc keeps its place from the bottom edge.
+  const { w, h } = useTableSize();
   const parts = riverGeometry(w, h);
   if (parts.length === 0) return null;
   return (
