@@ -147,6 +147,32 @@ button {
   height: var(--table-h);
   transform-origin: 50% 100%;
   transform: rotateX(var(--tilt));
+  /* How wide the side seats are; the top seat and your creatures fit between them. */
+  --side-w: 40.5rem;
+}
+
+/*
+  The avatars and the count pills on the piles and hands stand up off the table to face
+  you, like a sign on a stand: each is turned back by the table's lean about its own bottom
+  edge, so it is parallel to the screen and seen straight on. That needs one 3D context from
+  .table down to each of them, so every box in between keeps preserve-3d; a filter, opacity
+  below 1 or overflow on one of those boxes would flatten it again (see .opp.lost). The
+  cards, their P/T and everything else on the battlefield lie flat on the table.
+*/
+.table,
+.opp,
+.opp-head,
+.opp-hand,
+.opp-zones,
+.me-avatar,
+.me-zones,
+.table .pile {
+  transform-style: preserve-3d;
+}
+
+.table :is(.avatar, .count, .pile:not(.empty) > .ms) {
+  transform-origin: 50% 100%;
+  transform: rotateX(calc(-1 * var(--tilt)));
 }
 
 /*
@@ -190,8 +216,7 @@ button {
   surface) on a darker ground that shows in the joints, grass and moss in the joints and
   a few small blue mushrooms, under a fine grain and a slow mottle, lit from above and darker
   toward the edges. The stones are translucent, so the light still falls across them, and
-  low in contrast so the cards are what you look at. Seats are mats laid on it (.seat-mat
-  below). The vignette is part of the background, so it never dims a card. The stone tile is
+  low in contrast so the cards are what you look at. The vignette is part of the background, so it never dims a card. The stone tile is
   a seamless SVG (its stones are drawn nine times, once per neighbouring tile, so the joints
   run across the edges). The mushrooms' glow is a second tile on .board::after, laid on the
   same grid, so it can breathe on its own: a background image can't animate.
@@ -234,25 +259,6 @@ button {
   to {
     opacity: 1;
   }
-}
-
-/*
-  A seat's mat: nothing of its own (the table is one floor, and the river marks your seat
-  off) but, while it is the player's turn, a thin gold rim along their own edge of the
-  table. Drawn under the cards.
-*/
-.seat-mat,
-.opp::before {
-  content: '';
-  position: absolute;
-  pointer-events: none;
-  border-radius: 2.6rem;
-  --rim-color: #ffd58a;
-}
-
-.seat-mat.active,
-.opp.active::before {
-  background: var(--rim) no-repeat;
 }
 
 /* ---------- the river (River.tsx) ---------- */
@@ -332,19 +338,23 @@ button {
   gap: 0.5rem;
 }
 
-/* On the far edge, drawn at about 0.92 of its size (camera.ts), so its rows are 8% deeper than the side seats' (Board.tsx widens them to match). */
+/*
+  Everything at the opponents' seats is drawn bigger than at yours, since the camera shows it
+  smaller (camera.ts): about 0.9 across and 0.8 deep. The top seat, on the far edge, gets
+  deeper rows still. Both stand a little in from their edge of the table.
+*/
 .seat-top {
-  inset: 0 36.5rem auto;
-  height: 37.6rem;
+  inset: 7rem var(--side-w) auto;
+  height: 43rem;
   flex-direction: column;
   --inward: 180deg;
 }
 
 .seat-left,
 .seat-right {
-  top: 3rem;
+  top: 12rem;
   bottom: 38rem;
-  width: 36.5rem;
+  width: var(--side-w);
 }
 
 .seat-left {
@@ -365,23 +375,10 @@ button {
   --inward: 270deg;
 }
 
-/* Each mat runs 2rem off its edge of the screen, so only its inner corners are rounded. */
-.seat-top::before {
-  inset: -2rem 1.2rem -1rem;
-  --rim: radial-gradient(46% 0.8rem at 50% 2rem, var(--rim-color), transparent);
-}
-
-.seat-left::before {
-  inset: 0.8rem -0.4rem 0.8rem -2rem;
-  --rim: radial-gradient(0.8rem 46% at 2rem 50%, var(--rim-color), transparent);
-}
-
-.seat-right::before {
-  inset: 0.8rem -2rem 0.8rem -0.4rem;
-  --rim: radial-gradient(0.8rem 46% at calc(100% - 2rem) 50%, var(--rim-color), transparent);
-}
-
-.opp.lost > :not(.defeated) {
+/* Not on .opp-head itself: a filter there would lay its avatar and counts flat on the table again. */
+.opp.lost > :not(.defeated, .opp-head),
+.opp.lost .opp-head :is(.avatar, .opp-fan, .count, .pile > *),
+.opp.lost .pile::after {
   filter: grayscale(1) brightness(0.45);
 }
 
@@ -408,13 +405,13 @@ button {
 /* Avatar, hand and zones along the player's own edge. */
 .opp-head {
   position: relative;
-  flex: 0 0 12.5rem;
+  flex: 0 0 15rem;
   display: grid;
   grid-template-columns: 1fr auto 1fr;
   align-items: start;
   gap: 1.5rem;
-  --av: 8.2rem;
-  --pile-w: 4.6rem;
+  --av: 9.4rem;
+  --pile-w: 5.4rem;
 }
 
 .seat-top .avatar {
@@ -424,9 +421,10 @@ button {
 
 .seat-left .opp-head,
 .seat-right .opp-head {
-  flex-basis: 10rem;
+  flex-basis: 11.4rem;
   display: flex;
   flex-direction: column;
+  justify-content: center;
   align-items: center;
   gap: 0.8rem;
   padding: 0.8rem 0;
@@ -435,7 +433,7 @@ button {
 .opp-hand {
   position: relative;
   flex: none;
-  width: 36rem;
+  width: 40rem;
   height: 100%;
 }
 
@@ -443,14 +441,14 @@ button {
 .seat-right .opp-hand {
   order: -1;
   width: 100%;
-  height: 25rem;
+  height: 28rem;
 }
 
 /* A zero-size anchor at the middle of the hand; the cards hang off it past the screen edge. */
 .opp-fan {
   position: absolute;
   left: 50%;
-  top: 7rem;
+  top: 8rem;
   width: 0;
   height: 0;
   rotate: 180deg;
@@ -458,22 +456,23 @@ button {
 
 /* The side hands lean 12 degrees toward the top corners, as if seen from across the table. */
 .seat-left .opp-fan {
-  left: 7rem;
+  left: 8rem;
   top: 50%;
   rotate: 102deg;
 }
 
 .seat-right .opp-fan {
-  left: calc(100% - 7rem);
+  left: calc(100% - 8rem);
   top: 50%;
   rotate: -102deg;
 }
 
+/* BACK_W in Card.tsx is this width. */
 .opp-fan .card-back {
   position: absolute;
   top: 0;
-  width: 9rem;
-  margin-left: -4.5rem;
+  width: 10.5rem;
+  margin-left: -5.25rem;
   border-radius: 0.5rem;
 }
 
@@ -513,17 +512,17 @@ button {
 }
 
 .opp-hand .count {
-  inset: 7.5rem auto auto 50%;
+  inset: 8.5rem auto auto 50%;
   translate: -50% 0;
 }
 
 .seat-left .opp-hand .count {
-  inset: 50% auto auto 7.5rem;
+  inset: 50% auto auto 8.5rem;
   translate: 0 -50%;
 }
 
 .seat-right .opp-hand .count {
-  inset: 50% 7.5rem auto auto;
+  inset: 50% 8.5rem auto auto;
   translate: 0 -50%;
 }
 
@@ -1007,7 +1006,7 @@ button {
 }
 
 .opp-back {
-  flex: 0 0 9.3rem;
+  flex: 0 0 10.6rem;
 }
 
 .opp-front {
@@ -1015,17 +1014,17 @@ button {
 }
 
 .seat-top .opp-back {
-  flex-basis: 10.1rem;
+  flex-basis: 11.6rem;
 }
 
 .seat-top .opp-front {
-  flex-basis: 13.2rem;
+  flex-basis: 15.2rem;
 }
 
 /* Deep enough for a crowded board's two rows. */
 .seat-left .opp-front,
 .seat-right .opp-front {
-  flex-basis: 16rem;
+  flex-basis: 17.4rem;
 }
 
 .me-front,
@@ -1033,21 +1032,11 @@ button {
   position: absolute;
 }
 
-/* Your mat: between the side seats, from your creatures down past the bottom edge. */
-.me-mat {
-  left: 37.7rem;
-  right: 37.7rem;
-  top: calc(100% - 54.4rem);
-  bottom: -2rem;
-  --inward: 0deg;
-  --rim: radial-gradient(46% 0.8rem at 50% calc(100% - 2rem), var(--rim-color), transparent);
-}
-
 /* Stays between the side seats, which reach down past its top edge. */
 .me-front {
-  left: 37.5rem;
-  right: 37.5rem;
-  bottom: 39rem;
+  left: calc(var(--side-w) + 1rem);
+  right: calc(var(--side-w) + 1rem);
+  bottom: 40rem;
   height: 14.5rem;
 }
 
@@ -1633,15 +1622,15 @@ button {
 /* ---------- the human's side (bottom) ---------- */
 
 /*
-  The avatar sits right on the hand: the middle cards and their mana costs just cover the
-  bottom edge of the life total. z-index 0 keeps every part of it under the hand.
+  The avatar sits just above the hand, its life total clear of the cards and their mana
+  costs. z-index 0 keeps every part of it under the hand.
 */
 .me-avatar {
   position: absolute;
   z-index: 0;
   left: 0;
   right: 0;
-  top: calc(100% - 28.5rem);
+  top: calc(100% - 33rem);
   display: flex;
   justify-content: center;
   pointer-events: none;

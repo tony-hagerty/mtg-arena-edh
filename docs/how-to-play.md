@@ -66,7 +66,9 @@ The full guide to the game's screens and controls. For a quick start, see the
 ## Playing cards
 
 - **The table** is seen from a little above your seat, like Arena's: the far seat is
-  smaller and the floor is foreshortened. Hover any card to see it full size.
+  smaller and the floor is foreshortened, so the opponents' cards are drawn bigger to make
+  up for it. Portraits and card counts stand up to face you. Hover any card to see it full
+  size.
 - **Glowing cyan** cards can be played. Drag one from your hand up toward the table and
   let go to play a land or cast a spell. Mana is tapped for you (auto-pay, like Arena).
 - Casting a spell or using an ability takes two steps, and **Cancel** (or `Esc`) backs

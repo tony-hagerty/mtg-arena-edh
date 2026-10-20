@@ -416,7 +416,7 @@ export function HiddenHandCard({ card, index, total, drawn }: { card: Card; inde
 }
 
 /** Width of a face-down card in an opponent's hand in rem. Keep in step with .opp-fan .card-back. */
-const BACK_W = 9;
+const BACK_W = 10.5;
 
 /**
  * A face-down card in an opponent's hand, fanned like the human's but smaller and tighter.
