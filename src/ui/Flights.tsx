@@ -4,6 +4,7 @@ import { createPortal } from 'react-dom';
 import { MotionGlobalConfig, motion, useReducedMotion } from 'motion/react';
 import { data } from '../engine';
 import type { CardData, Game, PlayerId, StackItem } from '../engine';
+import { screenCamera } from './camera';
 import { useStore } from './store';
 import { CardImage } from './TextCard';
 import { faceUp } from './util';
@@ -17,12 +18,18 @@ import type { Place, ZoneMove } from './zone-moves';
   So whatever the view code draws is where the card ends up, clickable and hoverable as soon
   as the flight is over. Old places are read from the screen as the store changes, before
   React redraws; new ones once it has.
+
+  The table leans away from you (camera.ts), so a copy that lands on it flies on it, drawn
+  inside .table in the table's own coordinates: it tilts and shrinks with the tile it lands
+  on, and the fold into the tile lines up. A copy bound for the stack or the hand, which are
+  flat on the screen, flies over the screen as before. Places are always read off the screen
+  (getBoundingClientRect) and, for a flight on the table, unprojected onto it.
 */
 
 /** At most this many cards fly at once: a board wipe sends the rest straight to where they go. */
 const MAX_FLIGHTS = 12;
 
-/** A place on screen: its centre, the width a card has there, and how far a card there is turned (deg). */
+/** A place: its centre, the width a card has there, and how far a card there is turned (deg). On the screen unless `onTable` put it on the table. */
 interface Spot {
   x: number;
   y: number;
@@ -30,10 +37,30 @@ interface Spot {
   turn: number;
 }
 
+/** Where a flight is drawn: over the screen, or on the table with the cards there. */
+type Space = 'screen' | 'table';
+
+type Camera = ReturnType<typeof screenCamera>;
+
+/** The space a card drawn as `el` lives in. */
+const spaceOf = (el: HTMLElement): Space => (el.closest('.table') ? 'table' : 'screen');
+
+/** `spot`, read off the screen, moved onto the table: its centre unprojected, and its width too unless `layout` says it is the layout width, which is already the table's. */
+function onTable(spot: Spot, cam: Camera, layout = false): Spot {
+  const c = cam.toTable(spot);
+  const w = layout ? spot.w : cam.toTable({ x: spot.x + spot.w / 2, y: spot.y }).x - cam.toTable({ x: spot.x - spot.w / 2, y: spot.y }).x;
+  return { ...spot, x: c.x, y: c.y, w };
+}
+
+/** A spot read off the screen (`spotOf` with `visual`), in `space`. */
+const inSpace = (spot: Spot, space: Space, cam: Camera) => (space === 'table' ? onTable(spot, cam) : spot);
+
 interface Flight {
   key: string;
   /** The moving card's id: a change that moves it again starts from where this copy is. */
   card: string;
+  /** Where it flies, chosen by where it lands; `from` and `to` are in that space. */
+  space: Space;
   /** The card's face, or null for its back. */
   d: CardData | null;
   from: Spot;
@@ -54,7 +81,7 @@ interface Flight {
   settling?: boolean;
 }
 
-/** A ring that flares once over a card: a token appearing, an ability's source as the ability resolves. */
+/** A ring that flares once over a card on the table: a token appearing, an ability's source as the ability resolves. Drawn on the table. */
 interface Flare {
   key: string;
   x: number;
@@ -112,6 +139,12 @@ function spotOf(el: HTMLElement, visual: boolean, rem: number): Spot {
   return { x: r.left + r.width / 2, y: r.top + r.height / 2, w: width, turn };
 }
 
+/** `spotOf`, in `space`: on the table its centre is unprojected, and a layout width is kept as it is (it is the table's own). */
+function spotIn(el: HTMLElement, visual: boolean, rem: number, space: Space, cam: Camera): Spot {
+  const spot = spotOf(el, visual, rem);
+  return space === 'table' ? onTable(spot, cam, !visual && el.offsetWidth > 0) : spot;
+}
+
 /** Old places, read before React redraws. Kept across several store changes in one redraw. */
 let pending: { prev: Game; spots: Map<string, Spot>; items: Map<string, Spot> } | null = null;
 
@@ -151,10 +184,13 @@ function sourceOf(item: StackItem) {
 function plan(prev: Game, next: Game, me: PlayerId | null, spots: Map<string, Spot>, items: Map<string, Spot>, rem: number) {
   const flights: Flight[] = [];
   const flares: Flare[] = [];
+  const cam = screenCamera();
   const flare = (key: string, el: HTMLElement, kind: Flare['kind']) => {
     const r = el.getBoundingClientRect();
+    // The layout box is the size on the table; the drawn one (mid-entrance, say) is projected.
     const [w, h] = el.offsetWidth ? [el.offsetWidth, el.offsetHeight] : [r.width, r.height];
-    flares.push({ key, x: r.left + r.width / 2, y: r.top + r.height / 2, w, h, turn: tilt(el), kind });
+    const c = cam.toTable({ x: r.left + r.width / 2, y: r.top + r.height / 2 });
+    flares.push({ key, x: c.x, y: c.y, w, h, turn: tilt(el), kind });
   };
   for (const m of zoneMoves(prev, next)) {
     // A token appearing (111.1): nothing to fly from, so it flares where it lands.
@@ -167,8 +203,10 @@ function plan(prev: Game, next: Game, me: PlayerId | null, spots: Map<string, Sp
     const at = elementAt(m.to, m.card.id);
     if (!from || !at || flights.length >= MAX_FLIGHTS) continue;
     const [el, exact] = at;
+    const space = spaceOf(el);
     // A tile entering tapped already lies at its angle (Card.tsx sets no other rotation to start from), so the copy lands at that angle too.
-    const to = { ...spotOf(el, false, rem), turn: spotOf(el, false, rem).turn + (exact ? tilt(el) : 0) };
+    const landing = spotIn(el, false, rem, space, cam);
+    const to = { ...landing, turn: landing.turn + (exact ? tilt(el) : 0) };
     // A pile already shows the card on top, so only a card that is itself drawn somewhere waits hidden.
     const hides = exact && m.to.zone !== 'graveyard' && m.to.zone !== 'exile' && m.to.zone !== 'library';
     // A permanent's tile, or the strip of one entering attached to another (an Aura): both show the card's art, so the copy folds into either.
@@ -176,8 +214,9 @@ function plan(prev: Game, next: Game, me: PlayerId | null, spots: Map<string, Sp
     flights.push({
       key: `${m.card.id}-${next.log.length}`,
       card: m.card.id,
+      space,
       d: shown(m, me) ? data(m.card) : null,
-      from,
+      from: inSpace(from, space, cam),
       to: exact ? to : { ...to, w: Math.min(to.w, 9 * rem) },
       delay: Math.min(flights.length, 6) * 0.05,
       resolve: m.from?.zone === 'stack',
@@ -193,7 +232,10 @@ function plan(prev: Game, next: Game, me: PlayerId | null, spots: Map<string, Sp
     if (!source) continue;
     const from = items.get(item.id);
     if (from && flights.length < MAX_FLIGHTS) {
-      flights.push({ key: `item-${item.id}`, card: item.id, d: data(item.card), from, to: { ...spotOf(source, false, rem), turn: from.turn }, delay: 0, resolve: true, fade: true, hidden: null, morph: false });
+      // The source is a tile or a portrait, both on the table.
+      const space = spaceOf(source);
+      const to = { ...spotIn(source, false, rem, space, cam), turn: from.turn };
+      flights.push({ key: `item-${item.id}`, card: item.id, space, d: data(item.card), from: inSpace(from, space, cam), to, delay: 0, resolve: true, fade: true, hidden: null, morph: false });
     }
     if (source.classList.contains('tile')) flare(`resolve-${item.id}`, source, 'resolve');
   }
@@ -237,14 +279,16 @@ export function Flights() {
     // does one whose destination left the screen. The rest fly on: a bot passing priority
     // half a second after its spell resolved mustn't cut the card's landing short.
     const rem = parseFloat(getComputedStyle(document.documentElement).fontSize);
+    const cam = screenCamera();
     const moving = new Set(game && was ? zoneMoves(was.prev, game).map((m) => m.card.id) : []);
     // A destination that is gone, or that the change moved along its row (a token appearing beside it): the copy would land in the wrong place.
-    const stale = (el: HTMLElement, to: Spot) => {
-      if (!document.contains(el)) return true;
-      const now = spotOf(el, false, rem);
-      return Math.abs(now.x - to.x) > 1 || Math.abs(now.y - to.y) > 1;
+    const stale = (f: Flight) => {
+      if (!f.hidden) return false;
+      if (!document.contains(f.hidden)) return true;
+      const now = spotIn(f.hidden, false, rem, f.space, cam);
+      return Math.abs(now.x - f.to.x) > 1 || Math.abs(now.y - f.to.y) > 1;
     };
-    const flying = live.current.filter((f) => !moving.has(f.card) && (!f.hidden || !stale(f.hidden, f.to)));
+    const flying = live.current.filter((f) => !moving.has(f.card) && !stale(f));
     for (const f of live.current) if (!flying.includes(f)) reveal(f);
     if (!game || !was || reduced || MotionGlobalConfig.skipAnimations) {
       live.current = flying;
@@ -276,9 +320,9 @@ export function Flights() {
     f.hidden.style.removeProperty('visibility');
     setFlights((all) => all.map((x) => (x.key === f.key ? { ...x, settling: true } : x)));
   };
-  return createPortal(
-    <div className="flights">
-      {shownFlights.map((f) => {
+  // The copies bound for the table are drawn on it (.flights-table, inside .table), the rest over the screen.
+  const tableLayer = document.querySelector('.flights-table');
+  const copy = (f: Flight) => {
         const scale = f.from.w / f.to.w;
         const dx = f.from.x - f.to.x;
         const dy = f.from.y - f.to.y;
@@ -308,8 +352,15 @@ export function Flights() {
             </div>
           </motion.div>
         );
-      })}
-      {flares.map((f) => (
+  };
+  return (
+    <>
+      {createPortal(<div className="flights">{shownFlights.filter((f) => f.space === 'screen').map(copy)}</div>, document.body)}
+      {tableLayer &&
+        createPortal(
+          <>
+            {shownFlights.filter((f) => f.space === 'table').map(copy)}
+            {flares.map((f) => (
         <motion.div
           key={f.key}
           className={`flare ${f.kind}`}
@@ -320,7 +371,9 @@ export function Flights() {
           onAnimationComplete={() => setFlares((all) => all.filter((x) => x !== f))}
         />
       ))}
-    </div>,
-    document.body,
+          </>,
+          tableLayer,
+        )}
+    </>
   );
 }

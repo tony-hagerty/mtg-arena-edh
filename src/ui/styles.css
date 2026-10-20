@@ -27,17 +27,6 @@ html {
   Frames     --f-W ... --f-land: the card frame colours, also each deck's seat colour
 */
 :root {
-  /*
-    Prototype: the camera on the table. --tilt is how far the table leans away from you (0deg
-    is flat), --depth the perspective distance (bigger is weaker), --table-sx/-sy the scale
-    that makes the tilted table fill a 16:9 screen again. Arena-like: 30deg, 600rem.
-    Between the two: --tilt: 20deg; --depth: 600rem; --table-sx: 1.04; --table-sy: 1.14.
-    The earlier, gentler look: --tilt: 10deg; --depth: 220rem; --table-sx: 1.06; --table-sy: 1.06.
-  */
-  --tilt: 30deg;
-  --depth: 600rem;
-  --table-sx: 1.04;
-  --table-sy: 1.29;
   --board: #10161f;
   --board-deep: #05070b;
   --panel: rgba(10, 12, 18, 0.88);
@@ -136,7 +125,15 @@ button {
   font-size: 1.5rem;
 }
 
-/* Prototype: the table seen from a little above your seat, like Arena. */
+/*
+  The table is seen from a little above your seat, like Arena's: it leans away from you by
+  --tilt about its bottom edge, under a perspective of --depth from the bottom centre of the
+  screen. GameScreen sets both, and --table-h, from src/ui/camera.ts: the table is taller
+  than the screen by just enough that, leaned over, its far edge lands on the top of the
+  screen. So the seats keep their places from the table's edges in rem, the top seat moves
+  up with the far edge, and nothing is stretched: your edge is drawn at full size and the
+  far edge shrinks, which is the look.
+*/
 .stage.board {
   perspective: var(--depth);
   perspective-origin: 50% 100%;
@@ -144,19 +141,34 @@ button {
 
 .table {
   position: absolute;
-  inset: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: var(--table-h);
   transform-origin: 50% 100%;
-  transform: rotateX(var(--tilt)) scale(var(--table-sx), var(--table-sy));
+  transform: rotateX(var(--tilt));
 }
 
-/* The floor and the mushrooms' glow tilt with the cards on them, grown past the top and sides so the far edge never shows. */
+/*
+  The floor and the mushrooms' glow tilt with the cards on them. The far edge is narrower
+  than the screen (the perspective), so they run past the table's sides to cover the top
+  corners, and a little past its top for the lean's rounding.
+*/
 .table::before,
 .table::after {
   content: '';
   position: absolute;
-  inset: -40% -25% 0;
+  inset: -2rem -8% 0;
   z-index: -1;
   pointer-events: none;
+}
+
+/* Cards flying to somewhere on the table (Flights.tsx) fly on the table, over everything on it. */
+.flights-table {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 45;
 }
 
 .table::before {
@@ -320,9 +332,10 @@ button {
   gap: 0.5rem;
 }
 
+/* On the far edge, drawn at about 0.92 of its size (camera.ts), so its rows are 8% deeper than the side seats' (Board.tsx widens them to match). */
 .seat-top {
   inset: 0 36.5rem auto;
-  height: 35rem;
+  height: 37.6rem;
   flex-direction: column;
   --inward: 180deg;
 }
@@ -999,6 +1012,14 @@ button {
 
 .opp-front {
   flex: 0 0 12.2rem;
+}
+
+.seat-top .opp-back {
+  flex-basis: 10.1rem;
+}
+
+.seat-top .opp-front {
+  flex-basis: 13.2rem;
 }
 
 /* Deep enough for a crowded board's two rows. */

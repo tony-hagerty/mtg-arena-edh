@@ -361,8 +361,9 @@ export function OpponentPanel({ player }: { player: Player }) {
           <Piles player={player} />
         </div>
       </header>
-      <BackRow player={player} width={side ? 60 : 104} max={11} depth={9.3} className="opp-back" />
-      <CreatureRow player={player} width={side ? 61 : 111} max={side ? 14 : 14.5} className="opp-front" wrap={side} />
+      {/* The top seat is on the far edge, drawn at about 0.92 of its size (camera.ts): its rows run 8% wider so its tiles keep their width on screen. */}
+      <BackRow player={player} width={side ? 60 : 113} max={side ? 11 : 12} depth={side ? 9.3 : 10.1} className="opp-back" />
+      <CreatureRow player={player} width={side ? 61 : 120} max={side ? 14 : 15.7} className="opp-front" wrap={side} />
       {player.lost && <div className="defeated">Defeated</div>}
     </section>
   );
