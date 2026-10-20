@@ -4,7 +4,7 @@ import { produce } from 'immer';
 import type { MouseEvent } from 'react';
 import { describe, expect, it } from 'vitest';
 import './fixtures';
-import { useStore } from '../src/ui/store';
+import { hoverHandCard, leaveHandCard, useStore } from '../src/ui/store';
 import { hoverProps } from '../src/ui/util';
 import { activateFromHand, buildView, clickGroup, chooseEscape, chooseGraveyardTarget, clickPermanent, clickPlayer, clickStackItem, exileForMana, manaOptions, pickAbility, pickMana, pickManaSacrifice, pickFace, pickMode, playHandCard, setAbilityX, setChoices, stackTucked, undo } from '../src/ui/view';
 import { applyAction, canCast, data, isCreature, scriptOf } from '../src/engine';
@@ -909,6 +909,46 @@ describe('the card preview (right-click)', () => {
     enter(hoverProps(data(byName(game(), 0, 'Serra Angel', 'graveyard')!)));
     expect(useStore.getState().hover).toMatchObject({ name: 'Serra Angel', el });
     expect(useStore.getState().hover!.pinOnly).toBeUndefined();
+  });
+});
+
+describe('hovering the hand (HandCard)', () => {
+  // Two cards' resting places (`.hand-hit`); any objects stand in for the elements.
+  const first = {} as HTMLElement;
+  const next = {} as HTMLElement;
+  const hoverOf = (name: string, el: HTMLElement) => ({ name, d: cardData(name), el, pinOnly: true });
+
+  it('moving onto the next card hands the hover over, whichever event comes first', () => {
+    play(() => {});
+    expect(hoverHandCard(hoverOf('Blaze', first))).toBe(true);
+    expect(hoverHandCard(hoverOf('Serra Angel', next))).toBe(true);
+    // The first card's leave, after the next card took over, keeps the next card's hover.
+    expect(leaveHandCard(first)).toBe(true);
+    expect(useStore.getState().hover).toMatchObject({ name: 'Serra Angel', el: next });
+    expect(leaveHandCard(next)).toBe(true);
+    expect(useStore.getState().hover).toBeNull();
+  });
+
+  it('while a card is held, the cards it is dragged over don’t hover, and the held one keeps the hover', () => {
+    play(() => {});
+    hoverHandCard(hoverOf('Blaze', first));
+    useStore.setState({ holding: 'blaze-id' });
+    expect(hoverHandCard(hoverOf('Serra Angel', next))).toBe(false);
+    expect(leaveHandCard(next)).toBe(false);
+    expect(leaveHandCard(first)).toBe(false);
+    expect(useStore.getState().hover).toMatchObject({ name: 'Blaze', el: first });
+    // Let go: hovering works again.
+    useStore.setState({ holding: null });
+    expect(hoverHandCard(hoverOf('Serra Angel', next))).toBe(true);
+    expect(useStore.getState().hover).toMatchObject({ name: 'Serra Angel', el: next });
+  });
+
+  it('a new game lets go of a held card', () => {
+    useStore.setState({ holding: 'blaze-id' });
+    play(() => {});
+    useStore.getState().start(null);
+    expect(useStore.getState().holding).toBeNull();
+    useStore.getState().quit();
   });
 });
 

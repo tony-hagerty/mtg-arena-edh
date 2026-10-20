@@ -935,6 +935,8 @@ export function Preview() {
     const onMove = (e: MouseEvent) => {
       pointer.current = { x: e.clientX, y: e.clientY };
       const s = useStore.getState();
+      // A hand card being dragged keeps the hover: the cards it passes over don't take it (HandCard).
+      if (s.holding) return;
       // The 3D table's cards (Table3D.tsx) are hovered by raycast, and their proxies take no
       // pointer events, so the pointer is never "in" them: the table clears those itself.
       if (s.hover && !s.hover.el.contains(e.target as Node) && !s.hover.el.classList.contains('card-proxy')) useStore.setState({ hover: cardAt(s.game, e.target as Element) });
