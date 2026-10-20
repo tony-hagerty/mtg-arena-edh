@@ -4,7 +4,10 @@ import {
   applyAction,
   applyBotAction,
   availableMana,
+  BOT_PAUSE_MIN,
   botAction,
+  botPause,
+  scheduleBot,
   canCast,
   canMulligan,
   canPlayLand,
@@ -3438,6 +3441,66 @@ describe('graveyard, exile and odd cards (session 7b)', () => {
       for (let i = 0; i < 300 && !until(g) && g.step !== 'gameOver'; i++) g = applyBotAction(g, botAction(g, g.priority));
       return g;
     };
+
+    it('never pause for less than BOT_PAUSE_MIN, which the screen waits before a bot even thinks', () => {
+      const actions: Action[] = [{ type: 'pass' }, { type: 'keep' }, { type: 'orderTriggers', order: [] }, { type: 'declareAttack', card: 'c1', defender: 1 }, { type: 'declareBlock', blocker: 'c1', attacker: 'c2' }, { type: 'playLand', card: 'c1' }, { type: 'cast', card: 'c1', targets: [] }];
+      for (const a of actions) expect(botPause(a)).toBeGreaterThanOrEqual(BOT_PAUSE_MIN);
+      expect(Math.min(...actions.map(botPause))).toBe(BOT_PAUSE_MIN);
+    });
+
+    describe('scheduleBot', () => {
+      /** A clock run by hand: what is scheduled, and `next` to run the first thing. */
+      const clock = () => {
+        const queue: { fn: () => void; ms: number }[] = [];
+        const schedule = (fn: () => void, ms: number) => {
+          const item = { fn, ms };
+          queue.push(item);
+          return () => void queue.splice(queue.indexOf(item), 1);
+        };
+        return { queue, schedule, next: () => queue.shift()?.fn() };
+      };
+      // Player 1 is a bot with priority and an empty hand: its move is to pass.
+      const g = produce(emptyGame(), (d) => void (d.priority = 1));
+      const expected = botAction(g, 1);
+
+      it('on the screen, waits the shortest pause before it thinks, then acts when the pause for its move is up', () => {
+        const c = clock();
+        const acted: Action[] = [];
+        scheduleBot(g, 2, (a) => acted.push(a), c.schedule, true);
+        expect(c.queue.map((x) => x.ms)).toEqual([BOT_PAUSE_MIN / 2]);
+        c.next();
+        expect(acted).toEqual([]);
+        // The rest of the pause, counted from the start: never longer than the whole pause at this speed.
+        expect(c.queue.length).toBe(1);
+        expect(c.queue[0].ms).toBeLessThanOrEqual(botPause(expected) / 2);
+        expect(c.queue[0].ms).toBeGreaterThan(0);
+        c.next();
+        expect(acted).toEqual([expected]);
+        expect(c.queue).toEqual([]);
+      });
+
+      it('on the server, thinks at once and acts after the full pause', () => {
+        const c = clock();
+        const acted: Action[] = [];
+        scheduleBot(g, 4, (a) => acted.push(a), c.schedule, false);
+        expect(c.queue.map((x) => x.ms)).toEqual([botPause(expected) / 4]);
+        c.next();
+        expect(acted).toEqual([expected]);
+      });
+
+      it('can be cancelled before the think and between the think and the move', () => {
+        const early = clock();
+        const cancelEarly = scheduleBot(g, 1, () => expect.unreachable('acted after cancelling'), early.schedule, true);
+        cancelEarly();
+        expect(early.queue).toEqual([]);
+        const late = clock();
+        const cancelLate = scheduleBot(g, 1, () => expect.unreachable('acted after cancelling'), late.schedule, true);
+        late.next();
+        expect(late.queue.length).toBe(1);
+        cancelLate();
+        expect(late.queue).toEqual([]);
+      });
+    });
 
     it("win with Thassa's Oracle and Demonic Consultation, naming a card that isn't in the library", () => {
       let g = emptyGame((d) => {

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { memo, useEffect, useRef, useState } from 'react';
 import type { CSSProperties, ReactNode } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import { cardData } from '../cards/db';
@@ -92,7 +92,7 @@ function Pile({ cards }: { cards: Card[] }) {
  * the other permanents, then creatures nearest the middle. The cards stay upright whoever
  * controls them, and grow while the rows fit the seat (`seatScale`).
  */
-export function Seat({ player }: { player: Player }) {
+export const Seat = memo(function Seat({ player }: { player: Player }) {
   const v = useView();
   const g = v.g;
   const seat = seatOf(g, v.me, player.id);
@@ -151,7 +151,7 @@ export function Seat({ player }: { player: Player }) {
       {player.lost && <div className="defeated">Defeated</div>}
     </section>
   );
-}
+});
 
 /** Floating "+3" / "-5" numbers whenever a life total changes. Each one fades out on its own after a couple of seconds. */
 function useLifeDeltas(life: number) {
@@ -373,7 +373,7 @@ function OpponentHand({ player, seat }: { player: Player; seat: SeatPos }) {
  * and an opponent's hand fanned out of their corner. `you`: the seat at the bottom, whose
  * hand is `PlayerHand` and whose portrait carries the mana pool.
  */
-export function SeatHud({ player, you }: { player: Player; you: boolean }) {
+export const SeatHud = memo(function SeatHud({ player, you }: { player: Player; you: boolean }) {
   const { g, me } = useView();
   const seat = seatOf(g, me, player.id);
   return (
@@ -388,7 +388,7 @@ export function SeatHud({ player, you }: { player: Player; you: boolean }) {
       {!you && <OpponentHand player={player} seat={seat} />}
     </div>
   );
-}
+});
 
 const MANA_ORDER: ManaSym[] = ['W', 'U', 'B', 'R', 'G', 'C'];
 

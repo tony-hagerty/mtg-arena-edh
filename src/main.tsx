@@ -16,12 +16,28 @@ import { useStore } from './ui/store';
 // `motionConfig.skipAnimations = true` makes every move instant.
 if (import.meta.env.DEV) Object.assign(window, { store: useStore, motionConfig: MotionGlobalConfig });
 
-// Pressed cursor (`.pressing` in styles.css) while any mouse button is down. Checking `buttons`
-// on every pointer event also clears it after a release outside the window.
-const syncPressed = (e: PointerEvent) => document.documentElement.classList.toggle('pressing', e.buttons !== 0);
-for (const type of ['pointerdown', 'pointerup', 'pointermove', 'pointercancel'] as const) {
-  window.addEventListener(type, syncPressed, { capture: true, passive: true });
-}
+// The pressed-in arrow while a mouse button is held (`.pressed` in styles.css), on the one
+// element under the pointer and nothing else: changing an element's cursor repaints it, so
+// switching the cursor for the whole page (a class on <html> used to) repainted and
+// re-rastered the whole screen on every press and release, and :active churns during a
+// drag. Not on a floor-sized element either: repainting the table is the cost to avoid.
+const FLOOR = 'html, body, #root, .stage, .table, .seat, .row, .seat-hud, .seat-zones, .seat-avatar, .opp-hand, .opp-fan, .modal, .preview-backdrop';
+window.addEventListener(
+  'pointerdown',
+  (e) => {
+    const target = e.target;
+    if (!(target instanceof Element) || target.matches(FLOOR)) return;
+    target.classList.add('pressed');
+    const release = () => {
+      target.classList.remove('pressed');
+      window.removeEventListener('pointerup', release, true);
+      window.removeEventListener('pointercancel', release, true);
+    };
+    window.addEventListener('pointerup', release, true);
+    window.addEventListener('pointercancel', release, true);
+  },
+  { capture: true, passive: true },
+);
 
 // Errors nothing else caught go to the program's log (crash.ts); drawing errors show the error screen (App).
 watchPageErrors();

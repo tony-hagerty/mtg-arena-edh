@@ -1,6 +1,7 @@
-import { useEffect, useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import type { CSSProperties } from 'react';
-import { botAction, botPause } from '../engine';
+import { realSchedule, scheduleBot } from '../engine';
+import type { Schedule } from '../engine';
 import { PlayerHand, Seat, SeatHud } from './Board';
 import { DEPTH, TILT, useTableSize } from './camera';
 import { Flights } from './Flights';
@@ -48,13 +49,25 @@ export function GameScreen() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const view = useMemo(buildView, [game, human, targeting, attackTarget, pickedBlockers, stops, fullControl]);
 
+  // A bot's thinking or move that threw, thrown again while drawing so the error screen shows
+  // it (`ErrorBoundary`): a timer's error never reaches the boundary by itself.
+  const [botError, setBotError] = useState<unknown>(null);
+  if (botError) throw botError;
+
   // Bot driver: whenever a bot has the decision, let it act after a short, readable pause.
+  // It thinks inside its timer, off the frame that draws the last move (see `scheduleBot`).
   useEffect(() => {
     // With a game server, the server plays the bots.
     if (useStore.getState().server || game.step === 'gameOver' || !game.players[game.priority].isBot) return;
-    const action = botAction(game, game.priority);
-    const t = setTimeout(() => useStore.getState().botAct(action), botPause(action) / speed);
-    return () => clearTimeout(t);
+    const guarded: Schedule = (fn, ms) =>
+      realSchedule(() => {
+        try {
+          fn();
+        } catch (err) {
+          setBotError(err ?? new Error('Unknown error'));
+        }
+      }, ms);
+    return scheduleBot(game, speed, (action) => useStore.getState().botAct(action), guarded, true);
   }, [game, speed]);
 
   // You sit at the bottom; the others sit clockwise in turn order after you (see `seatOf`).

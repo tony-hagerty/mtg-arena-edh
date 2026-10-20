@@ -1126,6 +1126,9 @@ export function applyBotAction(g: Game, a: Action, opts?: ApplyOptions): Game {
   return next;
 }
 
+/** The shortest `botPause`: a bot can safely wait this long before it even picks its action. */
+export const BOT_PAUSE_MIN = 320;
+
 /**
  * How long a bot waits before `action`, in ms at normal speed, so people can follow along:
  * quick for passing and keeping a hand, a little longer for each attacker or blocker, a
@@ -1133,5 +1136,33 @@ export function applyBotAction(g: Game, a: Action, opts?: ApplyOptions): Game {
  */
 export function botPause(action: Action): number {
   const quick = action.type === 'pass' || action.type === 'keep' || action.type === 'orderTriggers';
-  return quick ? 450 : action.type.includes('declare') ? 320 : 1000;
+  return quick ? 450 : action.type.includes('declare') ? BOT_PAUSE_MIN : 1000;
+}
+
+/** Runs `fn` after `ms`; returns a function that cancels it. Tests pass their own clock. */
+export type Schedule = (fn: () => void, ms: number) => () => void;
+
+export const realSchedule: Schedule = (fn, ms) => {
+  const t = setTimeout(fn, ms);
+  return () => clearTimeout(t);
+};
+
+/**
+ * Drives a bot's next move, the same way on the screen and on the game server: `act` gets
+ * the action once its pause (`botPause`, divided by `speed`) has passed. Picking the action
+ * (`botAction`) tries moves on copies of the game and can take tens of milliseconds. On the
+ * screen that would stretch the frame that draws the last move, so with `deferThink` the
+ * bot waits `BOT_PAUSE_MIN` before it thinks, and the pause is counted from now; a server,
+ * with no frame to protect, thinks at once and the pause follows the think. Returns a
+ * function that cancels whatever is still to come.
+ */
+export function scheduleBot(g: Game, speed: number, act: (action: Action) => void, schedule: Schedule, deferThink: boolean): () => void {
+  const started = performance.now();
+  const think = (): (() => void) => {
+    const action = botAction(g, g.priority);
+    const elapsed = deferThink ? performance.now() - started : 0;
+    return schedule(() => act(action), Math.max(0, botPause(action) / speed - elapsed));
+  };
+  let cancel = deferThink ? schedule(() => (cancel = think()), BOT_PAUSE_MIN / speed) : think();
+  return () => cancel();
 }
