@@ -27,7 +27,7 @@ const floating = (player: Player, c: Card) => player.pool.some((m) => m.source =
  * token's choice is part of its pile, so clicking one moves it to a pile of its own. Once
  * combat is underway the fighting ones stand alone.
  */
-function creaturePiles(v: View, player: Player): Card[][] {
+export function creaturePiles(v: View, player: Player): Card[][] {
   const g = v.g;
   const fighting = new Set((g.combat?.attacks ?? []).flatMap((a) => [a.id, ...a.blockers]));
   const choosing = v.mine && player.id === v.me && (g.decision?.type === 'attackers' || g.decision?.type === 'blockers');
@@ -47,7 +47,7 @@ function creaturePiles(v: View, player: Player): Card[][] {
  * A player's lands in piles: by name, with tapped ones apart, and ones whose mana is still
  * unspent in the pool apart again. The pile's badge taps (or untaps) the whole pile.
  */
-function landPiles(g: Game, player: Player): Card[][] {
+export function landPiles(g: Game, player: Player): Card[][] {
   const lands = player.battlefield.filter((x) => isLand(g, x));
   const piles = new Map<string, Card[]>();
   const order = (c: Card) => Number(floating(player, c)) * 2 + Number(c.tapped);
@@ -60,7 +60,7 @@ function landPiles(g: Game, player: Player): Card[][] {
 }
 
 /** A player's artifacts, enchantments and the rest, and their phased-out permanents. */
-function otherPermanents(g: Game, player: Player) {
+export function otherPermanents(g: Game, player: Player) {
   // Auras and Equipment attached to something are drawn under it instead (see `Permanent`).
   const others = player.battlefield.filter((c) => !isLand(g, c) && !isCreature(g, c) && !(c.attachedTo && permanent(g, c.attachedTo)));
   // Phased-out permanents are treated as though they don't exist (702.26b), but stay in view, faded.

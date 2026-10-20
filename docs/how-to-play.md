@@ -253,6 +253,13 @@ and away again (it starts folded). On the right:
 The deck menu has the same sound and music controls in its top-right corner. Sound, music
 and damage choices are saved in the browser.
 
+**The 3D table** (a work in progress): add `?table=3d` to the page's address to see the
+table drawn in 3D, with the cards as objects on a lit stone floor, trees and lantern pillars
+around it, and the camera pushing in during combat. Everything plays the same: hover a card
+to read it, click it, drag from your hand. The portraits, piles, hands and the rest stay as
+they are. It needs a browser with WebGPU or WebGL 2 (every current one), and
+`?table=3d&gl=webgl` forces WebGL.
+
 The music is made as it plays, so it never loops: a harp arpeggio over a plucked bass and a
 soft frame drum, with a melody and a shaker coming and going as it builds and eases off. It
 starts, fading in, with your first click or key press (browsers keep a page silent until

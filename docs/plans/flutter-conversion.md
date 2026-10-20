@@ -4,7 +4,8 @@ Question: should Arena EDH become a Flutter app? The motive is visual polish: a 
 scene, with the camera moving, cards as solid objects, and an environment around the table
 (trees, rocks, architecture), which the current CSS-transform table can't do well.
 
-**Status: research only. Nothing in the app changes. The recommendation is at the end.**
+**Status: researched, and the spike at the end is built: `?table=3d` draws the table in 3D
+(src/ui/three/). What it showed is under "The spike, built".**
 
 Dates and versions below are as of October 2026. Flutter and the 3D libraries move fast,
 so re-check before acting on a version number.
@@ -242,6 +243,87 @@ Decide on these:
 Revisit Flutter only if a native mobile app becomes a goal in itself. Even then, do the
 Three.js table first: the engine, store and view it leaves alone are exactly the parts a
 later port would share across platforms, and the mobile browsers run the same scene.
+
+## The spike, built
+
+`?table=3d` (docs/how-to-play.md) swaps `.table` in `GameScreen.tsx` for `src/ui/three/Table3D.tsx`.
+Nothing else changes: the engine, the store, `view.ts`, the HUD, the hand, the portraits and
+piles, the server and the launcher are as they were, and `tests/view.test.ts` passes unchanged.
+The 3D code is a separate chunk (about 410 kB gzipped, Three.js mostly) that only the toggle
+downloads.
+
+What is in it:
+
+- **The scene.** Three.js through React Three Fiber, drawn by Three's `WebGPURenderer`,
+  which runs on WebGL 2 where there is no WebGPU (headless Chromium here; `?gl=webgl`
+  forces it). A flagstone floor drawn on a canvas, trees, rocks and lantern pillars, a
+  hemisphere light and a shadow-casting "moon", fog past the table. `?quality=low` drops
+  shadows and high-DPI drawing.
+- **The camera** starts exactly where the CSS table's perspective puts the viewer
+  (`baseCamera` in layout3d.ts: the same TILT and DEPTH as camera.ts, with an off-centre
+  projection whose axis is the bottom of the screen), so the seats' rows land where
+  `table-layout.ts` designed them under the same portraits and piles. It pushes in slowly
+  while combat is on and comes back after.
+- **The cards** are thin boxes with the Scryfall image on top (Scryfall allows cross-origin
+  use, so WebGL may read it) and a drawn back underneath, at a real card's proportions, in
+  the same piles and rows as the CSS tiles (`layoutSeat`, which reuses `seatBox`, `seatScale`
+  and `rowGap`; tested in tests/layout3d.test.ts). They cast shadows, turn when tapped, lift
+  toward the middle when attacking or blocking, glow in the same colours, and ease to their
+  places when the layout moves them. Auras and Equipment fan out behind their host.
+- **Hover, click and drag** go through the same handlers as the tiles: raycast picking on
+  the meshes calls `clickPermanent` and sets `hover`; the pile badge calls `clickGroup`; the
+  hand is the DOM hand, so dragging a card up still calls `playHandCard`.
+- **Proxies.** Each card also has an empty div kept over its place on the screen every
+  frame (`useProxy`), taking no pointer events. It is what keeps the DOM-querying parts of
+  the interface working unchanged: the preview beside the hovered card (`hover.el`), the
+  attack and target arrows (`[data-card]`), Flights.tsx reading where a card leaving the
+  table was, and `cardAt`. It also carries the badges (P/T, counters, summoning sickness,
+  "x7"), so they are crisp DOM text over the canvas.
+- **Flights in.** A card reaching the table flies from where it was on the screen (its hand
+  slot, the stack, a pile, a portrait), captured before React redraws, and tokens pop up.
+  A card leaving the table still flies as before, from its proxy.
+
+What was checked, in headless Chromium driven by Playwright against the dev server, with
+a four-player game played to turn 23 (20 permanents on the table):
+
+- The board draws with every card's image, shadows and badges, all 20 proxies landed.
+- Hovering a card on the table sets `hover` to its proxy and the preview appears beside it;
+  leaving clears it.
+- The attack arrow draws from the 3D attacker to the defender's portrait, and the camera
+  pushes in during combat.
+- `tests/view.test.ts`, `tests/camera.test.ts` and `tests/table-layout.test.ts` pass
+  unchanged, `npm run build` passes.
+- Playing a card from the hand (`playHandCard`, what letting go of a dragged card calls)
+  logs the play, and the card flies from its hand slot onto the table, lands in the
+  bottom seat's row with its image, and its proxy takes over. The drag gesture itself
+  could not be driven: Motion's drag never starts under Playwright's synthetic pointer at
+  these frame times, on the CSS table just the same, and the hand is that unchanged
+  component.
+
+**Frame times could not be measured meaningfully here.** This container has no GPU:
+Chromium renders WebGL in software (SwiftShader), and a 1920 × 1080 frame of this scene
+takes about 780 ms there, against tens of milliseconds for the CSS table. That number
+says nothing about a real GPU, where a scene of 20 shadowed boxes and a few hundred
+triangles of props is trivial. The measurement that matters is the one in the spike plan
+above, step 5: open `?table=3d` in Edge on a mid-range laptop with a crowded four-player
+board and bots at 4×, and read the frame times off the harness in
+`docs/plans/performance.md`. Expect 60 frames per second; if it isn't, `frameloop="demand"`
+(drawing only when something moves) and merging the cards into one instanced mesh are the
+two standard fixes, neither of which changes the approach.
+
+What the spike leaves out, each a known piece of work rather than an open question:
+
+- The cards' corners are square (a box); rounded corners need an alpha-masked plane or a
+  rounded-box geometry.
+- The CSS tiles' name bar, ability dot, tap mark and the text-only fallback (`TextCard`)
+  aren't drawn in 3D: a card without an image shows its frame colour under its badges.
+- Phased-out, defeated and "mana source" styling is minimal (opacity only).
+- The push-in is the only camera move. Any other (a seat's turn, a spell resolving) is a
+  few lines in `Rig`.
+- Environment props are procedural placeholders. A glTF model loads with
+  `GLTFLoader` (or drei's `useGLTF`) in place of a `Tree`; the lighting and shadows already
+  apply to it.
+- The table can't be switched on from the menu; it is a URL toggle.
 
 ## Sources
 
