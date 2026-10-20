@@ -16,13 +16,6 @@ import { useStore } from './ui/store';
 // `motionConfig.skipAnimations = true` makes every move instant.
 if (import.meta.env.DEV) Object.assign(window, { store: useStore, motionConfig: MotionGlobalConfig });
 
-// Pressed cursor (`.pressing` in styles.css) while any mouse button is down. Checking `buttons`
-// on every pointer event also clears it after a release outside the window.
-const syncPressed = (e: PointerEvent) => document.documentElement.classList.toggle('pressing', e.buttons !== 0);
-for (const type of ['pointerdown', 'pointerup', 'pointermove', 'pointercancel'] as const) {
-  window.addEventListener(type, syncPressed, { capture: true, passive: true });
-}
-
 // Errors nothing else caught go to the program's log (crash.ts); drawing errors show the error screen (App).
 watchPageErrors();
 

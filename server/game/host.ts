@@ -4,18 +4,12 @@
 import { produce } from 'immer';
 import { isCardName, registerCards } from '../../src/cards/db';
 import { scriptCards } from '../../src/cards/oracle';
-import { applyAction, applyBotAction, botAction, botPause, log, newGame, viewFor } from '../../src/engine';
-import type { Action, ApplyOptions, CardData, Game, PlayerId } from '../../src/engine';
+import { applyAction, applyBotAction, log, newGame, realSchedule, scheduleBot, viewFor } from '../../src/engine';
+import type { Action, ApplyOptions, CardData, Game, PlayerId, Schedule } from '../../src/engine';
 import type { SeatPrefs, StartRequest, ViewMessage } from '../../src/net/protocol';
 import type { GameService } from './service';
 
-/** Runs `fn` after `ms`; returns a function that cancels it. Tests pass their own. */
-export type Schedule = (fn: () => void, ms: number) => () => void;
-
-const realSchedule: Schedule = (fn, ms) => {
-  const t = setTimeout(fn, ms);
-  return () => clearTimeout(t);
-};
+export type { Schedule };
 
 interface Watcher {
   seat: PlayerId | null;
@@ -213,13 +207,19 @@ export class GameHost implements GameService {
     this.cancelBot = null;
     const g = this.game;
     if (!g || this.paused || g.step === 'gameOver' || !g.players[g.priority].isBot) return;
-    const action = botAction(g, g.priority);
-    this.cancelBot = this.schedule(() => {
-      this.cancelBot = null;
-      if (this.game !== g) return;
-      this.game = applyBotAction(g, action, this.options());
-      this.changed();
-    }, botPause(action) / this.speed);
+    // The server has no frame to keep smooth, so the bot thinks at once (see `scheduleBot`).
+    this.cancelBot = scheduleBot(
+      g,
+      this.speed,
+      (action) => {
+        this.cancelBot = null;
+        if (this.game !== g) return;
+        this.game = applyBotAction(g, action, this.options());
+        this.changed();
+      },
+      this.schedule,
+      false,
+    );
   }
 }
 

@@ -95,10 +95,12 @@ html {
   cursor: var(--cursor);
 }
 
-/* While a mouse button is held (main.tsx sets the class): a pressed-in arrow with the same tip. */
-:root.pressing {
-  --cursor: url('./cursor-down.png') 0 0, auto;
-}
+/*
+  No pressed-in arrow while a button is held: changing an element's cursor repaints it, and
+  the class on <html> that used to switch --cursor repainted and re-rastered the whole
+  screen, textures and all, for 300 to 600 ms on every press and every release. A pressed
+  arrow on the pressed element alone (:active) still stalled a drag. See docs/plans/performance.md.
+*/
 
 body {
   margin: 0;
@@ -892,6 +894,13 @@ button {
     0 0.45em 1em rgba(0, 0, 0, 0.6);
   /* Its own stacking context, so the cards attached to it stay above the table (.tile-attached). */
   isolation: isolate;
+  /*
+    Its own compositor layer: Motion animates the tile's transform and opacity (entering,
+    tapping, attacking) from script, and without a layer every frame of that repainted the
+    table under it. The tiles already sit in the table's 3D layer, so they look the same; a
+    layer of its own only resamples a tile marginally sharper.
+  */
+  will-change: transform;
 }
 
 /* The card itself, centred in the tile and turned with everything on it. The frame is its background. */
@@ -4110,7 +4119,10 @@ button {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  * {
+  /* The pseudo-elements too: `*` alone never matched the glow's pulse on .board::after. */
+  *,
+  *::before,
+  *::after {
     animation: none !important;
   }
 }
