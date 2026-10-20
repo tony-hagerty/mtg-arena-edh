@@ -258,7 +258,7 @@ table drawn in 3D, with the cards as objects on a lit stone floor, trees and lan
 around it, and the camera pushing in during combat. Everything plays the same: hover a card
 to read it, click it, drag from your hand. The portraits, piles, hands and the rest stay as
 they are. It needs a browser with WebGPU or WebGL 2 (every current one), and
-`?table=3d&gl=webgl` forces WebGL.
+`?table=3d&gl=webgl` forces WebGL. The Windows program opens it with `ArenaEDH.exe --table 3d`.
 
 The music is made as it plays, so it never loops: a harp arpeggio over a plucked bass and a
 soft frame drum, with a melody and a shaker coming and going as it builds and eases off. It

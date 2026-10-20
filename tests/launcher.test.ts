@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Mock } from 'vitest';
-import { edgeArgs, edgeSpawnOptions } from '../launcher/edge';
+import { edgeArgs, edgeSpawnOptions, windowUrl } from '../launcher/edge';
 import { createLifetime } from '../launcher/lifetime';
 import { pathsFor } from '../launcher/paths';
 import { filesFromDir, listen, makeServer, probe } from '../launcher/serve';
@@ -110,6 +110,12 @@ describe('paths', () => {
     const args = edgeArgs('http://127.0.0.1:47180/', 'D:\\ArenaEDH-data\\edge');
     expect(args).toContain('--app=http://127.0.0.1:47180/');
     expect(args).toContain('--user-data-dir=D:\\ArenaEDH-data\\edge');
+  });
+
+  it('opens the 3D table with --table 3d, and the plain address otherwise', () => {
+    expect(windowUrl('http://127.0.0.1:47180/')).toBe('http://127.0.0.1:47180/');
+    expect(windowUrl('http://127.0.0.1:47180/', '3d')).toBe('http://127.0.0.1:47180/?table=3d');
+    expect(windowUrl('http://127.0.0.1:47180/', 'a b')).toBe('http://127.0.0.1:47180/?table=a%20b');
   });
 
   // Node on Windows ends a child with its parent unless it is detached (libuv's job object):
