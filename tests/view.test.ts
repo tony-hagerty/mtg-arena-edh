@@ -6,7 +6,7 @@ import { describe, expect, it } from 'vitest';
 import './fixtures';
 import { useStore } from '../src/ui/store';
 import { hoverProps } from '../src/ui/util';
-import { activateFromHand, buildView, clickGroup, chooseEscape, chooseGraveyardTarget, clickPermanent, clickPlayer, clickStackItem, exileForMana, manaOptions, pickAbility, pickMana, pickManaSacrifice, pickFace, pickMode, playHandCard, setAbilityX, setChoices, stackTucked } from '../src/ui/view';
+import { activateFromHand, buildView, clickGroup, chooseEscape, chooseGraveyardTarget, clickPermanent, clickPlayer, clickStackItem, exileForMana, manaOptions, pickAbility, pickMana, pickManaSacrifice, pickFace, pickMode, playHandCard, setAbilityX, setChoices, stackTucked, undo } from '../src/ui/view';
 import { applyAction, canCast, data, isCreature, scriptOf } from '../src/engine';
 import { registerScripts } from '../src/engine/registry';
 import { parseCard } from '../src/cards/oracle';
@@ -27,7 +27,7 @@ function play(setup: (g: Game) => void) {
     d.players[0].isBot = false;
     d.players[0].you = true;
   });
-  useStore.setState({ game: g, human: 0, humans: [0], handoff: null, targeting: null, pickedBlockers: [] });
+  useStore.setState({ game: g, human: 0, humans: [0], handoff: null, targeting: null, pickedBlockers: [], undoSteps: [], manaPick: null });
 }
 const game = () => useStore.getState().game!;
 const press = () => buildView().primary!.onClick();
@@ -1039,5 +1039,254 @@ describe('pasting a deck with cards the game can\'t read (the paste screen and t
     const el = {} as HTMLElement;
     hoverProps(data(tile), { textless: tile.textless }).onMouseEnter({ currentTarget: el } as MouseEvent<HTMLElement>);
     expect(useStore.getState().hover).toMatchObject({ name: hound.name, textless: true });
+  });
+});
+
+describe('undo (Ctrl+Z)', () => {
+  const pool = () => game().players[0].pool.map((m) => m.sym).sort().join('');
+  const tapped = () => game().players[0].battlefield.filter((c) => c.tapped).map((c) => c.name).sort();
+  const mountains = () => game().players[0].battlefield.filter((c) => c.name === 'Mountain');
+
+  it('closes a mana choice left open, and nothing is used', () => {
+    play((d) => put(d, 0, 'Talisman of Dominance'));
+    clickPermanent(byName(game(), 0, 'Talisman of Dominance')!);
+    expect(useStore.getState().manaPick).not.toBe(null);
+    expect(undo()).toBe(true);
+    expect(useStore.getState().manaPick).toBe(null);
+    expect(tapped()).toEqual([]);
+    expect(undo()).toBe(false);
+  });
+
+  it('steps back through a spell being cast, one choice a press, then cancels it like Esc', () => {
+    play((d) => {
+      put(d, 0, 'Mountain', 'battlefield', 4);
+      put(d, 0, 'Blaze', 'hand');
+    });
+    playHandCard(byName(game(), 0, 'Blaze', 'hand')!);
+    setChoices({ x: 2 });
+    press(); // Continue
+    clickPlayer(1);
+    clickPermanent(mountains()[0]); // tapped by hand to pay
+    expect(pool()).toBe('R');
+    expect(buildView().paying).not.toBe(null);
+
+    expect(undo()).toBe(true); // the Mountain untaps (733.1)
+    expect(pool()).toBe('');
+    expect(tapped()).toEqual([]);
+    expect(buildView().paying).not.toBe(null);
+
+    expect(undo()).toBe(true); // the target
+    let v = buildView();
+    expect(v.paying).toBe(null);
+    expect(v.targetPlayers.has(1)).toBe(true);
+    expect(useStore.getState().targeting!.chosen).toEqual([]);
+
+    expect(undo()).toBe(true); // back to announcing, X as it was
+    v = buildView();
+    expect(v.announce?.choices.x).toBe(2);
+
+    expect(undo()).toBe(true); // cancelled
+    expect(useStore.getState().targeting).toBe(null);
+    expect(byName(game(), 0, 'Blaze', 'hand')).toBeDefined();
+    expect(undo()).toBe(false);
+  });
+
+  it('cancels a spell at its start, untapping what was tapped for it, as Esc does', () => {
+    play((d) => {
+      put(d, 0, 'Mountain', 'battlefield', 2);
+      put(d, 0, 'Lightning Bolt', 'hand');
+    });
+    playHandCard(byName(game(), 0, 'Lightning Bolt', 'hand')!);
+    expect(undo()).toBe(true);
+    expect(useStore.getState().targeting).toBe(null);
+    expect(byName(game(), 0, 'Lightning Bolt', 'hand')).toBeDefined();
+    expect(tapped()).toEqual([]);
+  });
+
+  it('takes back the sacrifice, then the target (118.8)', () => {
+    play((d) => {
+      put(d, 0, 'Swamp');
+      put(d, 0, 'Elite Vanguard');
+      put(d, 1, 'Serra Angel');
+      put(d, 0, 'Bone Splinters', 'hand');
+    });
+    playHandCard(byName(game(), 0, 'Bone Splinters', 'hand')!);
+    clickPermanent(byName(game(), 1, 'Serra Angel')!);
+    clickPermanent(byName(game(), 0, 'Elite Vanguard')!);
+    expect(buildView().prompt).toContain('Pay {B}');
+    undo();
+    expect(buildView().prompt).toContain('a creature to sacrifice');
+    expect(useStore.getState().targeting!.choices.sacrifice ?? []).toEqual([]);
+    undo();
+    expect(buildView().glow.get(byName(game(), 1, 'Serra Angel')!.id)).toBe('target');
+    expect(useStore.getState().targeting!.chosen).toEqual([]);
+  });
+
+  it('takes back the card picked to discard (118.8)', () => {
+    play((d) => {
+      put(d, 0, 'Mountain', 'battlefield', 2);
+      put(d, 0, 'Grab the Prize', 'hand');
+      put(d, 0, 'Lightning Bolt', 'hand');
+    });
+    playHandCard(byName(game(), 0, 'Grab the Prize', 'hand')!);
+    playHandCard(byName(game(), 0, 'Lightning Bolt', 'hand')!);
+    expect(buildView().prompt).toContain('Pay {1}{R}');
+    undo();
+    expect(buildView().prompt).toContain('choose a card in your hand to discard');
+    expect(byName(game(), 0, 'Lightning Bolt', 'hand')).toBeDefined();
+  });
+
+  it('takes back a pile tapped while paying in one press', () => {
+    play((d) => {
+      put(d, 0, 'Mountain', 'battlefield', 3);
+      put(d, 0, 'Swamp');
+      put(d, 0, 'Blaze', 'hand');
+    });
+    playHandCard(byName(game(), 0, 'Blaze', 'hand')!);
+    setChoices({ x: 3 });
+    press(); // Continue
+    clickPlayer(1);
+    clickGroup(mountains());
+    expect(tapped()).toEqual(['Mountain', 'Mountain', 'Mountain']);
+    expect(undo()).toBe(true);
+    expect(tapped()).toEqual([]);
+    expect(buildView().paying).not.toBe(null);
+  });
+
+  it('outside a spell, takes back the newest mana still in the pool, one source a press', () => {
+    play((d) => {
+      put(d, 0, 'Island');
+      put(d, 0, 'Mountain');
+      put(d, 0, 'Swamp');
+    });
+    clickPermanent(byName(game(), 0, 'Island')!);
+    clickPermanent(byName(game(), 0, 'Mountain')!);
+    clickPermanent(byName(game(), 0, 'Swamp')!);
+    expect(pool()).toBe('BRU');
+    clickPermanent(byName(game(), 0, 'Swamp')!); // taken back by a click: that step is gone
+    expect(undo()).toBe(true);
+    expect(pool()).toBe('U');
+    expect(tapped()).toEqual(['Island']);
+    expect(undo()).toBe(true);
+    expect(pool()).toBe('');
+    expect(undo()).toBe(false);
+  });
+
+  it('takes back a mana pick, and a Signet with the land that paid for it, a press each', () => {
+    play((d) => {
+      put(d, 0, 'Dimir Signet');
+      put(d, 0, 'Island');
+      put(d, 0, 'Watery Grave');
+    });
+    clickPermanent(byName(game(), 0, 'Watery Grave')!);
+    pickMana(0, ['B']);
+    clickPermanent(byName(game(), 0, 'Island')!);
+    clickPermanent(byName(game(), 0, 'Dimir Signet')!); // pays its {1} from the pool
+    expect(tapped()).toEqual(['Dimir Signet', 'Island', 'Watery Grave']);
+    undo();
+    expect(tapped()).toEqual(['Island', 'Watery Grave']);
+    undo();
+    expect(tapped()).toEqual(['Watery Grave']);
+    expect(pool()).toBe('B');
+    undo();
+    expect(tapped()).toEqual([]);
+  });
+
+  it('never undoes a spell cast: casting ends what came before it', () => {
+    play((d) => {
+      put(d, 0, 'Mountain', 'battlefield', 2);
+      put(d, 0, 'Lightning Bolt', 'hand');
+    });
+    clickPermanent(mountains()[0]);
+    clickPermanent(mountains()[1]);
+    expect(pool()).toBe('RR');
+    playHandCard(byName(game(), 0, 'Lightning Bolt', 'hand')!);
+    clickPlayer(1);
+    press(); // Pay, from the pool
+    expect(useStore.getState().targeting).toBe(null);
+    expect(game().players[1].life).toBe(37);
+    expect(pool()).toBe('R');
+    // The other Mountain's {R} is unspent, but the step that made it went with the cast.
+    expect(undo()).toBe(false);
+    expect(byName(game(), 0, 'Lightning Bolt', 'graveyard')).toBeDefined();
+    expect(pool()).toBe('R');
+    expect(tapped()).toEqual(['Mountain', 'Mountain']);
+  });
+
+  it('takes back the last attackers declared, a click at a time (508.1)', () => {
+    play((d) => {
+      put(d, 0, 'Kalonian Tusker');
+      put(d, 0, 'Goblin Piker');
+    });
+    press(); // to combat
+    expect(game().decision?.type).toBe('attackers');
+    const tusker = byName(game(), 0, 'Kalonian Tusker')!;
+    const piker = byName(game(), 0, 'Goblin Piker')!;
+    clickPermanent(tusker);
+    clickPermanent(piker);
+    expect(game().combat!.attacks.map((a) => a.id)).toEqual([tusker.id, piker.id]);
+    expect(undo()).toBe(true);
+    expect(game().combat!.attacks.map((a) => a.id)).toEqual([tusker.id]);
+    expect(undo()).toBe(true);
+    expect(game().combat!.attacks).toEqual([]);
+    expect(undo()).toBe(false);
+    press(); // All Attack: one click, so one press takes them all back
+    expect(game().combat!.attacks).toHaveLength(2);
+    expect(undo()).toBe(true);
+    expect(game().combat!.attacks).toEqual([]);
+  });
+
+  it('moves an attack switched to a planeswalker back where it was (508.1b)', () => {
+    play((d) => {
+      put(d, 0, 'Kalonian Tusker');
+      put(d, 1, 'Jace Beleren').counters.loyalty = 3;
+    });
+    press(); // to combat
+    const tusker = byName(game(), 0, 'Kalonian Tusker')!;
+    const jace = byName(game(), 1, 'Jace Beleren')!;
+    clickPermanent(tusker); // at the player
+    clickPermanent(jace); // attackers now go at Jace
+    clickPermanent(tusker); // moved to Jace
+    expect(game().combat!.attacks).toMatchObject([{ id: tusker.id, defender: 1, target: jace.id }]);
+    undo();
+    expect(game().combat!.attacks).toMatchObject([{ id: tusker.id, defender: 1, target: null }]);
+  });
+
+  it('takes back the last blocker declared, then the pick (509.1)', () => {
+    play((d) => {
+      put(d, 0, 'Kalonian Tusker');
+      put(d, 0, 'Goblin Piker');
+      put(d, 1, 'Walking Corpse');
+    });
+    let g = applyAction(game(), { type: 'pass' });
+    for (const name of ['Kalonian Tusker', 'Goblin Piker']) g = applyAction(g, { type: 'declareAttack', card: byName(g, 0, name)!.id, defender: 1 });
+    g = applyAction(g, { type: 'pass' });
+    expect([g.decision?.type, g.priority]).toEqual(['blockers', 1]);
+    g = produce(g, (d) => {
+      d.players[1].isBot = false;
+    });
+    useStore.setState({ game: g, human: 1, humans: [1], undoSteps: [] });
+    const corpse = byName(game(), 1, 'Walking Corpse')!;
+    const piker = byName(game(), 0, 'Goblin Piker')!;
+    clickPermanent(corpse); // two attackers it could block: picked
+    expect(useStore.getState().pickedBlockers).toEqual([corpse.id]);
+    clickPermanent(piker);
+    expect(game().combat!.attacks.find((a) => a.id === piker.id)!.blockers).toEqual([corpse.id]);
+    expect(undo()).toBe(true); // the block goes, and the Corpse is picked again
+    expect(game().combat!.attacks.flatMap((a) => a.blockers)).toEqual([]);
+    expect(useStore.getState().pickedBlockers).toEqual([corpse.id]);
+    expect(undo()).toBe(true); // the pick goes
+    expect(useStore.getState().pickedBlockers).toEqual([]);
+    expect(undo()).toBe(false);
+  });
+
+  it('does nothing with nothing to take back, or after a pass', () => {
+    play((d) => put(d, 0, 'Mountain'));
+    expect(undo()).toBe(false);
+    clickPermanent(byName(game(), 0, 'Mountain')!);
+    useStore.getState().act({ type: 'pass' });
+    useStore.setState({ game: produce(game(), (d) => void (d.priority = 0)) });
+    expect(undo()).toBe(false);
+    expect(tapped()).toEqual(['Mountain']);
   });
 });

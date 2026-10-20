@@ -94,6 +94,12 @@ The full guide to the game's screens and controls. For a quick start, see the
 
   Until it is paid for nothing has happened. The spell isn't on the stack, and Cancel
   untaps any lands you tapped while paying, so you are back exactly where you were.
+
+  `Ctrl+Z` (`Cmd+Z` on a Mac) steps back one choice at a time instead: the last land you
+  tapped while paying untaps, then the last sacrifice, card to discard or exile, creature
+  to crew or convoke, or target goes, then you are back at the choices for X, kicker or
+  the cost. With nothing chosen yet it cancels, like `Esc`. A triggered ability's targets
+  step back the same way, but it can't be cancelled.
 - **More than one way to play a card:** when a card can be cast for an alternative cost,
   plotted instead (Highway Robbery), cast as either half, or needs X or kicker, the prompt
   in the middle of the table lists the choices with **Cast** (or **Play**) and **Cancel**
@@ -103,7 +109,10 @@ The full guide to the game's screens and controls. For a quick start, see the
   pill under your portrait. Costs spend that mana first and auto-tap only for the rest.
   A source with a choice (a dual land, a Talisman, Sunken Ruins) asks which ability and
   which mana you want. Click a tapped source again to take its mana back, as long as none
-  of it has been spent and using it did nothing else, like dealing you damage.
+  of it has been spent and using it did nothing else, like dealing you damage. `Ctrl+Z`
+  does the same for the source you used last whose mana is still there, one press each
+  (a pile used with one click comes back with one press), and closes a mana choice left
+  open.
 - **Piles:** identical lands, and identical creature tokens, pile up with a count (`x7`)
   on top. Click the count to use the whole pile: lands tap for mana together (while
   paying, only as many as the cost needs; a pile of dual lands asks once which mana), or untap together to take the mana back, and
@@ -191,6 +200,10 @@ The full guide to the game's screens and controls. For a quick start, see the
   attack glow yellow: click one to send your next attackers at it instead.
 - **Blocking:** when you are attacked, click your creature. If it could block more than
   one attacker, click the attacker next.
+- **Taking back:** until you press the button that finishes attacking or blocking,
+  `Ctrl+Z` takes back the last attackers you sent (one click's worth, so **All Attack**
+  at once; an attacker you switched to a planeswalker goes back to its old target), the
+  last block, or the last blocker you picked.
 - **Dividing damage:** with **Damage: By hand** on (in the log bar), a window opens in
   the damage step when one of your attackers has a choice: two or more blockers, or
   trample. Use − and + to move damage between the blockers and, with trample, the player
@@ -232,6 +245,7 @@ The full guide to the game's screens and controls. For a quick start, see the
 | --- | --- |
 | `Space` / `Enter` | the big button |
 | `Esc` | cancel |
+| `Ctrl+Z` / `Cmd+Z` | undo the last step that can be: close a mana choice; while casting, step back the last choice (a mana source untaps), or cancel at the start; otherwise take back the last mana still unspent, or the last attacker, block or blocker picked. Never a spell cast, a land played or a pass. |
 | `Ctrl+Space` | hold priority (see [Turns, priority and the stack](rules-coverage.md#turns-priority-and-the-stack)) |
 | `Ctrl+Shift` (the two alone, then let go) | full control on or off (see [The stack and your stops](#the-stack-and-your-stops)) |
 | Hover a card | full-size view |
