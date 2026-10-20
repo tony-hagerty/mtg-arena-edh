@@ -75,8 +75,10 @@ The full guide to the game's screens and controls. For a quick start, see the
   middle of the table. Every card stands upright, whoever controls it. The cards grow
   while a seat's rows have room and shrink as they fill up; a very crowded row overlaps
   its cards instead. The portrait sits on the seat's side edge, the library, graveyard and
-  exile on its top or bottom edge, and an opponent's hand fans out of their corner, face
-  down, with a count. Hover any card to see it full size.
+  exile on its top or bottom edge (card-sized, the library nearest the middle; at the
+  bottom they stand just above the tip of your hand, beside the controls), and an
+  opponent's hand fans out of their corner, face down, with a count. Hover any card to see
+  it full size.
 - **Your hand** curves out of the bottom-left corner, flat at first and then bending down
   into the bottom edge. Up to seven cards show; with more, two small pills arc over the
   middle of the cards. Point at the left one to scroll to earlier cards, the right one to
@@ -101,8 +103,9 @@ The full guide to the game's screens and controls. For a quick start, see the
   the same as the prompt's Cast.
 - **Paying by hand:** click your lands and mana rocks to tap them. The mana shows in a
   pill under your portrait. Costs spend that mana first and auto-tap only for the rest.
-  A source with a choice (a dual land, a Talisman, Sunken Ruins) asks which ability and
-  which mana you want. Click a tapped source again to take its mana back, as long as none
+  A source with a choice (a dual land, a Talisman, Sunken Ruins, Command Tower) asks which
+  ability and which mana you want, in the prompt's band in the middle of the table (under
+  the words while you are paying), with **Cancel** to tap nothing. Click a tapped source again to take its mana back, as long as none
   of it has been spent and using it did nothing else, like dealing you damage.
 - **Piles:** identical lands, and identical creature tokens, pile up with a count (`x7`)
   on top. Click the count to use the whole pile: lands tap for mana together (while
