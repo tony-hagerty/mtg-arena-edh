@@ -11,7 +11,7 @@ import { MusicControl, SoundControl } from './SoundControl';
 import { useStore } from './store';
 import type { Hover } from './store';
 import { type Seat, cx, deckColor, faceUp, hoverProps, seatOf } from './util';
-import { STEP_NAMES, activateFromHand, cancel, clickStackItem, stackTucked, pickAbility, pickMana, pickTapCreature, pickManaDiscard, pickManaSacrifice, pickFace, pickMode, playHandCard, setAbilityX, setChoices, shiftDivision, exileForMana, plotCard, useView } from './view';
+import { STEP_NAMES, activateFromHand, cancel, clickStackItem, stackTucked, pickAbility, pickMana, pickTapCreature, pickManaDiscard, pickManaSacrifice, pickFace, pickMode, playHandCard, setAbilityX, setChoices, shiftDivision, undo, exileForMana, plotCard, useView } from './view';
 import type { AbilityOption, Btn } from './view';
 import { leftStack, newGame } from './zone-moves';
 
@@ -217,7 +217,7 @@ export function ActionBar() {
   const v = useView();
   const latest = useRef(v);
   latest.current = v;
-  // Space/Enter = main button, Escape = cancel, like Arena.
+  // Space/Enter = main button, Escape = cancel, Ctrl+Z = undo, like Arena.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       // A paused table's game takes no moves, from the keys either.
@@ -225,6 +225,14 @@ export function ActionBar() {
       // While the exit dialog is open the keys belong to it: Esc stays, Enter presses the focused button.
       if (useStore.getState().confirmExit) {
         if (e.code === 'Escape') useStore.setState({ confirmExit: false });
+        return;
+      }
+      // Ctrl+Z (Cmd+Z on a Mac): take back the last step that can be, one per press (`undo`).
+      // Not while typing, where it undoes the typing.
+      if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 'z') {
+        if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+        e.preventDefault();
+        if (!e.repeat && undo()) play('cancel');
         return;
       }
       const { primary, secondary, paying } = latest.current;
