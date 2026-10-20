@@ -81,7 +81,8 @@ src/ui/         App.tsx               menu or game screen; GameScreen.tsx lays t
                                       hand's curve and scroll pills (pure maths, tested)
                 util.ts               small helpers: class names, deck colours, hover props
                 styles.css            all styling
-                cursor.png            the mouse cursor (see Credits)
+                cursor.png            the mouse cursor, and cursor-down.png while a
+                                      button is held (see Credits)
 tests/                                Vitest: card coverage, rules, the UI casting flow,
                                       bot-vs-bot games
                 simulation/           bot-vs-bot games, one file each so they run on
@@ -298,7 +299,9 @@ What the browser spends its time on while the table is up, measured in
 - **Never change the cursor on the whole page.** A cursor change repaints the element it
   changes, and the cursor is set on every element (`* { cursor: var(--cursor) }`), so a
   class on `<html>` that switched it repainted and re-rastered the whole screen on every
-  press and release, 300 to 600 ms a time. That is why there is no pressed-in arrow. The
+  press and release, 300 to 600 ms a time. The pressed-in arrow (`main.tsx`) goes on the
+  one element under the pointer, and never on a floor-sized one, whose repaint is the
+  table's. `:active` is no good for it either: the browser churns it during a drag. The
   same goes for anything else that changes a painted property on every element at once.
 - **The stage background is expensive to paint.** `--grain`, `--mottle` and `--stones`
   are SVG textures, two of them `feTurbulence` filters that take hundreds of milliseconds
