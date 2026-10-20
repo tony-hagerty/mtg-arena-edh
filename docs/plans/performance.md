@@ -98,12 +98,26 @@ filters, and it runs twice per click.
 and animate their opacity without end. Two full-screen layers (one under the table's 3D
 transform) are blended every frame, so the page never idles. Here that alone holds the
 idle table at 19 fps: with the animation off it runs at the 60 fps cap, hover goes from
-18 to 53 fps and 4× bots from 15 to 27. One layer breathing gives 33 fps, so each layer
-costs about the same.
+18 to 53 fps and 4× bots from 15 to 27.
 
-On a real GPU each blend is a fraction of a millisecond, so this is not the user's
-problem by itself, but it means the GPU draws every frame even when nothing happens.
-The look is kept: the glow still breathes. See "Left alone" for the suggestion.
+Measured ways out, on the finished branch (idle / hover / drag / bots 4×):
+
+| | idle | hover | drag | bots 4× |
+| --- | --- | --- | --- | --- |
+| both layers breathe, eased (before) | 18.5 fps | 17.1 | 16.3 | 15.5 |
+| table breathes, corner glow static | 20.8 | 20.0 | 17.8 | 18.3 |
+| corner glow breathes, table static | 23.6 | 21.6 | 20.4 | 20.9 |
+| both breathe in 72 steps | 22.9 | 18.6 | | 17.9 |
+| **both breathe in 24 steps (after, as built)** | **45.5** | **35.7** | **20.4** | 18.0 |
+| neither breathes | 54.6 | 50.4 | 36.2 | 31.8 |
+
+One breathing layer buys little: the cost is that anything animates every frame, not
+the second layer. What works is a stepped timing function: the compositor skips frames
+in which nothing changed, and `steps(24, jump-none)` over the 3.6 s pulse changes the
+opacity every 150 ms by about 0.03, too small to see. The glow still goes from 0.3 to
+1.0 and back; the breathing is linear in time rather than eased. On a real GPU each
+blend is a fraction of a millisecond, so the gain there is mostly that the GPU idles
+between steps. Bot play is unchanged because other things animate every frame anyway.
 
 The reduced-motion rule (`* { animation: none }`) never matched these pseudo-elements,
 so people who ask for less motion still got the pulse. Fixed in passing.
@@ -179,6 +193,9 @@ among the top CPU consumers while bots play.
 4. **`memo` on `Seat` and `SeatHud`** (`Board.tsx`).
 5. **`ArrowLayer` writes a path only when it changed** (`Hud.tsx`).
 6. **Reduced motion covers pseudo-elements** (`styles.css`).
+7. **The glow pulse in 24 steps** (`styles.css`): `steps(24, jump-none)` in place of
+   `ease-in-out`, so the compositor draws about seven times a second while the table is
+   idle instead of every frame.
 
 ## Tried and rejected
 
@@ -193,11 +210,6 @@ among the top CPU consumers while bots play.
 
 ## Left alone, as suggestions
 
-- **The glow pulse.** Keeping it is a cost on every frame for as long as the table is up.
-  Options, in order of how much they change the look: one breathing layer instead of two
-  (halves the blends); a slower or paused pulse while nothing happens; a static glow.
-  Here, static takes the idle table from 19 to 60 fps; on a real GPU it mostly saves
-  power.
 - **Motion's layout projection on every tile.** `layoutId` on every `Permanent` makes
   Motion measure all 88 tiles on every game change. Memoizing each tile on what it draws
   (card identity, stats, glow, combat state) would skip the tiles that didn't change,
