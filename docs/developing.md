@@ -195,8 +195,11 @@ right, bottom right. Each seat is drawn in two parts:
 - **Its portrait, piles and an opponent's hand stand on the screen** (`SeatHud`, outside
   `.table`): the portrait 2.4rem in from the side edge, just below the middle for the
   bottom seats and above it for the top ones; the library, graveyard and exile along the
-  seat's top or bottom edge; an opponent's hand fanned from a pivot off the screen past
-  their corner (`fanAngle`).
+  seat's top or bottom edge (`.seat-zones`: 9.6rem piles, the library's inner edge 18.8rem
+  from the middle of the screen so it clears the controls and the log bar, and at the
+  bottom raised 9.2rem over the tip of your hand; the bottom seats' rows stop above them,
+  `BOX_ABOVE_EDGE`); an opponent's hand fanned from a pivot off the screen past their
+  corner (`fanAngle`).
 
 Your hand follows a curve out of the bottom-left corner (`handSlot`): up to seven cards,
 each turned to the curve under it; a bigger hand scrolls (`handStart` in the store, the

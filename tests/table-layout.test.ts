@@ -69,7 +69,12 @@ describe('seatBox', () => {
     ].map(([x, y]) => cam.toScreen({ x, y }));
   const rise = (len: number) => (Math.tan((ROW_LEAN * Math.PI) / 180) * len) / 2;
 
-  it('puts the bottom-left rows between the portraits and the middle, above the controls', () => {
+  // The piles along the edges (.seat-zones in styles.css): 9.6rem wide and 5:7, standing
+  // 9.2rem up from the bottom edge and 1.3rem down from the top one.
+  const PILES_UP = 9.2 + 9.6 * 1.4;
+  const PILES_DOWN = 1.3 + 9.6 * 1.4;
+
+  it('puts the bottom-left rows between the portraits and the middle, above the piles and the controls', () => {
     const b = seatBox(BL, W, H);
     const pts = corners(b);
     const len = W / 2 - 2.7 - 20.3;
@@ -77,18 +82,23 @@ describe('seatBox', () => {
       expect(p.x).toBeGreaterThanOrEqual(20.3 - 1e-6);
       expect(p.x).toBeLessThanOrEqual(W / 2 - 2.7 + 1e-6);
       expect(p.y).toBeGreaterThanOrEqual(H / 2 + 1.33 + rise(len) - 1e-6);
-      expect(p.y).toBeLessThanOrEqual(H - 20.8 - rise(len) + 1e-6);
+      expect(p.y).toBeLessThanOrEqual(H - 24.4 - rise(len) + 1e-6);
+      // Clear of the piles, with room for a tile's badges.
+      expect(p.y).toBeLessThan(H - PILES_UP - 1.5);
     }
     // It touches the box's top and bottom, and each side at one corner.
     expect(pts[0].y).toBeCloseTo(H / 2 + 1.33 + rise(len), 6);
-    expect(pts[2].y).toBeCloseTo(H - 20.8 - rise(len), 6);
+    expect(pts[2].y).toBeCloseTo(H - 24.4 - rise(len), 6);
     expect(Math.min(pts[0].x, pts[2].x)).toBeCloseTo(20.3, 6);
     expect(Math.max(pts[1].x, pts[3].x)).toBeCloseTo(W / 2 - 2.7, 6);
   });
 
-  it('mirrors the box for the other corners', () => {
+  it('mirrors the box for the other corners, the top seats reaching nearer their edge', () => {
     const tl = corners(seatBox(TL, W, H));
     expect(tl[0].y).toBeCloseTo(20.8 + rise(W / 2 - 23), 6);
+    // Their piles sit right on the edge, with no hand under them.
+    for (const p of tl) expect(p.y).toBeGreaterThan(PILES_DOWN + 1.5);
+    expect(seatBox(TL, W, H).height).toBeGreaterThan(seatBox(BL, W, H).height);
     expect(tl[2].y).toBeCloseTo(H / 2 - 1.33 - rise(W / 2 - 23), 6);
     const tr = seatBox(TR, W, H);
     const tlBox = seatBox(TL, W, H);
@@ -100,13 +110,14 @@ describe('seatBox', () => {
     expect(br.height).toBeCloseTo(bl.height, 9);
   });
 
-  it('runs the whole bottom edge, level and above the controls, when you have it to yourself', () => {
+  it('runs the whole bottom edge, level and above the piles and the controls, when you have it to yourself', () => {
     const b = seatBox(FULL, W, H);
     expect(b.lean).toBe(0);
     const pts = corners(b);
     expect(Math.max(...pts.map((p) => p.x))).toBeCloseTo(W - 20.3, 6);
     expect(pts[0].y).toBeCloseTo(H / 2 + 3.2, 6);
-    expect(pts[2].y).toBeCloseTo(H - 22.6, 6);
+    expect(pts[2].y).toBeCloseTo(H - 24.4, 6);
+    expect(pts[2].y).toBeLessThan(H - PILES_UP - 1.5);
   });
 
   it('places from the middle and the edges on a taller screen', () => {
