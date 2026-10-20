@@ -181,7 +181,7 @@ button {
 .table::after {
   background: var(--shroom-glow) 0 0 / 96rem 96rem;
   opacity: 0.7;
-  animation: shroom-pulse 3.6s ease-in-out infinite alternate;
+  animation: shroom-pulse 3.6s steps(24, jump-none) infinite alternate;
 }
 
 /* ---------- table ---------- */
@@ -217,7 +217,13 @@ button {
     radial-gradient(ellipse 110% 95% at 50% 42%, #17202d, var(--board) 48%, #080b11);
 }
 
-/* The mushrooms' glow, breathing slowly. Without animation (reduced motion) it rests at a soft mid-glow. */
+/*
+  The mushrooms' glow, breathing slowly. Without animation (reduced motion) it rests at a soft
+  mid-glow. The pulse goes in 24 steps rather than smoothly: an animating layer makes the
+  compositor draw every frame for as long as the table is up, but it skips the frames between
+  steps, so a step every 150 ms (0.03 of opacity, too small to see) draws about seven times
+  a second instead of sixty. Measured in docs/plans/performance.md.
+*/
 .board::after {
   content: '';
   position: absolute;
@@ -226,7 +232,7 @@ button {
   pointer-events: none;
   background: var(--shroom-glow) 0 0 / 96rem 96rem;
   opacity: 0.7;
-  animation: shroom-pulse 3.6s ease-in-out infinite alternate;
+  animation: shroom-pulse 3.6s steps(24, jump-none) infinite alternate;
 }
 
 @keyframes shroom-pulse {

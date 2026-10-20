@@ -310,9 +310,13 @@ What the browser spends its time on while the table is up, measured in
 - **Tiles are compositor layers** (`.tile { will-change: transform }`): Motion animates
   them from script, and without a layer each animated frame repainted the table under
   them. Keep anything Motion animates every frame on its own layer.
-- **The glow pulse composites every frame.** `.board::after` and `.table::after` animate
-  their opacity without end, so the GPU draws every frame even while nothing happens. On a
-  real GPU that is cheap; in a software-rendered browser it halves the frame rate.
+- **The glow pulse is stepped.** `.board::after` and `.table::after` animate their opacity
+  without end, and an animating layer makes the compositor draw every frame for as long as
+  the table is up (in a software-rendered browser that alone halves the frame rate). The
+  compositor skips frames in which nothing changed, so the pulse runs in 24 steps
+  (`steps(24, jump-none)`): one change every 150 ms, too small to see, and the GPU draws
+  about seven times a second while the table is idle instead of sixty. Keep any always-on
+  animation stepped like this, or off.
 - **A bot thinks inside its timer** (`scheduleBot` in ai.ts, which drives the bots on the
   screen and on the game server), never in the effect that follows a game change:
   `botAction` can take 30 to 70 ms and would stretch the frame that draws the last move.
