@@ -2504,13 +2504,18 @@ button {
 
 /* ---------- overlays ---------- */
 
+/*
+  Over the table, the portraits and the piles, but under the text and controls that cross
+  the middle of the screen: the prompt and the log (20) and the action bar (25). A line
+  across the prompt hid the words.
+*/
 .arrows {
   position: absolute;
   inset: 0;
   width: 100%;
   height: 100%;
   pointer-events: none;
-  z-index: 30;
+  z-index: 19;
 }
 
 .line-attack,
