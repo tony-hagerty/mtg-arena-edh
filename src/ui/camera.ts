@@ -10,12 +10,12 @@ import { useRem } from './rem';
 
   Two coordinate spaces then: the table's own (px from its top-left corner, what layout and
   anything drawn inside .table uses) and the screen's (what getBoundingClientRect returns).
-  The hand, the HUD and the arrows live on the screen; the seats, the river and the flights
-  that land on them live on the table.
+  The hand, the portraits, the piles, the HUD and the arrows live on the screen; the seats'
+  rows and the flights that land on them live on the table.
 */
 
 /** How far the table leans away from you, in degrees. 0 is flat. */
-export const TILT = 30;
+export const TILT = 10;
 /** The perspective distance in rem. Bigger is weaker (flatter); Arena's is very weak. */
 export const DEPTH = 600;
 
@@ -80,6 +80,12 @@ export function useTableSize() {
   const w = useWidth() / rem;
   const h = tableHeight(useHeight() / rem, DEPTH);
   return { w, h };
+}
+
+/** The screen's size in rem. */
+export function useStageSize() {
+  const rem = useRem();
+  return { w: useWidth() / rem, h: useHeight() / rem };
 }
 
 /** The projection for the screen as it is now. */

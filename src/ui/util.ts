@@ -5,25 +5,43 @@ import { useStore } from './store';
 /** Joins class names, skipping falsy ones. */
 export const cx = (...parts: (string | false | null | undefined)[]) => parts.filter(Boolean).join(' ');
 
-/** The edges of the table. */
-export const SEATS = ['bottom', 'left', 'top', 'right'] as const;
-export type Seat = (typeof SEATS)[number];
+/**
+ * Where a player sits: a corner of the table, or the whole bottom edge (`full`) when you
+ * have it to yourself.
+ */
+export interface Seat {
+  v: 'top' | 'bottom';
+  h: 'left' | 'right' | 'full';
+}
 
-/** Where the others sit, clockwise in turn order after you, by how many players there are. */
+const BL: Seat = { v: 'bottom', h: 'left' };
+const TL: Seat = { v: 'top', h: 'left' };
+const TR: Seat = { v: 'top', h: 'right' };
+const BR: Seat = { v: 'bottom', h: 'right' };
+const BOTTOM: Seat = { v: 'bottom', h: 'full' };
+
+/**
+ * Where everyone sits, by how many players there are: you first, then the others clockwise
+ * in turn order. Two players sit across the table from each other; three leave you the whole
+ * bottom edge.
+ */
 const LAYOUTS: Record<number, Seat[]> = {
-  2: ['bottom', 'top'],
-  3: ['bottom', 'left', 'right'],
-  4: ['bottom', 'left', 'top', 'right'],
+  2: [BL, TR],
+  3: [BOTTOM, TL, TR],
+  4: [BL, TL, TR, BR],
 };
 
 /**
- * The table edge a player sits at as `viewer` sees it: the viewer at the bottom, then the
- * others clockwise in turn order. Watching bots, seat 0 is at the bottom.
+ * The seat a player sits at as `viewer` sees it: the viewer at the bottom left (or along the
+ * whole bottom), then the others clockwise in turn order. Watching bots, seat 0 is the viewer's.
  */
 export function seatOf(g: Game, viewer: PlayerId | null, pid: PlayerId): Seat {
   const n = g.players.length;
   return LAYOUTS[n][(pid - (viewer ?? 0) + n) % n];
 }
+
+/** The class names for a seat: `seat-bottom-left` and the like, plus `seat-bottom` or `seat-top`, and `seat-left` or `seat-right` for a corner. */
+export const seatClass = (s: Seat) => cx(`seat-${s.v}-${s.h}`, `seat-${s.v}`, s.h !== 'full' && `seat-${s.h}`);
 
 /** The players in the order the viewer sees them: themself first, then clockwise in turn order. */
 export function fromSeat<T extends { id: PlayerId }>(players: T[], viewer: PlayerId | null): T[] {

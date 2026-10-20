@@ -4,14 +4,14 @@ import { AnimatePresence, motion } from 'motion/react';
 import { cardData } from '../cards/db';
 import { data, findCard, label, triggerText } from '../engine';
 import type { CardData, Game, LogEntry, PlayerId, Step, StopKind } from '../engine';
-import { CardImage, ManaCost } from './TextCard';
+import { CardImage, ManaCost, frameOf } from './TextCard';
 import { useRem } from './rem';
 import { play } from './sound';
 import { MusicControl, SoundControl } from './SoundControl';
 import { useStore } from './store';
 import type { Hover } from './store';
 import { type Seat, cx, deckColor, faceUp, hoverProps, seatOf } from './util';
-import { STEP_NAMES, activateFromHand, cancel, clickStackItem, pickAbility, pickMana, pickTapCreature, pickManaDiscard, pickManaSacrifice, pickFace, pickMode, playHandCard, setAbilityX, setChoices, shiftDivision, exileForMana, plotCard, useView } from './view';
+import { STEP_NAMES, activateFromHand, cancel, clickStackItem, stackTucked, pickAbility, pickMana, pickTapCreature, pickManaDiscard, pickManaSacrifice, pickFace, pickMode, playHandCard, setAbilityX, setChoices, shiftDivision, exileForMana, plotCard, useView } from './view';
 import type { AbilityOption, Btn } from './view';
 import { leftStack, newGame } from './zone-moves';
 
@@ -58,13 +58,14 @@ const STOP_CYCLE: (StopKind | undefined)[] = [undefined, 'ifAble', 'always'];
 const nextStop = (k: StopKind | undefined) => STOP_CYCLE[(STOP_CYCLE.indexOf(k) + 1) % STOP_CYCLE.length];
 const STOP_TEXT: Record<StopKind, string> = { ifAble: 'stop if you can act', always: 'always stop' };
 
-/** The arrow for each seat, pointing at that side of the table. */
-const ARROW_PATH: Record<Seat, string> = {
-  bottom: 'M4 8h16l-8 9Z',
-  left: 'M16 4v16l-9-8Z',
-  top: 'M4 16h16l-8-9Z',
-  right: 'M8 4v16l9-8Z',
-};
+/**
+ * The seat arrows, left to right: bottom left (or your whole bottom edge), top left, top right,
+ * bottom right. Each one is the same arrow, pointing up and left, turned toward its corner; the
+ * whole bottom edge's points straight down.
+ */
+const ARROW_ORDER = ['bottom-left', 'bottom-full', 'top-left', 'top-right', 'bottom-right'];
+const ARROW_TURN: Record<string, number> = { 'bottom-left': -90, 'bottom-full': -135, 'top-left': 0, 'top-right': 90, 'bottom-right': 180 };
+const corner = (s: Seat) => `${s.v}-${s.h}`;
 
 const stopTitle = (step: Step, kind: StopKind | undefined) =>
   NO_PRIORITY.includes(step)
@@ -110,20 +111,22 @@ function PhaseTracker() {
     <div className={cx('phases', me !== null && 'editable')} ref={root} style={tone as CSSProperties}>
       {me !== null && (
         <div className="seat-arrows">
-          {g.players.map((p) => (
-            <button
-              key={p.id}
-              className={cx('seat-arrow', `arrow-${seatOf(g, me, p.id)}`, editing === p.id && 'on', g.active === p.id && 'active')}
-              style={{ '--deck': deckVar(p.id) } as CSSProperties}
-              disabled={p.lost}
-              title={editing === p.id ? 'Back to the current turn' : `Set stops for ${whose(p.id)} turns`}
-              onClick={() => setSeat(editing === p.id ? null : p.id)}
-            >
-              <svg viewBox="0 0 24 24">
-                <path d={ARROW_PATH[seatOf(g, me, p.id)]} />
-              </svg>
-            </button>
-          ))}
+          {[...g.players]
+            .sort((a, b) => ARROW_ORDER.indexOf(corner(seatOf(g, me, a.id))) - ARROW_ORDER.indexOf(corner(seatOf(g, me, b.id))))
+            .map((p) => (
+              <button
+                key={p.id}
+                className={cx('seat-arrow', editing === p.id && 'on', g.active === p.id && 'active')}
+                style={{ '--deck': deckVar(p.id), '--turn': `${ARROW_TURN[corner(seatOf(g, me, p.id))]}deg` } as CSSProperties}
+                disabled={p.lost}
+                title={editing === p.id ? 'Back to the current turn' : `Set stops for ${whose(p.id)} turns`}
+                onClick={() => setSeat(editing === p.id ? null : p.id)}
+              >
+                <svg viewBox="0 0 24 24">
+                  <polygon points="3,3 13,3 13,6.5 9,6.5 20.5,18 18,20.5 6.5,9 6.5,13 3,13" />
+                </svg>
+              </button>
+            ))}
         </div>
       )}
       <div className="phase-main">
@@ -781,7 +784,7 @@ export function LogPanel() {
     lines.current?.scrollTo({ top: lines.current.scrollHeight });
   }, [g.log.length, show]);
   const start = Math.max(0, g.log.length - 80);
-  // The panel hangs from the bottom-left corner. The bar is the log's top edge: as the lines fold away it rides down with them.
+  // The panel hangs from the top of the screen, in the middle. The bar is the log's top edge: the lines fold open under it.
   return (
     <aside className={cx('log', show && 'open')}>
       <div className="log-bar">
@@ -957,11 +960,11 @@ export function Preview() {
   const rem = parseFloat(getComputedStyle(document.documentElement).fontSize);
   const gap = 1.5 * rem;
   if (pinned) {
-    // Half the screen's height, raised a little, centred on the fifth of six columns across
-    // the screen (75% of the way along); a narrow window shrinks it to stay on screen.
-    const height = Math.min(window.innerHeight * 0.5, (window.innerWidth / 2 - 2 * gap) * 1.395);
+    // Half the screen's height, raised a little, centred 72% of the way across the screen,
+    // right of the stack in the middle; a narrow window shrinks it to stay on screen.
+    const height = Math.min(window.innerHeight * 0.5, (window.innerWidth * 0.56 - 2 * gap) * 1.395);
     const width = height / 1.395;
-    shown.current = { left: window.innerWidth * 0.75 - width / 2, top: window.innerHeight * 0.42 - height / 2, width };
+    shown.current = { left: window.innerWidth * 0.72 - width / 2, top: window.innerHeight * 0.42 - height / 2, width };
   } else if (hover?.el.isConnected) {
     // For the one render where the old element is gone, stay where the preview last was, so it doesn't blink.
     const r = hover.el.getBoundingClientRect();
@@ -989,13 +992,26 @@ export function Preview() {
  * The stack: spells and abilities waiting to resolve, oldest at the back. It only shows
  * while the game is waiting on someone; a spell nobody responds to resolves at once.
  * A spell or ability the human is paying for hovers in front, where it goes once paid.
+ * It sits over the middle of the table; Hide tucks it into a chip to see the cards under it.
  */
 export function StackPanel() {
-  const { g, me, paying, targetStack } = useView();
+  const v = useView();
+  const { g, me, paying, targetStack } = v;
+  const hidden = useStore((s) => s.stackHidden);
   if ((!g.stack.length && !paying) || g.step === 'gameOver') return null;
+  if (stackTucked(v, hidden)) {
+    const top = g.stack[g.stack.length - 1];
+    // Tucked away: a chip in the middle of the table, in the colour of what is on top.
+    return (
+      <button className={cx('stack-chip', `frame-${frameOf(data(top.card))}`)} onClick={() => useStore.setState({ stackHidden: false })} aria-label="Show the stack">
+        <span className="stack-chip-dot" />
+        Stack · {g.stack.length}
+        <span className="stack-chip-show">· Show</span>
+      </button>
+    );
+  }
   return (
     <div className="stack-panel">
-      {g.stack.length > 0 && <div className="stack-title">Stack</div>}
       {g.stack.map((item, i) => {
         const who = item.controller === me ? 'Your' : `${g.players[item.controller].name}'s`;
         return (
@@ -1020,6 +1036,21 @@ export function StackPanel() {
         <div key={`paying-${paying.card.id}`} data-paying={paying.card.id} className="stack-item top paying" {...hoverProps(data(paying.card))}>
           <CardImage d={data(paying.card)} alt={label(paying.card)} draggable={false} />
           <span className="stack-tag">Pay to {paying.kind === 'spell' ? 'cast' : 'activate'}</span>
+        </div>
+      )}
+      {g.stack.length > 0 && (
+        <div className="stack-foot">
+          <span className="stack-title">Stack · {g.stack.length}</span>
+          {/* Only while it may be hidden: it would come straight back (`stackTucked`). */}
+          {stackTucked(v, true) && (
+            <button className="stack-hide" onClick={() => useStore.setState({ stackHidden: true, hover: null })} aria-label="Hide the stack">
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M3 3l18 18M10.6 5.1A10 10 0 0 1 12 5c5 0 9 4.5 10 7a13 13 0 0 1-3.2 4.2M6.6 6.6A13 13 0 0 0 2 12c1 2.5 5 7 10 7a9.8 9.8 0 0 0 4.4-1" />
+                <path d="M9.9 9.9a3 3 0 0 0 4.2 4.2" />
+              </svg>
+              Hide
+            </button>
+          )}
         </div>
       )}
     </div>

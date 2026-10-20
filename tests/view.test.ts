@@ -6,7 +6,7 @@ import { describe, expect, it } from 'vitest';
 import './fixtures';
 import { useStore } from '../src/ui/store';
 import { hoverProps } from '../src/ui/util';
-import { activateFromHand, buildView, clickGroup, chooseEscape, chooseGraveyardTarget, clickPermanent, clickPlayer, clickStackItem, exileForMana, manaOptions, pickAbility, pickMana, pickManaSacrifice, pickFace, pickMode, playHandCard, setAbilityX, setChoices } from '../src/ui/view';
+import { activateFromHand, buildView, clickGroup, chooseEscape, chooseGraveyardTarget, clickPermanent, clickPlayer, clickStackItem, exileForMana, manaOptions, pickAbility, pickMana, pickManaSacrifice, pickFace, pickMode, playHandCard, setAbilityX, setChoices, stackTucked } from '../src/ui/view';
 import { applyAction, canCast, data, isCreature, scriptOf } from '../src/engine';
 import { registerScripts } from '../src/engine/registry';
 import { parseCard } from '../src/cards/oracle';
@@ -186,6 +186,41 @@ describe('modes, stack targets and holding priority in the UI', () => {
     expect(game().stack).toHaveLength(0);
     expect(game().players[1].life).toBe(40);
     expect(game().log.some((l) => l.text === 'Lightning Bolt is countered.')).toBe(true);
+  });
+});
+
+describe('hiding the stack', () => {
+  it('tucks the stack away until it empties, and shows it while it is needed', () => {
+    play((d) => {
+      put(d, 0, 'Mountain');
+      put(d, 0, 'Island', 'battlefield', 2);
+      put(d, 0, 'Lightning Bolt', 'hand');
+      put(d, 0, 'Counterspell', 'hand');
+    });
+    playHandCard(byName(game(), 0, 'Lightning Bolt', 'hand')!);
+    clickPlayer(1);
+    useStore.setState({ hold: true });
+    press(); // Pay, and keep priority
+    expect(game().stack).toHaveLength(1);
+    useStore.setState({ stackHidden: true });
+    expect(stackTucked(buildView(), true)).toBe(true);
+    // Casting a counterspell: it is paid for and targets the stack, so the stack shows again.
+    playHandCard(byName(game(), 0, 'Counterspell', 'hand')!);
+    expect(buildView().targetStack.size).toBe(1);
+    expect(stackTucked(buildView(), useStore.getState().stackHidden)).toBe(false);
+    clickStackItem(game().stack[0].id);
+    press(); // Pay: both resolve and the stack empties.
+    expect(game().stack).toHaveLength(0);
+    // The next spell shows the stack again.
+    expect(useStore.getState().stackHidden).toBe(false);
+  });
+
+  it('starts every hand scrolled to its first card', () => {
+    useStore.setState({ handStart: 5 });
+    play(() => {});
+    useStore.getState().start(null);
+    expect(useStore.getState().handStart).toBe(0);
+    useStore.getState().quit();
   });
 });
 

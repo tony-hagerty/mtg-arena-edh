@@ -1,36 +1,33 @@
 import { useEffect, useRef, useState } from 'react';
-import type { CSSProperties } from 'react';
+import type { CSSProperties, ReactNode } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import { cardData } from '../cards/db';
 import { COMMANDER_DAMAGE, attachmentsOf, creaturesOf, data, isCreature, isHidden, isLand, permanent } from '../engine';
-import type { Card, ManaSym, Player } from '../engine';
+import type { Card, Game, ManaSym, Player } from '../engine';
 import { HandBack, HandCard, HiddenHandCard, Permanent } from './Card';
 import { CardImage } from './TextCard';
 import { useRem } from './rem';
 import { useStore } from './store';
-import { cx, deckColor, faceUp, hoverProps, seatOf } from './util';
+import { useStageSize } from './camera';
+import { HAND_VISIBLE, TILE, fanAngle, handPills, handWindow, rowGap, seatBox, seatScale } from './table-layout';
+import type { Pt } from './table-layout';
+import { cx, deckColor, faceUp, hoverProps, seatClass, seatOf } from './util';
+import type { Seat as SeatPos } from './util';
 import { clickCrown, clickPlayer, useView } from './view';
+import type { View } from './view';
 
 const vars = (v: Record<string, string | number>) => v as CSSProperties;
-
-/** How much of each card under the top one a pile shows, as a share of the tile's width. Keep in step with `.stack .tile + .tile` in styles.css. */
-const PILE_STEP = 0.1;
-
-/** Tile width (rem) that lets `n` tiles share a row, capped at `max`. */
-const fit = (n: number, width: number, max: number, gap = 0.8) => Math.min(max, (width - gap * (n - 1)) / Math.max(n, 1));
 
 /** True while mana this permanent was tapped for is still floating unspent in its owner's pool. */
 const floating = (player: Player, c: Card) => player.pool.some((m) => m.source === c.id);
 
 /**
- * A player's creatures. Identical tokens pile up like lands; the pile's badge attacks or
- * blocks with all of them. While their owner picks attackers or blockers, each token's
- * choice is part of its pile, so clicking one moves it to a pile of its own. Once combat is
- * underway the fighting ones stand alone. A side-seat board wraps onto two rows once that
- * makes the tiles bigger than squeezing them into one.
+ * A player's creatures in piles. Identical tokens pile up like lands; the pile's badge
+ * attacks or blocks with all of them. While their owner picks attackers or blockers, each
+ * token's choice is part of its pile, so clicking one moves it to a pile of its own. Once
+ * combat is underway the fighting ones stand alone.
  */
-function CreatureRow({ player, width, max, className, wrap }: { player: Player; width: number; max: number; className: string; wrap?: boolean }) {
-  const v = useView();
+function creaturePiles(v: View, player: Player): Card[][] {
   const g = v.g;
   const fighting = new Set((g.combat?.attacks ?? []).flatMap((a) => [a.id, ...a.blockers]));
   const choosing = v.mine && player.id === v.me && (g.decision?.type === 'attackers' || g.decision?.type === 'blockers');
@@ -43,76 +40,100 @@ function CreatureRow({ player, width, max, className, wrap }: { player: Player; 
     const key = stackable && !attached ? [c.name, c.tapped, floating(player, c), c.sick, JSON.stringify(c.counters), c.damage, c.continuous.length, ...choice].join('|') : c.id;
     groups.set(key, [...(groups.get(key) ?? []), c]);
   }
-  const units = [...groups.values()].reduce((n, s) => n + 1 + PILE_STEP * (s.length - 1), 0);
-  const oneRow = fit(units, width, max);
-  const wrapped = wrap ? fit(Math.ceil(units / 2), width, Math.min(max, 10.5)) : 0;
-  const twoRows = wrapped > oneRow;
-  const tw = Math.max(oneRow, wrapped);
+  return [...groups.values()];
+}
+
+/**
+ * A player's lands in piles: by name, with tapped ones apart, and ones whose mana is still
+ * unspent in the pool apart again. The pile's badge taps (or untaps) the whole pile.
+ */
+function landPiles(g: Game, player: Player): Card[][] {
+  const lands = player.battlefield.filter((x) => isLand(g, x));
+  const piles = new Map<string, Card[]>();
+  const order = (c: Card) => Number(floating(player, c)) * 2 + Number(c.tapped);
+  for (const c of [...lands].sort((a, b) => a.name.localeCompare(b.name) || order(b) - order(a))) {
+    // An enchanted land stands alone, so what is attached to it shows (see `Permanent`).
+    const key = attachmentsOf(g, c).length ? c.id : `${c.name}|${c.tapped}|${floating(player, c)}`;
+    piles.set(key, [...(piles.get(key) ?? []), c]);
+  }
+  return [...piles.values()];
+}
+
+/** A player's artifacts, enchantments and the rest, and their phased-out permanents. */
+function otherPermanents(g: Game, player: Player) {
+  // Auras and Equipment attached to something are drawn under it instead (see `Permanent`).
+  const others = player.battlefield.filter((c) => !isLand(g, c) && !isCreature(g, c) && !(c.attachedTo && permanent(g, c.attachedTo)));
+  // Phased-out permanents are treated as though they don't exist (702.26b), but stay in view, faded.
+  return { others, phased: player.phasedOut ?? [] };
+}
+
+/** A row of a seat: its tiles `tw` rem wide, `gap` rem apart (less than nothing once they overlap). */
+function Row({ className, tw, gap, children }: { className: string; tw: number; gap: number; children: ReactNode }) {
   return (
-    <div className={cx('row', className, twoRows && 'two-rows')} style={vars({ '--tw': `${tw}rem` })}>
-      <AnimatePresence>
-        {[...groups.values()].map((stack) =>
-          stack.length === 1 ? (
-            <Permanent key={stack[0].id} card={stack[0]} />
-          ) : (
-            <div className="stack" key={`stack-${stack[0].id}`}>
-              {stack.map((c, i) => (
-                <Permanent key={c.id} card={c} badge={i === stack.length - 1 ? stack : undefined} />
-              ))}
-            </div>
-          ),
-        )}
-      </AnimatePresence>
+    <div className={cx('row', className)} style={vars({ '--tw': `${tw}rem`, '--gap': `${gap}rem` })}>
+      {children}
+    </div>
+  );
+}
+
+/** A pile of permanents overlapping along the row; the top one carries the pile's badge. */
+function Pile({ cards }: { cards: Card[] }) {
+  return (
+    <div className="stack">
+      {cards.map((c, i) => (
+        <Permanent key={c.id} card={c} badge={cards.length > 1 && i === cards.length - 1 ? cards : undefined} />
+      ))}
     </div>
   );
 }
 
 /**
- * Lands on one side, artifacts and enchantments on the other. Lands stack by name, with
- * tapped ones apart, and ones whose mana is still unspent in the pool apart again. The
- * pile's badge taps (or untaps) the whole pile.
- * With `split` the two sides sit either side of the avatar and each gets `width` to itself.
- * A row `depth` rem deep wraps onto two lines once that makes the tiles bigger than
- * squeezing them into one, as a crowded board's lands do; each side of a split row decides
- * on its own.
+ * One player's rows on the table, in their corner (`seatBox`): lands nearest their edge, then
+ * the other permanents, then creatures nearest the middle. The cards stay upright whoever
+ * controls them, and grow while the rows fit the seat (`seatScale`).
  */
-function BackRow({ player, width, max, depth, className, split }: { player: Player; width: number; max: number; depth: number; className: string; split?: boolean }) {
-  const g = useView().g;
-  const lands = player.battlefield.filter((x) => isLand(g, x));
-  // Auras and Equipment attached to something are drawn under it instead (see `Permanent`).
-  const others = player.battlefield.filter((c) => !isLand(g, c) && !isCreature(g, c) && !(c.attachedTo && permanent(g, c.attachedTo)));
-  // Phased-out permanents are treated as though they don't exist (702.26b), but stay in view, faded.
-  const phased = player.phasedOut ?? [];
-  const stacks = new Map<string, Card[]>();
-  const order = (c: Card) => Number(floating(player, c)) * 2 + Number(c.tapped);
-  for (const c of [...lands].sort((a, b) => a.name.localeCompare(b.name) || order(b) - order(a))) {
-    // An enchanted land stands alone, so what is attached to it shows (see `Permanent`).
-    const key = attachmentsOf(g, c).length ? c.id : `${c.name}|${c.tapped}|${floating(player, c)}`;
-    stacks.set(key, [...(stacks.get(key) ?? []), c]);
-  }
-  const landUnits = [...stacks.values()].reduce((n, s) => n + 1 + PILE_STEP * (s.length - 1), 0);
-  // A tile is 0.8 of its width tall, and two lines need a gap between them.
-  const sized = (units: number) => {
-    const one = fit(units, width, max, 1.2);
-    const two = Math.min(fit(Math.ceil(units / 2), width, max, 1.2), (depth - 0.6) / 1.6);
-    return two > one && units > 1 ? { tw: two, wrap: true } : { tw: one, wrap: false };
+export function Seat({ player }: { player: Player }) {
+  const v = useView();
+  const g = v.g;
+  const seat = seatOf(g, v.me, player.id);
+  const stage = useStageSize();
+  const box = seatBox(seat, stage.w, stage.h);
+  const creatures = creaturePiles(v, player);
+  const lands = landPiles(g, player);
+  const { others, phased } = otherPermanents(g, player);
+  const sizes = (piles: Card[][]) => piles.map((p) => p.length);
+  const otherSizes = [...others, ...phased].map(() => 1);
+  const k = seatScale({
+    rows: [
+      { ...TILE.other, piles: sizes(lands) },
+      { ...TILE.other, piles: otherSizes },
+      { ...TILE.creature, piles: sizes(creatures) },
+    ],
+    rowLen: box.width,
+    room: box.height,
+  });
+  const size = (kind: keyof typeof TILE, piles: number[]) => {
+    const tw = TILE[kind].w * k;
+    return { tw, gap: rowGap(piles, tw, TILE[kind].gap, box.width) };
   };
-  const side = (x: { tw: number }) => vars({ '--tw': `${x.tw}rem` });
-  const all = sized(landUnits + others.length + phased.length);
-  const landSide = split ? sized(landUnits) : all;
-  const otherSide = split ? sized(others.length + phased.length) : all;
   return (
-    <div className={cx('row back', className, !split && all.wrap && 'two-rows')} style={side(all)}>
-      <div className={cx('lands', split && landSide.wrap && 'two-rows')} style={split ? side(landSide) : undefined}>
-        {[...stacks.entries()].map(([key, stack]) => (
-          <div className="stack" key={key}>
-            {stack.map((c, i) => (
-              <Permanent key={c.id} card={c} badge={stack.length > 1 && i === stack.length - 1 ? stack : undefined} />
-            ))}
-          </div>
+    <section
+      className={cx('seat', seatClass(seat), g.active === player.id && 'active', player.lost && 'lost')}
+      style={vars({
+        left: `${box.left}rem`,
+        top: `${box.top}rem`,
+        width: `${box.width}rem`,
+        height: `${box.height}rem`,
+        rotate: `${box.lean}deg`,
+        '--deck': deckColor(player.colors),
+      })}
+    >
+      <Row className="lands" {...size('other', sizes(lands))}>
+        {lands.map((pile) => (
+          <Pile key={pile[0].id} cards={pile} />
         ))}
-      </div>
-      <div className={cx('others', split && otherSide.wrap && 'two-rows')} style={split ? side(otherSide) : undefined}>
+      </Row>
+      <Row className="others" {...size('other', otherSizes)}>
         <AnimatePresence>
           {others.map((c) => (
             <Permanent key={c.id} card={c} />
@@ -121,8 +142,14 @@ function BackRow({ player, width, max, depth, className, split }: { player: Play
             <Permanent key={c.id} card={c} phased />
           ))}
         </AnimatePresence>
-      </div>
-    </div>
+      </Row>
+      <Row className="creatures" {...size('creature', sizes(creatures))}>
+        <AnimatePresence>
+          {creatures.map((pile) => (pile.length === 1 ? <Permanent key={pile[0].id} card={pile[0]} /> : <Pile key={`stack-${pile[0].id}`} cards={pile} />))}
+        </AnimatePresence>
+      </Row>
+      {player.lost && <div className="defeated">Defeated</div>}
+    </section>
   );
 }
 
@@ -315,57 +342,51 @@ function usePrevious<T>(value: T) {
 }
 
 /**
- * An opponent's hand: face-down cards fanned out from their edge of the table. The hand
- * only shows a count, so a bigger hand next to a smaller library means the new cards were drawn.
+ * An opponent's hand: face-down cards fanned out of their corner, partly off the screen,
+ * with a count. The hand only shows a count, so a bigger hand next to a smaller library
+ * means the new cards were drawn.
  */
-function OpponentHand({ player, span }: { player: Player; span: number }) {
+function OpponentHand({ player, seat }: { player: Player; seat: SeatPos }) {
   const fanEl = useRef<HTMLDivElement>(null);
   const shown = Math.min(player.hand.length, 12);
   const before = usePrevious({ hand: Math.min(player.hand.length, 12), library: player.library.length });
   const drew = shown > before.hand && player.library.length < before.library;
   return (
-    <div className="opp-hand" data-hand-of={player.id} title={`${player.hand.length} cards in hand`}>
+    <div className="opp-hand">
       <div className="opp-fan" ref={fanEl}>
+        {/* Where a card going to this hand flies (Flights.tsx): a card back's place in the middle of the fan, never drawn. */}
+        <div className="card-back opp-hand-spot" data-hand-of={player.id} style={{ rotate: `${fanAngle(0, 1, seat)}deg` }} />
         {Array.from({ length: shown }, (_, i) => (
-          <HandBack
-            key={i}
-            pid={player.id}
-            fanEl={fanEl}
-            index={i}
-            total={shown}
-            span={span}
-            drawn={drew && i >= before.hand ? i - before.hand : undefined}
-          />
+          <HandBack key={i} pid={player.id} fanEl={fanEl} angle={fanAngle(i, shown, seat)} drawn={drew && i >= before.hand ? i - before.hand : undefined} />
         ))}
       </div>
-      <span className="count">{player.hand.length}</span>
+      <span className="count" title={`${player.hand.length} cards in hand`}>
+        {player.hand.length}
+      </span>
     </div>
   );
 }
 
-/** An opponent's side of the table, laid out from their own edge inward: hand, lands, creatures. */
-export function OpponentPanel({ player }: { player: Player }) {
+/**
+ * The parts of a player's seat that stand on the screen rather than lie on the table: the
+ * portrait on their side edge, the library, graveyard and exile on their top or bottom edge,
+ * and an opponent's hand fanned out of their corner. `you`: the seat at the bottom, whose
+ * hand is `PlayerHand` and whose portrait carries the mana pool.
+ */
+export function SeatHud({ player, you }: { player: Player; you: boolean }) {
   const { g, me } = useView();
   const seat = seatOf(g, me, player.id);
-  // The top seat has the long edge; the side seats are shorter, so they fan tighter and wrap.
-  const side = seat !== 'top';
   return (
-    <section
-      className={cx('opp', `seat-${seat}`, g.active === player.id && 'active', player.lost && 'lost')}
-      style={vars({ '--deck': deckColor(player.colors) })}
-    >
-      <header className="opp-head">
+    <div className={cx('seat-hud', seatClass(seat), g.active === player.id && 'active', player.lost && 'lost')} style={vars({ '--deck': deckColor(player.colors) })}>
+      <div className="seat-avatar">
         <Avatar player={player} />
-        <OpponentHand player={player} span={side ? 22 : 34} />
-        <div className="opp-zones">
-          <Piles player={player} />
-        </div>
-      </header>
-      {/* The camera shows the opponents' seats smaller (camera.ts), so their tiles run bigger than yours; the top seat, on the far edge, bigger still. */}
-      <BackRow player={player} width={side ? 64 : 106} max={side ? 12.6 : 13.8} depth={side ? 10.6 : 11.6} className="opp-back" />
-      <CreatureRow player={player} width={side ? 66 : 111} max={side ? 16 : 18} className="opp-front" wrap={side} />
-      {player.lost && <div className="defeated">Defeated</div>}
-    </section>
+        {you && <ManaPool player={player} />}
+      </div>
+      <div className="seat-zones">
+        <Piles player={player} />
+      </div>
+      {!you && <OpponentHand player={player} seat={seat} />}
+    </div>
   );
 }
 
@@ -395,7 +416,68 @@ function arranged(hand: Card[], order: string[]) {
   return [...hand].sort((a, b) => rank(a) - rank(b));
 }
 
-/** Your hand, kept out of the tilted table so dragging a card tracks the pointer. */
+/** The scroll pills' shapes never change: worked out once. */
+const PILLS = handPills();
+/** A polyline in rem (y up from the screen's bottom) as SVG path data for `.hand-pills`, whose y runs down from the bottom edge. */
+const pathOf = (pts: Pt[]) => pts.map((p, i) => `${i ? 'L' : 'M'}${p.x.toFixed(2)} ${(-p.y).toFixed(2)}`).join(' ');
+/** Hovering a pill moves the hand a card after SCROLL_WAIT ms, then one more every SCROLL_MS, so it never races past the card you wanted. */
+const SCROLL_WAIT = 250;
+const SCROLL_MS = 450;
+
+/**
+ * Over a hand too big for its curve: two pills arcing above the card tops, either side of the
+ * middle. Hovering the left one scrolls to earlier cards, the right one to later ones (a click
+ * moves one card), and each one's chevrons dim once there is nothing more that way.
+ */
+function HandPills({ total, start }: { total: number; start: number }) {
+  const timers = useRef<{ wait?: ReturnType<typeof setTimeout>; tick?: ReturnType<typeof setInterval> }>({});
+  const size = useRef(total);
+  size.current = total;
+  const stop = () => {
+    clearTimeout(timers.current.wait);
+    clearInterval(timers.current.tick);
+  };
+  useEffect(() => stop, []);
+  const step = (dir: -1 | 1) => {
+    const now = handWindow(useStore.getState().handStart, size.current);
+    const next = handWindow(now + dir, size.current);
+    if (next === now) stop();
+    else useStore.setState({ handStart: next });
+  };
+  const scroll = (dir: -1 | 1) => {
+    stop();
+    timers.current.wait = setTimeout(() => {
+      step(dir);
+      timers.current.tick = setInterval(() => step(dir), SCROLL_MS);
+    }, SCROLL_WAIT);
+  };
+  if (total <= HAND_VISIBLE) return null;
+  const pill = (side: 'left' | 'right', dir: -1 | 1, live: boolean, label: string) => {
+    const d = pathOf(PILLS[side].path);
+    return (
+      <g key={side}>
+        <path className="pill-rim" d={d} />
+        <path className="pill-body" d={d} />
+        {PILLS[side].chevron.map((mark, i) => (
+          <path key={i} className={cx('pill-chevron', !live && 'spent')} d={pathOf(mark)} />
+        ))}
+        <path className="pill-hit" d={d} role="button" aria-label={label} onMouseEnter={() => scroll(dir)} onMouseLeave={stop} onClick={() => step(dir)} />
+      </g>
+    );
+  };
+  return (
+    <svg className="hand-pills" viewBox="0 -40 100 40">
+      {pill('left', -1, start > 0, 'Show earlier cards in your hand')}
+      {pill('right', 1, start < total - HAND_VISIBLE, 'Show later cards in your hand')}
+    </svg>
+  );
+}
+
+/**
+ * Your hand, on its curve out of the bottom-left corner, kept out of the tilted table so
+ * dragging a card tracks the pointer. Up to HAND_VISIBLE cards show; a bigger hand scrolls
+ * (`handStart` in the store, `HandPills`).
+ */
 export function PlayerHand({ player }: { player: Player }) {
   const hand = arranged(
     player.hand,
@@ -407,6 +489,7 @@ export function PlayerHand({ player }: { player: Player }) {
   const before = usePrevious({ hand: new Set(player.hand.map((c) => c.id)), library: player.library.length });
   const fresh = player.hand.filter((c) => !before.hand.has(c.id)).map((c) => c.id);
   const drawn = fresh.slice(Math.max(0, fresh.length - Math.max(0, before.library - player.library.length)));
+  const start = handWindow(useStore((s) => s.handStart), hand.length);
   const moveCard = (from: number, to: number) => {
     const ids = hand.map((c) => c.id);
     ids.splice(to, 0, ...ids.splice(from, 1));
@@ -414,28 +497,13 @@ export function PlayerHand({ player }: { player: Player }) {
   };
   return (
     <div className="hand" data-hand-of={player.id}>
+      <HandPills total={hand.length} start={start} />
       {hand.map((c, i) => {
         const d = drawn.includes(c.id) ? drawn.indexOf(c.id) : undefined;
         // Watching the bots, nobody sits at the bottom, so that seat's hand is hidden too (`viewFor`).
-        if (isHidden(c)) return <HiddenHandCard key={c.id} card={c} index={i} total={hand.length} drawn={d} />;
-        return <HandCard key={c.id} card={c} index={i} total={hand.length} drawn={d} onMove={(to) => moveCard(i, to)} />;
+        if (isHidden(c)) return <HiddenHandCard key={c.id} card={c} index={i} slot={i - start} drawn={d} />;
+        return <HandCard key={c.id} card={c} index={i} slot={i - start} total={hand.length} drawn={d} onMove={(to) => moveCard(i, to)} />;
       })}
     </div>
-  );
-}
-
-export function PlayerField({ player }: { player: Player }) {
-  return (
-    <>
-      <CreatureRow player={player} width={105} max={17} className="me-front" />
-      <BackRow player={player} width={44} max={14} depth={11.5} className="me-back" split />
-      <div className="me-avatar">
-        <Avatar player={player} />
-        <ManaPool player={player} />
-      </div>
-      <div className="me-zones">
-        <Piles player={player} />
-      </div>
-    </>
   );
 }
