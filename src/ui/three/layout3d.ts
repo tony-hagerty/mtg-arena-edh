@@ -103,6 +103,37 @@ export function layoutSeat<T>(seat: Seat, box: SeatBox, rows: Row<T>[], tableW: 
 }
 
 /**
+ * The CSS `matrix3d` (its 16 numbers, column by column) that lays a `w` × `h` box, turned about
+ * its top-left corner, exactly onto the quadrilateral `q`: its top-left, top-right,
+ * bottom-right and bottom-left corners, in px. It is a homography, so the box is turned,
+ * stretched and foreshortened as the card it stands for is on the screen (Table3D.tsx's
+ * proxies). After Heckbert, "Fundamentals of Texture Mapping" (1989): the unit square onto `q`,
+ * then scaled to the box.
+ */
+export function quadMatrix(w: number, h: number, q: readonly (readonly [number, number])[]): number[] {
+  const [[x0, y0], [x1, y1], [x2, y2], [x3, y3]] = q;
+  const sx = x0 - x1 + x2 - x3;
+  const sy = y0 - y1 + y2 - y3;
+  let g = 0;
+  let k = 0;
+  if (Math.abs(sx) > 1e-9 || Math.abs(sy) > 1e-9) {
+    const dx1 = x1 - x2;
+    const dx2 = x3 - x2;
+    const dy1 = y1 - y2;
+    const dy2 = y3 - y2;
+    const den = dx1 * dy2 - dx2 * dy1;
+    g = (sx * dy2 - dx2 * sy) / den;
+    k = (dx1 * sy - sx * dy1) / den;
+  }
+  // (u, v) in the unit square goes to ((a u + b v + c) / (g u + k v + 1), (d u + e v + f) / (…)).
+  const a = x1 - x0 + g * x1;
+  const b = x3 - x0 + k * x3;
+  const d = y1 - y0 + g * y1;
+  const e = y3 - y0 + k * y3;
+  return [a / w, d / w, 0, g / w, b / h, e / h, 0, k / h, 0, 0, 1, 0, x0, y0, 0, 1];
+}
+
+/**
  * The camera that sees the table as the CSS one does (camera.ts): at the middle of the
  * screen's bottom edge, `depth` out from the screen, looking straight in. Its frame is the
  * screen, `w` × `h` (rem), with that point at the bottom middle: a frustum twice the screen's

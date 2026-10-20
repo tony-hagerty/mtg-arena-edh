@@ -1,7 +1,7 @@
 // The 3D table's layout (src/ui/three/layout3d.ts): where each seat's cards lie on the table.
 import { describe, expect, it } from 'vitest';
 import { seatBox } from '../src/ui/table-layout';
-import { CARD3D, baseCamera, layoutSeat } from '../src/ui/three/layout3d';
+import { CARD3D, baseCamera, layoutSeat, quadMatrix } from '../src/ui/three/layout3d';
 import type { Row } from '../src/ui/three/layout3d';
 import { tableHeight, DEPTH } from '../src/ui/camera';
 import type { Seat } from '../src/ui/util';
@@ -70,5 +70,62 @@ describe('baseCamera', () => {
     expect(Math.tan(((c.fov / 2) * Math.PI) / 180) * DEPTH).toBeCloseTo(H, 5);
     expect(c.aspect).toBeCloseTo(W / (2 * H), 5);
     expect(c.viewOffset).toEqual({ fullWidth: W, fullHeight: 2 * H, x: 0, y: 0, width: W, height: H });
+  });
+});
+
+describe('quadMatrix', () => {
+  /** Where the CSS matrix (column by column) takes the box's point (x, y). */
+  const apply = (m: number[], x: number, y: number) => {
+    const w = m[3] * x + m[7] * y + m[15];
+    return [(m[0] * x + m[4] * y + m[12]) / w, (m[1] * x + m[5] * y + m[13]) / w];
+  };
+  const corners = (w: number, h: number) => [
+    [0, 0],
+    [w, 0],
+    [w, h],
+    [0, h],
+  ];
+
+  it("lays a proxy's corners on the card's projected corners: turned, foreshortened and all", () => {
+    const quads: [number, number][][] = [
+      // A card turned a little, as a seat's lean or tapping turns it.
+      [
+        [110, 52],
+        [168, 58],
+        [161, 139],
+        [103, 133],
+      ],
+      // Foreshortened: the far edge narrower than the near one.
+      [
+        [412, 300],
+        [470, 300],
+        [474, 382],
+        [408, 382],
+      ],
+    ];
+    for (const q of quads) {
+      const m = quadMatrix(60, 84, q);
+      corners(60, 84).forEach(([x, y], i) => {
+        const [px, py] = apply(m, x, y);
+        expect(px).toBeCloseTo(q[i][0], 6);
+        expect(py).toBeCloseTo(q[i][1], 6);
+      });
+      // The middle of the box goes to where the quad's diagonals cross, as perspective puts a card's middle.
+      const [cx, cy] = apply(m, 30, 42);
+      const [[x0, y0], [x1, y1], [x2, y2], [x3, y3]] = q;
+      const t = ((x3 - x1) * (y1 - y0) - (y3 - y1) * (x1 - x0)) / ((x3 - x1) * (y2 - y0) - (y3 - y1) * (x2 - x0));
+      expect(cx).toBeCloseTo(x0 + t * (x2 - x0), 6);
+      expect(cy).toBeCloseTo(y0 + t * (y2 - y0), 6);
+    }
+  });
+
+  it('is a plain move and scale for a card square to the screen', () => {
+    const m = quadMatrix(50, 70, [
+      [10, 20],
+      [110, 20],
+      [110, 160],
+      [10, 160],
+    ]);
+    expect(m).toEqual([2, 0, 0, 0, 0, 2, 0, 0, 0, 0, 1, 0, 10, 20, 0, 1]);
   });
 });

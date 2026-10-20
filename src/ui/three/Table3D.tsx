@@ -2,8 +2,8 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef } fr
 import type { CSSProperties, RefObject } from 'react';
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import type { GLProps, ThreeEvent } from '@react-three/fiber';
-import { Group, MathUtils, Mesh, Plane, Raycaster, Vector2, Vector3 } from 'three';
-import type { PerspectiveCamera, Texture, WebGLRenderer } from 'three';
+import { BufferAttribute, Group, MathUtils, Matrix4, Mesh, MeshBasicMaterial, OrthographicCamera, Plane, PlaneGeometry, Raycaster, Vector2, Vector3 } from 'three';
+import type { DirectionalLight, PerspectiveCamera, Texture, WebGLRenderer } from 'three';
 import { WebGPURenderer } from 'three/webgpu';
 import { attachmentsOf, data, defenseOf, isBattle, isCreature, isPlaneswalker, loyaltyOf, stats } from '../../engine';
 import type { Card, Game, Player } from '../../engine';
@@ -19,9 +19,10 @@ import { ViewContext, clickGroup, clickPermanent, useView } from '../view';
 import type { View } from '../view';
 import { newGame, zoneMoves } from '../zone-moves';
 import type { Place } from '../zone-moves';
-import { CARD_THICKNESS, baseCamera, layoutSeat, tiltRad } from './layout3d';
+import { AREA } from './floor';
+import { CARD_THICKNESS, baseCamera, layoutSeat, quadMatrix, tiltRad } from './layout3d';
 import type { Pose, Row } from './layout3d';
-import { backTexture, floorTexture, useCardTexture } from './textures';
+import { SHADOW_SPREAD, backTexture, shadowTexture, useCardTexture, useFloorTextures } from './textures';
 
 /*
   The table drawn in 3D (a spike, see docs/plans/flutter-conversion.md): opened with
@@ -36,12 +37,14 @@ import { backTexture, floorTexture, useCardTexture } from './textures';
   push in while combat is on.
 
   The cards are thin boxes with the card's image on top and a drawn back underneath, lit and
-  casting shadows on a flagstone floor, with trees, rocks and lantern pillars around it. Their
+  casting shadows on a flagstone floor (floor.ts), each with a soft dark under it where it
+  rests, with trees, rocks and lantern pillars around it. Their
   hover, click and glow come from raycasting on the meshes and go to the same view.ts handlers
   the CSS tiles call.
 
-  Each card also has a proxy: an empty div in `.card-proxies` kept over the card's place on the
-  screen every frame (`useProxy`). It takes no pointer events. It exists so the parts of the
+  Each card also has a proxy: an empty div in `.card-proxies`, the card's size, laid onto the
+  card on the screen every frame by a matrix3d (`useProxy`), so it leans, turns and
+  foreshortens with the card. It takes no pointer events. It exists so the parts of the
   interface that find cards on the screen by their elements keep working unchanged: the
   preview beside the hovered card (`hover.el`), the arrows (`[data-card]`), and the flights of
   cards leaving the table (Flights.tsx reads where they were). It carries the badges too: P/T,
@@ -59,6 +62,17 @@ const BG = '#070a12';
 const TAPPED_RAD = (8 * Math.PI) / 180;
 /** The highlight colours (`--play`, `--target`, `--danger` in styles.css). */
 const GLOW: Record<string, string> = { play: '#39e3ff', attack: '#39e3ff', block: '#39e3ff', target: '#ffe45c', picked: '#ffffff', discard: '#ff5a4a' };
+
+/*
+  What lies just under the cards, in the table's z (up off it), apart enough not to fight over
+  depth: the floor, a card's soft shadow on it, a card's glow over that, and the card's
+  underside at 0 (CARD_THICKNESS / 2 under the middle of the lowest card).
+*/
+const FLOOR_Z = -0.06;
+const SHADOW_Z = -0.04;
+const GLOW_Z = -0.02;
+/** How dark a card's soft shadow is right under it, resting. */
+const SHADOW_OPACITY = 0.7;
 
 /** Where a card that just reached the table came from, read off the screen before React redrew it. */
 interface Origin {
@@ -282,46 +296,126 @@ function Rig({ w, h, combat }: { w: number; h: number; combat: boolean }) {
   return null;
 }
 
+/** Where the moon is, in the world: high, beyond the far edge and to the left. */
+const MOON = new Vector3(-150, 260, 230);
+
+/**
+ * The moon's shadow camera fitted to the table and what stands on it: the box, in the light's
+ * own view, around the table (with a margin for the props past its sides and far edge) from
+ * the floor up to the treetops. The tighter it is, the more shadow map each card gets: a card
+ * is 0.12 rem thick, so its shadow is a sliver that a loose box blurs away.
+ */
+function moonShadowBox(w: number, tableH: number) {
+  // A camera, not a plain object: lookAt turns a camera's -z to the target, as the shadow camera's is.
+  const view = new OrthographicCamera();
+  view.position.copy(MOON);
+  view.lookAt(0, 0, 0);
+  view.updateMatrixWorld();
+  const toView = view.matrixWorldInverse;
+  // The table leans away by TILT about its bottom edge, as the scene's table group does.
+  const lean = new Matrix4().makeRotationX(-tiltRad(TILT));
+  let left = Infinity;
+  let right = -Infinity;
+  let bottom = Infinity;
+  let top = -Infinity;
+  let near = Infinity;
+  let far = -Infinity;
+  const p = new Vector3();
+  for (const x of [-w / 2 - 24, w / 2 + 24])
+    for (const y of [-6, tableH + 12])
+      for (const z of [0, 40]) {
+        p.set(x, y, z).applyMatrix4(lean).applyMatrix4(toView);
+        left = Math.min(left, p.x);
+        right = Math.max(right, p.x);
+        bottom = Math.min(bottom, p.y);
+        top = Math.max(top, p.y);
+        // The light looks down its -z.
+        near = Math.min(near, -p.z);
+        far = Math.max(far, -p.z);
+      }
+  return { left, right, bottom, top, near: near - 10, far: far + 10 };
+}
+
 function Lights({ w, tableH }: { w: number; tableH: number }) {
+  const box = useMemo(() => moonShadowBox(w, tableH), [w, tableH]);
+  const moon = useRef<DirectionalLight>(null);
+  // Three reads the shadow camera's bounds only when it first sets the shadow up: a new size needs telling.
+  useEffect(() => moon.current?.shadow.camera.updateProjectionMatrix(), [box]);
   return (
     <>
-      <hemisphereLight args={['#a9b9dc', '#2a2d36', 0.9]} />
-      {/* The moon, high and to the left: the one light that casts shadows, over the whole table. */}
+      <hemisphereLight args={['#a9b9dc', '#2a2d36', 0.75]} />
+      {/*
+        The moon: the one light that casts shadows, over the whole table. The biases are small
+        next to a card's thickness (0.12): bigger, and the shadow comes loose from the card
+        that casts it (peter-panning), so the card seems to float.
+      */}
       <directionalLight
-        position={[-140, 300, 220]}
-        intensity={3}
-        color="#fff1d6"
+        ref={moon}
+        position={MOON}
+        intensity={3.2}
+        color="#fbf5ea"
         castShadow={!LOW}
-        shadow-mapSize-width={2048}
-        shadow-mapSize-height={2048}
-        shadow-camera-near={50}
-        shadow-camera-far={900}
-        shadow-camera-left={-w * 0.9}
-        shadow-camera-right={w * 0.9}
-        shadow-camera-top={tableH * 1.1}
-        shadow-camera-bottom={-tableH * 0.6}
-        shadow-bias={-0.0004}
-        shadow-normalBias={0.3}
+        shadow-mapSize-width={4096}
+        shadow-mapSize-height={4096}
+        shadow-camera-near={box.near}
+        shadow-camera-far={box.far}
+        shadow-camera-left={box.left}
+        shadow-camera-right={box.right}
+        shadow-camera-top={box.top}
+        shadow-camera-bottom={box.bottom}
+        shadow-bias={-0.00004}
+        shadow-normalBias={0.02}
       />
     </>
   );
 }
 
-/** The flagstones under everything, well past the table's edges: the far corners of the screen look past its sides. */
+/**
+ * The flagstones under everything, well past the table's edges: the far corners of the screen
+ * look past its sides. Its maps (floor.ts) are laid on in rem, AREA to a picture, from the
+ * table's middle, so they never show twice; it darkens toward its edges (the vertex colours),
+ * as the CSS table's vignette does.
+ */
 function Floor({ w, tableH }: { w: number; tableH: number }) {
   const fw = w * 2.4;
   const fh = tableH * 1.9;
-  const map = useMemo(() => {
-    const t = floorTexture();
-    t.repeat.set(fw / 80, fh / 80);
-    return t;
-  }, [fw, fh]);
+  const tex = useFloorTextures();
+  const geometry = useMemo(() => floorGeometry(fw, fh, w, tableH), [fw, fh, w, tableH]);
+  useEffect(() => () => geometry.dispose(), [geometry]);
   return (
-    <mesh receiveShadow position={[0, tableH / 2, -0.02]}>
-      <planeGeometry args={[fw, fh]} />
-      <meshStandardMaterial map={map} roughness={0.95} />
+    <mesh receiveShadow geometry={geometry} position={[0, tableH / 2, FLOOR_Z]}>
+      <meshStandardMaterial
+        map={tex.map}
+        normalMap={tex.normalMap}
+        roughnessMap={tex.roughnessMap}
+        roughness={1}
+        emissiveMap={tex.emissiveMap}
+        emissive="#ffffff"
+        emissiveIntensity={0.9}
+        vertexColors
+      />
     </mesh>
   );
+}
+
+/** The floor's plane: `fw` × `fh` about the table's middle, its maps in rem, and its light falling off toward the edges. */
+function floorGeometry(fw: number, fh: number, w: number, tableH: number) {
+  const geo = new PlaneGeometry(fw, fh, 48, 32);
+  const pos = geo.attributes.position;
+  const uv = geo.attributes.uv;
+  const colors = new Float32Array(pos.count * 3);
+  for (let i = 0; i < pos.count; i++) {
+    const x = pos.getX(i);
+    // In the table's terms: y up from its bottom edge.
+    const y = pos.getY(i) + tableH / 2;
+    uv.setXY(i, x / AREA.w, y / AREA.h);
+    // Lit from above the middle, darker toward the edges and well past them.
+    const d = Math.hypot(x / (w * 0.62), (y - tableH * 0.46) / (tableH * 0.66));
+    const k = (1 + 0.15 * (1 - Math.min(1, d / 0.7))) * (1 - 0.8 * MathUtils.smootherstep(d, 0.5, 1.5));
+    colors.set([k, k, k], i * 3);
+  }
+  geo.setAttribute('color', new BufferAttribute(colors, 3));
+  return geo;
 }
 
 /* The props stand on the table (its z up): built from Three's Y-up primitives, so each is turned by a quarter about x. */
@@ -372,7 +466,7 @@ function Pillar({ x, y }: { x: number; y: number }) {
         <sphereGeometry args={[1.3, 12, 12]} />
         <meshStandardMaterial color="#ffb25a" emissive="#ffa040" emissiveIntensity={4} />
       </mesh>
-      <pointLight position={[0, 35, 0]} color="#ffa64d" intensity={5000} distance={240} decay={2} />
+      <pointLight position={[0, 35, 0]} color="#ffa64d" intensity={3500} distance={150} decay={2} />
     </group>
   );
 }
@@ -413,46 +507,64 @@ const plane = new Plane();
 const hit = new Vector3();
 
 /**
- * Keeps `card`'s proxy over `mesh` on the screen: the box around its four projected corners.
+ * Keeps `card`'s proxy on the card on the screen: a box the card's size (`w` × `h` rem), laid
+ * by a homography onto its top face's four projected corners (`quadMatrix`), so the badges
+ * turn and foreshorten with it, and `getBoundingClientRect()` still gives the card's box.
  * Styles are written straight to the element, off React, and only when they change.
  */
 function useProxy(id: string, group: RefObject<Group | null>, w: number, h: number) {
   const { camera, gl } = useThree();
   const last = useRef('');
-  return () => {
+  /** `time`: the frame's clock, so the page is measured once a frame for all the proxies. */
+  return (time: number) => {
     const el = proxies.get(id);
     const o = group.current;
     if (!el || !o) return;
+    if (page.at !== time) {
+      page.at = time;
+      const c = gl.domElement.getBoundingClientRect();
+      const box = el.parentElement?.getBoundingClientRect() ?? c;
+      page.x = c.left - box.left;
+      page.y = c.top - box.top;
+      page.w = c.width;
+      page.h = c.height;
+      page.rem = parseFloat(getComputedStyle(document.documentElement).fontSize) || 16;
+    }
     o.updateMatrixWorld();
-    const rect = gl.domElement.getBoundingClientRect();
-    let l = Infinity;
-    let t = Infinity;
-    let r = -Infinity;
-    let b = -Infinity;
-    for (const [sx, sy] of [
-      [-1, -1],
-      [1, -1],
-      [1, 1],
-      [-1, 1],
-    ]) {
+    CORNERS.forEach(([sx, sy], i) => {
       corner.set((sx * w) / 2, (sy * h) / 2, CARD_THICKNESS / 2);
       o.localToWorld(corner).project(camera);
-      const x = rect.left + ((corner.x + 1) / 2) * rect.width;
-      const y = rect.top + ((1 - corner.y) / 2) * rect.height;
-      l = Math.min(l, x);
-      r = Math.max(r, x);
-      t = Math.min(t, y);
-      b = Math.max(b, y);
-    }
-    const key = `${l.toFixed(1)},${t.toFixed(1)},${(r - l).toFixed(1)},${(b - t).toFixed(1)}`;
+      quad[i][0] = page.x + ((corner.x + 1) / 2) * page.w;
+      quad[i][1] = page.y + ((1 - corner.y) / 2) * page.h;
+    });
+    // The box is the card's own size on the table, so its badges are sized as the CSS tiles'
+    // are; the matrix lays it onto the card on the screen.
+    const bw = w * page.rem;
+    const bh = h * page.rem;
+    // Its perspective terms are tiny (the table is seen from far off), so they keep more places.
+    const matrix = quadMatrix(bw, bh, quad)
+      .map((v, i) => v.toFixed(i === 3 || i === 7 ? 10 : 4))
+      .join(',');
+    const key = `${bw.toFixed(2)} ${bh.toFixed(2)} ${matrix}`;
     if (key === last.current) return;
     last.current = key;
-    el.style.transform = `translate(${l.toFixed(1)}px, ${t.toFixed(1)}px)`;
-    el.style.width = `${(r - l).toFixed(1)}px`;
-    el.style.height = `${(b - t).toFixed(1)}px`;
-    el.style.fontSize = `${((r - l) / 10).toFixed(2)}px`;
+    el.style.width = `${bw.toFixed(2)}px`;
+    el.style.height = `${bh.toFixed(2)}px`;
+    el.style.fontSize = `${(bw / 10).toFixed(2)}px`;
+    el.style.transform = `matrix3d(${matrix})`;
   };
 }
+
+/** The proxies' container and the canvas, measured once a frame (`useProxy`). */
+const page = { at: -1, x: 0, y: 0, w: 0, h: 0, rem: 16 };
+/** A card's corners in its own terms, as the proxy's box has them: top-left, top-right, bottom-right, bottom-left (its y is up the table). */
+const CORNERS = [
+  [-1, 1],
+  [1, 1],
+  [1, -1],
+  [-1, -1],
+] as const;
+const quad: [number, number][] = CORNERS.map(() => [0, 0]);
 
 /** The point `lift` above the table under the screen point (`sx`, `sy`, px), in the table's coordinates. */
 function onTable(table: Group, camera: PerspectiveCamera, canvas: HTMLCanvasElement, sx: number, sy: number, lift: number) {
@@ -510,18 +622,23 @@ function Card3D({ pose, seat, phased }: { pose: Pose<Card>; seat: Seat; phased: 
   // Toward the middle of the table: up it for the bottom seats, down it for the top ones.
   const inward = seat.v === 'bottom' ? 1 : -1;
   const lift = attacking ? 2.5 : blocking ? 1.2 : 0;
+  const attached = attachmentsOf(g, card);
+  // Resting: on the card under it in its pile, or on its Auras and Equipment, which lie under it on the floor.
+  const rest = CARD_THICKNESS / 2 + (pose.stack + attached.length) * CARD_THICKNESS;
   const target = {
     x: pose.x,
     y: pose.y + inward * lift,
-    z: CARD_THICKNESS / 2 + pose.stack * CARD_THICKNESS + (lift ? 0.6 : 0),
+    z: rest + (lift ? 0.6 : 0),
     rz: pose.turn - (card.tapped ? TAPPED_RAD : 0),
   };
   const group = useRef<Group>(null);
   const glowRef = useRef<Mesh>(null);
+  const shadowRef = useRef<Mesh>(null);
   const { camera, gl } = useThree();
   const flight = useRef<{ started: boolean; landed: boolean }>({ started: false, landed: false });
   const updateProxy = useProxy(card.id, group, pose.w, pose.h);
-  const attached = attachmentsOf(g, card);
+  // Only a pile's bottom card lies on the floor; the ones over it shadow it through the moon.
+  const grounded = pose.stack === 0;
 
   useFrame((state, dt) => {
     const o = group.current;
@@ -565,7 +682,16 @@ function Card3D({ pose, seat, phased }: { pose: Pose<Card>; seat: Seat; phased: 
       const k = 1 + 0.04 * Math.sin(state.clock.elapsedTime * 6);
       glowRef.current.scale.set(k, k, 1);
     }
-    updateProxy();
+    // The soft shadow stays on the floor under the card, spreading and fading as the card rises
+    // (attacking, blocking, flying in), so a card resting on the stone reads as resting.
+    const sh = shadowRef.current;
+    if (sh) {
+      const rise = Math.max(0, o.position.z - rest);
+      sh.position.z = (SHADOW_Z - o.position.z) / s;
+      sh.scale.setScalar(1 + rise * 0.06);
+      (sh.material as MeshBasicMaterial).opacity = SHADOW_OPACITY * (phased ? 0.4 : 1) * Math.max(0.25, 1 - rise / 4);
+    }
+    updateProxy(state.clock.elapsedTime);
   });
 
   const hover = (e: ThreeEvent<PointerEvent>) => {
@@ -588,8 +714,14 @@ function Card3D({ pose, seat, phased }: { pose: Pose<Card>; seat: Seat; phased: 
         <boxGeometry args={[pose.w, pose.h, CARD_THICKNESS]} />
         <CardMaterials face={face} back={back} d={d} tapped={card.tapped} phased={phased} />
       </mesh>
+      {grounded && (
+        <mesh ref={shadowRef} renderOrder={-1} raycast={() => null}>
+          <planeGeometry args={[pose.w * (1 + 2 * SHADOW_SPREAD), pose.h + 2 * SHADOW_SPREAD * pose.w]} />
+          <meshBasicMaterial map={shadowTexture()} color="#000000" transparent opacity={SHADOW_OPACITY} depthWrite={false} />
+        </mesh>
+      )}
       {glow && (
-        <mesh ref={glowRef} position={[0, 0, -CARD_THICKNESS / 2 - 0.02]} raycast={() => null}>
+        <mesh ref={glowRef} position={[0, 0, -CARD_THICKNESS / 2 + GLOW_Z]} raycast={() => null}>
           <planeGeometry args={[pose.w * 1.16, pose.h * 1.12]} />
           <meshBasicMaterial color={GLOW[glow]} transparent opacity={0.9} toneMapped={false} />
         </mesh>
@@ -608,10 +740,10 @@ function Attached({ card, host, index, inward }: { card: Card; host: Pose<Card>;
   const face = useCardTexture(faceUp(card, v.me) ? d.image : null);
   const group = useRef<Group>(null);
   const updateProxy = useProxy(card.id, group, host.w, host.h);
-  useFrame(() => {
+  useFrame((state) => {
     const el = proxies.get(card.id);
     if (el && el.dataset.card !== card.id) el.dataset.card = card.id;
-    updateProxy();
+    updateProxy(state.clock.elapsedTime);
   });
   const glow = v.glow.get(card.id);
   return (
@@ -636,7 +768,7 @@ function Attached({ card, host, index, inward }: { card: Card; host: Pose<Card>;
         <CardMaterials face={face} back={backTexture()} d={d} tapped={card.tapped} phased={false} />
       </mesh>
       {glow && (
-        <mesh position={[0, 0, -CARD_THICKNESS / 2 - 0.02]} raycast={() => null}>
+        <mesh position={[0, 0, -CARD_THICKNESS / 2 + GLOW_Z]} raycast={() => null}>
           <planeGeometry args={[host.w * 1.16, host.h * 1.12]} />
           <meshBasicMaterial color={GLOW[glow]} transparent opacity={0.9} toneMapped={false} />
         </mesh>
