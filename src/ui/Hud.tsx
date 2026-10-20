@@ -494,8 +494,9 @@ function Symbols({ text }: { text: string }) {
  * Using a permanent for mana by hand, when there is a choice: one row for each of its mana
  * abilities, with a button for each choice of mana it makes (Sunken Ruins: {C}, or {U}{U},
  * {U}{B} or {B}{B}), and the creature to tap or card to discard where its cost needs one.
+ * It sits in the prompt's band (`Prompt`), under the words while paying.
  */
-export function ManaPicker() {
+function ManaPicker() {
   const pick = useStore((s) => s.manaPick);
   const g = useView().g;
   const card = pick && findCard(g, pick.cardId);
@@ -572,21 +573,26 @@ function LoyaltyOptions({ options }: { options: AbilityOption[] }) {
  * The prompt: a band across the middle of the table. While a spell is being announced
  * (601.2b), an ability or X picked, or damage divided, the choices sit in the band under
  * the words, with the buttons that go on or cancel, so the whole decision is made in one
- * place. The big button in the corner does the same as the band's.
+ * place. The big button in the corner does the same as the band's. Using a land or rock
+ * with a choice of mana by hand puts that choice in the band too (`ManaPicker`), under the
+ * words while paying, on its own otherwise.
  */
 export function Prompt() {
   const v = useView();
   const { prompt, announce: a, loyalty, abilityX, divide } = v;
+  const pick = useStore((s) => s.manaPick);
+  const picking = !!pick && !!findCard(v.g, pick.cardId);
   const options = !!(a || loyalty || abilityX || divide);
   // One band for the whole decision: its words change as choices are made, but it stays put.
-  const key = a ? `announce:${a.card.id}` : loyalty ? `ability:${loyalty.card.id}` : abilityX ? `x:${abilityX.card.id}` : divide ? `divide:${divide.card.id}` : prompt;
+  const key = a ? `announce:${a.card.id}` : loyalty ? `ability:${loyalty.card.id}` : abilityX ? `x:${abilityX.card.id}` : divide ? `divide:${divide.card.id}` : (prompt ?? `mana:${pick?.cardId}`);
   return (
     <AnimatePresence>
-      {prompt && (
-        <motion.div key={key} className={cx('prompt', options && 'with-options')} initial={{ opacity: 0, scaleX: 0.8 }} animate={{ opacity: 1, scaleX: 1 }} exit={{ opacity: 0 }}>
+      {(prompt || picking) && (
+        <motion.div key={key} className={cx('prompt', (options || picking) && 'with-options')} initial={{ opacity: 0, scaleX: 0.8 }} animate={{ opacity: 1, scaleX: 1 }} exit={{ opacity: 0 }}>
           {/* Mana costs like "{1}{B}" are drawn as symbols. */}
-          <div className="prompt-text">{prompt.split(/((?:\{[^}]+\})+)/).map((part, i) => (part.startsWith('{') ? <ManaCost key={i} cost={part} /> : part))}</div>
+          {prompt && <div className="prompt-text">{prompt.split(/((?:\{[^}]+\})+)/).map((part, i) => (part.startsWith('{') ? <ManaCost key={i} cost={part} /> : part))}</div>}
           <CastOptions />
+          <ManaPicker />
           {options && (v.primary || v.secondary) && (
             <div className="prompt-actions">
               {/* Announcing, the corner button's small print ("Cast Fireball") is the band's whole label. */}

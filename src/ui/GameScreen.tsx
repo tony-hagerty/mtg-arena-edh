@@ -5,7 +5,7 @@ import type { Schedule } from '../engine';
 import { PlayerHand, Seat, SeatHud } from './Board';
 import { DEPTH, TILT, useTableSize } from './camera';
 import { Flights } from './Flights';
-import { ActionBar, ArrowLayer, ManaPicker, ExitConfirm, GameOver, LogPanel, Preview, Prompt, SpellFlash, StackPanel, ZoneViewer } from './Hud';
+import { ActionBar, ArrowLayer, ExitConfirm, GameOver, LogPanel, Preview, Prompt, SpellFlash, StackPanel, ZoneViewer } from './Hud';
 import { GameVotes, PausedOverlay } from './LobbyScreen';
 import { Decisions, DelvePicker, EscapePicker, GraveCostPicker, GraveyardTargets } from './Picker';
 import { useStore } from './store';
@@ -106,7 +106,6 @@ export function GameScreen() {
         {/* Cards moving between zones; the ones bound for the table fly on it (.flights-table), the rest over the screen. */}
         <Flights />
         <Prompt />
-        <ManaPicker />
         <LogPanel />
         <ActionBar />
         <StackPanel />
