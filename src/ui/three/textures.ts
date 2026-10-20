@@ -1,10 +1,13 @@
 import { useEffect, useState } from 'react';
-import { CanvasTexture, RepeatWrapping, SRGBColorSpace, Texture, TextureLoader } from 'three';
+import { CanvasTexture, DataTexture, LinearFilter, LinearMipmapLinearFilter, RGBAFormat, RepeatWrapping, SRGBColorSpace, Texture, TextureLoader, UnsignedByteType } from 'three';
+import { floorMaps } from './floor';
+import type { FloorMaps } from './floor';
 
 /*
   Textures for the 3D table: card faces from Scryfall (which allows cross-origin use of its
-  images, so WebGL may read them), and the card back and the floor drawn on a canvas, so
-  there are no image files, as with the CSS table's SVG back.
+  images, so WebGL may read them), the card back and a card's soft shadow drawn on a canvas,
+  and the floor worked out pixel by pixel (floor.ts), so there are no image files, as with
+  the CSS table's SVG back.
 */
 
 type Entry = { texture: Texture | null; failed: boolean; waiting: Set<() => void> };
@@ -115,76 +118,119 @@ export function backTexture(): CanvasTexture {
   return back;
 }
 
-let floor: CanvasTexture | null = null;
+/** How far a card's soft shadow spreads past its edges, as a share of its width. */
+export const SHADOW_SPREAD = 0.16;
 
-/** A simple seeded random, so the floor is the same every time. */
-function rng(seed: number) {
-  let s = seed >>> 0;
-  return () => {
-    s = (s * 1664525 + 1013904223) >>> 0;
-    return s / 2 ** 32;
+let shadow: CanvasTexture | null = null;
+
+/**
+ * The soft dark under a card where it touches the floor (Table3D.tsx, `Card3D`): black, opaque
+ * under the card and fading out over SHADOW_SPREAD past its edges, for a plane that size. The
+ * moon's shadow of a card this thin is a sliver; this is the occlusion a card lying flat makes
+ * all around it, which is what shows it resting on the stone. Drawn once.
+ */
+export function shadowTexture(): CanvasTexture {
+  if (shadow) return shadow;
+  // In card widths: the card is 1 × 1.4, its corners rounded by 0.05, and the plane reaches SHADOW_SPREAD past it.
+  const S = SHADOW_SPREAD;
+  const pw = 1 + 2 * S;
+  const ph = 1.4 + 2 * S;
+  const W = 128;
+  const H = Math.round((W * ph) / pw);
+  const c = document.createElement('canvas');
+  c.width = W;
+  c.height = H;
+  const g = c.getContext('2d')!;
+  const img = g.createImageData(W, H);
+  const r = 0.05;
+  for (let y = 0; y < H; y++)
+    for (let x = 0; x < W; x++) {
+      // A rounded box's signed distance (negative inside).
+      const qx = Math.abs(((x + 0.5) / W - 0.5) * pw) - (0.5 - r);
+      const qy = Math.abs(((y + 0.5) / H - 0.5) * ph) - (0.7 - r);
+      const d = Math.hypot(Math.max(qx, 0), Math.max(qy, 0)) + Math.min(Math.max(qx, qy), 0) - r;
+      // Darkest at the edge, falling off quickly and then slowly, as occlusion does.
+      const t = Math.min(1, Math.max(0, (d + 0.03) / (S + 0.03)));
+      img.data[(y * W + x) * 4 + 3] = Math.round((1 - t) ** 2.4 * 255);
+    }
+  g.putImageData(img, 0, 0);
+  shadow = new CanvasTexture(c);
+  shadow.colorSpace = SRGBColorSpace;
+  return shadow;
+}
+
+/** The floor's textures (floor.ts): colour, normal, roughness and the mushrooms' glow. */
+export interface FloorTextures {
+  map: DataTexture;
+  normalMap: DataTexture;
+  roughnessMap: DataTexture;
+  emissiveMap: DataTexture;
+}
+
+function floorTexture(data: Uint8ClampedArray, w: number, h: number, srgb: boolean) {
+  const t = new DataTexture(new Uint8Array(data.buffer, data.byteOffset, data.byteLength), w, h, RGBAFormat, UnsignedByteType);
+  t.wrapS = t.wrapT = RepeatWrapping;
+  t.magFilter = LinearFilter;
+  t.minFilter = LinearMipmapLinearFilter;
+  t.generateMipmaps = true;
+  t.anisotropy = 8;
+  if (srgb) t.colorSpace = SRGBColorSpace;
+  t.needsUpdate = true;
+  return t;
+}
+
+function floorTextures(m: FloorMaps): FloorTextures {
+  return {
+    map: floorTexture(m.albedo, m.width, m.height, true),
+    normalMap: floorTexture(m.normal, m.width, m.height, false),
+    roughnessMap: floorTexture(m.rough, m.width >> 1, m.height >> 1, false),
+    emissiveMap: floorTexture(m.glow, m.width >> 2, m.height >> 2, true),
   };
 }
 
+/** How wide the floor's maps are, in pixels: about 21 a rem. A small first version is drawn at once. */
+const FLOOR_FULL = 4096;
+const FLOOR_FIRST = 512;
+
+let floor: FloorTextures | null = null;
+const floorWaiting = new Set<() => void>();
+
+/** Swaps in the full-size floor once the worker has it, and tells whoever is drawing it. */
+function upgradeFloor(m: FloorMaps) {
+  const old = floor;
+  floor = floorTextures(m);
+  floorWaiting.forEach((f) => f());
+  // Once the floor has been drawn with the new ones.
+  if (old) setTimeout(() => Object.values(old).forEach((t: Texture) => t.dispose()), 1000);
+}
+
 /**
- * The floor: dark slate flagstones in a darker ground, with grass in a few joints, like the
- * CSS table's `--floor`. One tile of 1024 px, repeated; drawn once.
+ * The floor's textures. The first call works out a small version at once (a tenth of a second)
+ * and asks a worker for the full one (a second or two), which replaces it when it lands: the
+ * same stones, sharper. The full one is kept for the session, as the other textures here are.
  */
-export function floorTexture(): CanvasTexture {
-  if (floor) return floor;
-  const S = 1024;
-  const c = document.createElement('canvas');
-  c.width = S;
-  c.height = S;
-  const g = c.getContext('2d')!;
-  const rand = rng(7);
-  g.fillStyle = '#101319';
-  g.fillRect(0, 0, S, S);
-  // Stones: irregular polygons around a jittered grid, so they pack like flagstones.
-  const cell = 96;
-  for (let gy = -1; gy <= S / cell; gy++) {
-    for (let gx = -1; gx <= S / cell; gx++) {
-      const cx = gx * cell + cell / 2 + (rand() - 0.5) * cell * 0.5;
-      const cy = gy * cell + cell / 2 + (rand() - 0.5) * cell * 0.5;
-      const r = cell * (0.42 + rand() * 0.12);
-      const n = 5 + Math.floor(rand() * 3);
-      const shade = 0.75 + rand() * 0.5;
-      g.beginPath();
-      for (let i = 0; i < n; i++) {
-        const a = (i / n) * Math.PI * 2 + rand() * 0.4;
-        const rr = r * (0.8 + rand() * 0.25);
-        const x = cx + Math.cos(a) * rr;
-        const y = cy + Math.sin(a) * rr;
-        i ? g.lineTo(x, y) : g.moveTo(x, y);
-      }
-      g.closePath();
-      const lit = g.createLinearGradient(cx - r, cy - r, cx + r, cy + r);
-      lit.addColorStop(0, `rgb(${Math.round(70 * shade)}, ${Math.round(76 * shade)}, ${Math.round(88 * shade)})`);
-      lit.addColorStop(1, `rgb(${Math.round(38 * shade)}, ${Math.round(42 * shade)}, ${Math.round(50 * shade)})`);
-      g.fillStyle = lit;
-      g.fill();
-      g.strokeStyle = 'rgba(0,0,0,0.6)';
-      g.lineWidth = 3;
-      g.stroke();
+export function useFloorTextures(): FloorTextures {
+  const [, bump] = useState(0);
+  useEffect(() => {
+    const rerender = () => bump((n) => n + 1);
+    floorWaiting.add(rerender);
+    return () => {
+      floorWaiting.delete(rerender);
+    };
+  }, []);
+  if (!floor) {
+    floor = floorTextures(floorMaps(FLOOR_FIRST));
+    try {
+      const worker = new Worker(new URL('./floor.worker.ts', import.meta.url), { type: 'module' });
+      worker.onmessage = (e: MessageEvent<FloorMaps>) => {
+        upgradeFloor(e.data);
+        worker.terminate();
+      };
+      worker.onerror = () => worker.terminate();
+      worker.postMessage({ width: FLOOR_FULL });
+    } catch {
+      // No workers: the small floor stays.
     }
   }
-  // Grass and moss in some joints.
-  for (let i = 0; i < 260; i++) {
-    const x = rand() * S;
-    const y = rand() * S;
-    g.fillStyle = `rgba(${40 + rand() * 30}, ${90 + rand() * 50}, ${40 + rand() * 20}, ${0.25 + rand() * 0.35})`;
-    g.beginPath();
-    g.ellipse(x, y, 2 + rand() * 5, 1 + rand() * 3, rand() * Math.PI, 0, Math.PI * 2);
-    g.fill();
-  }
-  // Grain.
-  for (let i = 0; i < 9000; i++) {
-    g.fillStyle = rand() > 0.5 ? 'rgba(255,255,255,0.035)' : 'rgba(0,0,0,0.06)';
-    g.fillRect(rand() * S, rand() * S, 2, 2);
-  }
-  floor = new CanvasTexture(c);
-  floor.colorSpace = SRGBColorSpace;
-  floor.wrapS = floor.wrapT = RepeatWrapping;
-  floor.anisotropy = 8;
   return floor;
 }

@@ -256,9 +256,19 @@ What is in it:
 
 - **The scene.** Three.js through React Three Fiber, drawn by Three's `WebGPURenderer`,
   which runs on WebGL 2 where there is no WebGPU (headless Chromium here; `?gl=webgl`
-  forces it). A flagstone floor drawn on a canvas, trees, rocks and lantern pillars, a
-  hemisphere light and a shadow-casting "moon", fog past the table. `?quality=low` drops
-  shadows and high-DPI drawing.
+  forces it). Trees, rocks and lantern pillars, a hemisphere light and a shadow-casting
+  "moon", fog past the table. `?quality=low` drops shadows and high-DPI drawing.
+- **The floor** (`floor.ts`) is worked out pixel by pixel after the CSS table's: dark slate
+  flagstones packed like bubbles (discs thrown biggest first, each stone the ground its
+  disc claims against its neighbours, a power diagram, cut to a polygon of five to seven
+  corners), darker joints with moss and grass, small blue mushrooms that glow (an emissive
+  map), a slow mottle, and the light falling off toward the edges (vertex colours). Each
+  stone has a bevelled, rough, slightly tilted surface in a height field, turned into a
+  normal map, with a roughness map, so the moon catches their edges. The maps are one
+  192 × 96 rem picture (4096 px across, about 21 px a rem) that wraps without a seam, laid
+  on in rem from the table's middle, so the screen never shows it twice. The full size takes
+  a second or two, so a worker (`floor.worker.ts`) draws it while a 512 px version of the
+  same stones, drawn at once, stands in.
 - **The camera** starts exactly where the CSS table's perspective puts the viewer
   (`baseCamera` in layout3d.ts: the same TILT and DEPTH as camera.ts, with an off-centre
   projection whose axis is the bottom of the screen), so the seats' rows land where
@@ -269,16 +279,27 @@ What is in it:
   the same piles and rows as the CSS tiles (`layoutSeat`, which reuses `seatBox`, `seatScale`
   and `rowGap`; tested in tests/layout3d.test.ts). They cast shadows, turn when tapped, lift
   toward the middle when attacking or blocking, glow in the same colours, and ease to their
-  places when the layout moves them. Auras and Equipment fan out behind their host.
+  places when the layout moves them. Auras and Equipment fan out behind their host, which
+  rests on them.
+- **Resting on the floor.** A card is 0.12 rem thick, so the moon's shadow of it is a
+  sliver: its shadow biases are kept well under that (a bigger normal bias moved the shadow
+  off the card, which then seemed to float), and its shadow camera is fitted to the table
+  (`moonShadowBox`) with a 4096 map, about 0.05 rem a texel. What shows a card lying on the
+  stone is a soft dark under each pile's bottom card (`shadowTexture`), the occlusion a
+  flat card makes all around it; it spreads and fades as the card rises.
 - **Hover, click and drag** go through the same handlers as the tiles: raycast picking on
   the meshes calls `clickPermanent` and sets `hover`; the pile badge calls `clickGroup`; the
   hand is the DOM hand, so dragging a card up still calls `playHandCard`.
-- **Proxies.** Each card also has an empty div kept over its place on the screen every
-  frame (`useProxy`), taking no pointer events. It is what keeps the DOM-querying parts of
-  the interface working unchanged: the preview beside the hovered card (`hover.el`), the
-  attack and target arrows (`[data-card]`), Flights.tsx reading where a card leaving the
-  table was, and `cardAt`. It also carries the badges (P/T, counters, summoning sickness,
-  "x7"), so they are crisp DOM text over the canvas.
+- **Proxies.** Each card also has an empty div kept over it on the screen every frame
+  (`useProxy`), taking no pointer events. It is the card's own size on the table, laid
+  onto the card's four projected corners by a CSS `matrix3d` (a homography, `quadMatrix`
+  in layout3d.ts, tested), so it leans with its seat, turns when the card is tapped and
+  foreshortens with the table. It is what keeps the DOM-querying parts of the interface
+  working unchanged: the preview beside the hovered card (`hover.el`), the attack and
+  target arrows (`[data-card]`), Flights.tsx reading where a card leaving the table was,
+  and `cardAt`, all through `getBoundingClientRect()`, which takes the transform. It also
+  carries the badges (P/T, counters, summoning sickness, "x7"), so they are crisp DOM text
+  over the canvas, turned and foreshortened with the card.
 - **Flights in.** A card reaching the table flies from where it was on the screen (its hand
   slot, the stack, a pile, a portrait), captured before React redraws, and tokens pop up.
   A card leaving the table still flies as before, from its proxy.
