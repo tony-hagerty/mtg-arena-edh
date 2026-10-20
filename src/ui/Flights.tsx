@@ -127,16 +127,16 @@ const deg = (s: string) => parseFloat(s) || 0;
 /**
  * Where on screen `el` puts a card. `visual` reads where it is drawn right now, mid-animation
  * included (an old place); otherwise its layout box, which is where it settles (a new place
- * whose own entrance is still under way). At the side seats cards are turned (--face).
+ * whose own entrance is still under way). A place turned with the CSS `rotate` property (the
+ * middle of an opponent's hand fan) turns the card with it.
  */
 function spotOf(el: HTMLElement, visual: boolean, rem: number): Spot {
   const r = el.getBoundingClientRect();
-  const turn = deg(getComputedStyle(el).getPropertyValue('--face'));
-  const sideways = Math.abs(turn) === 90;
-  const [w, h] = visual || !el.offsetWidth ? [r.width, r.height] : [el.offsetWidth, el.offsetHeight];
+  const turn = deg(getComputedStyle(el).rotate);
+  // A turned box's bounding rectangle is wider than the card: its layout width is the card's.
+  const w = (visual && !turn) || !el.offsetWidth ? r.width : el.offsetWidth;
   // A zone's anchor (the hand's) can have no size: a card there is hand-sized.
-  const width = (sideways ? Math.min(w, h) : w) || 15 * rem;
-  return { x: r.left + r.width / 2, y: r.top + r.height / 2, w: width, turn };
+  return { x: r.left + r.width / 2, y: r.top + r.height / 2, w: w || 15 * rem, turn };
 }
 
 /** `spotOf`, in `space`: on the table its centre is unprojected, and a layout width is kept as it is (it is the table's own). */

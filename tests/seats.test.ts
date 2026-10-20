@@ -5,7 +5,7 @@ import { DECKS } from '../src/cards/db';
 import { applyAction, applyBotAction, botAction, newGame } from '../src/engine';
 import type { Game, SeatDef } from '../src/engine';
 import { absoluteStops, tableOf } from '../src/ui/store';
-import { fromSeat, seatOf } from '../src/ui/util';
+import { fromSeat, seatClass, seatOf } from '../src/ui/util';
 import { byName, emptyGame, put, run } from './helpers';
 
 const bots = (n: number): SeatDef[] => DECKS.slice(0, n).map((deck) => ({ deck }));
@@ -131,23 +131,31 @@ describe('a search only the searcher sees (701.23e)', () => {
 describe('the table as each player sees it', () => {
   const table = (n: number) => newGame({ seed: 1, seats: bots(n) });
 
-  it('puts the viewer at the bottom and the others clockwise in turn order', () => {
+  const corners = (g: Game, viewer: number | null) => g.players.map((p) => seatClass(seatOf(g, viewer, p.id)).split(' ')[0]);
+
+  it('puts the viewer at the bottom left and the others clockwise in turn order', () => {
     const g = table(4);
-    expect(g.players.map((p) => seatOf(g, 0, p.id))).toEqual(['bottom', 'left', 'top', 'right']);
-    expect(g.players.map((p) => seatOf(g, 2, p.id))).toEqual(['top', 'right', 'bottom', 'left']);
+    expect(corners(g, 0)).toEqual(['seat-bottom-left', 'seat-top-left', 'seat-top-right', 'seat-bottom-right']);
+    expect(corners(g, 2)).toEqual(['seat-top-right', 'seat-bottom-right', 'seat-bottom-left', 'seat-top-left']);
     expect(fromSeat(g.players, 2).map((p) => p.id)).toEqual([2, 3, 0, 1]);
   });
 
-  it('leaves the top empty at three, and the sides at two', () => {
+  it('gives the viewer the whole bottom edge at three, and sits two across the table', () => {
     const three = table(3);
-    expect(three.players.map((p) => seatOf(three, 1, p.id))).toEqual(['right', 'bottom', 'left']);
+    expect(corners(three, 1)).toEqual(['seat-top-right', 'seat-bottom-full', 'seat-top-left']);
     const two = table(2);
-    expect(two.players.map((p) => seatOf(two, 1, p.id))).toEqual(['top', 'bottom']);
+    expect(corners(two, 1)).toEqual(['seat-top-right', 'seat-bottom-left']);
   });
 
-  it('shows seat 0 at the bottom when watching bots', () => {
+  it('names a seat by its corner, its edge and its side', () => {
+    expect(seatClass({ v: 'bottom', h: 'left' })).toBe('seat-bottom-left seat-bottom seat-left');
+    expect(seatClass({ v: 'top', h: 'right' })).toBe('seat-top-right seat-top seat-right');
+    expect(seatClass({ v: 'bottom', h: 'full' })).toBe('seat-bottom-full seat-bottom');
+  });
+
+  it('shows seat 0 as the viewer when watching bots', () => {
     const g = table(3);
-    expect(seatOf(g, null, 0)).toBe('bottom');
+    expect(seatOf(g, null, 0)).toEqual({ v: 'bottom', h: 'full' });
     expect(fromSeat(g.players, null).map((p) => p.id)).toEqual([0, 1, 2]);
   });
 });
