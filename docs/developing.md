@@ -81,6 +81,12 @@ src/ui/         App.tsx               menu or game screen; GameScreen.tsx lays t
                                       hand's curve and scroll pills (pure maths, tested)
                 util.ts               small helpers: class names, deck colours, hover props
                 styles.css            all styling
+                three/                the table drawn in 3D (`?table=3d`, a spike: see
+                                      docs/plans/flutter-conversion.md). Table3D.tsx is the
+                                      scene (Three.js through React Three Fiber) and the
+                                      cards' proxies; layout3d.ts where each card lies on the
+                                      table and the camera that matches camera.ts (pure
+                                      maths, tested); textures.ts card faces, back and floor
                 cursor.png            the mouse cursor, and cursor-down.png while a
                                       button is held (see Credits)
 tests/                                Vitest: card coverage, rules, the UI casting flow,

@@ -184,6 +184,41 @@ button {
   animation: shroom-pulse 3.6s steps(24, jump-none) infinite alternate;
 }
 
+/*
+  The table drawn in 3D (`?table=3d`, src/ui/three/Table3D.tsx): the canvas fills the stage
+  under everything else, and over it the cards' proxies, empty boxes kept over each card's
+  place on the screen (see the note in Table3D.tsx) carrying its badges. They take no pointer
+  events, except a pile's badge; the cards themselves are hovered and clicked in the canvas.
+*/
+.table3d {
+  position: absolute;
+  inset: 0;
+}
+
+.table3d canvas {
+  display: block;
+}
+
+.card-proxies {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.card-proxy {
+  --frame: var(--f-artifact);
+  position: absolute;
+  left: 0;
+  top: 0;
+  pointer-events: none;
+  will-change: transform;
+}
+
+.card-proxy .tile-badge {
+  pointer-events: auto;
+  cursor: pointer;
+}
+
 /* ---------- table ---------- */
 
 /*

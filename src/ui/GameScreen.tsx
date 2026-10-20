@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { Suspense, lazy, useEffect, useMemo, useState } from 'react';
 import type { CSSProperties } from 'react';
 import { realSchedule, scheduleBot } from '../engine';
 import type { Schedule } from '../engine';
@@ -11,6 +11,14 @@ import { Decisions, DelvePicker, EscapePicker, GraveCostPicker, GraveyardTargets
 import { useStore } from './store';
 import { fromSeat } from './util';
 import { ViewContext, buildView } from './view';
+
+/**
+ * `?table=3d` draws the table in 3D (src/ui/three/Table3D.tsx, a spike: see
+ * docs/plans/flutter-conversion.md) in place of the CSS one. Loaded only then, so the 3D
+ * libraries stay out of everyone else's download.
+ */
+export const TABLE_3D = typeof location !== 'undefined' && new URLSearchParams(location.search).get('table') === '3d';
+const Table3D = lazy(() => import('./three/Table3D'));
 
 /**
  * Covers the table while the screen passes to the next person at it, so nobody sees
@@ -78,13 +86,19 @@ export function GameScreen() {
     <ViewContext.Provider value={view}>
       <div className="stage board" style={{ '--tilt': `${TILT}deg`, '--depth': `${DEPTH}rem`, '--table-h': `${table.h}rem` } as CSSProperties}>
         {/* The table, leaning away from you (camera.ts): the seats' rows. The portraits, piles, hands and the HUD stay flat, in screen space. */}
-        <div className="table">
-          {players.map((p) => (
-            <Seat key={p.id} player={p} />
-          ))}
-          {/* Cards flying to somewhere on the table land here, over everything on it (Flights). */}
-          <div className="flights-table" />
-        </div>
+        {TABLE_3D ? (
+          <Suspense fallback={null}>
+            <Table3D players={players} />
+          </Suspense>
+        ) : (
+          <div className="table">
+            {players.map((p) => (
+              <Seat key={p.id} player={p} />
+            ))}
+            {/* Cards flying to somewhere on the table land here, over everything on it (Flights). */}
+            <div className="flights-table" />
+          </div>
+        )}
         {players.map((p) => (
           <SeatHud key={p.id} player={p} you={p === bottom} />
         ))}

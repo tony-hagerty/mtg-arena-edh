@@ -95,7 +95,7 @@ function useFlight<T>(order: number | undefined, measure: () => T | null) {
  * The top card of a pile gets `badge`, the whole pile: its "x7" uses them all at once.
  */
 /** Counters on a permanent (122): "+2" for +1/+1 counters, "-1" for -1/-1, "3 charge" for others. */
-function Counters({ card }: { card: Card }) {
+export function Counters({ card }: { card: Card }) {
   // Loyalty and defense have their own badge, where a creature's P/T goes.
   const entries = Object.entries(card.counters).filter(([kind, n]) => n > 0 && kind !== 'loyalty' && kind !== 'defense');
   // A Class's level (716.2) shows with them.
@@ -275,7 +275,7 @@ export function Permanent({ card, badge, phased }: { card: Card; badge?: Card[];
 }
 
 /** A card played without its rules text (`Card.textless`): a small plain mark, on its tile and in the hand. */
-const TextlessBadge = () => (
+export const TextlessBadge = () => (
   <div className="textless-badge" title="Played without its rules text: the game can't read it yet, so it is a plain card here">
     no text
   </div>
