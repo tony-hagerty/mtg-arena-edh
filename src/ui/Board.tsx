@@ -45,7 +45,7 @@ function CreatureRow({ player, width, max, className, wrap }: { player: Player; 
   }
   const units = [...groups.values()].reduce((n, s) => n + 1 + PILE_STEP * (s.length - 1), 0);
   const oneRow = fit(units, width, max);
-  const wrapped = wrap ? fit(Math.ceil(units / 2), width, Math.min(max, 9.5)) : 0;
+  const wrapped = wrap ? fit(Math.ceil(units / 2), width, Math.min(max, 10.5)) : 0;
   const twoRows = wrapped > oneRow;
   const tw = Math.max(oneRow, wrapped);
   return (
@@ -356,14 +356,14 @@ export function OpponentPanel({ player }: { player: Player }) {
     >
       <header className="opp-head">
         <Avatar player={player} />
-        <OpponentHand player={player} span={side ? 20 : 30} />
+        <OpponentHand player={player} span={side ? 22 : 34} />
         <div className="opp-zones">
           <Piles player={player} />
         </div>
       </header>
-      {/* The top seat is on the far edge, drawn at about 0.92 of its size (camera.ts): its rows run 8% wider so its tiles keep their width on screen. */}
-      <BackRow player={player} width={side ? 60 : 113} max={side ? 11 : 12} depth={side ? 9.3 : 10.1} className="opp-back" />
-      <CreatureRow player={player} width={side ? 61 : 120} max={side ? 14 : 15.7} className="opp-front" wrap={side} />
+      {/* The camera shows the opponents' seats smaller (camera.ts), so their tiles run bigger than yours; the top seat, on the far edge, bigger still. */}
+      <BackRow player={player} width={side ? 64 : 106} max={side ? 12.6 : 13.8} depth={side ? 10.6 : 11.6} className="opp-back" />
+      <CreatureRow player={player} width={side ? 66 : 111} max={side ? 16 : 18} className="opp-front" wrap={side} />
       {player.lost && <div className="defeated">Defeated</div>}
     </section>
   );
@@ -425,12 +425,9 @@ export function PlayerHand({ player }: { player: Player }) {
 }
 
 export function PlayerField({ player }: { player: Player }) {
-  const { g } = useView();
   return (
     <>
-      {/* The seat's mat, under everything else of yours. */}
-      <div className={cx('seat-mat', 'me-mat', g.active === player.id && 'active')} style={vars({ '--deck': deckColor(player.colors) })} />
-      <CreatureRow player={player} width={113} max={17} className="me-front" />
+      <CreatureRow player={player} width={105} max={17} className="me-front" />
       <BackRow player={player} width={44} max={14} depth={11.5} className="me-back" split />
       <div className="me-avatar">
         <Avatar player={player} />

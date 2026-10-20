@@ -169,8 +169,13 @@ which sets them on the stage as `--tilt` and `--depth`. The table is taller than
 screen by just enough that, leaned over, its far edge lands on the top of the screen
 (`tableHeight`, set as `--table-h`). So the seats keep placing themselves from the table's
 edges in rem: the top seat moves up with the far edge, nothing is stretched, your edge is
-drawn at full size and the far edge at about 0.92 of it (the top seat's rows run 8% wider
-to make up for that). That leaves two coordinate spaces. Everything inside `.table` (the
+drawn at full size and the far edge at about 0.9 of it. The opponents' seats make up for
+that: their tiles, piles, hands and avatars are drawn bigger than yours, the top seat's
+rows deeper still, and the side seats' width is `--side-w` on `.table`, which the top seat
+and your creature row fit between. The avatars and the count pills stand up off the table
+to face you: each is turned back by `--tilt` about its bottom edge, which needs
+`transform-style: preserve-3d` on every box from `.table` down to it (a `filter`,
+`opacity` or `overflow` on one of them would flatten it again). That leaves two coordinate spaces. Everything inside `.table` (the
 seats, the river, `.flights-table`) is laid out in the table's own px; the hand, the HUD,
 the arrows and the hover preview sit flat on the screen. `getBoundingClientRect` always
 answers in screen px; `camera()` projects between the two (`toScreen`, `toTable`), which is
@@ -186,8 +191,8 @@ lines, shadows and radii. Use them rather than new literal colours; the comment 
 says what each is for. The card frame colours (`--f-W` to `--f-land`) double as each
 deck's seat colour.
 
-- **Seats** are mats (`.opp::before`, and `.seat-mat.me-mat` for yours) running off their
-  own edge, with the deck colour at that edge; they turn gold on that player's turn.
+- **Seats** have no mat of their own: the table is one floor, and the river marks yours
+  off. Whose turn it is shows on their avatar (the rays and the gold life plate).
 - **Tiles** take their size from `--tw` (the row sets it; the tile's font-size is a tenth
   of it), so a tile's parts are sized in `em`, with `rem` floors on text that must stay
   readable. A pile shows `PILE_STEP` (Board.tsx) of each card under its top one; keep the
