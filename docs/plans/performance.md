@@ -196,19 +196,6 @@ among the top CPU consumers while bots play.
 7. **The glow pulse in 24 steps** (`styles.css`): `steps(24, jump-none)` in place of
    `ease-in-out`, so the compositor draws about seven times a second while the table is
    idle instead of every frame.
-8. **Each tile memoized on what it draws** (`Card.tsx`, `Board.tsx`). `Permanent` works
-   out everything a tile draws as plain values (`tileProps`: the card, its power,
-   toughness and keyword icons, attacking, blocking, sick, glow, mana, attachments and
-   their glows, abilities text, badge, phased) and the tile proper is `memo` on them,
-   field by field. Each seat's rows sit in a Motion `LayoutGroup`, so a tile that does
-   re-render marks its siblings for measuring and they still slide when a row reflows.
-   A game change that touches no tile renders no tile (all 88 before). React's render time
-   per commit in the dev profiler: stack scene 651 to 534 ms, flights 352 to 299 ms, bots
-   at 4× 14.5 to 11.0 ms a commit. In production totals it is within noise (script
-   3.69 s against 3.77 s over the same 30 s bot game): React's share of a production
-   commit is already small next to Motion's animation loop and the engine. The rule it
-   adds: anything a tile reads from the game goes through `tileProps`, or the tile goes
-   stale.
 
 ## Tried and rejected
 
@@ -220,6 +207,19 @@ among the top CPU consumers while bots play.
   more long tasks and script than tiles alone, for the same frame rate.
 - Replacing the SVG textures with flat colour: removes the click stall too, but changes
   the look. The cursor fix removes the repaints instead, so the textures stay.
+- **Memoizing each tile on what it draws.** Built and measured, then taken out again.
+  `Permanent` turned the view into plain values (the card, its power, toughness and
+  keyword icons, attacking, blocking, sick, glow, mana, attachments and their glows,
+  abilities text, badge, phased), the tile proper was `memo` on them, and each seat's
+  rows sat in a Motion `LayoutGroup` so siblings still slid when a row reflowed (checked
+  frame by frame). A game change that touched no tile then rendered none, where all 88
+  had. React's render time per commit in the dev profiler fell 15 to 24% (stack scene 651
+  to 534 ms, flights 352 to 299 ms, bots at 4× 14.5 to 11.0 ms a commit), but production
+  totals were within noise (script 3.69 s against 3.77 s over the same 30 s bot game):
+  React's share of a production commit is small next to Motion's animation loop and the
+  engine. Not worth the rule it adds, that anything a tile reads from the game must go
+  through the model or the tile goes stale. Motion still measures all 88 tiles on every
+  game change; a future go at it starts from commit 7bf397b on this branch.
 
 ## Left alone, as suggestions
 

@@ -324,16 +324,10 @@ What the browser spends its time on while the table is up, measured in
   move's own pause is up; the server's thinks at once, having no frame to keep smooth.
 - **Write to the DOM only on change.** `ArrowLayer` follows cards every frame; setting an
   SVG path's `d` repaints the whole full-screen SVG, so it sets it only when it moved.
-- **Every game change re-renders every `Permanent`**, through the view context, and that
-  is correct (any move can change any tile). UI-only changes (hover, drag, the hand's
-  order) don't. `Seat` and `SeatHud` are `memo`, so `GameScreen` re-rendering without a
-  new view (a speed or settings change) skips the seats and everything in them.
-- **A tile redraws only when what it draws changed.** `Permanent` turns the view into
-  plain values (`tileProps` in Card.tsx) and the tile proper is `memo` on them, so a move
-  that touches no tile renders none. Anything a tile reads from the game must come
-  through `tileProps` and be compared in `sameTile`, never from the view inside the tile,
-  or the tile goes stale. Each seat's rows are one Motion `LayoutGroup`: a tile that does
-  re-render marks the others for measuring, so they still slide when the row reflows.
+- **Every game change re-renders every tile**, through the view context, and that is
+  correct (any move can change any tile). UI-only changes (hover, drag, the hand's order)
+  don't. `Seat` and `SeatHud` are `memo`, so `GameScreen` re-rendering without a new view
+  (a speed or settings change) skips the seats and everything in them.
 
 ## Adding a card
 
