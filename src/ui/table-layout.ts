@@ -7,7 +7,7 @@ import type { Seat } from './util';
   from the approved mockup (1440 × 900 px, so a rem is 7.5 px there).
 
   Each seat has a box on the screen: across its half of the table, between the portraits and
-  the middle, and from just past the middle of the screen out to above the zones and the
+  the middle, and from just past the middle of the screen out to above the piles and the
   controls on its edge. Its rows (lands nearest the edge, then the other permanents, then the
   creatures nearest the middle) lean ROW_LEAN degrees and grow while they fit the box.
 */
@@ -67,16 +67,21 @@ export function rowGap(piles: number[], w: number, gap: number, len: number) {
 /** The seat's box on the screen in the bottom-left corner's terms, before mirroring: from right of the portraits to just short of the middle. */
 const BOX_LEFT = 20.3;
 const BOX_MIDDLE_GAP = 2.7;
-/** From just below the middle of the screen down to above the zones and the controls. */
+/** From just below the middle of the screen out toward the seat's edge. */
 const BOX_BELOW_MIDDLE = 1.33;
-const BOX_ABOVE_EDGE = 20.8;
+/**
+ * The bottom seats stop above the piles (`.seat-zones`: 9.6rem wide piles, 13.44rem tall,
+ * standing 9.2rem up over the tip of your hand, so their tops are 22.64rem up) and the
+ * controls (`.action-bar` and its seat arrows, under 20rem even while paying).
+ */
+const BOX_ABOVE_EDGE = 24.4;
+/** The top seats stop below their piles (14.74rem down) and their hands' counts. */
+const BOX_BELOW_EDGE = 20.8;
 /**
  * The whole bottom edge runs level through the middle of the screen, so it starts further
- * below the middle, clear of the prompt (`.prompt`), and stops above the controls
- * (`.action-bar` and its seat arrows).
+ * below the middle, clear of the prompt (`.prompt`).
  */
 const BOX_BELOW_MIDDLE_FULL = 3.2;
-const BOX_ABOVE_CONTROLS = 22.6;
 
 export interface SeatBox {
   /** The rows' rectangle on the table, in rem from the table's top-left corner. */
@@ -103,7 +108,7 @@ export function seatBox(s: Seat, stageW: number, stageH: number): SeatBox {
   let x1 = s.h === 'full' ? stageW - BOX_LEFT : stageW / 2 - BOX_MIDDLE_GAP;
   const rise = (Math.tan((Math.abs(lean) * Math.PI) / 180) * (x1 - x0)) / 2;
   let y0 = stageH / 2 + (s.h === 'full' ? BOX_BELOW_MIDDLE_FULL : BOX_BELOW_MIDDLE) + rise;
-  let y1 = stageH - (s.h === 'full' ? BOX_ABOVE_CONTROLS : BOX_ABOVE_EDGE) - rise;
+  let y1 = stageH - (s.v === 'top' ? BOX_BELOW_EDGE : BOX_ABOVE_EDGE) - rise;
   if (s.h === 'right') [x0, x1] = [stageW - x1, stageW - x0];
   if (s.v === 'top') [y0, y1] = [stageH - y1, stageH - y0];
   const cam = camera(stageW, stageH, 1);

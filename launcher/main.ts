@@ -11,7 +11,7 @@ import { appendFileSync, mkdirSync, statSync, writeFileSync } from 'node:fs';
 import type { IncomingMessage, Server, ServerResponse } from 'node:http';
 import { resolve } from 'node:path';
 import { getAsset, isSea } from 'node:sea';
-import { findEdge, openDefaultBrowser, openEdge, showError } from './edge';
+import { findEdge, openDefaultBrowser, openEdge, showError, windowUrl } from './edge';
 import { GameHost, handleErrorReport } from '../server/game';
 import { APP_VERSION, handleApi, Lobby } from '../server/lobby';
 import { checkHost } from '../server/net';
@@ -144,7 +144,7 @@ async function main() {
       log(`Serving the game at ${url}`);
       if (port !== PORT) log(`Port ${PORT} was taken, so decks and settings saved on it don't show on this port.`);
       if (flag('--no-window')) return;
-      return openWindow(url, lifetime);
+      return openWindow(windowUrl(url, option('--table')), lifetime);
     }
     // Already running from this folder (the .exe double-clicked twice, or again right
     // after closing the window, while that copy is still in its last seconds): open another
@@ -153,7 +153,7 @@ async function main() {
     const other = await probe(port, window);
     if (other && samePath(other.data, paths.data)) {
       log(`Already running on port ${port}; opening another window.`);
-      if (window) openWindow(`http://127.0.0.1:${port}/`);
+      if (window) openWindow(windowUrl(`http://127.0.0.1:${port}/`, option('--table')));
       // A moment for Edge to fail to start, if it will; the window itself outlives this copy.
       return setTimeout(() => process.exit(0), 1000);
     }
