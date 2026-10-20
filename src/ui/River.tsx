@@ -48,7 +48,7 @@ const meander = (t: number, a1: number, k1: number, p1: number, a2: number, k2: 
 /** The width wanders too, by a quarter either way. */
 const wander = (base: number, t: number, p: number) => base * (1 + 0.22 * Math.sin(TAU * 3.7 * t + p) + 0.12 * Math.sin(TAU * 8.3 * t + p * 1.7));
 
-/** The river for a stage `w` by `h` rem: one channel, left edge to right edge. */
+/** The river for a table `w` by `h` rem: one channel, left edge to right edge. */
 function channels(w: number, h: number): Channel[] {
   return [
     {
@@ -117,13 +117,25 @@ function rocks(s: ReturnType<typeof sample>, seed: number) {
   return out;
 }
 
-export function River() {
-  // The table, not the screen: it is taller (camera.ts), and the arc keeps its place from the bottom edge.
-  const { w, h } = useTableSize();
-  const parts = channels(w, h).map((c) => {
+/**
+ * Everything drawn for a table `w` by `h` rem. Nothing while the table has no size: the root
+ * font-size follows the window (styles.css), so a window with no size gives 0 rem and a width and
+ * height of 0, NaN or Infinity, and the channel would have no samples for the rocks to sit on.
+ * It draws normally again once the window has a size.
+ */
+export function riverGeometry(w: number, h: number) {
+  if (!(w > 0 && h > 0) || !Number.isFinite(w) || !Number.isFinite(h)) return [];
+  return channels(w, h).map((c) => {
     const s = sample(c);
     return { bank: bankPath(s, c.seed), centre: linePath(s, 0), flows: [linePath(s, -0.28), linePath(s, 0.03), linePath(s, 0.3)], rocks: rocks(s, c.seed) };
   });
+}
+
+export function River() {
+  // The table, not the screen: it is taller (camera.ts), and the arc keeps its place from the bottom edge.
+  const { w, h } = useTableSize();
+  const parts = riverGeometry(w, h);
+  if (parts.length === 0) return null;
   return (
     <svg className="river" viewBox={`0 0 ${fmt(w)} ${fmt(h)}`} preserveAspectRatio="none" aria-hidden="true">
       <defs>
