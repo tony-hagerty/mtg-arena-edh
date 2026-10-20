@@ -5,13 +5,13 @@ import { useTableSize } from './camera';
   side seat, across the middle band of the table a little way above your mat, and down into
   the bottom-right corner. It meanders, and a few rocks break its surface. Drawn under
   everything on the table, in rem (the SVG's viewBox is the table in rem), so it follows the
-  seats wherever the window puts them (styles.css: .seat-left, .me-mat).
+  seats wherever the window puts them (styles.css: .seat-left, .me-front).
 */
 
 /** The arc's ends sit this far below the bottom edge, at the corners. */
 const CORNER = 6;
 /**
- * It rises this much across the middle: to 60rem up, six above your mat's top (54.4rem),
+ * It rises this much across the middle: to 60rem up, six above the top of your creatures' row (54rem),
  * and it is past the side seats' bottom (38rem up) by 19rem in from the edge.
  */
 const RISE = 66;
