@@ -1,6 +1,7 @@
 import { useEffect, useMemo } from 'react';
 import { botAction, botPause } from '../engine';
-import { OpponentPanel, PlayerField } from './Board';
+import { OpponentPanel, PlayerField, PlayerHand } from './Board';
+import { Flights } from './Flights';
 import { ActionBar, ArrowLayer, ManaPicker, ExitConfirm, GameOver, LogPanel, Preview, Prompt, SpellFlash, StackPanel, ZoneViewer } from './Hud';
 import { GameVotes, PausedOverlay } from './LobbyScreen';
 import { Decisions, DelvePicker, EscapePicker, GraveCostPicker, GraveyardTargets } from './Picker';
@@ -60,12 +61,18 @@ export function GameScreen() {
   return (
     <ViewContext.Provider value={view}>
       <div className="stage board">
-        {/* Under everything on the table. */}
-        <River />
-        {others.map((p) => (
-          <OpponentPanel key={p.id} player={p} />
-        ))}
-        <PlayerField player={bottom} />
+        {/* The table, tilted away from you (--tilt). The hand and flights stay flat, in screen space. */}
+        <div className="table">
+          {/* Under everything on the table. */}
+          <River />
+          {others.map((p) => (
+            <OpponentPanel key={p.id} player={p} />
+          ))}
+          <PlayerField player={bottom} />
+        </div>
+        <PlayerHand player={bottom} />
+        {/* Cards moving between zones, drawn over the whole table. */}
+        <Flights />
         <Prompt />
         <ManaPicker />
         <LogPanel />
