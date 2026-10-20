@@ -117,7 +117,8 @@ image server at runtime. If an image doesn't load, the card is drawn as text ins
 and ability icons are from [mana-font](https://github.com/andrewgioia/mana). The mouse
 cursor (`src/ui/cursor.png`) is
 ["MTGA cursor"](https://www.cursor.cc/?action=icon&file_id=114958) by Tales on cursor.cc,
-shared under Creative Commons with no attribution required.
+shared under Creative Commons with no attribution required; `cursor-down.png` is a shrunk,
+recoloured copy of it.
 
 Magic: The Gathering is © Wizards of the Coast. This is an unofficial fan prototype, not
 affiliated with or endorsed by them.

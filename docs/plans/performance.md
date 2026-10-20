@@ -81,9 +81,13 @@ each press and each release: 8 long tasks, 2.6 s, and 6.8 s of raster.
 Checked by elimination: with the toggle suppressed, the drag scene has no long tasks and
 1.4 s of raster; with the SVG textures removed, none either and 1.9 s. Pinning
 `cursor` on the big elements, or moving the arrow to `html` and inheriting it, didn't
-help: the invalidation happens wherever the cursor changes. A pressed arrow on the
-pressed element alone (`:active`, with or without `:has()` to pick the deepest one)
-still stalled a drag: 22 long tasks, 1.5 s, against none with no pressed arrow at all.
+help: the invalidation happens wherever the cursor changes. A pressed arrow through
+`:active` (with or without `:has()` to pick the deepest element) still stalled a drag: 22
+long tasks, 1.5 s, because the browser churns the `:active` state while dragging. What
+works is a class set from script on the one element under the pointer, skipping
+floor-sized elements: no long tasks in the drag scene, and the click scene's raster the
+same as with no pressed arrow at all (0.60 s against 0.66 s; pressing on the bare table
+without the exclusion cost 2.3 s).
 
 This is the one cost that is certainly as bad on a real machine: it is CPU raster of SVG
 filters, and it runs twice per click.
@@ -159,10 +163,13 @@ among the top CPU consumers while bots play.
 
 ## Fixes
 
-1. **No pressed-in arrow** (`main.tsx`, `styles.css`, `cursor-down.png` removed). The
-   `pressing` class on `<html>` and its listeners are gone. This is the one visible
-   change: while a mouse button is held, the arrow no longer presses in. Every cheaper
-   way of keeping it still repainted too much (see above).
+1. **The pressed-in arrow on the pressed element only** (`main.tsx`, `styles.css`). The
+   `pressing` class on `<html>` is gone; `pointerdown` puts `pressed` on the element
+   under the pointer, unless it is floor-sized, and `pointerup` takes it off. What
+   changes: the arrow presses in over the element that was pressed, and goes back to
+   normal if the pointer is dragged off it while held. Dragging a hand card keeps the
+   pointer on the card, so it stays pressed through the drag as before. Pressing on empty
+   floor shows the normal arrow.
 2. **Tiles as compositor layers** (`styles.css`): `.tile { will-change: transform }`.
 3. **The bot thinks inside its timer** (`scheduleBot` in `ai.ts`, used by `GameScreen.tsx`
    and the game server's `host.ts`): the pause is measured from the game change as

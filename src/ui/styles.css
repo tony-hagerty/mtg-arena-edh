@@ -96,11 +96,15 @@ html {
 }
 
 /*
-  No pressed-in arrow while a button is held: changing an element's cursor repaints it, and
-  the class on <html> that used to switch --cursor repainted and re-rastered the whole
-  screen, textures and all, for 300 to 600 ms on every press and every release. A pressed
-  arrow on the pressed element alone (:active) still stalled a drag. See docs/plans/performance.md.
+  While a mouse button is held: a pressed-in arrow with the same tip, on the one element that
+  was pressed (main.tsx sets the class). Never switch --cursor for the whole page: changing an
+  element's cursor repaints it, and doing it everywhere at once repainted and re-rastered the
+  whole screen, textures and all, for 300 to 600 ms on every press and every release. See
+  docs/plans/performance.md.
 */
+.pressed {
+  cursor: url('./cursor-down.png') 0 0, auto;
+}
 
 body {
   margin: 0;
