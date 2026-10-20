@@ -205,11 +205,16 @@ button {
   pointer-events: none;
 }
 
+/*
+  A proxy is the card's own size on the table, laid onto the card on the screen by a matrix3d
+  from its top-left corner (useProxy), so its badges turn and foreshorten with the card.
+*/
 .card-proxy {
   --frame: var(--f-artifact);
   position: absolute;
   left: 0;
   top: 0;
+  transform-origin: 0 0;
   pointer-events: none;
   will-change: transform;
 }
