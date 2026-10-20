@@ -1,8 +1,8 @@
-import { useRef, useState } from 'react';
+import { memo, useRef, useState } from 'react';
 import type { CSSProperties, RefObject } from 'react';
 import { motion } from 'motion/react';
 import { activatedAbilities, attachmentsOf, data, defenseOf, isBattle, isCreature, isPlaneswalker, abilitiesOf, loyaltyOf, stats } from '../engine';
-import type { Card, Game } from '../engine';
+import type { Card, CardData, Game } from '../engine';
 import { useRem } from './rem';
 import { play } from './sound';
 import { useStore } from './store';
@@ -10,6 +10,7 @@ import { CardImage, frameOf, ManaCost, useArtLoads } from './TextCard';
 import { BACK_H, BACK_W, FAN_RADIUS, HAND_H, HAND_STEP, HAND_VISIBLE, HAND_W, handSlot } from './table-layout';
 import { cx, hoverProps, seatOf } from './util';
 import { clickGroup, clickPermanent, loyaltyCost, playHandCard, useView } from './view';
+import type { Glow, View } from './view';
 
 const KEYWORD_ICONS = [
   'flying',
@@ -89,11 +90,6 @@ function useFlight<T>(order: number | undefined, measure: () => T | null) {
   return { start, flying, transition: flying ? flight(order!) : SPRING, landed: () => setFlying(false) };
 }
 
-/**
- * A permanent on the battlefield, drawn Arena-style: cropped art, name bar, P/T box.
- * The outer tile is the space it takes on screen; the face inside carries the frame and art.
- * The top card of a pile gets `badge`, the whole pile: its "x7" uses them all at once.
- */
 /** Counters on a permanent (122): "+2" for +1/+1 counters, "-1" for -1/-1, "3 charge" for others. */
 function Counters({ card }: { card: Card }) {
   // Loyalty and defense have their own badge, where a creature's P/T goes.
@@ -116,10 +112,9 @@ function Counters({ card }: { card: Card }) {
 /**
  * Auras and Equipment attached to a permanent, fanned out behind it with their name bar and
  * some art showing (`.tile-attached`). Click one to use it (an Equipment's equip ability),
- * hover to read it. `host` is the permanent they are attached to.
+ * hover to read it. `host` is the permanent they are attached to; `glows` is each one's glow.
  */
-function Attachments({ cards, host }: { cards: Card[]; host: Card }) {
-  const { glow } = useView();
+function Attachments({ cards, glows, host }: { cards: Card[]; glows: (Glow | undefined)[]; host: Card }) {
   // The last one is furthest out, so it is drawn first: each nearer one covers all of it but its top.
   return (
     <>
@@ -128,7 +123,7 @@ function Attachments({ cards, host }: { cards: Card[]; host: Card }) {
           <div
             key={c.id}
             data-card={c.id}
-            className={cx('tile-attached', `frame-${frameOf(data(c))}`, glow.get(c.id) && `glow-${glow.get(c.id)}`)}
+            className={cx('tile-attached', `frame-${frameOf(data(c))}`, glows[i] && `glow-${glows[i]}`)}
             style={{ '--i': i, '--n': cards.length } as CSSProperties}
             onClick={(e) => {
               e.stopPropagation();
@@ -163,30 +158,117 @@ const abilityText = (g: Game, card: Card) => {
   return [...activatedAbilities(g, card).map((ab) => ab.text), ...(script.loyalty ?? []).map((ab) => `${loyaltyCost(ab.cost)}: ${ab.text}`)].filter(Boolean).join('\n');
 };
 
-/** `phased`: the permanent is phased out (702.26b): drawn faded, and treated as though it doesn't exist, so clicks do nothing. */
-export function Permanent({ card, badge, phased }: { card: Card; badge?: Card[]; phased?: boolean }) {
-  const v = useView();
+/**
+ * Everything a tile draws, as plain values. Every game change re-renders every `Permanent`
+ * (the view is a context), but most tiles come out the same, so the tile proper (`Tile`)
+ * is `memo` on these: it, and Motion's measuring of it, run only when one of them changed.
+ * Anything the tile reads from the game must come through here, never from the view.
+ */
+interface TileProps {
+  /** The card itself. An untouched card keeps its identity from one game to the next (Immer). */
+  card: Card;
+  d: CardData;
+  /** A creature's power and toughness now (null for a non-creature), and its keyword icons (`KEYWORD_ICONS`), joined. */
+  power: number | null;
+  toughness: number | null;
+  keywords: string;
+  attacking: boolean;
+  blocking: boolean;
+  sick: boolean;
+  glow: Glow | undefined;
+  mana: boolean;
+  /** Which way the tile lifts to attack or block: up for the bottom seats, down for the top ones. */
+  inward: 1 | -1;
+  attached: Card[];
+  attachedGlows: (Glow | undefined)[];
+  planeswalker: boolean;
+  battle: boolean;
+  protector: string | null;
+  /** The hover text of its activated and loyalty abilities, or null for none. */
+  abilities: string | null;
+  badge?: Card[];
+  phased?: boolean;
+}
+
+function tileProps(v: View, card: Card, badge?: Card[], phased?: boolean): TileProps {
   const g = v.g;
-  const d = data(card);
   const creature = isCreature(g, card);
   const s = creature ? stats(g, card) : null;
-  const attacking = g.combat?.attacks.some((a) => a.id === card.id) ?? false;
-  const blocking = g.combat?.attacks.some((a) => a.blockers.includes(card.id)) ?? false;
-  const glow = v.glow.get(card.id);
+  const attached = attachmentsOf(g, card);
+  const hasAbilities = activatedAbilities(g, card).length > 0 || !!abilitiesOf(g, card).loyalty;
+  return {
+    card,
+    d: data(card),
+    power: s ? s.power : null,
+    toughness: s ? s.toughness : null,
+    keywords: s ? KEYWORD_ICONS.filter((k) => s.keywords.has(k)).join(',') : '',
+    attacking: g.combat?.attacks.some((a) => a.id === card.id) ?? false,
+    blocking: g.combat?.attacks.some((a) => a.blockers.includes(card.id)) ?? false,
+    sick: creature && card.sick && g.active === card.controller && !s!.keywords.has('haste'),
+    glow: v.glow.get(card.id),
+    mana: v.mana.has(card.id),
+    inward: INWARD[seatOf(g, v.me, card.controller).v],
+    attached,
+    attachedGlows: attached.map((c) => v.glow.get(c.id)),
+    planeswalker: isPlaneswalker(g, card),
+    battle: isBattle(g, card),
+    protector: card.protector !== null ? g.players[card.protector].name : null,
+    abilities: hasAbilities ? abilityText(g, card) : null,
+    badge,
+    phased,
+  };
+}
+
+const sameCards = (a: Card[] | undefined, b: Card[] | undefined) => a === b || (!!a && !!b && a.length === b.length && a.every((c, i) => c === b[i]));
+
+/** Did nothing the tile draws change? Cards by identity, the rest by value. */
+function sameTile(a: TileProps, b: TileProps) {
+  return (
+    a.card === b.card &&
+    a.d === b.d &&
+    a.power === b.power &&
+    a.toughness === b.toughness &&
+    a.keywords === b.keywords &&
+    a.attacking === b.attacking &&
+    a.blocking === b.blocking &&
+    a.sick === b.sick &&
+    a.glow === b.glow &&
+    a.mana === b.mana &&
+    a.inward === b.inward &&
+    sameCards(a.attached, b.attached) &&
+    a.attachedGlows.every((x, i) => x === b.attachedGlows[i]) &&
+    a.planeswalker === b.planeswalker &&
+    a.battle === b.battle &&
+    a.protector === b.protector &&
+    a.abilities === b.abilities &&
+    sameCards(a.badge, b.badge) &&
+    a.phased === b.phased
+  );
+}
+
+/** `phased`: the permanent is phased out (702.26b): drawn faded, and treated as though it doesn't exist, so clicks do nothing. */
+export function Permanent({ card, badge, phased }: { card: Card; badge?: Card[]; phased?: boolean }) {
+  return <Tile {...tileProps(useView(), card, badge, phased)} />;
+}
+
+/**
+ * A permanent on the battlefield, drawn Arena-style: cropped art, name bar, P/T box.
+ * The outer tile is the space it takes on screen; the face inside carries the frame and art.
+ * The top card of a pile gets `badge`, the whole pile: its "x7" uses them all at once.
+ */
+const Tile = memo(function Tile({ card, d, power, toughness, keywords, attacking, blocking, sick, glow, mana, inward, attached, attachedGlows, planeswalker, battle, protector, abilities, badge, phased }: TileProps) {
   const rem = useRem();
-  const inward = INWARD[seatOf(g, v.me, card.controller).v];
   const lift = (attacking ? 2 : blocking ? 1 : 0) * rem;
+  const creature = power !== null && toughness !== null;
   const printed = { power: parseInt(d.power ?? '0', 10) || 0, toughness: parseInt(d.toughness ?? '0', 10) || 0 };
   const ptClass =
-    s && card.damage > 0
+    creature && card.damage > 0
       ? 'hurt'
-      : s && (s.power > printed.power || s.toughness > printed.toughness)
+      : creature && (power > printed.power || toughness > printed.toughness)
         ? 'buffed'
-        : s && (s.power < printed.power || s.toughness < printed.toughness)
+        : creature && (power < printed.power || toughness < printed.toughness)
           ? 'hurt'
           : '';
-  const sick = creature && card.sick && g.active === card.controller && !s!.keywords.has('haste');
-  const attached = attachmentsOf(g, card);
   const artOk = useArtLoads(d.art);
 
   return (
@@ -201,7 +283,7 @@ export function Permanent({ card, badge, phased }: { card: Card; badge?: Card[];
         blocking && 'blocking',
         sick && 'sick',
         card.isCommander && 'commander',
-        v.mana.has(card.id) && 'mana-source',
+        mana && 'mana-source',
         glow && `glow-${glow}`,
         phased && 'phased-out',
         card.textless && 'textless',
@@ -214,7 +296,7 @@ export function Permanent({ card, badge, phased }: { card: Card; badge?: Card[];
       onClick={() => !phased && clickPermanent(card)}
       {...hoverProps(d, { textless: card.textless })}
     >
-      {attached.length > 0 && <Attachments cards={attached} host={card} />}
+      {attached.length > 0 && <Attachments cards={attached} glows={attachedGlows} host={card} />}
       <div className="tile-face">
         {artOk ? (
           <div className="tile-art" style={{ backgroundImage: `url(${d.art})` }} />
@@ -230,31 +312,34 @@ export function Permanent({ card, badge, phased }: { card: Card; badge?: Card[];
           {d.name}
           {card.chosen && ` (${card.chosen})`}
         </div>
-        {s && (
+        {creature && (
           <div className="tile-keywords">
-            {KEYWORD_ICONS.filter((k) => s.keywords.has(k)).map((k) => (
-              <i key={k} title={k} className={`ms ms-ability-${k.replace(' ', '-')}`} />
-            ))}
+            {keywords
+              .split(',')
+              .filter(Boolean)
+              .map((k) => (
+                <i key={k} title={k} className={`ms ms-ability-${k.replace(' ', '-')}`} />
+              ))}
           </div>
         )}
-        {s && (
+        {creature && (
           <div className={cx('tile-pt', ptClass)}>
-            {s.power}/{s.toughness - card.damage}
+            {power}/{toughness - card.damage}
           </div>
         )}
-        {isPlaneswalker(g, card) && !s && (
+        {planeswalker && !creature && (
           <div className="tile-pt tile-loyalty" title="Loyalty">
             {loyaltyOf(card)}
           </div>
         )}
-        {isBattle(g, card) && (
-          <div className="tile-pt tile-defense" title={`Defense${card.protector !== null ? ` — protected by ${g.players[card.protector].name}` : ''}`}>
+        {battle && (
+          <div className="tile-pt tile-defense" title={`Defense${protector !== null ? ` — protected by ${protector}` : ''}`}>
             {defenseOf(card)}
           </div>
         )}
         <Counters card={card} />
         {sick && <i className="tile-sick ms ms-ability-summoning-sickness" title="Summoning sick" />}
-        {(activatedAbilities(g, card).length > 0 || abilitiesOf(g, card).loyalty) && <div className="tile-ability" title={abilityText(g, card)} />}
+        {abilities !== null && <div className="tile-ability" title={abilities} />}
         {card.tapped && <div className="tile-tapmark" />}
         {card.textless && <TextlessBadge />}
         {badge && (
@@ -272,7 +357,7 @@ export function Permanent({ card, badge, phased }: { card: Card; badge?: Card[];
       </div>
     </motion.div>
   );
-}
+}, sameTile);
 
 /** A card played without its rules text (`Card.textless`): a small plain mark, on its tile and in the hand. */
 const TextlessBadge = () => (
