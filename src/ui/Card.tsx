@@ -1,11 +1,11 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { CSSProperties, RefObject } from 'react';
-import { motion } from 'motion/react';
+import { motion, useDragControls } from 'motion/react';
 import { activatedAbilities, attachmentsOf, data, defenseOf, isBattle, isCreature, isPlaneswalker, abilitiesOf, loyaltyOf, stats } from '../engine';
 import type { Card, Game } from '../engine';
 import { useRem } from './rem';
 import { play } from './sound';
-import { useStore } from './store';
+import { hoverHandCard, leaveHandCard, useStore } from './store';
 import { CardImage, frameOf, ManaCost, useArtLoads } from './TextCard';
 import { BACK_H, BACK_W, FAN_RADIUS, HAND_H, HAND_STEP, HAND_VISIBLE, HAND_W, handSlot } from './table-layout';
 import { cx, hoverProps, seatOf } from './util';
@@ -294,6 +294,14 @@ const HOVER_SCALE = 1.5;
  * table and letting go plays it. A card just drawn (`drawn` is its place in the batch) flies
  * in face down from the library and turns face up on the way. `slot` is its place in the
  * window of cards that show (`handWindow`); outside it, the card fades out and takes no clicks.
+ *
+ * What counts as pointing at the card is its resting place on the curve, not the zoomed card:
+ * the card is drawn in its slot (`.hand-slot`), which takes no pointer events, and a clear
+ * copy of its resting shape beside it (`.hand-hit`), stacked in hand order, takes them. So
+ * the zoomed card, drawn over its neighbours, never hides them from the pointer: moving onto
+ * the part of the next card that shows at rest hovers that one. Pressing on the resting place
+ * starts the slot's drag (`dragControls`); while it is held, the card in the slot takes the
+ * pointer itself, and no other card hovers (`holding`).
  */
 export function HandCard({
   card,
@@ -312,87 +320,120 @@ export function HandCard({
 }) {
   const v = useView();
   const [hot, setHot] = useState(false);
+  // For the pointer handlers, which can run again before React redraws.
+  const hotNow = useRef(false);
   // While dragging: the shift that centres the card on the pointer, and whether letting go plays it.
   const [held, setHeld] = useState<{ x: number; y: number; armed: boolean } | null>(null);
   const slot = useRef<HTMLDivElement>(null);
+  const hit = useRef<HTMLDivElement>(null);
   const from = useRef(index);
+  const controls = useDragControls();
   const rem = useRem();
   const d = data(card);
   const glow = v.glow.get(card.id);
   const at = slotPose(place);
   const fly = useFlight(drawn, () => onLibrary(card.owner, at.x * rem, at.top * rem, HAND_W * rem, HAND_H * rem));
-  // Zoomed, the card stands upright with its bottom edge just past the screen's, so the
-  // pointer never falls off the card and makes it flicker, and clear of the left edge.
-  // Hovering waits until the card lands.
+  const heat = (on: boolean) => {
+    hotNow.current = on;
+    setHot(on);
+  };
+  const enter = (el: HTMLElement) => {
+    // A hand card zooms itself: it only gets the pinned preview (`pinOnly`).
+    if (hotNow.current || !hoverHandCard({ name: d.name, d, el, pinOnly: true, ...(card.textless && { textless: true }) })) return;
+    heat(true);
+    if (!fly.flying) play('hover');
+  };
+  // A card that leaves the hand while held (a bot's spell discards it) lets go of the hold.
+  useEffect(
+    () => () => {
+      if (useStore.getState().holding === card.id) useStore.setState({ holding: null });
+    },
+    [card.id],
+  );
+  // Zoomed, the card stands upright with its bottom edge just past the screen's and clear of
+  // the left edge. Hovering waits until the card lands.
   const zoom = { rotate: 0, x: Math.max(0, 0.5 + (HAND_W * HOVER_SCALE) / 2 - at.x) * rem, y: (at.bottom + 0.5) * rem, scale: HOVER_SCALE };
   const pose = held
     ? { rotate: 0, x: held.x, y: held.y, scale: HELD_SCALE }
     : hot && !fly.flying && at.shown
       ? zoom
       : { rotate: at.th, x: 0, y: 0, scale: 1 };
+  const live = !fly.flying && at.shown;
   return (
-    // The slot is the card's place on the curve and what the pointer drags; the card inside poses on top of it.
-    <motion.div
-      ref={slot}
-      layout
-      data-hand={card.id}
-      className="hand-slot"
-      style={{ left: `${at.left}rem`, top: `${at.top}rem`, zIndex: held ? 101 : hot ? 100 : index }}
-      drag={!fly.flying && at.shown}
-      dragSnapToOrigin
-      dragMomentum={false}
-      onDragStart={(_, info) => {
-        const r = slot.current!.getBoundingClientRect();
-        from.current = index;
-        // The card scales from its bottom edge, so its middle is half a scaled height above that.
-        setHeld({ x: info.point.x - (r.left + r.width / 2), y: info.point.y - (r.bottom - (HELD_SCALE * r.height) / 2), armed: false });
-      }}
-      onDrag={(_, info) => {
-        const armed = info.offset.y < -PLAY_PULL * rem;
-        setHeld((h) => (h && h.armed !== armed ? { ...h, armed } : h));
-        // One card further along the curve for every step it is dragged sideways.
-        const to = Math.max(0, Math.min(total - 1, Math.round(from.current + info.offset.x / (HAND_STEP * rem))));
-        if (!armed && to !== index) onMove(to);
-      }}
-      onDragEnd={(_, info) => {
-        if (info.offset.y < -PLAY_PULL * rem) {
-          // A card that can't be played now goes back with a buzz.
-          play(glow ? 'release' : 'error');
-          playHandCard(card);
-        }
-        setHeld(null);
-        setHot(false);
-      }}
-      onMouseEnter={(e) => {
-        setHot(true);
-        useStore.setState({ hover: { name: d.name, d, el: e.currentTarget, pinOnly: true, ...(card.textless && { textless: true }) } });
-        if (!fly.flying && !held) play('hover');
-      }}
-      onMouseLeave={() => {
-        setHot(false);
-        useStore.setState({ hover: null });
-      }}
-      onClick={() => (glow === 'target' || (v.paying && v.mana.has(card.id))) && playHandCard(card)}
-    >
+    <>
+      {/* The slot is the card's place on the curve and what drags; the card inside poses on top of it. */}
       <motion.div
-        className={cx('hand-card', glow && `glow-${glow}`, held?.armed && glow && 'armed', card.textless && 'textless')}
-        // Outside the window the card fades out and takes no clicks.
-        style={{ originY: 1, transformPerspective: 120 * rem, pointerEvents: at.shown ? undefined : 'none' }}
-        initial={fly.start ? { opacity: 1, rotateY: 180, ...fly.start } : { opacity: 0, y: 8 * rem, rotate: at.th }}
-        animate={{ opacity: at.shown ? 1 : 0, rotateY: 0, ...pose }}
-        transition={fly.transition}
-        onAnimationComplete={fly.landed}
+        ref={slot}
+        layout
+        data-hand={card.id}
+        className={cx('hand-slot', held && 'held')}
+        style={{ left: `${at.left}rem`, top: `${at.top}rem`, zIndex: held ? 101 : hot ? 100 : index }}
+        drag={live}
+        dragControls={controls}
+        dragListener={false}
+        dragSnapToOrigin
+        dragMomentum={false}
+        onDragStart={(_, info) => {
+          const r = slot.current!.getBoundingClientRect();
+          from.current = index;
+          useStore.setState({ holding: card.id });
+          // The card scales from its bottom edge, so its middle is half a scaled height above that.
+          setHeld({ x: info.point.x - (r.left + r.width / 2), y: info.point.y - (r.bottom - (HELD_SCALE * r.height) / 2), armed: false });
+        }}
+        onDrag={(_, info) => {
+          const armed = info.offset.y < -PLAY_PULL * rem;
+          setHeld((h) => (h && h.armed !== armed ? { ...h, armed } : h));
+          // One card further along the curve for every step it is dragged sideways.
+          const to = Math.max(0, Math.min(total - 1, Math.round(from.current + info.offset.x / (HAND_STEP * rem))));
+          if (!armed && to !== index) onMove(to);
+        }}
+        onDragEnd={(_, info) => {
+          useStore.setState({ holding: null });
+          setHeld(null);
+          if (info.offset.y < -PLAY_PULL * rem) {
+            // A card that can't be played now goes back with a buzz.
+            play(glow ? 'release' : 'error');
+            playHandCard(card);
+          }
+          // Let go over its own resting place, it stays zoomed. Anywhere else it settles back,
+          // and the card the pointer is over hovers once the pointer moves.
+          // The card itself is still over everything there, so look under it for a resting place.
+          const under = document.elementsFromPoint(info.point.x - window.scrollX, info.point.y - window.scrollY).find((el) => el.classList.contains('hand-hit'));
+          if (hit.current && under !== hit.current && leaveHandCard(hit.current)) heat(false);
+        }}
       >
-        {fly.flying && <div className="card-back" />}
-        <CardImage d={d} draggable={false} />
-        {card.textless && <TextlessBadge />}
-        {d.manaCost && (
-          <div className="hand-cost">
-            <ManaCost cost={d.manaCost} />
-          </div>
-        )}
+        <motion.div
+          className={cx('hand-card', glow && `glow-${glow}`, held?.armed && glow && 'armed', card.textless && 'textless')}
+          style={{ originY: 1, transformPerspective: 120 * rem }}
+          initial={fly.start ? { opacity: 1, rotateY: 180, ...fly.start } : { opacity: 0, y: 8 * rem, rotate: at.th }}
+          animate={{ opacity: at.shown ? 1 : 0, rotateY: 0, ...pose }}
+          transition={fly.transition}
+          onAnimationComplete={fly.landed}
+        >
+          {fly.flying && <div className="card-back" />}
+          <CardImage d={d} draggable={false} />
+          {card.textless && <TextlessBadge />}
+          {d.manaCost && (
+            <div className="hand-cost">
+              <ManaCost cost={d.manaCost} />
+            </div>
+          )}
+        </motion.div>
       </motion.div>
-    </motion.div>
+      {/* The card's resting place: what the pointer hovers, clicks and grabs. Outside the window it takes nothing. */}
+      <div
+        ref={hit}
+        data-hand-hit={card.id}
+        className="hand-hit"
+        style={{ left: `${at.left}rem`, top: `${at.top}rem`, rotate: `${at.th}deg`, zIndex: index, pointerEvents: at.shown ? undefined : 'none' }}
+        onPointerDown={(e) => live && controls.start(e)}
+        onMouseEnter={(e) => enter(e.currentTarget)}
+        // On moving too: a card let go of over this one, or one drawn under a still pointer, hovers then.
+        onMouseMove={(e) => enter(e.currentTarget)}
+        onMouseLeave={(e) => leaveHandCard(e.currentTarget) && heat(false)}
+        onClick={() => (glow === 'target' || (v.paying && v.mana.has(card.id))) && playHandCard(card)}
+      />
+    </>
   );
 }
 
