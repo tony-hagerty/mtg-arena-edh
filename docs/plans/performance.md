@@ -196,6 +196,19 @@ among the top CPU consumers while bots play.
 7. **The glow pulse in 24 steps** (`styles.css`): `steps(24, jump-none)` in place of
    `ease-in-out`, so the compositor draws about seven times a second while the table is
    idle instead of every frame.
+8. **Each tile memoized on what it draws** (`Card.tsx`, `Board.tsx`). `Permanent` works
+   out everything a tile draws as plain values (`tileProps`: the card, its power,
+   toughness and keyword icons, attacking, blocking, sick, glow, mana, attachments and
+   their glows, abilities text, badge, phased) and the tile proper is `memo` on them,
+   field by field. Each seat's rows sit in a Motion `LayoutGroup`, so a tile that does
+   re-render marks its siblings for measuring and they still slide when a row reflows.
+   A game change that touches no tile renders no tile (all 88 before). React's render time
+   per commit in the dev profiler: stack scene 651 to 534 ms, flights 352 to 299 ms, bots
+   at 4× 14.5 to 11.0 ms a commit. In production totals it is within noise (script
+   3.69 s against 3.77 s over the same 30 s bot game): React's share of a production
+   commit is already small next to Motion's animation loop and the engine. The rule it
+   adds: anything a tile reads from the game goes through `tileProps`, or the tile goes
+   stale.
 
 ## Tried and rejected
 
@@ -210,11 +223,6 @@ among the top CPU consumers while bots play.
 
 ## Left alone, as suggestions
 
-- **Motion's layout projection on every tile.** `layoutId` on every `Permanent` makes
-  Motion measure all 88 tiles on every game change. Memoizing each tile on what it draws
-  (card identity, stats, glow, combat state) would skip the tiles that didn't change,
-  both for React and for Motion. It touches what every tile reads from the view; worth
-  doing, but not quietly.
 - **Bot thinking off the main thread.** A Web Worker would take the 30 to 70 ms thinks off
   the UI thread entirely. The game server already does that for the Windows app.
 

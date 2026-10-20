@@ -1,6 +1,6 @@
 import { memo, useEffect, useRef, useState } from 'react';
 import type { CSSProperties, ReactNode } from 'react';
-import { AnimatePresence, motion } from 'motion/react';
+import { AnimatePresence, LayoutGroup, motion } from 'motion/react';
 import { cardData } from '../cards/db';
 import { COMMANDER_DAMAGE, attachmentsOf, creaturesOf, data, isCreature, isHidden, isLand, permanent } from '../engine';
 import type { Card, Game, ManaSym, Player } from '../engine';
@@ -128,26 +128,29 @@ export const Seat = memo(function Seat({ player }: { player: Player }) {
         '--deck': deckColor(player.colors),
       })}
     >
-      <Row className="lands" {...size('other', sizes(lands))}>
-        {lands.map((pile) => (
-          <Pile key={pile[0].id} cards={pile} />
-        ))}
-      </Row>
-      <Row className="others" {...size('other', otherSizes)}>
-        <AnimatePresence>
-          {others.map((c) => (
-            <Permanent key={c.id} card={c} />
+      {/* One layout group: a tile that changes marks the seat's other tiles for measuring too, so they still slide when a row reflows although, memoized, they didn't re-render. */}
+      <LayoutGroup>
+        <Row className="lands" {...size('other', sizes(lands))}>
+          {lands.map((pile) => (
+            <Pile key={pile[0].id} cards={pile} />
           ))}
-          {phased.map((c) => (
-            <Permanent key={c.id} card={c} phased />
-          ))}
-        </AnimatePresence>
-      </Row>
-      <Row className="creatures" {...size('creature', sizes(creatures))}>
-        <AnimatePresence>
-          {creatures.map((pile) => (pile.length === 1 ? <Permanent key={pile[0].id} card={pile[0]} /> : <Pile key={`stack-${pile[0].id}`} cards={pile} />))}
-        </AnimatePresence>
-      </Row>
+        </Row>
+        <Row className="others" {...size('other', otherSizes)}>
+          <AnimatePresence>
+            {others.map((c) => (
+              <Permanent key={c.id} card={c} />
+            ))}
+            {phased.map((c) => (
+              <Permanent key={c.id} card={c} phased />
+            ))}
+          </AnimatePresence>
+        </Row>
+        <Row className="creatures" {...size('creature', sizes(creatures))}>
+          <AnimatePresence>
+            {creatures.map((pile) => (pile.length === 1 ? <Permanent key={pile[0].id} card={pile[0]} /> : <Pile key={`stack-${pile[0].id}`} cards={pile} />))}
+          </AnimatePresence>
+        </Row>
+      </LayoutGroup>
       {player.lost && <div className="defeated">Defeated</div>}
     </section>
   );
