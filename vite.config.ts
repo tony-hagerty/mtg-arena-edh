@@ -11,6 +11,39 @@ import { viteSingleFile } from 'vite-plugin-singlefile';
 import { mergeRequests, readRequests, writeRequests } from './src/cards/requests.ts';
 
 /**
+ * The page's icon as PNGs at every size Windows draws one (the tab, the title bar, the taskbar
+ * at each display scale), written into index.html as data, so the game window and the
+ * Windows program carry them with no files to serve. Edge's app window, which is the game's
+ * window in the Windows program, draws an SVG icon at 16 pixels and scales that up for the
+ * taskbar, so the SVG alone looked blurry there. Drawn from src/ui/icon.svg, as the
+ * program's own icon is (scripts/build-exe.mjs).
+ */
+function appIcons(): Plugin {
+  const sizes = [16, 24, 32, 48, 64, 96, 128, 192, 256];
+  let links: string | null = null;
+  return {
+    name: 'app-icons',
+    transformIndexHtml: {
+      // Before Vite turns the SVG's link into an asset's.
+      order: 'pre',
+      handler: async (html) => {
+        if (!links) {
+          const { Resvg } = await import('@resvg/resvg-js');
+          const svg = readFileSync(new URL('./src/ui/icon.svg', import.meta.url));
+          links = sizes
+            .map((size) => {
+              const png = new Resvg(svg, { fitTo: { mode: 'width', value: size } }).render().asPng();
+              return `<link rel="icon" type="image/png" sizes="${size}x${size}" href="data:image/png;base64,${Buffer.from(png).toString('base64')}" />`;
+            })
+            .join('\n    ');
+        }
+        return html.replace(/<link rel="icon"[^>]*>/, links);
+      },
+    },
+  };
+}
+
+/**
  * While `npm run dev` runs, the deck-paste screen posts the cards it refused here, and they
  * are merged into docs/card-requests.json (see src/ui/card-requests.ts).
  */
@@ -111,7 +144,7 @@ class BotGamesFirst extends BaseSequencer {
 export default defineConfig(({ mode }) => ({
   // `--mode single` (npm run build:single) inlines all JS, CSS and fonts into one
   // index.html that works when opened straight from disk (file://).
-  plugins: mode === 'single' ? [react(), viteSingleFile()] : [react(), cardRequests(), gameServer()],
+  plugins: mode === 'single' ? [react(), appIcons(), viteSingleFile()] : [react(), appIcons(), cardRequests(), gameServer()],
   build: mode === 'single' ? { outDir: 'dist-single' } : {},
   // PORT lets a second dev server run beside one that already holds 5180.
   server: { port: Number(process.env.PORT) || 5180 },
