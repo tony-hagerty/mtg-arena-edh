@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
 import { CanvasTexture, DataTexture, LinearFilter, LinearMipmapLinearFilter, RGBAFormat, RepeatWrapping, SRGBColorSpace, Texture, TextureLoader, UnsignedByteType } from 'three';
-import { floorMaps } from './floor';
-import type { FloorMaps } from './floor';
+import { floorHeight, floorMaps, joinFloor } from './floor';
+import type { FloorBand, FloorMaps } from './floor';
+import type { MapsRequest } from './maps.worker';
 import backUrl from '../card-back.svg';
 import { CORNER } from './geometry';
 
@@ -251,7 +252,7 @@ function floorTextures(m: FloorMaps): FloorTextures {
   };
 }
 
-/** How wide the floor's maps are, in pixels: about 21 a rem. A small first version is drawn at once. */
+/** How wide the floor's maps are, in pixels: about 21 a rem, a 4K screen's pixel a rem near you. A small first version is drawn at once. */
 const FLOOR_FULL = 4096;
 const FLOOR_FIRST = 512;
 
@@ -268,9 +269,47 @@ function upgradeFloor(m: FloorMaps) {
 }
 
 /**
+ * Asks workers (maps.worker.ts) for `requests`, as many at once as the machine has cores to
+ * spare, and resolves with their answers in order; null where workers can't run.
+ */
+export function inWorkers<T>(requests: MapsRequest[]): Promise<T[] | null> {
+  return new Promise((resolve) => {
+    const out: T[] = new Array(requests.length);
+    let next = 0;
+    let done = 0;
+    const lanes = Math.max(1, Math.min(requests.length, (navigator.hardwareConcurrency || 4) - 1, 6));
+    const run = (w: Worker) => {
+      const i = next++;
+      if (i >= requests.length) return w.terminate();
+      w.onmessage = (e: MessageEvent<T>) => {
+        out[i] = e.data;
+        if (++done === requests.length) resolve(out);
+        run(w);
+      };
+      w.postMessage(requests[i]);
+    };
+    try {
+      for (let k = 0; k < lanes; k++) {
+        const w = new Worker(new URL('./maps.worker.ts', import.meta.url), { type: 'module' });
+        w.onerror = () => {
+          w.terminate();
+          resolve(null);
+        };
+        run(w);
+      }
+    } catch {
+      resolve(null);
+    }
+  });
+}
+
+/** How many bands the full floor is worked out in, by as many workers as can run at once. */
+const FLOOR_BANDS = 8;
+
+/**
  * The floor's textures. The first call works out a small version at once (a tenth of a second)
- * and asks a worker for the full one (a second or two), which replaces it when it lands: the
- * same stones, sharper. The full one is kept for the session, as the other textures here are.
+ * and asks workers for the full one in bands (a few seconds), which replaces it when it lands:
+ * the same stones, sharper. The full one is kept for the session, as the other textures here are.
  */
 export function useFloorTextures(): FloorTextures {
   const [, bump] = useState(0);
@@ -283,17 +322,10 @@ export function useFloorTextures(): FloorTextures {
   }, []);
   if (!floor) {
     floor = floorTextures(floorMaps(FLOOR_FIRST));
-    try {
-      const worker = new Worker(new URL('./floor.worker.ts', import.meta.url), { type: 'module' });
-      worker.onmessage = (e: MessageEvent<FloorMaps>) => {
-        upgradeFloor(e.data);
-        worker.terminate();
-      };
-      worker.onerror = () => worker.terminate();
-      worker.postMessage({ width: FLOOR_FULL });
-    } catch {
-      // No workers: the small floor stays.
-    }
+    const H = floorHeight(FLOOR_FULL);
+    const bands = Array.from({ length: FLOOR_BANDS }, (_, k): MapsRequest => ({ kind: 'floor', width: FLOOR_FULL, j0: Math.round((k * H) / FLOOR_BANDS), j1: Math.round(((k + 1) * H) / FLOOR_BANDS) }));
+    // No workers: the small floor stays.
+    void inWorkers<FloorBand>(bands).then((done) => done && upgradeFloor(joinFloor(FLOOR_FULL, done)));
   }
   return floor;
 }

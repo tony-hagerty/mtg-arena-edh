@@ -222,7 +222,6 @@ button {
 
 .card-proxy .tile-badge {
   pointer-events: auto;
-  cursor: pointer;
 }
 
 /* On the 3D table a pile's "x3" sits on its bottom-left corner, clear of the names along the tops and of the P/T at the bottom right. */
@@ -253,9 +252,9 @@ button {
   top (ZoneProxy). The 3D pile draws the cards, so the DOM one hides its own and keeps its
   icon, its count, its glow, its outline while empty, and the clicks and hovers.
 */
+/* The app's arrow stays over it (--cursor): the piles open on a right-click, and a hand would say a click does something. */
 .zone-proxy > .pile {
   pointer-events: auto;
-  cursor: pointer;
 }
 
 .zone-proxy .pile :is(img, .text-card, .card-back) {
@@ -807,8 +806,15 @@ button {
   z-index: 2;
   min-width: calc(var(--av) * 0.52);
   margin-top: calc(var(--av) * -0.2);
-  padding: 0 0.8rem;
-  font: 700 calc(var(--av) * 0.3) / 1.25 var(--sans);
+  /*
+    The figures centred: the line is trimmed to their height (they are lining figures, as tall
+    as a capital) and padded evenly, rather than left in a line box that keeps a font's
+    descender room under them, which sat them high (more so in some fonts than others).
+    1.25em tall in all, as before.
+  */
+  padding: 0.275em 0.8rem;
+  font: 700 calc(var(--av) * 0.3) / 1 var(--sans);
+  text-box: trim-both cap alphabetic;
   font-variant-numeric: lining-nums;
   text-align: center;
   text-shadow: 0 0.1rem 0.25rem #000;
@@ -1667,17 +1673,18 @@ button {
 
 .pill-rim {
   stroke: rgba(255, 255, 255, 0.16);
-  stroke-width: 1.27;
+  /* PILL.thick in table-layout.ts. */
+  stroke-width: 1.9;
 }
 
 .pill-body {
   stroke: rgba(8, 12, 18, 0.62);
-  stroke-width: 1.07;
+  stroke-width: 1.7;
 }
 
 .pill-chevron {
   stroke: #f0f6ff;
-  stroke-width: 0.16;
+  stroke-width: 0.2;
   opacity: 0.9;
   transition: opacity 0.2s;
 }
@@ -1689,7 +1696,7 @@ button {
 
 .pill-hit {
   stroke: transparent;
-  stroke-width: 2.93;
+  stroke-width: 3.2;
   pointer-events: stroke;
 }
 

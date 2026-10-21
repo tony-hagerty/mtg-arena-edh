@@ -2,7 +2,7 @@ import { fbm, valueNoise } from './noise';
 
 /*
   The 3D table's floor, worked out pixel by pixel for Table3D.tsx's `Floor` (textures.ts turns
-  it into textures). Pure maths, no DOM or Three, so it runs in a worker (floor.worker.ts).
+  it into textures). Pure maths, no DOM or Three, so it runs in workers, in bands (maps.worker.ts).
 
   A dungeon hall's paving: rectangular flagstones laid in rows of different depths, each stone
   its own length and its own shade of worn grey-brown, now and then a pair of small ones in a
@@ -108,61 +108,95 @@ function layStones(rand: () => number): Stone[] {
   return stones;
 }
 
-/** The floor's maps, `width` pixels across (see the note at the top). The same for the same seed at any width. */
-export function floorMaps(width: number, seed = 11): FloorMaps {
-  const W = width;
-  const H = Math.round((width * AREA.h) / AREA.w);
-  const P = W / AREA.w;
-  const rand = rng(seed);
-  const stones = layStones(rand);
+/** The floor's picture's height in pixels, for `width` across. */
+export const floorHeight = (width: number) => Math.round((width * AREA.h) / AREA.w);
 
+/** Rows `j0` up to `j1` of the floor's maps (`floorMaps`): their colour, height and roughness, before the normal is worked out from the height. */
+export interface FloorBand {
+  j0: number;
+  j1: number;
+  albedo: Uint8ClampedArray;
+  height: Float32Array;
+  rough: Float32Array;
+}
+
+/**
+ * Rows `j0` up to `j1` of the floor's maps, `width` pixels across: the slow part, so a floor
+ * can be worked out in bands, side by side (Table3D's floor asks several workers, textures.ts),
+ * and put together with `joinFloor`.
+ */
+export function floorBand(width: number, j0: number, j1: number, seed = 11): FloorBand {
+  const W = width;
+  const P = W / AREA.w;
+  const stones = layStones(rng(seed));
+  const rows = j1 - j0;
+  const albedo = new Uint8ClampedArray(W * rows * 4);
+  const height = new Float32Array(W * rows);
+  const roughAt = new Float32Array(W * rows);
+  const { w: AW, h: AH } = AREA;
   // Which stone covers each pixel: the stones are sorted by row, so each pixel row looks only
   // at the ones whose rows it crosses, and finds its stone along x by a pointer that only moves on.
-  const albedo = new Uint8ClampedArray(W * H * 4);
-  const height = new Float32Array(W * H);
-  const roughAt = new Float32Array(W * H);
-  const { w: AW, h: AH } = AREA;
-  for (let j = 0; j < H; j++) {
+  for (let j = j0; j < j1; j++) {
     const y = (j + 0.5) / P;
-    const row = stones.filter((s) => s.y0 <= y && y < s.y1).sort((a, b) => a.x0 - b.x0);
+    const row = stones.filter((st) => st.y0 <= y && y < st.y1).sort((a, b) => a.x0 - b.x0);
     let k = 0;
     for (let i = 0; i < W; i++) {
       const x = (i + 0.5) / P;
       while (k < row.length - 1 && x >= row[k].x1) k++;
-      const s = row[k];
+      const st = row[k];
       // How far in from the stone's edge, with its edges chipped and wandering a little.
       const chip = (valueNoise(x * 2.5, y * 2.5, seed + 1, AW * 2.5, AH * 2.5) - 0.5) * 0.3 + (valueNoise(x * 0.6, y * 0.6, seed + 2, AW * 0.6, AH * 0.6) - 0.5) * 0.25;
-      const e = Math.min(x - s.x0, s.x1 - x, y - s.y0, s.y1 - y) - s.joint + chip;
+      const e = Math.min(x - st.x0, st.x1 - x, y - st.y0, st.y1 - y) - st.joint + chip;
       const face = fbm(x, y, 3, seed + 3, AW, AH);
       const fine = valueNoise(x * 6, y * 6, seed + 4, AW * 6, AH * 6);
-      const o = (j * W + i) * 4;
+      // The grain: the stone's own texture, a few pixels across, sharp at the size it is seen.
+      const grit = valueNoise(x * 16, y * 16, seed + 7, AW * 16, AH * 16);
+      const at = (j - j0) * W + i;
+      const o = at * 4;
       if (e <= 0) {
-        // The joint: sandy dirt, lower than the stones, a little lumpy.
+        // The joint: sandy dirt, lower than the stones, lumpy and gritty.
         const dirt = fbm(x, y, 1, seed + 5, AW, AH);
-        height[j * W + i] = -0.1 + dirt * 0.12 + e * 0.05;
-        const v = 0.7 + dirt * 0.5;
+        height[at] = -0.1 + dirt * 0.12 + e * 0.05 + (grit - 0.5) * 0.05;
+        const v = (0.7 + dirt * 0.5) * (0.85 + grit * 0.3);
         albedo[o] = 92 * v;
         albedo[o + 1] = 70 * v;
         albedo[o + 2] = 46 * v;
-        roughAt[j * W + i] = 1;
+        roughAt[at] = 1;
       } else {
-        // The stone: a rounded bevel into the joint, a tilt, a rough face.
-        const bevel = Math.min(1, e / 0.45);
+        // The stone: a rounded bevel into the joint, a tilt, a rough face pitted here and there.
+        const bevel = Math.min(1, e / 0.3);
         const lift = Math.sqrt(bevel);
-        const cx = (s.x0 + s.x1) / 2;
-        const cy = (s.y0 + s.y1) / 2;
-        height[j * W + i] = lift * (0.5 + (x - cx) * s.tx + (y - cy) * s.ty + (face - 0.5) * 0.35 + (fine - 0.5) * 0.06);
-        // Stains and wear across its face; its worn edges a shade lighter.
+        const cx = (st.x0 + st.x1) / 2;
+        const cy = (st.y0 + st.y1) / 2;
+        const pit = Math.max(0, valueNoise(x * 9, y * 9, seed + 8, AW * 9, AH * 9) - 0.78) * 4.5;
+        height[at] = lift * (0.5 + (x - cx) * st.tx + (y - cy) * st.ty + (face - 0.5) * 0.35 + (fine - 0.5) * 0.06 + (grit - 0.5) * 0.035 - pit * 0.06);
+        // Stains and wear across its face; its worn edges a shade lighter; flecks and pits in it.
         const stain = fbm(x, y, 7, seed + 6, AW, AH);
-        const v = (0.82 + face * 0.25 + (fine - 0.5) * 0.08) * (0.85 + stain * 0.3) * (1 + (1 - bevel) * 0.12);
-        albedo[o] = s.r * v;
-        albedo[o + 1] = s.g * v;
-        albedo[o + 2] = s.b * v;
+        const v = (0.82 + face * 0.25 + (fine - 0.5) * 0.08 + (grit - 0.5) * 0.16) * (0.85 + stain * 0.3) * (1 + (1 - bevel) * 0.12) * (1 - pit * 0.35);
+        albedo[o] = st.r * v;
+        albedo[o + 1] = st.g * v;
+        albedo[o + 2] = st.b * v;
         // Damp patches are smoother: the light glints off them.
-        roughAt[j * W + i] = s.rough - Math.max(0, stain - 0.55) * 0.8;
+        roughAt[at] = st.rough - Math.max(0, stain - 0.55) * 0.8;
       }
       albedo[o + 3] = 255;
     }
+  }
+  return { j0, j1, albedo, height, rough: roughAt };
+}
+
+/** The floor's maps from its bands (`floorBand`), which cover every row between them: the normal from the height, the roughness at half the size. */
+export function joinFloor(width: number, bands: FloorBand[]): FloorMaps {
+  const W = width;
+  const H = floorHeight(width);
+  const P = W / AREA.w;
+  const albedo = new Uint8ClampedArray(W * H * 4);
+  const height = new Float32Array(W * H);
+  const roughAt = new Float32Array(W * H);
+  for (const b of bands) {
+    albedo.set(b.albedo, b.j0 * W * 4);
+    height.set(b.height, b.j0 * W);
+    roughAt.set(b.rough, b.j0 * W);
   }
 
   // The normal from the height's slope, wrapping at the edges as the picture does.
@@ -197,4 +231,9 @@ export function floorMaps(width: number, seed = 11): FloorMaps {
   const glow = new Uint8ClampedArray((W >> 2) * (H >> 2) * 4);
   for (let i = 3; i < glow.length; i += 4) glow[i] = 255;
   return { width: W, height: H, albedo, normal, rough, glow };
+}
+
+/** The floor's maps, `width` pixels across (see the note at the top), worked out in one go. The same for the same seed at any width. */
+export function floorMaps(width: number, seed = 11): FloorMaps {
+  return joinFloor(width, [floorBand(width, 0, floorHeight(width), seed)]);
 }
