@@ -2875,6 +2875,78 @@ button {
   gap: 2rem;
 }
 
+/* The Hotkeys window, from the gear menu: each control's keys on the left, what it does on the right. */
+.hotkeys-open {
+  align-self: stretch;
+}
+.hotkeys {
+  width: min(76rem, calc(100% - 4rem));
+  max-height: calc(100% - 6rem);
+  overflow-y: auto;
+  padding: 3rem 4rem 3.5rem;
+  background: radial-gradient(circle at 50% 0%, #2a3040, var(--panel-solid) 75%);
+  border: 0.2rem solid var(--edge);
+  border-radius: 2rem;
+  box-shadow: var(--shadow-xl);
+}
+.hotkeys h2 {
+  margin: 0 0 1rem;
+  text-align: center;
+  font: 700 3.6rem var(--sans);
+  color: #f2e6c9;
+}
+.hotkeys h3 {
+  margin: 2rem 0 0.8rem;
+  font: 600 1.2rem var(--sans);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+.hotkeys dl {
+  margin: 0;
+}
+.hotkey {
+  display: grid;
+  grid-template-columns: 22rem 1fr;
+  gap: 2rem;
+  align-items: baseline;
+  padding: 0.8rem 0;
+  border-top: 0.1rem solid var(--edge);
+}
+.hotkey dt {
+  font: 600 1.5rem var(--sans);
+  color: var(--text);
+}
+.hotkey dd {
+  margin: 0;
+  font-size: 1.6rem;
+  color: var(--text-soft);
+}
+.hotkey kbd {
+  display: inline-block;
+  min-width: 2.6rem;
+  margin: 0 0.3rem;
+  padding: 0.2rem 0.8rem;
+  text-align: center;
+  font: 600 1.4rem var(--sans);
+  color: var(--gold-light);
+  background: var(--panel-solid);
+  border: 0.1rem solid var(--edge-light);
+  border-bottom-width: 0.3rem;
+  border-radius: 0.6rem;
+}
+.hotkey dt > span:first-child > span:first-child kbd {
+  margin-left: 0;
+}
+.hotkey-or {
+  margin: 0 0.6rem;
+  font-weight: 400;
+  color: var(--text-muted);
+}
+.hotkeys .confirm-buttons {
+  margin-top: 2.5rem;
+}
+
 .knocked-out {
   position: absolute;
   left: 0;
