@@ -266,13 +266,16 @@ export function handSlot(slot: number): Pt & { th: number } {
 export const handWindow = (start: number, total: number) => Math.max(0, Math.min(total - HAND_VISIBLE, start));
 
 /**
- * The scroll pills over a hand that doesn't fit: two short arcs along the curve, lifted just
- * above the card tops, either side of the middle of the cards that show. Each is a list of
- * points, with a double chevron in its middle pointing its way.
+ * The scroll pills over a hand that doesn't fit: two short arcs along the curve, lifted above
+ * the card tops, either side of the middle of the cards that show. Each is a list of points,
+ * with a double chevron in its middle pointing its way.
+ *
+ * In rem: how thick a pill is (`.pill-rim`'s stroke in styles.css), how far its middle runs
+ * above the card tops (clear of the mana costs riding on them, `.hand-cost`, which reach
+ * 1.35rem above, with room to spare), the space between the two, and each one's length.
  */
-const PILL_LIFT = HAND_H / 2 + 11 / PX;
-const PILL_GAP = 8 / PX;
-const PILL_LEN = 64 / PX;
+export const PILL = { thick: 1.9, above: 3.2, gap: 1.7, len: 5.4 };
+const PILL_LIFT = HAND_H / 2 + PILL.above;
 
 /** The point `s` rem along the curve, lifted above the card tops, and its heading. */
 function lifted(s: number): Pt & { th: number } {
@@ -291,15 +294,17 @@ function chevron(s: number, dir: -1 | 1): Pt[][] {
     const t = (q.th * Math.PI) / 180;
     // Offsets along (x) and across (y, up) the curve, in rem.
     const pt = (x: number, y: number) => ({ x: q.x + x * Math.cos(t) + y * Math.sin(t), y: q.y - x * Math.sin(t) + y * Math.cos(t) });
-    return [pt(-0.21 * dir, 0.37), pt(0.16 * dir, 0), pt(-0.21 * dir, -0.37)];
+    return [pt(-0.24 * dir, 0.48), pt(0.2 * dir, 0), pt(-0.24 * dir, -0.48)];
   };
-  return [mark(s - 0.35), mark(s + 0.35)];
+  return [mark(s - 0.4), mark(s + 0.4)];
 }
 
 export function handPills() {
   const mid = S0 + ((HAND_VISIBLE - 1) * HAND_STEP) / 2;
-  const left = { a: mid - PILL_GAP - PILL_LEN, b: mid - PILL_GAP };
-  const right = { a: mid + PILL_GAP, b: mid + PILL_GAP + PILL_LEN };
+  // The round caps reach half a pill's thickness past each end, so the ends sit that much further apart.
+  const gap = PILL.gap / 2 + PILL.thick / 2;
+  const left = { a: mid - gap - PILL.len, b: mid - gap };
+  const right = { a: mid + gap, b: mid + gap + PILL.len };
   return {
     left: { path: arc(left.a, left.b), chevron: chevron((left.a + left.b) / 2, -1) },
     right: { path: arc(right.a, right.b), chevron: chevron((right.a + right.b) / 2, 1) },
