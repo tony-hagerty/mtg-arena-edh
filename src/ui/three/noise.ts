@@ -1,5 +1,5 @@
 /*
-  Small seeded noise for the 3D table's procedural textures (garden.ts, floor.ts). Pure maths,
+  Small seeded noise for the 3D table's procedural textures (board.ts, floor.ts). Pure maths,
   no DOM, so the floor's worker can use it.
 */
 
