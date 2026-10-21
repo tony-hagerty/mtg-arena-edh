@@ -255,7 +255,7 @@ type RGB = [number, number, number];
 export const MATERIAL: Record<Material, { base: RGB; border: RGB; roughness: number }> = {
   leather: { base: [72, 50, 36], border: [52, 35, 25], roughness: 0.7 },
   wood: { base: [76, 54, 36], border: [46, 32, 22], roughness: 0.8 },
-  slate: { base: [56, 61, 68], border: [44, 47, 52], roughness: 0.6 },
+  slate: { base: [56, 61, 68], border: [44, 47, 52], roughness: 0.88 },
   cloth: { base: [56, 34, 38], border: [40, 24, 26], roughness: 0.95 },
 };
 
@@ -279,7 +279,7 @@ export interface BedMaps {
  *
  * - leather: a pebbled grain, a slow mottle of wear, and a line of stitches round its border;
  * - wood: planks along the seat's edge, staggered, each its own shade, with grain and dark seams;
- * - slate: slabs with fine joints and a chiselled face, a brass line round the border;
+ * - slate: slabs with fine joints and a matte, finely cleft face, a brass line round the border;
  * - cloth: a fine weave, worn paler in patches, a gold trim with a line through it.
  *
  * The border is its own darker band, `BORDER` wide, a little raised at its inner edge.
@@ -336,14 +336,25 @@ export function bedMaps(g: Garden, b: Bed, px: number): BedMaps {
           const u = (((x - b.x0) % SLAB) + SLAB) % SLAB;
           const v = (((y - b.y0) % SLAB) + SLAB) % SLAB;
           const joint = Math.min(u, SLAB - u, v, SLAB - v);
-          const chisel = valueNoise(x * 2.2, y * 2.2, 11);
-          const slab = hash(Math.floor((x - b.x0) / SLAB), Math.floor((y - b.y0) / SLAB), 12);
-          h = border ? 0.5 : Math.min(1, joint / 0.25) * (0.45 + chisel * 0.25);
-          shade = (0.86 + slab * 0.16 + (chisel - 0.5) * 0.12 + (fbm(x, y, 7, 13) - 0.5) * 0.1) * (!border && joint < 0.08 ? 0.6 : 1);
+          const col = Math.floor((x - b.x0) / SLAB);
+          const slab = hash(col, Math.floor((y - b.y0) / SLAB), 12);
+          // Slate splits in thin layers: fine cleft lines along each slab (every other slab
+          // turned a quarter), a little grit, and only the faintest unevenness, so its face
+          // reads as matte stone, not as beaten metal.
+          const along = col % 2 ? y : x;
+          const across = col % 2 ? x : y;
+          // The layers wander, as a split stone's do, rather than run straight like brushed metal.
+          const wander = (valueNoise(x * 0.35, y * 0.35, 17) - 0.5) * 2.5;
+          const cleft = valueNoise(along * 0.6, (across + wander) * 5, 11);
+          const grit = valueNoise(x * 14, y * 14, 15);
+          const swell = valueNoise(x * 0.9, y * 0.9, 16);
+          const mottle = fbm(x, y, 3, 18);
+          h = border ? 0.5 : Math.min(1, joint / 0.25) * (0.5 + (cleft - 0.5) * 0.07 + (grit - 0.5) * 0.04 + (swell - 0.5) * 0.05);
+          shade = (0.86 + slab * 0.16 + (cleft - 0.5) * 0.06 + (grit - 0.5) * 0.07 + (mottle - 0.5) * 0.14 + (fbm(x, y, 7, 13) - 0.5) * 0.08) * (!border && joint < 0.08 ? 0.6 : 1);
           // A brass line round the field, just inside the border.
           if (Math.abs(inside - BORDER) < 0.12) {
             color = [150, 116, 56];
-            shade = 0.9 + chisel * 0.15;
+            shade = 0.9 + grit * 0.15;
             h = 0.7;
           }
           break;
