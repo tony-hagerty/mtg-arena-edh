@@ -2,6 +2,8 @@ import { useEffect, useState } from 'react';
 import { CanvasTexture, DataTexture, LinearFilter, LinearMipmapLinearFilter, RGBAFormat, RepeatWrapping, SRGBColorSpace, Texture, TextureLoader, UnsignedByteType } from 'three';
 import { floorMaps } from './floor';
 import type { FloorMaps } from './floor';
+import backUrl from '../card-back.svg';
+import { CORNER } from './geometry';
 
 /*
   Textures for the 3D table: card faces from Scryfall (which allows cross-origin use of its
@@ -56,66 +58,127 @@ export function useCardTexture(url: string | null): Texture | null {
   return url ? (cache.get(url)?.texture ?? null) : null;
 }
 
+/** A tile's picture, in pixels: 5:4, as the CSS `.tile`. */
+const TILE_W = 320;
+const TILE_H = 256;
+const tiles = new Map<string, CanvasTexture>();
+
+/** `a` mixed `k` of the way toward `b`, both `#rrggbb`. */
+function mix(a: string, b: string, k: number) {
+  const p = (c: string, i: number) => parseInt(c.slice(1 + i * 2, 3 + i * 2), 16);
+  return `rgb(${[0, 1, 2].map((i) => Math.round(p(a, i) + (p(b, i) - p(a, i)) * k)).join(',')})`;
+}
+
+/** The app's typeface (`--sans` in styles.css), for text drawn on a canvas. */
+const typeface = () => getComputedStyle(document.documentElement).getPropertyValue('--sans').trim() || 'sans-serif';
+
+/** The name bar and the frame round the art, drawn over whatever is under them. */
+function drawFrame(g: CanvasRenderingContext2D, name: string, frame: string) {
+  // A thin band: the art is what you look at.
+  const bezel = TILE_W * 0.011;
+  const bar = TILE_H * 0.155;
+  // The card's corners are rounded (geometry.ts, CORNER of its width; its face is laid on the
+  // whole rectangle, so that is CORNER of this picture's width too). The band follows them
+  // round, the art inside it rounded to match, so a corner never cuts the band away.
+  const round = CORNER * TILE_W;
+  const inner = new Path2D();
+  inner.roundRect(bezel, bezel, TILE_W - 2 * bezel, TILE_H - 2 * bezel, Math.max(0, round - bezel));
+  const band = new Path2D();
+  band.rect(0, 0, TILE_W, TILE_H);
+  band.addPath(inner);
+  g.fillStyle = frame;
+  g.fill(band, 'evenodd');
+  // The rest is drawn inside the band.
+  g.save();
+  g.clip(inner);
+  // The name bar, as the CSS tile's: the frame's colour darkened, a light top edge, the name in the app's typeface.
+  const grad = g.createLinearGradient(0, bezel, 0, bezel + bar);
+  grad.addColorStop(0, mix(frame, '#262a33', 0.54));
+  grad.addColorStop(1, mix(frame, '#0b0c10', 0.7));
+  g.fillStyle = grad;
+  g.fillRect(bezel, bezel, TILE_W - 2 * bezel, bar);
+  g.fillStyle = 'rgba(255,255,255,0.2)';
+  g.fillRect(bezel, bezel, TILE_W - 2 * bezel, 1.5);
+  g.fillStyle = 'rgba(0,0,0,0.6)';
+  g.fillRect(bezel, bezel + bar, TILE_W - 2 * bezel, 2);
+  // The name, shrunk to fit the bar.
+  const room = TILE_W - 2 * bezel - 20;
+  let size = bar * 0.62;
+  const font = (px: number) => `600 ${px}px ${typeface()}`;
+  g.font = font(size);
+  while (size > 10 && g.measureText(name).width > room) g.font = font((size -= 1));
+  g.textBaseline = 'middle';
+  g.fillStyle = '#000';
+  g.fillText(name, bezel + 10, bezel + bar / 2 + 1.5, room);
+  g.fillStyle = '#f2ead8';
+  g.fillText(name, bezel + 10, bezel + bar / 2, room);
+  g.restore();
+}
+
+/**
+ * A permanent's face on the 3D table, as the CSS table's tile: the card's art crop filling a
+ * 5:4 tile inside a band of its frame colour, with its name in a bar along the top. Drawn on
+ * a canvas once per card (by name and art), at once with the frame colour where the art will
+ * be, and again when the art (Scryfall's art crop, which allows cross-origin use) has loaded.
+ * If the art never loads, the frame colour and the name stay.
+ */
+export function tileTexture(name: string, art: string, frame: string): CanvasTexture {
+  const key = `${name}|${art}`;
+  const had = tiles.get(key);
+  if (had) return had;
+  const c = document.createElement('canvas');
+  c.width = TILE_W;
+  c.height = TILE_H;
+  const g = c.getContext('2d')!;
+  g.fillStyle = mix(frame, '#0b0c10', 0.55);
+  g.fillRect(0, 0, TILE_W, TILE_H);
+  drawFrame(g, name, frame);
+  const t = new CanvasTexture(c);
+  t.colorSpace = SRGBColorSpace;
+  t.anisotropy = 4;
+  tiles.set(key, t);
+  if (art) {
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = () => {
+      // The art covers the tile, cropped to fit, centred a little high (faces are).
+      const k = Math.max(TILE_W / img.width, TILE_H / img.height);
+      const w = img.width * k;
+      const h = img.height * k;
+      g.drawImage(img, (TILE_W - w) / 2, (TILE_H - h) * 0.35, w, h);
+      drawFrame(g, name, frame);
+      t.needsUpdate = true;
+    };
+    img.src = art;
+  }
+  return t;
+}
+
 let back: CanvasTexture | null = null;
 
-/** The card back: a dark field in a gold frame with a star, like the CSS `.card-back`. Drawn once. */
+/**
+ * The card back: card-back.svg, the CSS `.card-back`'s picture, drawn onto a canvas once it has
+ * loaded (the field's dark until then). Drawn once.
+ */
 export function backTexture(): CanvasTexture {
   if (back) return back;
-  const W = 256;
-  const H = 358;
   const c = document.createElement('canvas');
-  c.width = W;
-  c.height = H;
+  c.width = 504;
+  c.height = 704;
   const g = c.getContext('2d')!;
-  const field = g.createRadialGradient(W / 2, H * 0.45, 0, W / 2, H * 0.45, H * 0.7);
-  field.addColorStop(0, '#232c3d');
-  field.addColorStop(0.6, '#121722');
-  field.addColorStop(1, '#080a0f');
-  g.fillStyle = field;
-  g.fillRect(0, 0, W, H);
-  const gold = g.createLinearGradient(0, 0, W, H);
-  gold.addColorStop(0, '#f6dd94');
-  gold.addColorStop(0.5, '#d2aa42');
-  gold.addColorStop(1, '#8a6a2c');
-  g.strokeStyle = gold;
-  g.lineWidth = 3;
-  g.strokeRect(17, 17, W - 34, H - 34);
-  g.strokeStyle = 'rgba(210, 170, 66, 0.45)';
-  g.lineWidth = 1;
-  g.strokeRect(24, 24, W - 48, H - 48);
-  for (const r of [85, 110, 134]) {
-    g.beginPath();
-    g.arc(W / 2, H / 2, r, 0, Math.PI * 2);
-    g.strokeStyle = 'rgba(210, 170, 66, 0.07)';
-    g.stroke();
-  }
-  g.beginPath();
-  g.arc(W / 2, H / 2, 47, 0, Math.PI * 2);
-  g.fillStyle = 'rgba(11, 14, 20, 0.55)';
-  g.fill();
-  g.strokeStyle = gold;
-  g.lineWidth = 2.5;
-  g.stroke();
-  // The eight-pointed star.
-  g.fillStyle = gold;
-  g.beginPath();
-  const pts = [
-    [0, -51],
-    [8, -8],
-    [51, 0],
-    [8, 8],
-    [0, 51],
-    [-8, 8],
-    [-51, 0],
-    [-8, -8],
-  ];
-  pts.forEach(([x, y], i) => (i ? g.lineTo(W / 2 + x, H / 2 + y) : g.moveTo(W / 2 + x, H / 2 + y)));
-  g.closePath();
-  g.fill();
-  back = new CanvasTexture(c);
-  back.colorSpace = SRGBColorSpace;
-  back.anisotropy = 4;
-  return back;
+  g.fillStyle = '#121722';
+  g.fillRect(0, 0, c.width, c.height);
+  const t = new CanvasTexture(c);
+  t.colorSpace = SRGBColorSpace;
+  t.anisotropy = 4;
+  const img = new Image();
+  img.onload = () => {
+    g.drawImage(img, 0, 0, c.width, c.height);
+    t.needsUpdate = true;
+  };
+  img.src = backUrl;
+  back = t;
+  return t;
 }
 
 /** How far a card's soft shadow spreads past its edges, as a share of its width. */
@@ -126,7 +189,7 @@ let shadow: CanvasTexture | null = null;
 /**
  * The soft dark under a card where it touches the floor (Table3D.tsx, `Card3D`): black, opaque
  * under the card and fading out over SHADOW_SPREAD past its edges, for a plane that size. The
- * moon's shadow of a card this thin is a sliver; this is the occlusion a card lying flat makes
+ * overhead light's shadow of a card this thin is a sliver; this is the occlusion a card lying flat makes
  * all around it, which is what shows it resting on the stone. Drawn once.
  */
 export function shadowTexture(): CanvasTexture {

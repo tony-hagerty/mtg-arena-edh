@@ -65,21 +65,27 @@ The full guide to the game's screens and controls. For a quick start, see the
 
 ## Playing cards
 
-- **The table** is seen from a little above your seat, like Arena's, leaning slightly
-  away from you. Everyone sits in a corner: you at the bottom left, the others clockwise
+- **The table** is drawn in 3D and seen from above your seat, leaning away from you like
+  Arena's board (see "The 3D table" below for the CSS table, which leans only slightly). Everyone sits in a corner: you at the bottom left, the others clockwise
   in turn order. Two players sit in opposite corners (you bottom left, the opponent top
   right); at three you have the whole bottom edge and the others take the top corners;
   at four the seats go bottom left (you), top left, top right, bottom right.
-- **A seat** has three rows, leaning a few degrees toward the middle of its edge: lands
+- **A seat** is its corner's mat, its battlefield: three rows square to the mat, lands
   nearest its edge, then artifacts, enchantments and the rest, then creatures nearest the
   middle of the table. Every card stands upright, whoever controls it. The cards grow
   while a seat's rows have room and shrink as they fill up; a very crowded row overlaps
-  its cards instead. The portrait sits on the seat's side edge, the library, graveyard and
-  exile on its top or bottom edge (card-sized, the library nearest the middle; at the
-  bottom they stand just above the tip of your hand, beside the controls), and an
-  opponent's hand fans out of their corner, face down, with a count. Hover any card to see
-  it full size.
-- **Your hand** curves out of the bottom-left corner, flat at first and then bending down
+  its cards instead. On the 3D table a permanent shows its art and name, as the tiles do;
+  hover it for the whole card. The library and graveyard lie on the mat along the seat's
+  own edge, the library nearest the middle (yours just above the bottom of the screen,
+  beside the controls; the far seats' against their mat's inner edge, by the middle path). Exile is shared, so it is the well in the middle of the table, with the top
+  card of each player's exile circling in its whirlpool and the count at its edge. The portrait sits
+  on the seat's side edge, and an opponent's hand fans out of their corner, face down,
+  with a count (on the 3D table, they hold it up, fanned, at the back of their mat, beside
+  their piles). Hover any card to see
+  it full size. A tapped card is dimmed, turned a little, and marked with a large,
+  see-through tap symbol. A face-down card shows the program's icon in gold.
+- **Your hand** curves out of the bottom-left corner, its first card's left edge on the
+  screen's left edge, flat at first and then bending down
   into the bottom edge. Up to seven cards show; with more, two small pills arc over the
   middle of the cards. Point at the left one to scroll to earlier cards, the right one to
   later ones (after a moment, one card at a time); a click moves one card. Each pill's
@@ -227,7 +233,7 @@ The full guide to the game's screens and controls. For a quick start, see the
 | **Several abilities** (Deathrite Shaman) | Click the permanent to see every activated ability; the ones you can't use now are dimmed. With only one usable, clicking goes straight to it. |
 | **"One mana of any color"** | A window with the five colours opens while it resolves. **Lion's Eye Diamond** asks for the colour when you click it. |
 | **Aura and Equipment** | What is attached to a permanent fans out behind it, toward the top of the card, each showing its name and a strip of art; it taps and attacks with the permanent. Click an Equipment's strip to equip it to something else, hover a strip to read the card. An enchanted land stands on its own instead of in its pile. |
-| **Graveyard and exile** | A pile glows when something in it can be cast (flashback, escape, an adventurer card whose Adventure you cast, or a card an effect lets you cast or play, in anyone's exile). Open it and click the glowing card. With escape (Underworld Breach) a window then asks for the three other cards to exile. A card exiled face down shows its back, unless you may look at it. |
+| **Graveyard and exile** | A graveyard, or the well (the exile), glows when something in it can be cast (flashback, escape, an adventurer card whose Adventure you cast, or a card an effect lets you cast or play, in anyone's exile). Right-click it to open it and click the glowing card. With escape (Underworld Breach) a window then asks for the three other cards to exile. A card exiled face down shows its back, unless you may look at it. |
 | **Gift, channel, bargain, plot** | Extra prompt rows and buttons: **Gift** (promise an opponent a gift, or none); a button beside **Cast** for a card with an ability that works from the hand (Otawara's channel) or that can be plotted instead (Highway Robbery); **No Sacrifice** skips a bargain sacrifice. |
 | **Sacrifice costs** (Goblin Bombardment, Village Rites) | After the targets, the creatures you could sacrifice glow yellow; click one. |
 | **Shock lands** | Asks whether you pay 2 life as you play it. |
@@ -255,8 +261,11 @@ The full guide to the game's screens and controls. For a quick start, see the
 | `Ctrl+Space` | hold priority (see [Turns, priority and the stack](rules-coverage.md#turns-priority-and-the-stack)) |
 | `Ctrl+Shift` (the two alone, then let go) | full control on or off (see [The stack and your stops](#the-stack-and-your-stops)) |
 | Hover a card | full-size view |
-| Right-click a card (in your hand, on the stack, on a graveyard or exile pile, or in the window that opens from one) | bigger view that stays up; left-click off it to close (over that window, the first click closes the view and the next the window) |
-| Click a graveyard or exile pile | look through it; hovering the pile shows its top card |
+| Right-click a card (in your hand, on the table, on the stack, or in a graveyard or exile window) | bigger view that stays up; left-click off it to close (over that window, the first click closes the view and the next the window) |
+| Right-click a graveyard (or, on the CSS table, an exile pile) | look through it; hovering the pile shows its top card |
+| Right-click the well | look through the exile: everyone's exiled cards, under each owner's name |
+| Click a mat, the well or a path | the board answers: a splash and a soft splash sound in the well, a puff of dust off the leather, chips off the wood, sparks off the slate, lint off the cloth, a little dust off the flagstones, each with its own soft sound. It does nothing in the game. |
+| Right-click anywhere else | nothing: the browser's menu is off in the game (text boxes keep it, for copy and paste) |
 | Hover a card name in the log (dashed underline) | see the card |
 
 The log is at the top of the screen, in the middle, under one bar; point at a button on it
@@ -273,12 +282,29 @@ and away again (it starts folded). On the right:
 The deck menu has the same sound and music controls in its top-right corner. Sound, music
 and damage choices are saved in the browser.
 
-**The 3D table** (a work in progress): add `?table=3d` to the page's address to see the
-table drawn in 3D, with the cards as objects on a lit stone floor, trees and lantern pillars
-around it, and the camera pushing in during combat. Everything plays the same: hover a card
-to read it, click it, drag from your hand. The portraits, piles, hands and the rest stay as
-they are. It needs a browser with WebGPU or WebGL 2 (every current one), and
-`?table=3d&gl=webgl` forces WebGL. The Windows program opens it with `ArenaEDH.exe --table 3d`.
+**The 3D table** is the usual table: seen at a steep angle, like Arena's board, with the camera pushing in
+during combat. The cards lie on it as thick tiles with rounded corners, each tipped up a
+little at its top, with a wide gap between the rows. So do each player's
+library and graveyard: the library is a deck as thick as it is full. The board is a hall
+for four: a mat in each seat's corner, all four the same size (so the far two
+look smaller), lying flat on the flagstone floor of a torch-lit stone hall, your two
+starting just above the bottom of the screen. A player alone on their side of the table
+(both players in a two-player game, you in a three-player one) has one mat across the
+whole side instead, curving round the well. Each mat is a dark material with a border
+worked into it, in turn order from yours: worn leather with stitching, oak planks, slate
+slabs with a brass line, and a woven cloth with a gold trim. Where the paths between them
+cross is a well with a low cobblestone wall, which is the exile: its green-blue water, rippling
+and catching the torchlight, turns in a slow whirlpool with streaks of foam. Torches burn on the
+walls either side of the play area. Each opponent holds their hand up at the back of their mat,
+fanned out, backs to you, with its count at its foot. Everything plays the
+same: hover a card to read it, click it, drag from your hand, right-click a graveyard or the
+well to open it. The portraits, your hand and the rest stay flat on the screen. It needs a browser with
+WebGPU or WebGL 2 (every current one); `?gl=webgl` forces WebGL, and `?quality=low` drops
+the shadows for a weak machine. Add `?table=css` to the page's address for the older table
+drawn with CSS, flat cards on a gently leaning floor with each player's library, graveyard
+and exile standing on the screen
+(`ArenaEDH.exe --table css` in the Windows program). A browser that can't draw 3D gets that
+table by itself.
 
 The music is made as it plays, so it never loops: a harp arpeggio over a plucked bass and a
 soft frame drum, with a melody and a shaker coming and going as it builds and eases off. It

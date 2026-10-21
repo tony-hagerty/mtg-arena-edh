@@ -44,15 +44,15 @@ export interface RowSpec {
 }
 
 /**
- * The biggest scale at which every row fits its length and all the rows, with ROW_GAP
- * between them, fit the seat's height, clamped to K_MIN..K_MAX. Empty rows take no room.
+ * The biggest scale at which every row fits its length and all the rows, with `gap` (ROW_GAP
+ * unless given) between them, fit the seat's height, clamped to K_MIN..`max` (K_MAX unless given). Empty rows take no room.
  */
-export function seatScale({ rows, rowLen, room }: { rows: RowSpec[]; rowLen: number; room: number }) {
+export function seatScale({ rows, rowLen, room, max = K_MAX, gap = ROW_GAP }: { rows: RowSpec[]; rowLen: number; room: number; max?: number; gap?: number }) {
   const used = rows.filter((r) => r.piles.length);
-  if (!used.length) return K_MAX;
-  let k = (room - ROW_GAP * (used.length - 1)) / used.reduce((n, r) => n + r.h, 0);
+  if (!used.length) return max;
+  let k = (room - gap * (used.length - 1)) / used.reduce((n, r) => n + r.h, 0);
   for (const r of used) k = Math.min(k, (rowLen - (r.piles.length - 1) * r.gap) / (rowUnits(r.piles) * r.w));
-  return Math.max(K_MIN, Math.min(K_MAX, k));
+  return Math.max(K_MIN, Math.min(max, k));
 }
 
 /**
@@ -134,13 +134,17 @@ export const FAN_RADIUS = 30.4;
 export const FAN_PIVOT_SIDE = 9.3;
 export const FAN_PIVOT_BEYOND = 20;
 
+/** The most an opponent's fan turns from one card to the next, in degrees: a small hand stays a tight fan. */
+const FAN_STEP = 6;
+
 /**
  * How far card `i` of an opponent's `n` is turned about the pivot, in degrees clockwise from
- * pointing up: 14° to 50° across the hand (a lone card at 32°) for the bottom-left corner,
- * mirrored into the seat's own.
+ * pointing up: about 32° (a lone card's), spreading FAN_STEP a card, at most from 14° to 50°,
+ * for the bottom-left corner, mirrored into the seat's own.
  */
 export function fanAngle(i: number, n: number, s: Seat) {
-  let a = n > 1 ? 14 + (36 * i) / (n - 1) : 32;
+  const step = n > 1 ? Math.min(FAN_STEP, 36 / (n - 1)) : 0;
+  let a = 32 + (i - (n - 1) / 2) * step;
   if (s.h === 'right') a = -a;
   if (s.v === 'top') a = 180 - a;
   return a;
@@ -228,8 +232,22 @@ export function along(s: number): Pt & { th: number } {
 export const HAND_DROP = HAND_H / 4 - (MOCK_H - 818) / PX;
 /** How many cards show at once; a bigger hand scrolls. */
 export const HAND_VISIBLE = 7;
-/** Where the first card's centre is along the curve, just inside the left edge. */
-const S0 = 66 / PX;
+/** How far left of its centre a hand card at curve distance `s` reaches, turned to the curve there, in rem. */
+const reachLeft = (s: number) => {
+  const t = (along(s).th * Math.PI) / 180;
+  return (HAND_W / 2) * Math.abs(Math.cos(t)) + (HAND_H / 2) * Math.abs(Math.sin(t));
+};
+/** Where the first card's centre is along the curve: just far enough in that its left edge touches the screen's left edge (found by halving). */
+const S0 = (() => {
+  let lo = 0;
+  let hi = CURVE_LEN / 2;
+  for (let i = 0; i < 40; i++) {
+    const mid = (lo + hi) / 2;
+    if (along(mid).x - reachLeft(mid) < 0) lo = mid;
+    else hi = mid;
+  }
+  return hi;
+})();
 /** Where the last card's centre is: where the dropped curve reaches the bottom edge, so its corner still shows. */
 const S_END = (() => {
   const i = samples.findIndex((p) => p.y + HAND_DROP <= 0);

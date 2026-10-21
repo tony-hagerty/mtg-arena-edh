@@ -3,7 +3,7 @@ import type { CSSProperties, ReactNode } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import { cardData } from '../cards/db';
 import { data, findCard, label, triggerText } from '../engine';
-import type { CardData, Game, LogEntry, PlayerId, Step, StopKind } from '../engine';
+import type { CardData, Game, LogEntry, Player, PlayerId, Step, StopKind } from '../engine';
 import { CardImage, ManaCost, frameOf } from './TextCard';
 import { useRem } from './rem';
 import { play } from './sound';
@@ -1188,44 +1188,62 @@ export function ArrowLayer() {
 
 export function ZoneViewer() {
   const viewer = useStore((s) => s.viewer);
-  const g = useView().g;
+  const { g, glow, me } = useView();
   if (!viewer) return null;
-  const p = g.players[viewer.pid];
-  const cards = [...p[viewer.zone]].reverse();
-  const { glow, me } = useView();
+  // One player's pile, or (pid null) the whole exile, each owner's cards under their name.
+  const owners = viewer.pid === null ? g.players.filter((p) => p[viewer.zone].length) : [g.players[viewer.pid]];
+  const total = owners.reduce((n, p) => n + p[viewer.zone].length, 0);
+  const whose = (p: Player) => (p.id === me ? 'Your' : `${p.name}'s`);
+  const cardsOf = (p: Player) =>
+    [...p[viewer.zone]].reverse().map((c) => {
+      // A card exiled face down shows its back, unless the human may look at it (406.3).
+      if (!faceUp(c, me)) return <div key={c.id} className="card-back viewer-back" title="Exiled face down" />;
+      // A flashback card or an exiled adventurer card can be cast from here (702.34a, 715.3d).
+      const castable = glow.get(c.id) === 'play';
+      return (
+        <CardImage
+          key={c.id}
+          d={data(c)}
+          alt={data(c).name}
+          data-card={c.id}
+          // Already big: no hover preview, but right-click pins one like a card on the table.
+          {...hoverProps(data(c), { pinOnly: true })}
+          className={cx(castable && 'glow-play')}
+          title={castable ? `Cast ${data(c).name}` : undefined}
+          draggable={false}
+          onClick={(e) => {
+            if (!castable) return;
+            e.stopPropagation();
+            useStore.setState({ viewer: null });
+            playHandCard(c);
+          }}
+        />
+      );
+    });
   return (
     <div className="modal" onClick={() => useStore.setState({ viewer: null })}>
       <div className="viewer">
-        <h2>
-          {p.id === me ? 'Your' : `${p.name}'s`} {viewer.zone} ({cards.length})
-        </h2>
-        <div className="viewer-cards">
-          {cards.map((c) => {
-            // A card exiled face down shows its back, unless the human may look at it (406.3).
-            if (!faceUp(c, me)) return <div key={c.id} className="card-back viewer-back" title="Exiled face down" />;
-            // A flashback card or an exiled adventurer card can be cast from here (702.34a, 715.3d).
-            const castable = glow.get(c.id) === 'play';
-            return (
-              <CardImage
-                key={c.id}
-                d={data(c)}
-                alt={data(c).name}
-                data-card={c.id}
-                // Already big: no hover preview, but right-click pins one like a card on the table.
-                {...hoverProps(data(c), { pinOnly: true })}
-                className={cx(castable && 'glow-play')}
-                title={castable ? `Cast ${data(c).name}` : undefined}
-                draggable={false}
-                onClick={(e) => {
-                  if (!castable) return;
-                  e.stopPropagation();
-                  useStore.setState({ viewer: null });
-                  playHandCard(c);
-                }}
-              />
-            );
-          })}
-        </div>
+        {viewer.pid === null ? (
+          <>
+            <h2>Exile ({total})</h2>
+            {!total && <p className="viewer-empty">Nothing is in exile.</p>}
+            {owners.map((p) => (
+              <section key={p.id} className="viewer-owner">
+                <h3>
+                  {whose(p)} cards ({p.exile.length})
+                </h3>
+                <div className="viewer-cards">{cardsOf(p)}</div>
+              </section>
+            ))}
+          </>
+        ) : (
+          <>
+            <h2>
+              {whose(owners[0])} {viewer.zone} ({total})
+            </h2>
+            <div className="viewer-cards">{cardsOf(owners[0])}</div>
+          </>
+        )}
       </div>
     </div>
   );
