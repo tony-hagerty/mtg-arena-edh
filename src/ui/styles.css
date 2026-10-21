@@ -3443,15 +3443,29 @@ button {
   box-shadow: 0 1.4rem 3.6rem rgba(0, 0, 0, 0.6);
 }
 
+/* The plus is two bars, not a "+" character: a font sets that on its baseline, off the circle's middle. */
 .deck-paste-plus {
-  display: grid;
-  place-items: center;
+  position: relative;
   width: 5.6rem;
   height: 5.6rem;
-  font: 300 4.4rem/1 var(--sans);
   color: #ffdf9a;
   border: 0.2rem solid currentColor;
   border-radius: 50%;
+}
+.deck-paste-plus::before,
+.deck-paste-plus::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 2.4rem;
+  height: 0.2rem;
+  background: currentColor;
+  border-radius: 0.1rem;
+  transform: translate(-50%, -50%);
+}
+.deck-paste-plus::after {
+  transform: translate(-50%, -50%) rotate(90deg);
 }
 
 .deck-paste .deck-blurb {

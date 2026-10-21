@@ -77,9 +77,7 @@ function DeckMenu({ go, edit }: { go: (screen: MenuScreen) => void; edit: (deck:
           <DeckSection title="Starter decks" decks={DECKS.map((deck) => ({ deck }))} play={start} hover={setFocus} />
           <DeckSection title="Your decks" decks={saved.map((deck) => ({ deck, state: savedDeckState(deck) }))} play={start} hover={setFocus} edit={edit} pasted>
             <button className="deck deck-paste" onClick={() => go('paste')}>
-              <span className="deck-paste-plus" aria-hidden="true">
-                +
-              </span>
+              <span className="deck-paste-plus" aria-hidden="true" />
               <span className="deck-title">Paste a deck list</span>
               <span className="deck-blurb">An Arena, Moxfield, Archidekt, MTGO or TappedOut export, or a plain list</span>
             </button>
