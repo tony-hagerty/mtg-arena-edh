@@ -12,7 +12,8 @@ import {
   canAttack,
   canBlock,
   canTapForMana,
-  canUntapMana,
+  canUntapInPlace,
+  manaRewindOf,
   canProduce,
   altCostsOf,
   castCost,
@@ -146,6 +147,7 @@ import type {
   AbilityRef,
   Action,
   Mana,
+  ManaRewind,
   AskChoice,
   Card,
   CardChoice,
@@ -2453,9 +2455,10 @@ function act(g: Game, a: Action): boolean {
       return true;
     }
 
+    // Taken back where it stands; going back to before it is `rewindMana`'s.
     case 'untapMana': {
       const c = p.battlefield.find((x) => x.id === a.card);
-      if (!c || !canUntapMana(g, pid, c)) return false;
+      if (!c || !canUntapInPlace(g, pid, c)) return false;
       untapMana(g, pid, c);
       return true;
     }
@@ -2844,7 +2847,53 @@ export function applyAction(g: Game, a: Action, { autoPass = true, stops, fullCo
     return attempt(before, r.action, { autoPass: r.autoPass, stops: r.stops as ApplyOptions['stops'], fullControl: r.fullControl }, [...r.answers, a.option], simulate);
   }
   if (a.type === 'replacement') return g;
-  return attempt(g, a, { autoPass, stops, fullControl }, [], simulate);
+  if (a.type === 'untapMana') {
+    const back = rewindMana(g, a.card, { autoPass, stops, fullControl, simulate });
+    if (back) return back;
+  }
+  return rememberMana(g, a, attempt(g, a, { autoPass, stops, fullControl }, [], simulate));
+}
+
+/**
+ * Keeps the game before a mana ability used by hand (`Game.manaRewind`), so it can be taken
+ * back whatever it did. Anything else a player does (and so anything that changes more than
+ * a pool and what is tapped), or a mana ability of another player's, forgets them: only the
+ * mana abilities since the player last did something else can be taken back this way.
+ */
+function rememberMana(g: Game, a: Action, next: Game): Game {
+  if (next === g) return next;
+  if (a.type === 'tapMana') {
+    const pid = g.priority;
+    const kept = g.manaRewind?.[0]?.pid === pid ? g.manaRewind : [];
+    // What clicking takes it back: the source, if using it tapped it or took it off the battlefield
+    // (a Lotus Petal), and a creature tapped for its cost (Relic of Legends, whose own {T} isn't used).
+    const source = permanent(next, a.card);
+    const tapped = [...(!source || (source.tapped && !permanent(g, a.card)?.tapped) ? [a.card] : []), ...(a.tap ? [a.tap] : [])];
+    const entry: ManaRewind = { pid, card: a.card, tapped, action: a, before: g };
+    return produce(next, (d) => {
+      d.manaRewind = [...kept, entry] as Game['manaRewind'];
+    });
+  }
+  if (!next.manaRewind) return next;
+  return produce(next, (d) => {
+    delete d.manaRewind;
+  });
+}
+
+/**
+ * Takes back the mana ability used by hand that clicking `card` names (`manaRewindOf`): the
+ * game goes back to just before it, and the mana abilities used after it are used again, in
+ * order. One that can't be any more (it was paid with the mana taken back) stays taken back.
+ * Null if there is none to take back this way.
+ */
+function rewindMana(g: Game, card: string, opts: ApplyOptions): Game | null {
+  const list = g.manaRewind ?? [];
+  const k = manaRewindOf(g, g.priority, card);
+  const before = list[k]?.before;
+  if (k < 0 || !before) return null;
+  let back = before;
+  for (const e of list.slice(k + 1)) if (e.action) back = applyAction(back, e.action, opts);
+  return back;
 }
 
 /** Applies `a`, with these answers to the replacement questions it asks (`NeedsChoice`); stops to ask the next one. */
