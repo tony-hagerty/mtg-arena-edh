@@ -293,7 +293,11 @@ interface Store {
   handStart: number;
   /** The human tucked the stack away to see the cards under it. Cleared once the stack is empty. */
   stackHidden: boolean;
-  viewer: { pid: PlayerId; zone: Zone } | null;
+  /**
+   * The zone window open over the table: a player's graveyard or exile, or, with `pid` null,
+   * the whole exile, every player's cards by owner (the 3D table's pond: exile is shared, 400.1).
+   */
+  viewer: { pid: PlayerId | null; zone: Zone } | null;
   /**
    * A permanent the human is using for mana by hand, while they pick how: which of its mana
    * abilities, which mana (Sunken Ruins's {U}{B}), and which creature to tap, card to discard

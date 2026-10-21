@@ -243,6 +243,50 @@ button {
   display: none;
 }
 
+/*
+  The exile on the 3D table: the pond (ExileProxy). A round the pond's size, laid on its water,
+  taking no pointer events (the pond takes the clicks). It glows when something in exile can
+  be cast, holds an invisible card-sized spot per player in its middle for the flights, and
+  carries the count at its near edge.
+*/
+.exile-proxy,
+.exile-proxy * {
+  pointer-events: none;
+}
+
+.exile-pool {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+}
+
+.exile-spot {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 30%;
+  aspect-ratio: 5 / 7;
+  translate: -50% -50%;
+}
+
+.exile-badge {
+  position: absolute;
+  left: 50%;
+  bottom: -1rem;
+  translate: -50% 0;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0 1rem;
+  font: 700 2.4rem / 3.6rem 'Segoe UI', sans-serif;
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+  background: linear-gradient(180deg, #2a303b, #0d0f14);
+  border: 0.12rem solid rgba(180, 210, 255, 0.5);
+  border-radius: var(--r-pill);
+  box-shadow: var(--shadow-sm);
+}
+
 /* ---------- table ---------- */
 
 /*
@@ -1834,7 +1878,7 @@ button {
 .action-bar {
   position: absolute;
   left: 50%;
-  bottom: 0.4rem;
+  bottom: 1.6rem;
   translate: -50% 0;
   width: 36rem;
   display: flex;
@@ -3034,6 +3078,22 @@ button {
 .viewer-cards :is(img, .text-card) {
   width: 19rem;
   border-radius: 0.9rem;
+}
+
+/* The whole exile (the 3D table's pond): each owner's cards under their name. */
+.viewer-owner + .viewer-owner {
+  margin-top: 2rem;
+}
+
+.viewer-owner h3 {
+  margin: 0 0 1rem;
+  font: 600 1.9rem var(--serif);
+  color: var(--text-soft);
+}
+
+.viewer-empty {
+  margin: 0;
+  font-size: 1.6rem;
 }
 
 /* A card exiled face down (406.3). */

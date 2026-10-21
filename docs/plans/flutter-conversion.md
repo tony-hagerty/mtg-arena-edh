@@ -339,21 +339,34 @@ Since then:
   170 rem in camera.ts under `TABLE_3D`; the CSS table keeps 10° and 600). The far edge is
   about 0.6 of the near one. `seatBox` and everything else that projects through `camera()`
   follows, so the rows still land under the portraits.
-- **The piles lie on the table.** Each seat's library, graveyard and exile are 3D blocks
-  as thick as the pile (`Pile3D`; a 99-card library stands 3.5 rem), placed where the CSS
-  piles stood on the screen (`pileSpots`). The CSS pile itself (`Library`, `FaceUpPile`
-  from Board.tsx) is laid over each one like a card's proxy (`ZoneProxy`). Its cards are
-  hidden, and it keeps the icon, the count, the empty outline, the click that opens the
-  zone, the hover, and the elements flights fly to and from.
+- **The piles lie on the table.** Each seat's library and graveyard are 3D blocks as thick
+  as the pile (`Pile3D`; a 99-card library stands 3.5 rem), on the seat's mat along its own
+  edge (`seatArea`), all one size on the table so the far ones look smaller. The CSS pile
+  itself (`Library`, `FaceUpPile` from Board.tsx) is laid over each one like a card's proxy
+  (`ZoneProxy`). Its cards are hidden, and it keeps the icon, the count, the empty outline,
+  the right-click that opens the zone, the hover, and the elements flights fly to and from.
+- **Exile is the pond.** Exile is shared (400.1), so the 3D table has one: the koi pond,
+  with the top card of each player's exile floating on it. Its proxy (`ExileProxy`) carries
+  the count, the glow when something there can be cast, and one `[data-pile]` spot per
+  player for the flights. A right-click on the water opens every player's exiled cards,
+  under each owner's name (`ZoneViewer` with `pid` null).
 - **Rounded corners.** A card is `cardGeometry` (geometry.ts): a rounded slab whose face
   image is laid over the whole rectangle, so the corners cut it as a card's are cut.
 - **The tap mark.** A tapped card's proxy carries the tap symbol, as the CSS tile does.
-- **The board.** A four-seat courtyard (garden.ts, Garden.tsx). Each corner has a bed of
-  raked sand with a stone curb. The sand's albedo and normal maps are worked out per pixel:
-  lines along the seat's edge, rings around a spot in each bed and around the pond. The
-  flagstone floor shows between the beds as paths, and a koi pond sits where they cross.
-  Each bed is a season in turn order (spring, summer, autumn, winter), with what the
-  season drops strewn along its curb and trees to match, under a late-afternoon sun.
+- **The board.** A four-seat courtyard (garden.ts, Garden.tsx). Each corner has a mat, all
+  four one size on the table, and each is its seat's battlefield: the rows' box is the mat
+  short of its piles, the pond and what stands on the screen over it (`seatArea`), with no
+  lean. Each mat is a season and a material in turn order (spring moss, summer raked sand,
+  autumn gravel, winter stone slabs), kept quiet so the cards read, with a curb to match
+  (wood, granite, slate, marble). Its albedo and normal maps are worked out per pixel. The
+  flagstone floor shows between the mats as paths, the pond sits where they cross, and the
+  trees match the seasons, under a late-afternoon sun.
+- **Clicks on the board.** A click on a mat, the pond or a path makes a burst there
+  (effects.tsx: a splash, petals, a puff of sand, hopping pebbles, a frost glint, dust)
+  with a soft sound (synth.ts). Only the bursts' own component draws again for it. The
+  bursts' materials are pooled and built as the board first draws (`Warmup`): a new
+  material's shader is the expensive part, and in headless Chromium's software renderer
+  the first one stalled the scene for seconds.
 
 What the spike leaves out, each a known piece of work rather than an open question:
 

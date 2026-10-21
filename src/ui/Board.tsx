@@ -288,7 +288,7 @@ function CastCrown({ player, c, name, index }: { player: Player; c: Card | undef
   );
 }
 
-/** A face-up pile. Always drawn, even when empty; shows its top card and opens the full list on click. */
+/** A face-up pile. Always drawn, even when empty; shows its top card and opens the full list on a right-click. */
 export function FaceUpPile({ player, zone }: { player: Player; zone: 'graveyard' | 'exile' }) {
   const v = useView();
   const cards = player[zone];
@@ -300,9 +300,14 @@ export function FaceUpPile({ player, zone }: { player: Player; zone: 'graveyard'
     <div
       className={cx('pile', zone, !top && 'empty', cards.length > 1 && 'many', castable && 'glow-play')}
       data-pile={`${player.id}-${zone}`}
-      title={`${name}: ${cards.length} cards${top ? ' — click to view' : ''}`}
-      // The viewer covers the pile, so its preview goes with it.
-      onClick={() => top && useStore.setState({ viewer: { pid: player.id, zone }, hover: null })}
+      title={`${name}: ${cards.length} cards${top ? ' — right-click to view' : ''}`}
+      // A right-click opens it, not the top card's pinned preview (`Preview`), which it would
+      // otherwise reach. The viewer covers the pile, so its preview goes with it.
+      onContextMenu={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        if (top) useStore.setState({ viewer: { pid: player.id, zone }, hover: null });
+      }}
     >
       {/* Keyed by the card, so the preview moves on when a new card lands on top. */}
       {top && (faceUp(top, v.me) ? <CardImage key={top.id} d={data(top)} alt="" draggable={false} data-card={top.id} {...hoverProps(data(top))} /> : <div className="card-back" />)}

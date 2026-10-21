@@ -1,7 +1,7 @@
 // The 3D table's layout (src/ui/three/layout3d.ts): where each seat's cards lie on the table.
 import { describe, expect, it } from 'vitest';
 import { seatBox } from '../src/ui/table-layout';
-import { CARD3D, baseCamera, layoutSeat, pileSpots, quadMatrix } from '../src/ui/three/layout3d';
+import { CARD3D, baseCamera, layoutSeat, quadMatrix } from '../src/ui/three/layout3d';
 import { CORNER, cardGeometry } from '../src/ui/three/geometry';
 import type { Row } from '../src/ui/three/layout3d';
 import { tableHeight, DEPTH } from '../src/ui/camera';
@@ -128,27 +128,6 @@ describe('quadMatrix', () => {
       [10, 160],
     ]);
     expect(m).toEqual([2, 0, 0, 0, 0, 2, 0, 0, 0, 0, 1, 0, 10, 20, 0, 1]);
-  });
-});
-
-describe('pileSpots', () => {
-  it('puts the library nearest the middle, then the graveyard and exile outward, clear of the seat box', () => {
-    for (const seat of [{ v: 'bottom', h: 'left' }, { v: 'top', h: 'left' }, { v: 'top', h: 'right' }, { v: 'bottom', h: 'right' }] as Seat[]) {
-      const p = pileSpots(seat, W, H, W, TABLE_H);
-      const out = seat.h === 'right' ? 1 : -1;
-      expect(out * p.library.x).toBeLessThan(out * p.graveyard.x);
-      expect(out * p.graveyard.x).toBeLessThan(out * p.exile.x);
-      for (const z of [p.library, p.graveyard, p.exile]) {
-        expect(z.h).toBeCloseTo(z.w * 1.4, 9);
-        expect(z.y - z.h / 2).toBeGreaterThan(0);
-        expect(z.y + z.h / 2).toBeLessThan(TABLE_H);
-      }
-      // The rows' box ends short of the piles, on the seat's own edge side.
-      const box = seatBox(seat, W, H);
-      const near = css({ x: 0, y: p.library.y }).y;
-      if (seat.v === 'bottom') expect(near).toBeGreaterThan(box.top + box.height);
-      else expect(near).toBeLessThan(box.top);
-    }
   });
 });
 

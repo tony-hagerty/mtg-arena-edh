@@ -11,7 +11,6 @@ import { FaceUpPile, Library, creaturePiles, landPiles, otherPermanents } from '
 import { DEPTH, TILT, useStageSize, useTableSize } from '../camera';
 import { Counters, TextlessBadge } from '../Card';
 import { useStore } from '../store';
-import { seatBox } from '../table-layout';
 import { frameOf } from '../TextCard';
 import { cx, faceUp, seatOf } from '../util';
 import type { Seat } from '../util';
@@ -20,10 +19,14 @@ import type { View } from '../view';
 import { newGame, zoneMoves } from '../zone-moves';
 import type { Place } from '../zone-moves';
 import { AREA } from './floor';
-import { Garden } from './Garden';
+import { Garden, WATER_Z } from './Garden';
+import type { Floating } from './Garden';
+import { burst } from './effects';
+import { gardenPlan, seatArea } from './garden';
+import type { Garden as GardenPlan, PileSpot } from './garden';
 import { cardGeometry, roundedPlane } from './geometry';
-import { CARD_THICKNESS, baseCamera, layoutSeat, pileSpots, quadMatrix, tiltRad } from './layout3d';
-import type { PileSpot, PileZone, Pose, Row } from './layout3d';
+import { CARD_THICKNESS, baseCamera, layoutSeat, quadMatrix, tiltRad } from './layout3d';
+import type { Pose, Row } from './layout3d';
 import { SHADOW_SPREAD, backTexture, shadowTexture, useCardTexture, useFloorTextures } from './textures';
 
 /*
@@ -149,20 +152,28 @@ interface SeatLayout {
   phased: Set<string>;
   /** Each pile of more than one card, by the id of the card on top, for its badge. */
   piles: Map<string, Card[]>;
-  /** Where the library, graveyard and exile lie (`pileSpots`). */
+  /** Where the library and graveyard lie (`seatArea`). */
   zones: Record<PileZone, PileSpot>;
 }
 
-const ZONES: PileZone[] = ['library', 'graveyard', 'exile'];
+/**
+ * The piles each seat has on the 3D table. Exile is not one: it is shared (400.1), the pond
+ * in the middle (Garden.tsx), with every player's exiled cards in it.
+ */
+type PileZone = 'library' | 'graveyard';
+const ZONES: PileZone[] = ['library', 'graveyard'];
+/** The pond's proxy, in the proxies' map: the exile's stand-in on the screen. */
+const EXILE_KEY = 'exile';
 /** A zone's proxy, in the proxies' map. */
 const zoneKey = (pid: number, zone: PileZone) => `zone:${pid}:${zone}`;
 
-/** The whole seats' layout for this game, from the same piles the CSS table draws. */
-function layoutSeats(v: View, players: Player[], stageW: number, stageH: number, tableH: number): SeatLayout[] {
+/** The whole seats' layout for this game, from the same piles the CSS table draws: each seat's rows and piles on its mat (`seatArea`). */
+function layoutSeats(v: View, players: Player[], plan: GardenPlan, stageW: number, stageH: number, tableH: number): SeatLayout[] {
   const g = v.g;
   return players.map((p) => {
     const seat = seatOf(g, v.me, p.id);
-    const box = seatBox(seat, stageW, stageH);
+    const area = seatArea(seat, plan, stageW, stageH, stageW, tableH);
+    const box = area.box;
     const { others, phased } = otherPermanents(g, p);
     const rows: Row<Card>[] = [
       { kind: 'other', piles: landPiles(g, p) },
@@ -170,7 +181,7 @@ function layoutSeats(v: View, players: Player[], stageW: number, stageH: number,
       { kind: 'creature', piles: creaturePiles(v, p) },
     ];
     const piles = new Map(rows.flatMap((r) => r.piles.filter((pile) => pile.length > 1).map((pile) => [pile[pile.length - 1].id, pile] as const)));
-    return { player: p, seat, poses: layoutSeat(seat, box, rows, stageW, tableH), phased: new Set(phased.map((c) => c.id)), piles, zones: pileSpots(seat, stageW, stageH, stageW, tableH) };
+    return { player: p, seat, poses: layoutSeat(seat, box, rows, stageW, tableH), phased: new Set(phased.map((c) => c.id)), piles, zones: area.piles };
   });
 }
 
@@ -180,12 +191,16 @@ export default function Table3D({ players }: { players: Player[] }) {
   const stage = useStageSize();
   const table = useTableSize();
   const speed = useStore((s) => s.speed);
-  const seats = layoutSeats(v, players, stage.w, stage.h, table.h);
+  // Laid out again only when the size changes by a rem or more, so a resize doesn't redraw the mats every frame.
+  const size = `${Math.round(stage.w)}x${Math.round(table.h)}`;
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const plan = useMemo(() => gardenPlan(stage.w, table.h), [size]);
+  const seats = layoutSeats(v, players, plan, stage.w, stage.h, table.h);
   useEffect(() => useStore.subscribe((s, old) => captureOrigins(s.game, old.game)), []);
   return (
     <div className="table3d">
       <Canvas gl={makeRenderer} shadows={!LOW} dpr={LOW ? 1 : [1, 1.5]} camera={{ manual: true, position: [0, 0, DEPTH], near: 5, far: 2500 }}>
-        <Scene v={v} speed={speed} w={stage.w} h={stage.h} tableH={table.h} seats={seats} />
+        <Scene v={v} speed={speed} w={stage.w} h={stage.h} tableH={table.h} seats={seats} plan={plan} players={players} />
       </Canvas>
       <div className="card-proxies">
         {seats.flatMap((s) =>
@@ -201,6 +216,7 @@ export default function Table3D({ players }: { players: Player[] }) {
             </ZoneProxy>
           )),
         )}
+        <ExileProxy players={players} />
       </div>
     </div>
   );
@@ -276,6 +292,38 @@ function ZoneProxy({ id, children }: { id: string; children: ReactNode }) {
   );
 }
 
+/** Opens the exile: everyone's exiled cards, by owner (`ZoneViewer`). */
+const openExile = () => useStore.setState({ viewer: { pid: null, zone: 'exile' }, hover: null });
+
+/**
+ * The exile's stand-in on the screen, kept over the pond like a pile's (`ExileAnchor`): a
+ * round the pond's size carrying the count and the exile's mark, glowing when something in
+ * exile can be cast. It takes no pointer events (the pond takes the clicks), and holds one
+ * spot per player for the flights to and from their exiled cards (`[data-pile]`).
+ */
+function ExileProxy({ players }: { players: Player[] }) {
+  const { glow } = useView();
+  const ref = useCallback((el: HTMLDivElement | null) => {
+    if (el) proxies.set(EXILE_KEY, el);
+    else proxies.delete(EXILE_KEY);
+  }, []);
+  const total = players.reduce((n, p) => n + p.exile.length, 0);
+  const castable = players.some((p) => p.exile.some((c) => glow.get(c.id) === 'play'));
+  return (
+    <div ref={ref} className="card-proxy exile-proxy">
+      <div className={cx('exile-pool', castable && 'glow-play')}>
+        {players.map((p) => (
+          <div key={p.id} className="exile-spot" data-pile={`${p.id}-exile`} />
+        ))}
+        <div className="exile-badge" title={`Exile: ${total} cards — right-click the pond to view`}>
+          <i className="ms ms-exile" />
+          {total}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /* ---------- inside the canvas ---------- */
 
 interface SceneState {
@@ -289,9 +337,14 @@ const useScene = () => useContext(SceneCtx)!;
 
 const inCombat = (g: Game) => g.step === 'beginCombat' || g.step === 'attackers' || g.step === 'blockers' || g.step === 'damage';
 
-function Scene({ v, speed, w, h, tableH, seats }: { v: View; speed: number; w: number; h: number; tableH: number; seats: SeatLayout[] }) {
+function Scene({ v, speed, w, h, tableH, seats, plan, players }: { v: View; speed: number; w: number; h: number; tableH: number; seats: SeatLayout[]; plan: GardenPlan; players: Player[] }) {
   const table = useRef<Group>(null);
   const state = useMemo(() => ({ v, speed, table }), [v, speed]);
+  // The top of each player's exile floats on the pond; one exiled face down shows its back (406.3).
+  const exiled: Floating[] = players.flatMap((p) => {
+    const top = p.exile[p.exile.length - 1];
+    return top ? [{ id: top.id, image: faceUp(top, v.me) ? data(top).image : null }] : [];
+  });
   return (
     <SceneCtx.Provider value={state}>
       {/* The view for anything inside that asks for it, as the DOM side has it. */}
@@ -304,7 +357,8 @@ function Scene({ v, speed, w, h, tableH, seats }: { v: View; speed: number; w: n
         {/* The table leans away from you by TILT about its bottom edge, like the CSS one. Its own z is up off the table. */}
         <group ref={table} rotation-x={-tiltRad(TILT)}>
           <Floor w={w} tableH={tableH} />
-          <Garden w={w} tableH={tableH} stageW={w} stageH={h} />
+          <Garden plan={plan} exiled={exiled} onExile={openExile} />
+          <ExileAnchor plan={plan} />
           <Props w={w} tableH={tableH} />
           {seats.map((s) => s.poses.map((p) => <Card3D key={p.item.id} pose={p} seat={s.seat} phased={s.phased.has(p.item.id)} />))}
           {seats.flatMap((s) => ZONES.map((zone) => <Pile3D key={zoneKey(s.player.id, zone)} player={s.player} zone={zone} spot={s.zones[zone]} />))}
@@ -415,6 +469,15 @@ function Lights({ w, tableH }: { w: number; tableH: number }) {
   );
 }
 
+/** Keeps the exile's proxy (`ExileProxy`) on the pond's water. */
+function ExileAnchor({ plan }: { plan: GardenPlan }) {
+  const group = useRef<Group>(null);
+  const d = plan.pond.r * 2;
+  const updateProxy = useProxy(EXILE_KEY, group, d, d, WATER_Z);
+  useFrame((state) => updateProxy(state.clock.elapsedTime));
+  return <group ref={group} position={[plan.pond.x, plan.pond.y, 0]} />;
+}
+
 /**
  * The flagstones under everything, well past the table's edges: the far corners of the screen
  * look past its sides. Its maps (floor.ts) are laid on in rem, AREA to a picture, from the
@@ -427,8 +490,15 @@ function Floor({ w, tableH }: { w: number; tableH: number }) {
   const tex = useFloorTextures();
   const geometry = useMemo(() => floorGeometry(fw, fh, w, tableH), [fw, fh, w, tableH]);
   useEffect(() => () => geometry.dispose(), [geometry]);
+  const { table } = useScene();
+  // A click on the paths kicks up a little dust (effects.tsx).
+  const click = (e: ThreeEvent<MouseEvent>) => {
+    e.stopPropagation();
+    const p = table.current!.worldToLocal(e.point.clone());
+    burst('path', p.x, p.y, FLOOR_Z);
+  };
   return (
-    <mesh receiveShadow geometry={geometry} position={[0, tableH / 2, FLOOR_Z]}>
+    <mesh receiveShadow geometry={geometry} position={[0, tableH / 2, FLOOR_Z]} onClick={click}>
       <meshStandardMaterial
         map={tex.map}
         normalMap={tex.normalMap}
@@ -895,7 +965,6 @@ const PILE_CARD = 0.035;
 const PILE_LOOK: Record<PileZone, { tint: string; edge: string }> = {
   library: { tint: '#ffffff', edge: '#2d333e' },
   graveyard: { tint: '#c9b79a', edge: '#4a3d2e' },
-  exile: { tint: '#b4c6ea', edge: '#9fb8e0' },
 };
 
 /**
