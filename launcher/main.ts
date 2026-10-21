@@ -9,9 +9,10 @@
 // `--dist <folder>` serves that folder instead of dist/ when run from source.
 import { appendFileSync, mkdirSync, statSync, writeFileSync } from 'node:fs';
 import type { IncomingMessage, Server, ServerResponse } from 'node:http';
-import { resolve } from 'node:path';
+import { basename, resolve } from 'node:path';
 import { getAsset, isSea } from 'node:sea';
 import { findEdge, openDefaultBrowser, openEdge, showError, windowUrl } from './edge';
+import { keepWindowIcon } from './icon';
 import { GameHost, handleErrorReport } from '../server/game';
 import { APP_VERSION, handleApi, Lobby } from '../server/lobby';
 import { checkHost } from '../server/net';
@@ -77,6 +78,8 @@ function openWindow(url: string, lifetime?: Lifetime) {
   log(`Opening ${url} in ${edge}`);
   // Without a lifetime this copy is about to exit, and Edge must outlive it.
   const child = openEdge(edge, url, paths.edge, !lifetime);
+  // The window's icon from the program's own, sharp in the taskbar (icon.ts). Run from source, there is no program to take it from.
+  if (sea) keepWindowIcon(basename(edge), paths.edge, process.execPath, log);
   child.on('error', (err) => {
     log(`Edge failed to start (${err.message}); opening the default browser.`);
     openDefaultBrowser(url);

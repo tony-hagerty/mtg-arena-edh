@@ -121,10 +121,13 @@ The full guide to the game's screens and controls. For a quick start, see the
   A source with a choice (a dual land, a Talisman, Sunken Ruins, Command Tower) asks which
   ability and which mana you want, in the prompt's band in the middle of the table (under
   the words while you are paying), with **Cancel** to tap nothing. Click a tapped source
-  again to take its mana back, as long as none of it has been spent and using it did
-  nothing else, like dealing you damage. `Ctrl+Z` does the same for the source you used
-  last whose mana is still there, one press each (a pile used with one click comes back
-  with one press), and closes a mana choice left open.
+  again to take its mana back, whatever else using it did: the life a Talisman or a
+  painland cost you comes back, a Treasure or Lotus Petal returns, and so does what it
+  triggered. That works until you do something other than make mana; after that, a source
+  that only tapped and made mana can still be taken back while its mana is unspent.
+  Sources you used after it stay used, unless they were paid with its mana. `Ctrl+Z` does
+  the same for the source you used last, one press each (a pile used with one click comes
+  back with one press), and closes a mana choice left open.
 - **Piles:** identical lands, and identical creature tokens, pile up with a count (`x7`)
   on top. Click the count to use the whole pile: lands tap for mana together (while
   paying, only as many as the cost needs; a pile of dual lands asks once which mana), or untap together to take the mana back, and
@@ -257,7 +260,7 @@ The full guide to the game's screens and controls. For a quick start, see the
 | --- | --- |
 | `Space` / `Enter` | the big button |
 | `Esc` | cancel |
-| `Ctrl+Z` / `Cmd+Z` | undo the last step that can be: close a mana choice; while casting, step back the last choice (a mana source untaps), or cancel at the start; otherwise take back the last mana still unspent, or the last attacker, block or blocker picked. Never a spell cast, a land played or a pass. |
+| `Ctrl+Z` / `Cmd+Z` | undo the last step that can be: close a mana choice; while casting, step back the last choice (a mana source untaps), or cancel at the start; otherwise take back the last mana you made, or the last attacker, block or blocker picked. Never a spell cast, a land played or a pass. |
 | `Ctrl+Space` | hold priority (see [Turns, priority and the stack](rules-coverage.md#turns-priority-and-the-stack)) |
 | `Ctrl+Shift` (the two alone, then let go) | full control on or off (see [The stack and your stops](#the-stack-and-your-stops)) |
 | Hover a card | full-size view |

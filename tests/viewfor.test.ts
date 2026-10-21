@@ -3,7 +3,7 @@ import { produce } from 'immer';
 import { describe, expect, it } from 'vitest';
 import './fixtures';
 import { DECKS } from '../src/cards/db';
-import { applyBotAction, botAction, isHidden, newGame, viewFor } from '../src/engine';
+import { applyBotAction, botAction, canUntapMana, isHidden, newGame, viewFor } from '../src/engine';
 import type { Card, Game, PlayerId } from '../src/engine';
 import { byName, emptyGame, put, run } from './helpers';
 
@@ -34,6 +34,21 @@ function strings(value: unknown, out: Set<string> = new Set()): Set<string> {
 }
 
 describe('viewFor: what one player may see', () => {
+  it('keeps which mana abilities can be taken back, but not the games before them, which hold hidden cards', () => {
+    let g = emptyGame((d) => {
+      put(d, 0, 'Talisman of Dominance');
+      put(d, 1, 'Sol Ring', 'hand');
+    });
+    const talisman = byName(g, 0, 'Talisman of Dominance')!;
+    g = run(g, { type: 'tapMana', card: talisman.id, ability: 1, mana: ['B'] });
+    expect(g.manaRewind?.[0].before).toBeDefined();
+    const view = viewFor(g, 0);
+    expect(view.manaRewind).toEqual([{ pid: 0, card: talisman.id, tapped: [talisman.id] }]);
+    expect(canUntapMana(view, 0, byName(view, 0, 'Talisman of Dominance')!)).toBe(true);
+    // Player 1's hand is in the game before, but not in the view.
+    expect(strings(view).has(byName(g, 1, 'Sol Ring', 'hand')!.id)).toBe(false);
+  });
+
   const game = () =>
     emptyGame((d) => {
       put(d, 0, 'Forest', 'hand', 2);

@@ -2349,8 +2349,12 @@ describe('combo turns: searches, choices, mana, storm, taxes and extra turns (se
       g = run(g, { type: 'tapMana', card: byName(g, 0, 'City of Brass')!.id });
       expect(g.players[0].life).toBe(37);
       expect(g.players[0].pool.length).toBe(3);
-      // Neither can be undone: they did more than tap.
-      expect(applyAction(g, { type: 'untapMana', card: byName(g, 0, 'City of Brass')!.id })).toBe(g);
+      // Taking back the City goes back to before it, damage and all; the Tomb stays used.
+      const back = run(g, { type: 'untapMana', card: byName(g, 0, 'City of Brass')!.id });
+      expect([back.players[0].life, back.players[0].pool.length, byName(back, 0, 'City of Brass')!.tapped]).toEqual([38, 2, false]);
+      // Taking back the Tomb uses the City again after it: its 2 damage back, the City's 1 again.
+      const tomb = run(g, { type: 'untapMana', card: byName(g, 0, 'Ancient Tomb')!.id });
+      expect([tomb.players[0].life, tomb.players[0].pool.length, byName(tomb, 0, 'Ancient Tomb')!.tapped, byName(tomb, 0, 'City of Brass')!.tapped]).toEqual([39, 1, false, true]);
     });
 
     it("Simian Spirit Guide is exiled from the hand for {R}, by hand only (auto-pay won't)", () => {

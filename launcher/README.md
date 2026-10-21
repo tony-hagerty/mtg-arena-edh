@@ -20,8 +20,12 @@ Node version from nodejs.org the first time, checks its published SHA-256, and k
   (it can't cover our changes), and marks the program windowed so no console window opens.
 - **Its icon and name:** the build swaps Node's icon for `src/ui/icon.svg`, drawn as PNGs
   from 16 to 256 px, and Node's name and version in the file's details for Arena EDH's
-  (what Explorer's Properties and Task Manager show). The game window uses the same SVG
-  as its icon.
+  (what Explorer's Properties and Task Manager show). The page offers the same icon as
+  PNGs (`vite.config.ts`), but Edge gives an app window its page's icon at 16 px only, so
+  the taskbar showed it blurred: once the window is open, a hidden PowerShell (`icon.ts`)
+  sets the program's own icon on it, at the window's display scale, and keeps it there
+  until the window closes. It finds the window by its Edge running with the game's
+  profile.
 - **The window** is Microsoft Edge in app mode (`--app`): the normal title bar, no tabs or
   address bar. Edge gets its own profile folder (`--user-data-dir`) beside the .exe, so it
   is separate from the user's everyday Edge.
