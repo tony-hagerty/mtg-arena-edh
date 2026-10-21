@@ -3,7 +3,7 @@ import { useFrame } from '@react-three/fiber';
 import type { ThreeEvent } from '@react-three/fiber';
 import { AdditiveBlending, BoxGeometry, CanvasTexture, DataTexture, EquirectangularReflectionMapping, Group, LinearFilter, LinearMipmapLinearFilter, Mesh, MeshStandardMaterial, RGBAFormat, RepeatWrapping, SRGBColorSpace, UnsignedByteType, Vector2 } from 'three';
 import { Bursts, burst } from './effects';
-import { MATERIAL, bedMaps } from './board';
+import { MATERIAL, bedDistance, bedMaps } from './board';
 import type { Bed, BedMaps, Garden as Plan } from './board';
 import { rng } from './floor';
 import { valueNoise } from './noise';
@@ -74,7 +74,7 @@ export function Garden({ plan, exiled, onExile }: { plan: Plan; exiled: Floating
   );
 }
 
-/** A mat: one flat plane over its rectangle, clear outside its rounded, well-cut shape. A click on it makes its material's burst. */
+/** A mat: one flat plane over its rectangle, clear outside its rounded, well-cut shape. A click on it makes its material's burst; one on its clear part goes through. */
 function Mat({ plan, bed, at }: { plan: Plan; bed: Bed; at: (e: ThreeEvent<MouseEvent>) => { x: number; y: number } }) {
   const rough = useMemo(() => matTextures(bedMaps(plan, bed, MAT_FIRST)), [plan, bed]);
   const [sharp, setSharp] = useState<{ for: Bed; tex: MatTextures } | null>(null);
@@ -96,8 +96,11 @@ function Mat({ plan, bed, at }: { plan: Plan; bed: Bed; at: (e: ThreeEvent<Mouse
     [tex],
   );
   const click = (e: ThreeEvent<MouseEvent>) => {
-    e.stopPropagation();
     const p = at(e);
+    // The plane is the mat's whole rectangle, its rounded corners and the round cut for the
+    // well only see-through: a click there is the well's or the floor's, under it, so it goes on.
+    if (bedDistance(plan, bed, p.x, p.y) > 0) return;
+    e.stopPropagation();
     burst(bed.material, p.x, p.y, SAND_Z);
   };
   return (
