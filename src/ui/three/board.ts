@@ -5,7 +5,7 @@ import { fbm, hash, valueNoise } from './noise';
 
 /*
   The 3D table's board (Garden.tsx draws it): a torch-lit hall for four, its floor flagstones
-  (floor.ts). Pure maths, no DOM or Three: tests/garden.test.ts checks it.
+  (floor.ts). Pure maths, no DOM or Three: tests/board.test.ts checks it.
 
   - Four mats lie flat on the flagstones, one in each corner of the table, where the seats are
     (`seatOf`: bottom left, top left, top right, bottom right, clockwise in turn order). They
