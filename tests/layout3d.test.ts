@@ -1,7 +1,8 @@
 // The 3D table's layout (src/ui/three/layout3d.ts): where each seat's cards lie on the table.
 import { describe, expect, it } from 'vitest';
 import { seatBox } from '../src/ui/table-layout';
-import { CARD3D, baseCamera, layoutSeat, quadMatrix } from '../src/ui/three/layout3d';
+import { CARD3D, baseCamera, layoutSeat, pileSpots, quadMatrix } from '../src/ui/three/layout3d';
+import { CORNER, cardGeometry } from '../src/ui/three/geometry';
 import type { Row } from '../src/ui/three/layout3d';
 import { tableHeight, DEPTH } from '../src/ui/camera';
 import type { Seat } from '../src/ui/util';
@@ -127,5 +128,45 @@ describe('quadMatrix', () => {
       [10, 160],
     ]);
     expect(m).toEqual([2, 0, 0, 0, 0, 2, 0, 0, 0, 0, 1, 0, 10, 20, 0, 1]);
+  });
+});
+
+describe('pileSpots', () => {
+  it('puts the library nearest the middle, then the graveyard and exile outward, clear of the seat box', () => {
+    for (const seat of [{ v: 'bottom', h: 'left' }, { v: 'top', h: 'left' }, { v: 'top', h: 'right' }, { v: 'bottom', h: 'right' }] as Seat[]) {
+      const p = pileSpots(seat, W, H, W, TABLE_H);
+      const out = seat.h === 'right' ? 1 : -1;
+      expect(out * p.library.x).toBeLessThan(out * p.graveyard.x);
+      expect(out * p.graveyard.x).toBeLessThan(out * p.exile.x);
+      for (const z of [p.library, p.graveyard, p.exile]) {
+        expect(z.h).toBeCloseTo(z.w * 1.4, 9);
+        expect(z.y - z.h / 2).toBeGreaterThan(0);
+        expect(z.y + z.h / 2).toBeLessThan(TABLE_H);
+      }
+      // The rows' box ends short of the piles, on the seat's own edge side.
+      const box = seatBox(seat, W, H);
+      const near = css({ x: 0, y: p.library.y }).y;
+      if (seat.v === 'bottom') expect(near).toBeGreaterThan(box.top + box.height);
+      else expect(near).toBeLessThan(box.top);
+    }
+  });
+});
+
+describe('cardGeometry', () => {
+  it("rounds a card's corners and lays the face's image over its whole top", () => {
+    const g = cardGeometry(5, 7, 0.1);
+    expect(g.groups.map((x) => x.materialIndex)).toEqual([0, 1, 2]);
+    const pos = g.getAttribute('position');
+    const uv = g.getAttribute('uv');
+    const top = g.groups[1];
+    let nearest = Infinity;
+    for (let i = top.start; i < top.start + top.count; i++) {
+      // The face's uv is its position over the card's size.
+      expect(uv.getX(i)).toBeCloseTo(pos.getX(i) / 5 + 0.5, 6);
+      expect(uv.getY(i)).toBeCloseTo(pos.getY(i) / 7 + 0.5, 6);
+      nearest = Math.min(nearest, Math.hypot(Math.abs(pos.getX(i)) - 2.5, Math.abs(pos.getY(i)) - 3.5));
+    }
+    // No point reaches a square corner: the nearest is the arc's middle, r(√2 - 1) in from it.
+    expect(nearest).toBeCloseTo(CORNER * 5 * (Math.SQRT2 - 1), 6);
   });
 });

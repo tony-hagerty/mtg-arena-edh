@@ -1,7 +1,7 @@
 // Where the seats' rows go and how big their cards are (src/ui/table-layout.ts).
 import { describe, expect, it } from 'vitest';
 import { camera } from '../src/ui/camera';
-import { CURVE_LEN, HAND_H, HAND_STEP, HAND_VISIBLE, K_MAX, K_MIN, PILE_STEP, ROW_GAP, ROW_LEAN, TILE, along, fanAngle, handPills, handSlot, handWindow, leanOf, rowGap, rowUnits, seatBox, seatScale } from '../src/ui/table-layout';
+import { CURVE_LEN, HAND_H, HAND_STEP, HAND_W, HAND_VISIBLE, K_MAX, K_MIN, PILE_STEP, ROW_GAP, ROW_LEAN, TILE, along, fanAngle, handPills, handSlot, handWindow, leanOf, rowGap, rowUnits, seatBox, seatScale } from '../src/ui/table-layout';
 import type { RowSpec } from '../src/ui/table-layout';
 import type { Seat } from '../src/ui/util';
 
@@ -179,6 +179,13 @@ describe('the hand curve', () => {
       expect(handSlot(i).y).toBeLessThanOrEqual(handSlot(i - 1).y + 1e-9);
     }
     expect(HAND_STEP).toBeGreaterThan(5);
+  });
+
+  it("touches the screen's left edge with the first card's left edge", () => {
+    const first = handSlot(0);
+    const t = (first.th * Math.PI) / 180;
+    const left = first.x - (HAND_W / 2) * Math.abs(Math.cos(t)) - (HAND_H / 2) * Math.abs(Math.sin(t));
+    expect(left).toBeCloseTo(0, 3);
   });
 
   it('slides the cards outside the window off along the extensions', () => {

@@ -85,8 +85,14 @@ src/ui/         App.tsx               menu or game screen; GameScreen.tsx lays t
                                       docs/plans/flutter-conversion.md). Table3D.tsx is the
                                       scene (Three.js through React Three Fiber) and the
                                       cards' proxies; layout3d.ts where each card lies on the
-                                      table and the camera that matches camera.ts (pure
-                                      maths, tested); textures.ts card faces, back and floor
+                                      table, where the piles lie (pileSpots) and the camera
+                                      that matches camera.ts (pure maths, tested);
+                                      geometry.ts a card's rounded shape; garden.ts and
+                                      Garden.tsx the board (four seasonal sand beds and a
+                                      koi pond; the plan and the sand's maps are pure maths,
+                                      tested); floor.ts the flagstones; textures.ts card
+                                      faces, back and floor
+                card-back.svg         the back of every card, CSS and 3D alike
                 cursor.png            the mouse cursor, and cursor-down.png while a
                                       button is held (see Credits)
 tests/                                Vitest: card coverage, rules, the UI casting flow,
@@ -173,7 +179,9 @@ fixed spot on a 192 × 108 grid.
 
 **The table leans away from you**, like Arena's: `.table` (GameScreen.tsx) is turned by
 `TILT` (10°) about its bottom edge under a perspective of `DEPTH`, both in
-`src/ui/camera.ts`, which sets them on the stage as `--tilt` and `--depth`. The table is
+`src/ui/camera.ts`, which sets them on the stage as `--tilt` and `--depth`. The 3D table
+(`TABLE_3D`, `?table=3d`) has its own, steeper pair (30° and 170rem, the far edge about 0.6
+of the near one), and everything that projects through `camera()` follows it. The table is
 taller than the screen by just enough that, leaned over, its far edge lands on the top of
 the screen (`tableHeight`, set as `--table-h`).
 
@@ -201,7 +209,8 @@ right, bottom right. Each seat is drawn in two parts:
   `BOX_ABOVE_EDGE`); an opponent's hand fanned from a pivot off the screen past their
   corner (`fanAngle`).
 
-Your hand follows a curve out of the bottom-left corner (`handSlot`): up to seven cards,
+Your hand follows a curve out of the bottom-left corner (`handSlot`), the first card placed
+along it so its left edge touches the screen's (`S0`): up to seven cards,
 each turned to the curve under it; a bigger hand scrolls (`handStart` in the store, the
 pills from `handPills`). A hand card is drawn in a slot that takes no pointer events,
 so its zoom can cover its neighbours; a clear copy of its resting shape (`.hand-hit`)
@@ -235,7 +244,11 @@ deck's seat colour.
   CSS overlap in step with it.
 - **Rows** never wrap: a seat's three rows share its box (`seatScale`), and a row too long
   for it overlaps its cards (`rowGap`).
-- **The card back** is one SVG in `--card-back`, used wherever a card is face down.
+- **The card back** is one SVG, `src/ui/card-back.svg` (the icon as a gold silhouette),
+  in `--card-back` wherever a card is face down, and drawn onto the 3D cards' undersides
+  and libraries (`backTexture`).
+- **A tapped card** carries the tap symbol (`.tap-symbol`, the mana font's {T}): on a tile
+  inside `.tile-tapmark`, on the 3D table on the card's proxy.
 
 ## Tests
 

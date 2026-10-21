@@ -332,12 +332,32 @@ board and bots at 4×, and read the frame times off the harness in
 (drawing only when something moves) and merging the cards into one instanced mesh are the
 two standard fixes, neither of which changes the approach.
 
+Since then:
+
+- **An Arena camera.** The 3D table has its own lean and perspective (`TILT` 30°, `DEPTH`
+  170 rem in camera.ts under `TABLE_3D`; the CSS table keeps 10° and 600). The far edge is
+  about 0.6 of the near one. `seatBox` and everything else that projects through `camera()`
+  follows, so the rows still land under the portraits.
+- **The piles lie on the table.** Each seat's library, graveyard and exile are 3D blocks
+  as thick as the pile (`Pile3D`; a 99-card library stands 3.5 rem), placed where the CSS
+  piles stood on the screen (`pileSpots`). The CSS pile itself (`Library`, `FaceUpPile`
+  from Board.tsx) is laid over each one like a card's proxy (`ZoneProxy`). Its cards are
+  hidden, and it keeps the icon, the count, the empty outline, the click that opens the
+  zone, the hover, and the elements flights fly to and from.
+- **Rounded corners.** A card is `cardGeometry` (geometry.ts): a rounded slab whose face
+  image is laid over the whole rectangle, so the corners cut it as a card's are cut.
+- **The tap mark.** A tapped card's proxy carries the tap symbol, as the CSS tile does.
+- **The board.** A four-seat courtyard (garden.ts, Garden.tsx). Each corner has a bed of
+  raked sand with a stone curb. The sand's albedo and normal maps are worked out per pixel:
+  lines along the seat's edge, rings around a spot in each bed and around the pond. The
+  flagstone floor shows between the beds as paths, and a koi pond sits where they cross.
+  Each bed is a season in turn order (spring, summer, autumn, winter), with what the
+  season drops strewn along its curb and trees to match, under a late-afternoon sun.
+
 What the spike leaves out, each a known piece of work rather than an open question:
 
-- The cards' corners are square (a box); rounded corners need an alpha-masked plane or a
-  rounded-box geometry.
-- The CSS tiles' name bar, ability dot, tap mark and the text-only fallback (`TextCard`)
-  aren't drawn in 3D: a card without an image shows its frame colour under its badges.
+- The CSS tiles' name bar, ability dot and the text-only fallback (`TextCard`) aren't
+  drawn in 3D: a card without an image shows its frame colour under its badges.
 - Phased-out, defeated and "mana source" styling is minimal (opacity only).
 - The push-in is the only camera move. Any other (a seat's turn, a spell resolving) is a
   few lines in `Rig`.

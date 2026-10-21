@@ -8,7 +8,7 @@ import { HandBack, HandCard, HiddenHandCard, Permanent } from './Card';
 import { CardImage } from './TextCard';
 import { useRem } from './rem';
 import { useStore } from './store';
-import { useStageSize } from './camera';
+import { TABLE_3D, useStageSize } from './camera';
 import { HAND_VISIBLE, TILE, fanAngle, handPills, handWindow, rowGap, seatBox, seatScale } from './table-layout';
 import type { Pt } from './table-layout';
 import { cx, deckColor, faceUp, hoverProps, seatClass, seatOf } from './util';
@@ -289,7 +289,7 @@ function CastCrown({ player, c, name, index }: { player: Player; c: Card | undef
 }
 
 /** A face-up pile. Always drawn, even when empty; shows its top card and opens the full list on click. */
-function FaceUpPile({ player, zone }: { player: Player; zone: 'graveyard' | 'exile' }) {
+export function FaceUpPile({ player, zone }: { player: Player; zone: 'graveyard' | 'exile' }) {
   const v = useView();
   const cards = player[zone];
   // Something in it can be cast: flashback, or an adventurer card (702.34a, 715.3d).
@@ -312,20 +312,26 @@ function FaceUpPile({ player, zone }: { player: Player; zone: 'graveyard' | 'exi
   );
 }
 
+/** The library, face down. The deck's edges thicken with its size (--depth). The back stays when it is empty: draws measure it. */
+export function Library({ player }: { player: Player }) {
+  return (
+    <div
+      className={cx('pile', 'library', !player.library.length && 'empty')}
+      data-library={player.id}
+      title={`Library: ${player.library.length} cards`}
+      style={vars({ '--depth': Math.min(1, player.library.length / 60).toFixed(2) })}
+    >
+      <div className="card-back" />
+      <i className="ms ms-library" />
+      <span className="count">{player.library.length}</span>
+    </div>
+  );
+}
+
 function Piles({ player }: { player: Player }) {
   return (
     <>
-      {/* The deck's edges thicken with its size (--depth). The back stays when it is empty: draws measure it. */}
-      <div
-        className={cx('pile', 'library', !player.library.length && 'empty')}
-        data-library={player.id}
-        title={`Library: ${player.library.length} cards`}
-        style={vars({ '--depth': Math.min(1, player.library.length / 60).toFixed(2) })}
-      >
-        <div className="card-back" />
-        <i className="ms ms-library" />
-        <span className="count">{player.library.length}</span>
-      </div>
+      <Library player={player} />
       <FaceUpPile player={player} zone="graveyard" />
       <FaceUpPile player={player} zone="exile" />
     </>
@@ -369,7 +375,8 @@ function OpponentHand({ player, seat }: { player: Player; seat: SeatPos }) {
 
 /**
  * The parts of a player's seat that stand on the screen rather than lie on the table: the
- * portrait on their side edge, the library, graveyard and exile on their top or bottom edge,
+ * portrait on their side edge, the library, graveyard and exile on their top or bottom edge
+ * (on the 3D table, they lie on the table instead),
  * and an opponent's hand fanned out of their corner. `you`: the seat at the bottom, whose
  * hand is `PlayerHand` and whose portrait carries the mana pool.
  */
@@ -382,9 +389,12 @@ export const SeatHud = memo(function SeatHud({ player, you }: { player: Player; 
         <Avatar player={player} />
         {you && <ManaPool player={player} />}
       </div>
-      <div className="seat-zones">
-        <Piles player={player} />
-      </div>
+      {/* The 3D table lays the piles on the table itself (Table3D.tsx). */}
+      {!TABLE_3D && (
+        <div className="seat-zones">
+          <Piles player={player} />
+        </div>
+      )}
       {!you && <OpponentHand player={player} seat={seat} />}
     </div>
   );

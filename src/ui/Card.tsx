@@ -255,7 +255,11 @@ export function Permanent({ card, badge, phased }: { card: Card; badge?: Card[];
         <Counters card={card} />
         {sick && <i className="tile-sick ms ms-ability-summoning-sickness" title="Summoning sick" />}
         {(activatedAbilities(g, card).length > 0 || abilitiesOf(g, card).loyalty) && <div className="tile-ability" title={abilityText(g, card)} />}
-        {card.tapped && <div className="tile-tapmark" />}
+        {card.tapped && (
+          <div className="tile-tapmark">
+            <i className="tap-symbol ms ms-tap" />
+          </div>
+        )}
         {card.textless && <TextlessBadge />}
         {badge && (
           <div

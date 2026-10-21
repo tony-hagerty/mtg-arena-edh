@@ -3,7 +3,7 @@ import type { CSSProperties } from 'react';
 import { realSchedule, scheduleBot } from '../engine';
 import type { Schedule } from '../engine';
 import { PlayerHand, Seat, SeatHud } from './Board';
-import { DEPTH, TILT, useTableSize } from './camera';
+import { DEPTH, TABLE_3D, TILT, useTableSize } from './camera';
 import { Flights } from './Flights';
 import { ActionBar, ArrowLayer, ExitConfirm, GameOver, LogPanel, Preview, Prompt, SpellFlash, StackPanel, ZoneViewer } from './Hud';
 import { GameVotes, PausedOverlay } from './LobbyScreen';
@@ -12,12 +12,7 @@ import { useStore } from './store';
 import { fromSeat } from './util';
 import { ViewContext, buildView } from './view';
 
-/**
- * `?table=3d` draws the table in 3D (src/ui/three/Table3D.tsx, a spike: see
- * docs/plans/flutter-conversion.md) in place of the CSS one. Loaded only then, so the 3D
- * libraries stay out of everyone else's download.
- */
-export const TABLE_3D = typeof location !== 'undefined' && new URLSearchParams(location.search).get('table') === '3d';
+/** The 3D table (`TABLE_3D`), loaded only when asked for, so the 3D libraries stay out of everyone else's download. */
 const Table3D = lazy(() => import('./three/Table3D'));
 
 /**

@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { CanvasTexture, DataTexture, LinearFilter, LinearMipmapLinearFilter, RGBAFormat, RepeatWrapping, SRGBColorSpace, Texture, TextureLoader, UnsignedByteType } from 'three';
 import { floorMaps } from './floor';
 import type { FloorMaps } from './floor';
+import backUrl from '../card-back.svg';
 
 /*
   Textures for the 3D table: card faces from Scryfall (which allows cross-origin use of its
@@ -58,64 +59,29 @@ export function useCardTexture(url: string | null): Texture | null {
 
 let back: CanvasTexture | null = null;
 
-/** The card back: a dark field in a gold frame with a star, like the CSS `.card-back`. Drawn once. */
+/**
+ * The card back: card-back.svg, the CSS `.card-back`'s picture, drawn onto a canvas once it has
+ * loaded (the field's dark until then). Drawn once.
+ */
 export function backTexture(): CanvasTexture {
   if (back) return back;
-  const W = 256;
-  const H = 358;
   const c = document.createElement('canvas');
-  c.width = W;
-  c.height = H;
+  c.width = 504;
+  c.height = 704;
   const g = c.getContext('2d')!;
-  const field = g.createRadialGradient(W / 2, H * 0.45, 0, W / 2, H * 0.45, H * 0.7);
-  field.addColorStop(0, '#232c3d');
-  field.addColorStop(0.6, '#121722');
-  field.addColorStop(1, '#080a0f');
-  g.fillStyle = field;
-  g.fillRect(0, 0, W, H);
-  const gold = g.createLinearGradient(0, 0, W, H);
-  gold.addColorStop(0, '#f6dd94');
-  gold.addColorStop(0.5, '#d2aa42');
-  gold.addColorStop(1, '#8a6a2c');
-  g.strokeStyle = gold;
-  g.lineWidth = 3;
-  g.strokeRect(17, 17, W - 34, H - 34);
-  g.strokeStyle = 'rgba(210, 170, 66, 0.45)';
-  g.lineWidth = 1;
-  g.strokeRect(24, 24, W - 48, H - 48);
-  for (const r of [85, 110, 134]) {
-    g.beginPath();
-    g.arc(W / 2, H / 2, r, 0, Math.PI * 2);
-    g.strokeStyle = 'rgba(210, 170, 66, 0.07)';
-    g.stroke();
-  }
-  g.beginPath();
-  g.arc(W / 2, H / 2, 47, 0, Math.PI * 2);
-  g.fillStyle = 'rgba(11, 14, 20, 0.55)';
-  g.fill();
-  g.strokeStyle = gold;
-  g.lineWidth = 2.5;
-  g.stroke();
-  // The eight-pointed star.
-  g.fillStyle = gold;
-  g.beginPath();
-  const pts = [
-    [0, -51],
-    [8, -8],
-    [51, 0],
-    [8, 8],
-    [0, 51],
-    [-8, 8],
-    [-51, 0],
-    [-8, -8],
-  ];
-  pts.forEach(([x, y], i) => (i ? g.lineTo(W / 2 + x, H / 2 + y) : g.moveTo(W / 2 + x, H / 2 + y)));
-  g.closePath();
-  g.fill();
-  back = new CanvasTexture(c);
-  back.colorSpace = SRGBColorSpace;
-  back.anisotropy = 4;
-  return back;
+  g.fillStyle = '#121722';
+  g.fillRect(0, 0, c.width, c.height);
+  const t = new CanvasTexture(c);
+  t.colorSpace = SRGBColorSpace;
+  t.anisotropy = 4;
+  const img = new Image();
+  img.onload = () => {
+    g.drawImage(img, 0, 0, c.width, c.height);
+    t.needsUpdate = true;
+  };
+  img.src = backUrl;
+  back = t;
+  return t;
 }
 
 /** How far a card's soft shadow spreads past its edges, as a share of its width. */
@@ -126,7 +92,7 @@ let shadow: CanvasTexture | null = null;
 /**
  * The soft dark under a card where it touches the floor (Table3D.tsx, `Card3D`): black, opaque
  * under the card and fading out over SHADOW_SPREAD past its edges, for a plane that size. The
- * moon's shadow of a card this thin is a sliver; this is the occlusion a card lying flat makes
+ * sun's shadow of a card this thin is a sliver; this is the occlusion a card lying flat makes
  * all around it, which is what shows it resting on the stone. Drawn once.
  */
 export function shadowTexture(): CanvasTexture {
