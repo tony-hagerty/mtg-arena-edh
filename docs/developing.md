@@ -81,7 +81,8 @@ src/ui/         App.tsx               menu or game screen; GameScreen.tsx lays t
                                       hand's curve and scroll pills (pure maths, tested)
                 util.ts               small helpers: class names, deck colours, hover props
                 styles.css            all styling
-                three/                the table drawn in 3D (`?table=3d`, a spike: see
+                three/                the table drawn in 3D, the usual one (`?table=css`
+                                      draws the CSS one; see
                                       docs/plans/flutter-conversion.md). Table3D.tsx is the
                                       scene (Three.js through React Three Fiber) and the
                                       cards' proxies; layout3d.ts where each card lies on the
@@ -180,7 +181,7 @@ fixed spot on a 192 × 108 grid.
 **The table leans away from you**, like Arena's: `.table` (GameScreen.tsx) is turned by
 `TILT` (10°) about its bottom edge under a perspective of `DEPTH`, both in
 `src/ui/camera.ts`, which sets them on the stage as `--tilt` and `--depth`. The 3D table
-(`TABLE_3D`, `?table=3d`) has its own, steeper pair (30° and 170rem, the far edge about 0.6
+(`TABLE_3D`: the usual table, unless `?table=css` or the browser has no WebGL 2) has its own, steeper pair (30° and 170rem, the far edge about 0.6
 of the near one), and everything that projects through `camera()` follows it. The table is
 taller than the screen by just enough that, leaned over, its far edge lands on the top of
 the screen (`tableHeight`, set as `--table-h`).

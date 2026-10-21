@@ -65,8 +65,8 @@ The full guide to the game's screens and controls. For a quick start, see the
 
 ## Playing cards
 
-- **The table** is seen from a little above your seat, like Arena's, leaning slightly
-  away from you. Everyone sits in a corner: you at the bottom left, the others clockwise
+- **The table** is drawn in 3D and seen from above your seat, leaning away from you like
+  Arena's board (see "The 3D table" below for the CSS table, which leans only slightly). Everyone sits in a corner: you at the bottom left, the others clockwise
   in turn order. Two players sit in opposite corners (you bottom left, the opponent top
   right); at three you have the whole bottom edge and the others take the top corners;
   at four the seats go bottom left (you), top left, top right, bottom right.
@@ -275,8 +275,7 @@ and away again (it starts folded). On the right:
 The deck menu has the same sound and music controls in its top-right corner. Sound, music
 and damage choices are saved in the browser.
 
-**The 3D table** (a work in progress): add `?table=3d` to the page's address to see the
-table drawn in 3D, seen at a steeper angle, like Arena's board, with the camera pushing in
+**The 3D table** is the usual table: seen at a steep angle, like Arena's board, with the camera pushing in
 during combat. The cards lie on it as objects with rounded corners. So do each player's
 library, graveyard and exile: the library is a deck as thick as it is full. The board is a
 courtyard for four: a bed of raked sand in each seat's corner, kept by a low stone curb,
@@ -284,8 +283,12 @@ with flagstone paths between them and a koi pond with lily pads where the paths 
 bed is a season, in turn order from yours: spring (petals on the sand), summer (moss),
 autumn (fallen leaves), winter (frost). The trees around the table match them. Everything
 plays the same: hover a card to read it, click it, drag from your hand, click a pile to
-open it. The portraits, hands and the rest stay flat on the screen. It needs a browser with WebGPU or WebGL 2 (every current one), and
-`?table=3d&gl=webgl` forces WebGL. The Windows program opens it with `ArenaEDH.exe --table 3d`.
+open it. The portraits, hands and the rest stay flat on the screen. It needs a browser with
+WebGPU or WebGL 2 (every current one); `?gl=webgl` forces WebGL, and `?quality=low` drops
+the shadows for a weak machine. Add `?table=css` to the page's address for the older table
+drawn with CSS, flat cards on a gently leaning floor with the piles standing on the screen
+(`ArenaEDH.exe --table css` in the Windows program). A browser that can't draw 3D gets that
+table by itself.
 
 The music is made as it plays, so it never loops: a harp arpeggio over a plucked bass and a
 soft frame drum, with a melody and a shaker coming and going as it builds and eases off. It

@@ -29,9 +29,9 @@ export function findEdge(env: NodeJS.ProcessEnv = process.env): string | undefin
 }
 
 /**
- * The page the window opens: the game at `base`, drawn with `table` (`--table 3d` opens
- * `?table=3d`, the table drawn in 3D: see docs/how-to-play.md). Nothing is added for the
- * usual table, so the address stays the one the browser keeps saved decks and settings under.
+ * The page the window opens: the game at `base`, drawn with `table` (`--table css` opens
+ * `?table=css`, the older table drawn with CSS: see docs/how-to-play.md). Nothing is added
+ * for the usual table, the 3D one, so the address stays the one the browser keeps saved decks and settings under.
  */
 export function windowUrl(base: string, table?: string): string {
   return table ? `${base}?table=${encodeURIComponent(table)}` : base;

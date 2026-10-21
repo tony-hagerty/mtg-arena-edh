@@ -4,8 +4,9 @@ Question: should Arena EDH become a Flutter app? The motive is visual polish: a 
 scene, with the camera moving, cards as solid objects, and an environment around the table
 (trees, rocks, architecture), which the current CSS-transform table can't do well.
 
-**Status: researched, and the spike at the end is built: `?table=3d` draws the table in 3D
-(src/ui/three/). What it showed is under "The spike, built".**
+**Status: researched, and the spike at the end is built and is now the usual table, drawn
+in 3D (src/ui/three/; `?table=css` draws the CSS one). What it showed is under "The spike,
+built".**
 
 Dates and versions below are as of October 2026. Flutter and the 3D libraries move fast,
 so re-check before acting on a version number.
@@ -364,7 +365,8 @@ What the spike leaves out, each a known piece of work rather than an open questi
 - Environment props are procedural placeholders. A glTF model loads with
   `GLTFLoader` (or drei's `useGLTF`) in place of a `Tree`; the lighting and shadows already
   apply to it.
-- The table can't be switched on from the menu; it is a URL toggle.
+- The 3D table is the default since the spike; the CSS table is a URL toggle
+  (`?table=css`), not a menu choice.
 
 ## Sources
 

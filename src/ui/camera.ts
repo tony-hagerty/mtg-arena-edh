@@ -14,11 +14,24 @@ import { useRem } from './rem';
   rows and the flights that land on them live on the table.
 */
 
+/** Whether this browser can draw the 3D table: Three's renderer runs on WebGPU, else on WebGL 2, which every browser with WebGPU also has. */
+function canDraw3D() {
+  try {
+    const gl = document.createElement('canvas').getContext('webgl2');
+    // Only asked to find out: give the context back rather than hold one of the browser's few.
+    gl?.getExtension('WEBGL_lose_context')?.loseContext();
+    return !!gl;
+  } catch {
+    return false;
+  }
+}
+
 /**
- * `?table=3d` draws the table in 3D (src/ui/three/Table3D.tsx, a spike: see
- * docs/plans/flutter-conversion.md) in place of the CSS one, with its own camera below.
+ * The table is drawn in 3D (src/ui/three/Table3D.tsx, see docs/plans/flutter-conversion.md),
+ * with its own camera below. `?table=css` draws the CSS table instead, and so does a browser
+ * that can't draw 3D. Outside a browser (the tests) it is the CSS table's.
  */
-export const TABLE_3D = typeof location !== 'undefined' && new URLSearchParams(location.search).get('table') === '3d';
+export const TABLE_3D = typeof location !== 'undefined' && new URLSearchParams(location.search).get('table') !== 'css' && canDraw3D();
 
 /**
  * How far the table leans away from you, in degrees. 0 is flat. The CSS table leans a
