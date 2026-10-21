@@ -20,6 +20,7 @@ import type { SeatPrefs, StartRequest, ViewMessage } from '../../src/net/protoco
 import { Refused } from '../game';
 import type { GameHost, GameService } from '../game';
 import { decodeJoinCode, JoinCodeError } from '../net';
+import type { JoinInfo } from '../net';
 import { GuestLink } from './guest';
 import { Hosting } from './hosting';
 import type { HostingEvents, HostingOptions } from './hosting';
@@ -113,8 +114,9 @@ export class Lobby {
 
   async join(req: JoinRequest) {
     // A mistyped code leaves any table this computer is at as it was.
+    let info: JoinInfo;
     try {
-      decodeJoinCode(String(req.code ?? ''));
+      info = decodeJoinCode(String(req.code ?? ''));
     } catch (err) {
       throw new Refused(err instanceof JoinCodeError ? err.message : 'That doesn’t look like a code.');
     }
@@ -122,7 +124,7 @@ export class Lobby {
     this.connecting = true;
     this.changed();
     try {
-      this.guest = await GuestLink.join(String(req.code ?? ''), String(req.name ?? ''), req.deck ?? null, this.version, {
+      this.guest = await GuestLink.join(info, String(req.name ?? ''), req.deck ?? null, this.version, {
         lobby: (state) => {
           this.error = state.error;
           this.changed(false);
