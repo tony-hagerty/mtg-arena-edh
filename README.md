@@ -5,6 +5,8 @@ table. Two to four players: you play one deck, and bots or friends play the othe
 
 This is an unofficial fan prototype. Expect rough edges.
 
+![A four-player game mid-way through turn 20: each seat's battlefield on its own mat, life totals on the portraits, and a trigger shown full size in the middle](docs/images/table.webp)
+
 ## Highlights
 
 - **Full Commander games** for 2 to 4 players: 40 life, commander tax, 21 commander
@@ -12,9 +14,22 @@ This is an unofficial fan prototype. Expect rough edges.
 - **Play your own deck.** Paste a list from Arena, Moxfield, Archidekt, MTGO, TappedOut
   or plain text. Cards the game doesn't know are fetched from
   [Scryfall](https://scryfall.com) and read from their rules text.
-- **Bots** fill any empty seat, so you can play alone.
+- **A 3D table** in a torch-lit hall: each seat plays on its own mat, the shared exile is
+  the well in the middle, and any card can be hovered to read it full size.
+- **Bots** fill any empty seat, so you can play alone, or **Watch the bots play** a whole
+  game of four.
 - **Friends** can share your screen, or join from their own computer with a code.
 - **Eight decks built in**, four two-colour starters and four Commander decks.
+- **Sound and music** made by the game itself, with volume sliders on the menu.
+
+## Screenshots
+
+| | |
+| --- | --- |
+| ![The menu: eight built-in decks with their art, and the table settings on the right](docs/images/menu.webp) | ![Pasting a deck list: 100 cards read, the commander picked, ready to save](docs/images/paste-deck.webp) |
+| **The menu.** Pick a deck and who sits in the other seats. | **Paste a deck list** from Arena, Moxfield, Archidekt, MTGO or TappedOut. |
+| ![The opening hand of seven cards, with Mulligan and Keep buttons](docs/images/mulligan.webp) | ![The Hotkeys window listing every keyboard and mouse control](docs/images/hotkeys.webp) |
+| **Keep or mulligan** your opening hand. Your first mulligan is free. | **Hotkeys**, on the gear menu, lists every control. |
 
 ## Getting the game
 
@@ -25,6 +40,9 @@ This is an unofficial fan prototype. Expect rough edges.
 - **Any computer with a browser:** if someone sent you a single `index.html`, double-click
   it. Card images need an internet connection.
 
+The table is drawn in 3D, so it needs a browser with WebGPU or WebGL 2 (every current one
+has it). On a slow machine, add `?quality=low` to the address to drop the shadows.
+
 ## Quick start
 
 1. Pick a deck on the menu, or **Paste a deck list** to use your own.
@@ -33,10 +51,12 @@ This is an unofficial fan prototype. Expect rough edges.
 3. Keep your opening hand or mulligan.
 4. **Glowing** cards can be played. Drag one from your hand onto the table, pick targets
    (shown in yellow), and press **Pay**. Mana is tapped for you.
-5. Press **Space** for the big button (Next, Resolve, Pass) and **Esc** to cancel.
+5. Press **Space** for the big button (Next, Resolve, Pass), **Esc** to cancel, and
+   **Ctrl+Z** to take back the last step that can be undone.
 
 To cast your commander, click the **crown** on your portrait. Hover any card to see it
-full size.
+full size, or right-click it for a bigger view that stays up. The gear at the top holds
+bot speed, sound and music, and the **Hotkeys** window with every control.
 
 The full guide, covering combat, the stack, stops, special cards and every control, is in
 **[How to play](docs/how-to-play.md)**.
