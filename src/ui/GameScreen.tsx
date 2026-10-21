@@ -1,7 +1,9 @@
-import { Suspense, lazy, useEffect, useMemo, useState } from 'react';
+import { Suspense, lazy, useCallback, useEffect, useMemo, useState } from 'react';
 import { realSchedule, scheduleBot } from '../engine';
-import type { Schedule } from '../engine';
+import type { Player, Schedule } from '../engine';
 import { PlayerHand, SeatHud } from './Board';
+import { BoardSplash, SPLASH_MAX_MS, laterStep } from './BoardSplash';
+import type { BoardStep } from './BoardSplash';
 import { CAN_DRAW_3D } from './camera';
 import { Flights } from './Flights';
 import { ActionBar, ArrowLayer, ExitConfirm, GameOver, HotkeysDialog, LogPanel, Preview, Prompt, SpellFlash, StackPanel, ZoneViewer } from './Hud';
@@ -13,6 +15,27 @@ import { ViewContext, buildView } from './view';
 
 /** The table (src/ui/three/Table3D.tsx), loaded only once a game is drawn, so the menu never waits for the 3D libraries. */
 const Table3D = lazy(() => import('./three/Table3D'));
+
+/**
+ * The 3D table, with the splash over the board until it has drawn (BoardSplash.tsx). Its code
+ * loads and its renderer starts only once a game is on, which takes a few seconds the first time.
+ */
+function Board3D({ players }: { players: Player[] }) {
+  const [step, setStep] = useState<BoardStep>('loading');
+  const progress = useCallback((next: BoardStep) => setStep((s) => laterStep(s, next)), []);
+  useEffect(() => {
+    const t = setTimeout(() => progress('drawn'), SPLASH_MAX_MS);
+    return () => clearTimeout(t);
+  }, [progress]);
+  return (
+    <>
+      <Suspense fallback={null}>
+        <Table3D players={players} onProgress={progress} />
+      </Suspense>
+      <BoardSplash step={step} />
+    </>
+  );
+}
 
 /** In the table's place, for a browser that can't draw it (`CAN_DRAW_3D`). */
 function NoTable() {
@@ -92,9 +115,7 @@ export function GameScreen() {
       <div className="stage board">
         {/* The table, leaning away from you (camera.ts): the seats' cards, piles and held hands, drawn in 3D. The portraits, your hand and the HUD stay flat, in screen space. */}
         {CAN_DRAW_3D ? (
-          <Suspense fallback={null}>
-            <Table3D players={players} />
-          </Suspense>
+          <Board3D players={players} />
         ) : (
           <NoTable />
         )}

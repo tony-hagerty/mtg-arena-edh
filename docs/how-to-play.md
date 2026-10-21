@@ -59,6 +59,9 @@ The full guide to the game's screens and controls. For a quick start, see the
 - Cards the game can't read are written down for Claude to script later (see
   [Adding a card](developing.md#adding-a-card)); outside `npm run dev`, **Download
   report** saves them as a file.
+- **Loading:** when a game starts, a splash covers the board while the 3D table loads: the
+  logo, the five mana symbols bouncing in turn, "Loading board state…" and a bar that fills
+  as it goes. It fades once the table is drawn, usually within a few seconds.
 - **Mulligan:** before the first turn you see your seven cards. Press **Keep**, or
   **Mulligan** to shuffle them away and draw seven new ones. Your first mulligan is free;
   after that you pick one card per extra mulligan to put on the bottom of your library.
