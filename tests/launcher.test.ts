@@ -112,9 +112,9 @@ describe('paths', () => {
     expect(args).toContain('--user-data-dir=D:\\ArenaEDH-data\\edge');
   });
 
-  it('opens the 3D table with --table 3d, and the plain address otherwise', () => {
+  it('opens the CSS table with --table css, and the plain address (the 3D table) otherwise', () => {
     expect(windowUrl('http://127.0.0.1:47180/')).toBe('http://127.0.0.1:47180/');
-    expect(windowUrl('http://127.0.0.1:47180/', '3d')).toBe('http://127.0.0.1:47180/?table=3d');
+    expect(windowUrl('http://127.0.0.1:47180/', 'css')).toBe('http://127.0.0.1:47180/?table=css');
     expect(windowUrl('http://127.0.0.1:47180/', 'a b')).toBe('http://127.0.0.1:47180/?table=a%20b');
   });
 

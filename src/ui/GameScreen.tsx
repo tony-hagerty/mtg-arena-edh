@@ -12,7 +12,7 @@ import { useStore } from './store';
 import { fromSeat } from './util';
 import { ViewContext, buildView } from './view';
 
-/** The 3D table (`TABLE_3D`), loaded only when asked for, so the 3D libraries stay out of everyone else's download. */
+/** The 3D table (`TABLE_3D`), loaded only when it is drawn, so the CSS table (`?table=css`) never downloads the 3D libraries. */
 const Table3D = lazy(() => import('./three/Table3D'));
 
 /**

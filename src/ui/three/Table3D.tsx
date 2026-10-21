@@ -27,8 +27,9 @@ import type { PileSpot, PileZone, Pose, Row } from './layout3d';
 import { SHADOW_SPREAD, backTexture, shadowTexture, useCardTexture, useFloorTextures } from './textures';
 
 /*
-  The table drawn in 3D (a spike, see docs/plans/flutter-conversion.md): opened with
-  `?table=3d`. It replaces `.table` in GameScreen and nothing else: the portraits, piles,
+  The table drawn in 3D (see docs/plans/flutter-conversion.md): the usual table, unless the
+  page asks for the CSS one (`?table=css`) or the browser can't draw 3D (`TABLE_3D` in
+  camera.ts). It replaces `.table` in GameScreen and nothing else: the portraits, piles,
   hands, HUD and pickers stay on the screen as before, over the canvas, and the engine, the
   store and view.ts are untouched.
 
