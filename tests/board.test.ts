@@ -1,6 +1,6 @@
-// The 3D table's board (src/ui/three/garden.ts): four mats, each a seat's battlefield, around the well that is the exile.
+// The 3D table's board (src/ui/three/board.ts): four mats, each a seat's battlefield, around the well that is the exile.
 import { describe, expect, it } from 'vitest';
-import { PILE, POND_CLEAR, bedAt, bedDistance, bedMaps, gardenPlan, seatArea } from '../src/ui/three/garden';
+import { PILE, POND_CLEAR, bedAt, bedDistance, bedMaps, gardenPlan, seatArea } from '../src/ui/three/board';
 import { camera, tableHeight, DEPTH } from '../src/ui/camera';
 import { floorMaps } from '../src/ui/three/floor';
 import type { Seat } from '../src/ui/util';
