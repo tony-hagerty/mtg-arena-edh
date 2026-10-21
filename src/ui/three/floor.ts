@@ -1,22 +1,19 @@
+import { fbm, valueNoise } from './noise';
+
 /*
   The 3D table's floor, worked out pixel by pixel for Table3D.tsx's `Floor` (textures.ts turns
   it into textures). Pure maths, no DOM or Three, so it runs in a worker (floor.worker.ts).
 
-  The art direction is the CSS table's floor (`--floor` in styles.css): dark slate flagstones
-  packed like bubbles, from pebbles to the odd boulder, on a darker ground that shows in the
-  joints, grass and moss in the joints, a few small blue mushrooms, a fine grain and a slow
-  mottle. Here the stones also have a surface for the light to play across: a height field,
-  turned into a normal map, and a roughness map.
+  A dungeon hall's paving: rectangular flagstones laid in rows of different depths, each stone
+  its own length and its own shade of worn grey-brown, now and then a pair of small ones in a
+  big one's place. The joints between are packed with sandy dirt. Each stone has a surface
+  for the light to play across: chipped, bevelled edges, a slight tilt and a rough face, in a
+  height field turned into a normal map, and a roughness map with damper, smoother patches.
 
-  - The stones: discs thrown at the floor biggest first, each kept only if it doesn't crowd the
-    ones already there (`packStones`), as bubbles pack. Each stone is the ground its disc claims
-    against its neighbours (a power diagram: the bigger stone claims more of the space between
-    two), cut down to a polygon of five to seven corners so it is a slab rather than a disc.
-    How far a point is in from its stone's edge (`inside`) shapes the rest: the joint, the
-    bevel the light catches, the shade toward the joint, the moss creeping in from it.
-  - Every map is one picture of `AREA` rem that wraps at its edges, laid on the table in rem
-    (a stone is the same size wherever it lies), wide enough that the screen never shows it
-    twice. Rows run up the floor (row 0 is the near edge), as Three reads a DataTexture.
+  Every map is one picture of `AREA` rem that wraps at its edges (the rows and the stones in
+  each fill it exactly, and the noise repeats over it), laid on the table in rem, wide enough
+  that the screen never shows it twice. Rows of pixels run up the floor (row 0 is the near
+  edge), as Three reads a DataTexture.
 */
 
 /** The rem of floor the maps cover, across and up. */
@@ -25,13 +22,13 @@ export const AREA = { w: 192, h: 96 } as const;
 export interface FloorMaps {
   width: number;
   height: number;
-  /** RGBA, sRGB: the colour, grass and mushrooms included. */
+  /** RGBA, sRGB: the colour. */
   albedo: Uint8ClampedArray;
   /** RGBA: the tangent-space normal, +y up the floor (OpenGL's convention, as Three takes it). */
   normal: Uint8ClampedArray;
   /** RGBA at half the size each way: roughness in every channel (Three reads green). */
   rough: Uint8ClampedArray;
-  /** RGBA, sRGB, at a quarter the size each way: the mushrooms' glow, for the emissive map. */
+  /** RGBA, sRGB, at a quarter the size each way: what glows (nothing, now: the torches light the hall). */
   glow: Uint8ClampedArray;
 }
 
@@ -47,119 +44,69 @@ export function rng(seed: number) {
   };
 }
 
-const smooth = (t: number) => (t <= 0 ? 0 : t >= 1 ? 1 : t * t * (3 - 2 * t));
-const clamp01 = (t: number) => (t < 0 ? 0 : t > 1 ? 1 : t);
-
-/**
- * Value noise summed over octaves on a `w` × `h` grid that wraps (each octave's lattice divides
- * the grid), 0..1. `cell` is the coarsest lattice's cell, in grid steps.
- */
-function fbm(w: number, h: number, cell: number, octaves: number, rand: () => number) {
-  const out = new Float32Array(w * h);
-  let amp = 1;
-  let total = 0;
-  for (let o = 0; o < octaves && cell >= 1; o++, cell /= 2, amp *= 0.5) {
-    const lw = Math.max(1, Math.round(w / cell));
-    const lh = Math.max(1, Math.round(h / cell));
-    const lat = new Float32Array(lw * lh).map(() => rand());
-    for (let y = 0; y < h; y++) {
-      const fy = (y / h) * lh;
-      const y0 = Math.floor(fy);
-      const ty = smooth(fy - y0);
-      const r0 = (y0 % lh) * lw;
-      const r1 = ((y0 + 1) % lh) * lw;
-      for (let x = 0; x < w; x++) {
-        const fx = (x / w) * lw;
-        const x0 = Math.floor(fx);
-        const tx = smooth(fx - x0);
-        const c0 = x0 % lw;
-        const c1 = (x0 + 1) % lw;
-        const a = lat[r0 + c0] + (lat[r0 + c1] - lat[r0 + c0]) * tx;
-        const b = lat[r1 + c0] + (lat[r1 + c1] - lat[r1 + c0]) * tx;
-        out[y * w + x] += (a + (b - a) * ty) * amp;
-      }
-    }
-    total += amp;
-  }
-  for (let i = 0; i < out.length; i++) out[i] /= total;
-  return out;
-}
-
-/** A field at a sixteenth of the size each way, read back at full size along a row, bilinearly, wrapping. */
-function rowOf(field: Float32Array, fw: number, fh: number, y: number, H: number, W: number, out: Float32Array) {
-  const fy = (y * fh) / H;
-  const y0 = Math.floor(fy);
-  const ty = fy - y0;
-  const r0 = (y0 % fh) * fw;
-  const r1 = ((y0 + 1) % fh) * fw;
-  for (let x = 0; x < W; x++) {
-    const fx = (x * fw) / W;
-    const x0 = Math.floor(fx);
-    const tx = fx - x0;
-    const c0 = x0 % fw;
-    const c1 = (x0 + 1) % fw;
-    const a = field[r0 + c0] + (field[r0 + c1] - field[r0 + c0]) * tx;
-    const b = field[r1 + c0] + (field[r1 + c1] - field[r1 + c0]) * tx;
-    out[x] = a + (b - a) * ty;
-  }
-}
-
 interface Stone {
-  x: number;
-  y: number;
-  /** The disc's radius, px. */
+  x0: number;
+  x1: number;
+  y0: number;
+  y1: number;
+  /** Its colour, its tilt (the slope of its face across and up) and how rough it is. */
   r: number;
+  g: number;
+  b: number;
+  tx: number;
+  ty: number;
+  rough: number;
+  /** Half its joint, rem: some stones sit tighter than others. */
+  joint: number;
 }
 
-/**
- * Bubbles thrown at a `w` × `h` floor that wraps, biggest first: a few boulders, then stones,
- * then pebbles in the gaps. Each is kept only if it stays clear of the others (with a little
- * overlap allowed, which the power diagram settles). `px` is pixels per rem.
- */
-function packStones(w: number, h: number, px: number, rand: () => number): Stone[] {
+/** Lengths that add up to exactly `total`: drawn from `pick` until they reach it, then all scaled to fit. */
+function fill(total: number, pick: () => number) {
+  const out: number[] = [];
+  let sum = 0;
+  while (sum < total) {
+    const v = pick();
+    out.push(v);
+    sum += v;
+  }
+  return out.map((v) => (v * total) / sum);
+}
+
+/** Worn stone: greys and grey-browns, a few with a green or ochre cast. */
+const TONES: [number, number, number][] = [
+  [78, 73, 64],
+  [70, 68, 64],
+  [66, 62, 52],
+  [84, 77, 64],
+  [62, 64, 62],
+  [74, 66, 54],
+];
+
+/** The paving's stones, in rem over the AREA: rows up the floor, stones along each. */
+function layStones(rand: () => number): Stone[] {
   const stones: Stone[] = [];
-  const bin = 8 * px;
-  const bw = Math.ceil(w / bin);
-  const bh = Math.ceil(h / bin);
-  const bins: number[][] = Array.from({ length: bw * bh }, () => []);
-  const fits = (x: number, y: number, r: number) => {
-    const bx = Math.floor(x / bin);
-    const by = Math.floor(y / bin);
-    for (let j = -2; j <= 2; j++)
-      for (let i = -2; i <= 2; i++) {
-        for (const k of bins[((((by + j) % bh) + bh) % bh) * bw + ((((bx + i) % bw) + bw) % bw)]) {
-          const s = stones[k];
-          let dx = Math.abs(s.x - x);
-          let dy = Math.abs(s.y - y);
-          if (dx > w / 2) dx = w - dx;
-          if (dy > h / 2) dy = h - dy;
-          const min = (s.r + r) * 0.9;
-          if (dx * dx + dy * dy < min * min) return false;
-        }
-      }
-    return true;
+  const make = (x0: number, x1: number, y0: number, y1: number): Stone => {
+    const [r, g, b] = TONES[Math.floor(rand() * TONES.length)];
+    const v = 0.78 + rand() * 0.36;
+    const a = rand() * Math.PI * 2;
+    const m = 0.02 + rand() * 0.05;
+    return { x0, x1, y0, y1, r: r * v, g: g * v, b: b * v, tx: Math.cos(a) * m, ty: Math.sin(a) * m, rough: 0.55 + rand() * 0.35, joint: 0.16 + rand() * 0.14 };
   };
-  const throwSome = (tries: number, radius: () => number) => {
-    for (let t = 0; t < tries; t++) {
-      const x = rand() * w;
-      const y = rand() * h;
-      const r = radius() * px;
-      if (!fits(x, y, r)) continue;
-      bins[Math.floor(y / bin) * bw + Math.floor(x / bin)].push(stones.length);
-      stones.push({ x, y, r });
+  let y = 0;
+  for (const depth of fill(AREA.h, () => [3.4, 4.4, 5.6, 6.8][Math.floor(rand() * 4)])) {
+    let x = 0;
+    for (const len of fill(AREA.w, () => 3 + rand() * 6.5)) {
+      // Now and then two small stones, one above the other, in a long one's place.
+      if (len < 6 && depth > 4.5 && rand() < 0.25) {
+        const split = y + depth * (0.4 + rand() * 0.2);
+        stones.push(make(x, x + len, y, split), make(x, x + len, split, y + depth));
+      } else stones.push(make(x, x + len, y, y + depth));
+      x += len;
     }
-  };
-  const area = (w * h) / (px * px);
-  // Boulders, rare.
-  throwSome(Math.round(area / 2000), () => 5.2 + rand() * 2);
-  // Stones, mostly middling, some big.
-  throwSome(Math.round(area * 1.2), () => 2 + 2.6 * rand() ** 1.8);
-  // Pebbles in what is left.
-  throwSome(Math.round(area * 0.12), () => 0.8 + rand() * 0.6);
+    y += depth;
+  }
   return stones;
 }
-
-const MAX_SIDES = 7;
 
 /** The floor's maps, `width` pixels across (see the note at the top). The same for the same seed at any width. */
 export function floorMaps(width: number, seed = 11): FloorMaps {
@@ -167,367 +114,87 @@ export function floorMaps(width: number, seed = 11): FloorMaps {
   const H = Math.round((width * AREA.h) / AREA.w);
   const P = W / AREA.w;
   const rand = rng(seed);
+  const stones = layStones(rand);
 
-  // Fields: a fine noise tile that each stone reads at its own offset (so no two stones share a
-  // surface), a second for the joints, and slow fields at a sixteenth of the size: the
-  // mottle, and where it is damp enough for moss.
-  const T = 256;
-  const tile = fbm(T, T, 64, 6, rand);
-  const tile2 = fbm(T, T, 16, 3, rand);
-  // The tiles are read at 21 px a rem whatever the width, so the surface is the same size.
-  const tq = 21.3 / P;
-  const lw = W >> 4;
-  const lh = H >> 4;
-  const mottle = fbm(lw, lh, lw / 6, 4, rand);
-  const moss = fbm(lw, lh, lw / 14, 4, rand);
-
-  // The stones and their looks.
-  const stones = packStones(W, H, P, rand);
-  const n = stones.length;
-  const sx = new Float32Array(n);
-  const sy = new Float32Array(n);
-  const r2 = new Float32Array(n);
-  const sides = new Uint8Array(n);
-  const nx = new Float32Array(n * MAX_SIDES);
-  const ny = new Float32Array(n * MAX_SIDES);
-  const ap = new Float32Array(n * MAX_SIDES);
-  const tone = new Float32Array(n * 3);
-  const off = new Int32Array(n * 2);
-  const tilt = new Float32Array(n * 2);
-  const rough = new Float32Array(n);
-  let reachMax = 0;
-  stones.forEach((s, i) => {
-    sx[i] = s.x;
-    sy[i] = s.y;
-    r2[i] = s.r * s.r;
-    reachMax = Math.max(reachMax, s.r);
-    // The slab: a polygon of 5 to 7 corners well past the disc, so the neighbours' claims cut
-    // most of it and its own corners only trim where three stones meet.
-    // Big stones get fewer corners: a boulder is a slab, not a disc.
-    const k = s.r > 4.5 * P ? 5 + Math.floor(rand() * 2) : 5 + Math.floor(rand() * 3);
-    sides[i] = k;
-    const a0 = rand() * Math.PI * 2;
-    const vx: number[] = [];
-    const vy: number[] = [];
-    for (let j = 0; j < k; j++) {
-      const a = a0 + ((j + (rand() - 0.5) * 0.7) / k) * Math.PI * 2;
-      const rr = s.r * (1.15 + rand() * 0.55);
-      vx.push(Math.cos(a) * rr);
-      vy.push(Math.sin(a) * rr);
-    }
-    for (let j = 0; j < k; j++) {
-      const ex = vx[(j + 1) % k] - vx[j];
-      const ey = vy[(j + 1) % k] - vy[j];
-      const len = Math.hypot(ex, ey) || 1;
-      // Counterclockwise corners: the outward normal is the edge turned clockwise.
-      const ox = ey / len;
-      const oy = -ex / len;
-      nx[i * MAX_SIDES + j] = ox;
-      ny[i * MAX_SIDES + j] = oy;
-      ap[i * MAX_SIDES + j] = vx[j] * ox + vy[j] * oy;
-    }
-    // Slate: blue-grey, now and then a greyer or greener one, in a narrow range of value.
-    const v = 0.88 + rand() * 0.26;
-    const hue = rand();
-    const [cr, cg, cb] = hue < 0.18 ? [34, 43, 54] : hue < 0.3 ? [40, 43, 56] : [30, 40, 62];
-    tone[i * 3] = cr * v;
-    tone[i * 3 + 1] = cg * v;
-    tone[i * 3 + 2] = cb * v;
-    off[i * 2] = Math.floor(rand() * T);
-    off[i * 2 + 1] = Math.floor(rand() * T);
-    // Each slab sits a little askew, so the light catches each one differently.
-    const ta = rand() * Math.PI * 2;
-    const tm = (0.015 + rand() * 0.035) * (21.3 / P);
-    tilt[i * 2] = Math.cos(ta) * tm;
-    tilt[i * 2 + 1] = Math.sin(ta) * tm;
-    rough[i] = 0.6 + rand() * 0.25;
-  });
-
-  // Which stones can claim a point in each block of the floor: every stone near enough, once
-  // per wrapped copy, with the copy's shift (a stone near one edge reaches over the other).
-  // Blocks of about 3 rem.
-  const B = Math.max(4, Math.round(3 * P));
-  const bw = Math.ceil(W / B);
-  const bh = Math.ceil(H / B);
-  const lists: number[][] = Array.from({ length: bw * bh }, () => []);
-  for (let i = 0; i < n; i++) {
-    const reach = Math.sqrt(r2[i]) * 1.75 + 1.2 * P;
-    const x0 = Math.floor((sx[i] - reach) / B);
-    const x1 = Math.floor((sx[i] + reach) / B);
-    const y0 = Math.floor((sy[i] - reach) / B);
-    const y1 = Math.floor((sy[i] + reach) / B);
-    for (let by = y0; by <= y1; by++)
-      for (let bx = x0; bx <= x1; bx++) {
-        const wx = ((bx % bw) + bw) % bw;
-        const wy = ((by % bh) + bh) % bh;
-        lists[wy * bw + wx].push(i, -Math.floor(bx / bw) * W, -Math.floor(by / bh) * H);
-      }
-  }
-
+  // Which stone covers each pixel: the stones are sorted by row, so each pixel row looks only
+  // at the ones whose rows it crosses, and finds its stone along x by a pointer that only moves on.
   const albedo = new Uint8ClampedArray(W * H * 4);
   const height = new Float32Array(W * H);
-  const inside = new Float32Array(W * H);
-  const rw = W >> 1;
-  const rh = H >> 1;
-  const roughSum = new Float32Array(rw * rh);
-  const bevel = 0.4 * P;
-  const shade = 0.6 * P;
-  const creep = 0.45 * P;
-  const mottleRow = new Float32Array(W);
-  const mossRow = new Float32Array(W);
-  let hash = (seed * 2654435761) | 0;
-
-  for (let y = 0; y < H; y++) {
-    rowOf(mottle, lw, lh, y, H, W, mottleRow);
-    rowOf(moss, lw, lh, y, H, W, mossRow);
-    const ty = Math.floor(y * tq);
-    for (let x = 0; x < W; x++) {
-      const list = lists[((y / B) | 0) * bw + ((x / B) | 0)];
-      // The two stones claiming this point most (the smallest power distances).
-      let b1 = -1;
-      let b2 = -1;
-      let p1 = Infinity;
-      let p2 = Infinity;
-      let x1 = 0;
-      let y1 = 0;
-      let x2 = 0;
-      let y2 = 0;
-      for (let k = 0; k < list.length; k += 3) {
-        const i = list[k];
-        const cx = sx[i] + list[k + 1];
-        const cy = sy[i] + list[k + 2];
-        const dx = x - cx;
-        const dy = y - cy;
-        const pd = dx * dx + dy * dy - r2[i];
-        if (pd < p1) {
-          p2 = p1;
-          b2 = b1;
-          x2 = x1;
-          y2 = y1;
-          p1 = pd;
-          b1 = i;
-          x1 = cx;
-          y1 = cy;
-        } else if (pd < p2) {
-          p2 = pd;
-          b2 = i;
-          x2 = cx;
-          y2 = cy;
-        }
-      }
-      const idx = y * W + x;
-      hash = Math.imul(hash ^ (hash >>> 15), 0x2c1b3c6d) + idx;
-      hash = Math.imul(hash ^ (hash >>> 12), 0x297a2d39);
-      const grain = ((hash >>> 8) & 0xffff) / 0xffff - 0.5;
-      const m = mottleRow[x];
-      const mo = mossRow[x];
-      const tx = Math.floor(x * tq);
-      const t2 = tile2[(ty & (T - 1)) * T + (tx & (T - 1))];
-      // The joint's half-width wanders along it.
-      const joint = (0.06 + 0.1 * t2) * P;
-      let e = -P;
-      if (b1 >= 0) {
-        // In from the slab's polygon, and from the line its neighbour claims.
-        const dx = x - x1;
-        const dy = y - y1;
-        const base = b1 * MAX_SIDES;
-        for (let j = 0; j < sides[b1]; j++) {
-          const d = ap[base + j] - (dx * nx[base + j] + dy * ny[base + j]);
-          if (j === 0 || d < e) e = d;
-        }
-        if (b2 >= 0) {
-          const bis = (p2 - p1) / (2 * Math.hypot(x2 - x1, y2 - y1));
-          if (bis < e) e = bis;
-        }
-      }
-      const inn = e - joint;
-      inside[idx] = inn;
-      let h: number;
-      let r: number;
-      let cr: number;
-      let cg: number;
-      let cb: number;
-      if (b1 >= 0 && inn > 0) {
-        const s = b1;
-        const surf = tile[((ty + off[s * 2 + 1]) & (T - 1)) * T + ((tx + off[s * 2]) & (T - 1))];
-        // A finer roughness over it: the same tile read at three times the frequency, elsewhere.
-        const fine = tile[((ty * 3 + off[s * 2]) & (T - 1)) * T + ((tx * 3 + off[s * 2 + 1]) & (T - 1))] - 0.5;
-        const t = Math.min(1, inn / bevel);
-        const lip = 1 - (1 - t) * (1 - t);
-        h = 1.8 * lip + (surf - 0.5) * 3.5 + fine * 5 + grain * 0.9 + (x - x1) * tilt[s * 2] + (y - y1) * tilt[s * 2 + 1];
-        // Colour: the stone's tone, clouded by its surface, the floor's mottle and the grain, shaded toward its edge.
-        const lum = (0.8 + 0.8 * (surf - 0.5) + 0.7 * fine) * (0.82 + 0.36 * m) * (1 + grain * 0.14) * (0.62 + 0.38 * smooth(inn / shade));
-        cr = tone[s * 3] * lum;
-        cg = tone[s * 3 + 1] * lum;
-        cb = tone[s * 3 + 2] * lum;
-        // Moss creeping in from the joints where the floor is damp.
-        const damp = clamp01((mo - 0.56) * 5) * (1 - smooth(inn / creep)) * clamp01(0.4 + 1.4 * (t2 - 0.35));
-        if (damp > 0) {
-          const k = Math.min(0.8, damp);
-          const f = 0.75 + surf * 0.5;
-          cr += (30 * f - cr) * k;
-          cg += (46 * f - cg) * k;
-          cb += (30 * f - cb) * k;
-        }
-        r = rough[s] + (surf - 0.5) * 0.25 + damp * 0.2 - lip * 0.04;
+  const roughAt = new Float32Array(W * H);
+  const { w: AW, h: AH } = AREA;
+  for (let j = 0; j < H; j++) {
+    const y = (j + 0.5) / P;
+    const row = stones.filter((s) => s.y0 <= y && y < s.y1).sort((a, b) => a.x0 - b.x0);
+    let k = 0;
+    for (let i = 0; i < W; i++) {
+      const x = (i + 0.5) / P;
+      while (k < row.length - 1 && x >= row[k].x1) k++;
+      const s = row[k];
+      // How far in from the stone's edge, with its edges chipped and wandering a little.
+      const chip = (valueNoise(x * 2.5, y * 2.5, seed + 1, AW * 2.5, AH * 2.5) - 0.5) * 0.3 + (valueNoise(x * 0.6, y * 0.6, seed + 2, AW * 0.6, AH * 0.6) - 0.5) * 0.25;
+      const e = Math.min(x - s.x0, s.x1 - x, y - s.y0, s.y1 - y) - s.joint + chip;
+      const face = fbm(x, y, 3, seed + 3, AW, AH);
+      const fine = valueNoise(x * 6, y * 6, seed + 4, AW * 6, AH * 6);
+      const o = (j * W + i) * 4;
+      if (e <= 0) {
+        // The joint: sandy dirt, lower than the stones, a little lumpy.
+        const dirt = fbm(x, y, 1, seed + 5, AW, AH);
+        height[j * W + i] = -0.1 + dirt * 0.12 + e * 0.05;
+        const v = 0.7 + dirt * 0.5;
+        albedo[o] = 92 * v;
+        albedo[o + 1] = 70 * v;
+        albedo[o + 2] = 46 * v;
+        roughAt[j * W + i] = 1;
       } else {
-        // The ground between: dark earth, mossy where it is damp, deeper the farther from a stone.
-        const deep = smooth(-inn / (0.6 * P));
-        h = -0.6 - 1.2 * deep + (t2 - 0.5) * 1.2 + grain * 0.4;
-        const g = (0.7 + 0.6 * t2) * (1 + grain * 0.25) * (0.85 + 0.3 * m);
-        const k = clamp01((mo - 0.45) * 3);
-        cr = (6 + 7 * k) * g;
-        cg = (8 + 20 * k) * g;
-        cb = (11 + 3 * k) * g;
-        r = 0.97;
+        // The stone: a rounded bevel into the joint, a tilt, a rough face.
+        const bevel = Math.min(1, e / 0.45);
+        const lift = Math.sqrt(bevel);
+        const cx = (s.x0 + s.x1) / 2;
+        const cy = (s.y0 + s.y1) / 2;
+        height[j * W + i] = lift * (0.5 + (x - cx) * s.tx + (y - cy) * s.ty + (face - 0.5) * 0.35 + (fine - 0.5) * 0.06);
+        // Stains and wear across its face; its worn edges a shade lighter.
+        const stain = fbm(x, y, 7, seed + 6, AW, AH);
+        const v = (0.82 + face * 0.25 + (fine - 0.5) * 0.08) * (0.85 + stain * 0.3) * (1 + (1 - bevel) * 0.12);
+        albedo[o] = s.r * v;
+        albedo[o + 1] = s.g * v;
+        albedo[o + 2] = s.b * v;
+        // Damp patches are smoother: the light glints off them.
+        roughAt[j * W + i] = s.rough - Math.max(0, stain - 0.55) * 0.8;
       }
-      height[idx] = h;
-      const o = idx * 4;
-      albedo[o] = cr;
-      albedo[o + 1] = cg;
-      albedo[o + 2] = cb;
       albedo[o + 3] = 255;
-      roughSum[(y >> 1) * rw + (x >> 1)] += r * 0.25;
     }
   }
 
-  const gw = W >> 2;
-  const gh = H >> 2;
-  const glowSum = new Float32Array(gw * gh);
-  growGrass(W, H, P, rand, inside, moss, lw, lh, albedo, height);
-  sprinkleShrooms(W, H, P, rand, inside, albedo, height, glowSum, gw, gh);
-
-  // The normal map, from the height field's slopes, wrapping.
+  // The normal from the height's slope, wrapping at the edges as the picture does.
   const normal = new Uint8ClampedArray(W * H * 4);
-  // Slopes are per pixel: per rem, the same at any width.
-  const strength = 0.38 * (P / 21.3);
-  for (let y = 0; y < H; y++) {
-    const below = ((y - 1 + H) % H) * W;
-    const above = ((y + 1) % H) * W;
-    const row = y * W;
-    for (let x = 0; x < W; x++) {
-      const dx = (height[row + ((x + 1) % W)] - height[row + ((x - 1 + W) % W)]) * 0.5 * strength;
-      const dy = (height[above + x] - height[below + x]) * 0.5 * strength;
-      const len = Math.sqrt(dx * dx + dy * dy + 1);
-      const o = (row + x) * 4;
-      normal[o] = (-dx / len) * 127.5 + 127.5;
-      normal[o + 1] = (-dy / len) * 127.5 + 127.5;
-      normal[o + 2] = (1 / len) * 127.5 + 127.5;
+  // Per pixel the slope shrinks as the pixels do, so the strength grows with them: the same at any width.
+  const depth = 1.6 * (P / 21.3);
+  for (let j = 0; j < H; j++)
+    for (let i = 0; i < W; i++) {
+      const hx = (height[j * W + ((i + 1) % W)] - height[j * W + ((i - 1 + W) % W)]) * depth;
+      const hy = (height[((j + 1) % H) * W + i] - height[((j - 1 + H) % H) * W + i]) * depth;
+      const l = Math.hypot(hx, hy, 1);
+      const o = (j * W + i) * 4;
+      normal[o] = (0.5 - hx / l / 2) * 255;
+      normal[o + 1] = (0.5 - hy / l / 2) * 255;
+      normal[o + 2] = (0.5 + 0.5 / l) * 255;
       normal[o + 3] = 255;
     }
-  }
-  const roughOut = new Uint8ClampedArray(rw * rh * 4);
-  for (let i = 0; i < rw * rh; i++) {
-    const v = roughSum[i] * 255;
-    roughOut[i * 4] = roughOut[i * 4 + 1] = roughOut[i * 4 + 2] = v;
-    roughOut[i * 4 + 3] = 255;
-  }
-  const glow = new Uint8ClampedArray(gw * gh * 4);
-  for (let i = 0; i < gw * gh; i++) {
-    const v = Math.min(1, glowSum[i]);
-    // sRGB-ish: the cold blue of the CSS table's mushrooms (#7fc3ff), fading out.
-    glow[i * 4] = 127 * Math.sqrt(v) * v;
-    glow[i * 4 + 1] = 195 * Math.sqrt(v);
-    glow[i * 4 + 2] = 255 * Math.sqrt(v);
-    glow[i * 4 + 3] = 255;
-  }
-  return { width: W, height: H, albedo, normal, rough: roughOut, glow };
-}
 
-/** Lays colour `c` over pixel (`x`, `y`) of `albedo` at `a`, wrapping. */
-function blend(albedo: Uint8ClampedArray, W: number, H: number, x: number, y: number, c: readonly number[], a: number) {
-  const o = ((((y % H) + H) % H) * W + (((x % W) + W) % W)) * 4;
-  albedo[o] += (c[0] - albedo[o]) * a;
-  albedo[o + 1] += (c[1] - albedo[o + 1]) * a;
-  albedo[o + 2] += (c[2] - albedo[o + 2]) * a;
-}
-
-/** Tufts of grass in the joints, thicker where it is damp: short bent blades, raised a little in the height field. */
-function growGrass(W: number, H: number, P: number, rand: () => number, inside: Float32Array, moss: Float32Array, lw: number, lh: number, albedo: Uint8ClampedArray, height: Float32Array) {
-  const greens = [
-    [52, 86, 40],
-    [64, 100, 46],
-    [74, 112, 54],
-    [44, 72, 34],
-    [84, 120, 62],
-  ];
-  const tufts = Math.round((W * H) / (P * P * 5));
-  for (let t = 0; t < tufts; t++) {
-    const x = Math.floor(rand() * W);
-    const y = Math.floor(rand() * H);
-    if (inside[y * W + x] > 0.04 * P) continue;
-    const mo = moss[Math.floor((y * lh) / H) * lw + Math.floor((x * lw) / W)];
-    if (mo < 0.5 && rand() > 0.15) continue;
-    const count = 2 + Math.floor(rand() * (mo > 0.58 ? 6 : 3));
-    for (let b = 0; b < count; b++) {
-      const a = rand() * Math.PI * 2;
-      const len = (0.22 + rand() * 0.5) * P;
-      const bend = (rand() - 0.5) * 1.1;
-      const rx = x + (rand() - 0.5) * 0.25 * P;
-      const ry = y + (rand() - 0.5) * 0.25 * P;
-      const c = greens[Math.floor(rand() * greens.length)];
-      const half = (0.025 + rand() * 0.03) * P;
-      // A quadratic curve from the root, tapering, stamped as discs.
-      const steps = Math.ceil(len);
-      for (let i = 0; i <= steps; i++) {
-        const u = i / steps;
-        const ang = a + bend * u;
-        const px = rx + Math.cos(a) * len * u * (1 - u * 0.3) + Math.cos(ang) * len * 0.3 * u * u;
-        const py = ry + Math.sin(a) * len * u * (1 - u * 0.3) + Math.sin(ang) * len * 0.3 * u * u;
-        const rad = half * (1 - u * 0.7) + 0.35;
-        const shade = 0.7 + 0.5 * u;
-        const col = [c[0] * shade, c[1] * shade, c[2] * shade];
-        for (let oy = Math.floor(py - rad); oy <= Math.ceil(py + rad); oy++)
-          for (let ox = Math.floor(px - rad); ox <= Math.ceil(px + rad); ox++) {
-            const d = Math.hypot(ox + 0.5 - px, oy + 0.5 - py);
-            const cover = clamp01(rad - d + 0.5) * 0.75;
-            if (cover <= 0) continue;
-            blend(albedo, W, H, ox, oy, col, cover);
-            const hi = ((((oy % H) + H) % H) * W) + (((ox % W) + W) % W);
-            height[hi] = Math.max(height[hi], 0.5 + 1.2 * u);
-          }
-      }
+  // Roughness at half the size, each pixel the mean of the four under it.
+  const rw = W >> 1;
+  const rh = H >> 1;
+  const rough = new Uint8ClampedArray(rw * rh * 4);
+  for (let j = 0; j < rh; j++)
+    for (let i = 0; i < rw; i++) {
+      const a = (2 * j * W + 2 * i) | 0;
+      const v = ((roughAt[a] + roughAt[a + 1] + roughAt[a + W] + roughAt[a + W + 1]) / 4) * 255;
+      const o = (j * rw + i) * 4;
+      rough[o] = rough[o + 1] = rough[o + 2] = v;
+      rough[o + 3] = 255;
     }
-  }
-}
 
-/** Small blue mushrooms in a few of the deeper joints, by ones and threes, each with a glow around it. */
-function sprinkleShrooms(W: number, H: number, P: number, rand: () => number, inside: Float32Array, albedo: Uint8ClampedArray, height: Float32Array, glow: Float32Array, gw: number, gh: number) {
-  const clumps = Math.round((W * H) / (P * P * 420));
-  let placed = 0;
-  for (let t = 0; t < clumps * 40 && placed < clumps; t++) {
-    const x = Math.floor(rand() * W);
-    const y = Math.floor(rand() * H);
-    if (inside[y * W + x] > -0.06 * P) continue;
-    placed++;
-    const many = 1 + Math.floor(rand() * 3);
-    for (let i = 0; i < many; i++) {
-      const cx = x + (rand() - 0.5) * 0.45 * P;
-      const cy = y + (rand() - 0.5) * 0.45 * P;
-      const r = (0.09 + rand() * 0.09) * P;
-      for (let oy = Math.floor(cy - r - 1); oy <= Math.ceil(cy + r + 1); oy++)
-        for (let ox = Math.floor(cx - r - 1); ox <= Math.ceil(cx + r + 1); ox++) {
-          const dx = (ox + 0.5 - cx) / r;
-          const dy = (oy + 0.5 - cy) / r;
-          const d = Math.hypot(dx, dy);
-          const cover = clamp01((1 - d) * r + 0.5);
-          if (cover <= 0) continue;
-          // The cap, lit from up and to the left, paler at its crown.
-          const lit = clamp01(0.75 - 0.35 * dx + 0.35 * dy - 0.3 * d);
-          blend(albedo, W, H, ox, oy, [70 + 110 * lit, 130 + 95 * lit, 200 + 55 * lit], cover);
-          const hi = ((((oy % H) + H) % H) * W) + (((ox % W) + W) % W);
-          height[hi] = Math.max(height[hi], 1.5 * Math.sqrt(Math.max(0, 1 - d * d)));
-        }
-      // The glow, on the quarter-size map.
-      const gx = cx / 4;
-      const gy = cy / 4;
-      const gr = (0.6 * P) / 4;
-      for (let oy = Math.floor(gy - gr); oy <= Math.ceil(gy + gr); oy++)
-        for (let ox = Math.floor(gx - gr); ox <= Math.ceil(gx + gr); ox++) {
-          const d = Math.hypot(ox + 0.5 - gx, oy + 0.5 - gy) / gr;
-          if (d >= 1) continue;
-          glow[(((oy % gh) + gh) % gh) * gw + (((ox % gw) + gw) % gw)] += 0.4 * (1 - d) ** 2.4;
-        }
-    }
-  }
+  const glow = new Uint8ClampedArray((W >> 2) * (H >> 2) * 4);
+  for (let i = 3; i < glow.length; i += 4) glow[i] = 255;
+  return { width: W, height: H, albedo, normal, rough, glow };
 }

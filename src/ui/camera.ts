@@ -14,10 +14,33 @@ import { useRem } from './rem';
   rows and the flights that land on them live on the table.
 */
 
-/** How far the table leans away from you, in degrees. 0 is flat. */
-export const TILT = 10;
-/** The perspective distance in rem. Bigger is weaker (flatter); Arena's is very weak. */
-export const DEPTH = 600;
+/** Whether this browser can draw the 3D table: Three's renderer runs on WebGPU, else on WebGL 2, which every browser with WebGPU also has. */
+function canDraw3D() {
+  try {
+    const gl = document.createElement('canvas').getContext('webgl2');
+    // Only asked to find out: give the context back rather than hold one of the browser's few.
+    gl?.getExtension('WEBGL_lose_context')?.loseContext();
+    return !!gl;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * The table is drawn in 3D (src/ui/three/Table3D.tsx, see docs/plans/flutter-conversion.md),
+ * with its own camera below. `?table=css` draws the CSS table instead, and so does a browser
+ * that can't draw 3D. Outside a browser (the tests) it is the CSS table's.
+ */
+export const TABLE_3D = typeof location !== 'undefined' && new URLSearchParams(location.search).get('table') !== 'css' && canDraw3D();
+
+/**
+ * How far the table leans away from you, in degrees. 0 is flat. The CSS table leans a
+ * little, so its tiles' text stays sharp; the 3D one leans as Arena's board does, its far
+ * seats foreshortened, with the piles lying on it too.
+ */
+export const TILT = TABLE_3D ? 26 : 10;
+/** The perspective distance in rem. Bigger is weaker (flatter). The 3D table's is Arena's: the far edge about 0.6 of the near one. */
+export const DEPTH = TABLE_3D ? 170 : 600;
 
 const RAD = (TILT * Math.PI) / 180;
 const SIN = Math.sin(RAD);

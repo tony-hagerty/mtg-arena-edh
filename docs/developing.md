@@ -81,12 +81,26 @@ src/ui/         App.tsx               menu or game screen; GameScreen.tsx lays t
                                       hand's curve and scroll pills (pure maths, tested)
                 util.ts               small helpers: class names, deck colours, hover props
                 styles.css            all styling
-                three/                the table drawn in 3D (`?table=3d`, a spike: see
+                three/                the table drawn in 3D, the usual one (`?table=css`
+                                      draws the CSS one; see
                                       docs/plans/flutter-conversion.md). Table3D.tsx is the
                                       scene (Three.js through React Three Fiber) and the
-                                      cards' proxies; layout3d.ts where each card lies on the
-                                      table and the camera that matches camera.ts (pure
-                                      maths, tested); textures.ts card faces, back and floor
+                                      cards' proxies; layout3d.ts where each card lies in its
+                                      rows and the camera that matches camera.ts (pure
+                                      maths, tested); geometry.ts a card's rounded shape;
+                                      garden.ts the board's plan: four mats, each a seat's
+                                      battlefield (seatArea: its rows' box and its piles),
+                                      where each opponent holds their hand, and the well
+                                      that is the shared exile, with the mats' maps (pure
+                                      maths, tested); layout3d.ts also fans a held hand
+                                      (heldFan); Garden.tsx draws the mats and the well's
+                                      water and whirlpool; Hall.tsx the stone walls and
+                                      the torches; effects.tsx the bursts a click on the
+                                      board makes; floor.ts the flagstones; noise.ts the
+                                      noise they share; textures.ts card faces (a
+                                      permanent's art-and-name tile, tileTexture), back
+                                      and floor
+                card-back.svg         the back of every card, CSS and 3D alike
                 cursor.png            the mouse cursor, and cursor-down.png while a
                                       button is held (see Credits)
 tests/                                Vitest: card coverage, rules, the UI casting flow,
@@ -173,7 +187,9 @@ fixed spot on a 192 × 108 grid.
 
 **The table leans away from you**, like Arena's: `.table` (GameScreen.tsx) is turned by
 `TILT` (10°) about its bottom edge under a perspective of `DEPTH`, both in
-`src/ui/camera.ts`, which sets them on the stage as `--tilt` and `--depth`. The table is
+`src/ui/camera.ts`, which sets them on the stage as `--tilt` and `--depth`. The 3D table
+(`TABLE_3D`: the usual table, unless `?table=css` or the browser has no WebGL 2) has its own, steeper pair (26° and 170rem, the far edge about 0.6
+of the near one), and everything that projects through `camera()` follows it. The table is
 taller than the screen by just enough that, leaned over, its far edge lands on the top of
 the screen (`tableHeight`, set as `--table-h`).
 
@@ -181,7 +197,10 @@ the screen (`tableHeight`, set as `--table-h`).
 'left' | 'right' | 'full' }`, and `seatClass` gives `seat-bottom-left seat-bottom
 seat-left` and the like). Two players sit bottom left and top right, three leave you the
 whole bottom edge (`full`) and take the top corners, four go bottom left, top left, top
-right, bottom right. Each seat is drawn in two parts:
+right, bottom right. On the 3D table each seat's rows and piles lie on its mat instead
+(`seatArea` in three/garden.ts: the mat short of its piles and the well, no lean), with
+exile shared in the well, and an opponent holds their hand on it (`HeldHand`). On the CSS
+table each seat is drawn in two parts:
 
 - **Its rows lie on the table** (`Seat` in Board.tsx, inside `.table`): lands nearest the
   seat's edge, then the other permanents, then creatures nearest the middle. `seatBox` in
@@ -201,7 +220,8 @@ right, bottom right. Each seat is drawn in two parts:
   `BOX_ABOVE_EDGE`); an opponent's hand fanned from a pivot off the screen past their
   corner (`fanAngle`).
 
-Your hand follows a curve out of the bottom-left corner (`handSlot`): up to seven cards,
+Your hand follows a curve out of the bottom-left corner (`handSlot`), the first card placed
+along it so its left edge touches the screen's (`S0`): up to seven cards,
 each turned to the curve under it; a bigger hand scrolls (`handStart` in the store, the
 pills from `handPills`). A hand card is drawn in a slot that takes no pointer events,
 so its zoom can cover its neighbours; a clear copy of its resting shape (`.hand-hit`)
@@ -225,7 +245,8 @@ the screen.
 for what can be played, `--target` yellow for what can be chosen, `--attack`, `--block`),
 lines, shadows and radii. Use them rather than new literal colours; the comment above them
 says what each is for. The card frame colours (`--f-W` to `--f-land`) double as each
-deck's seat colour.
+deck's seat colour. All the app's text is one sans-serif typeface, `--sans`: use it rather
+than naming a font (the 3D table's tile names read it too, `tileTexture`).
 
 - **Seats** have no mat of their own: the table is one floor, and each seat's rows mark
   its corner. Whose turn it is shows on their avatar (the rays and the gold life plate).
@@ -235,7 +256,11 @@ deck's seat colour.
   CSS overlap in step with it.
 - **Rows** never wrap: a seat's three rows share its box (`seatScale`), and a row too long
   for it overlaps its cards (`rowGap`).
-- **The card back** is one SVG in `--card-back`, used wherever a card is face down.
+- **The card back** is one SVG, `src/ui/card-back.svg` (the icon as a gold silhouette),
+  in `--card-back` wherever a card is face down, and drawn onto the 3D cards' undersides
+  and libraries (`backTexture`).
+- **A tapped card** carries the tap symbol (`.tap-symbol`, the mana font's {T}): on a tile
+  inside `.tile-tapmark`, on the 3D table on the card's proxy.
 
 ## Tests
 

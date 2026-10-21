@@ -4,8 +4,9 @@ Question: should Arena EDH become a Flutter app? The motive is visual polish: a 
 scene, with the camera moving, cards as solid objects, and an environment around the table
 (trees, rocks, architecture), which the current CSS-transform table can't do well.
 
-**Status: researched, and the spike at the end is built: `?table=3d` draws the table in 3D
-(src/ui/three/). What it showed is under "The spike, built".**
+**Status: researched, and the spike at the end is built and is now the usual table, drawn
+in 3D (src/ui/three/; `?table=css` draws the CSS one). What it showed is under "The spike,
+built".**
 
 Dates and versions below are as of October 2026. Flutter and the 3D libraries move fast,
 so re-check before acting on a version number.
@@ -332,19 +333,80 @@ board and bots at 4×, and read the frame times off the harness in
 (drawing only when something moves) and merging the cards into one instanced mesh are the
 two standard fixes, neither of which changes the approach.
 
+Since then:
+
+- **An Arena camera.** The 3D table has its own lean and perspective (`TILT` 26°, `DEPTH`
+  170 rem in camera.ts under `TABLE_3D`; the CSS table keeps 10° and 600). The far edge is
+  about 0.6 of the near one. `seatBox` and everything else that projects through `camera()`
+  follows, so the rows still land under the portraits.
+- **The piles lie on the table.** Each seat's library and graveyard are 3D blocks as thick
+  as the pile (`Pile3D`; a 99-card library stands 3.5 rem), on the seat's mat along its own
+  edge (`seatArea`), all one size on the table so the far ones look smaller. The CSS pile
+  itself (`Library`, `FaceUpPile` from Board.tsx) is laid over each one like a card's proxy
+  (`ZoneProxy`). Its cards are hidden, and it keeps the icon, the count, the empty outline,
+  the right-click that opens the zone, the hover, and the elements flights fly to and from.
+- **Exile is the well.** Exile is shared (400.1), so the 3D table has one: a well with a
+  low cobblestone wall where the paths cross, its green-blue water turning in a slow
+  whirlpool (layered: the depths with drifting caustics, a glossy surface rippled two ways
+  that reflects a drawn hall with its torches, foam streaks and a foam rim),
+  with the top card of each player's exile circling in it. Its proxy (`ExileProxy`) carries
+  the count, the glow when something there can be cast, and one `[data-pile]` spot per
+  player for the flights. A right-click on the water opens every player's exiled cards,
+  under each owner's name (`ZoneViewer` with `pid` null).
+- **Rounded corners.** A card is `cardGeometry` (geometry.ts): a rounded slab whose face
+  image is laid over the whole rectangle, so the corners cut it as a card's are cut. It is
+  0.3 rem thick, its edge the frame colour darkened, its art's thin frame band rounded at the
+  corners as the card is, and tipped up 4° about its bottom edge
+  (`LIFT_RAD`); the rows are `ROW_GAP_3D` (3.4 rem) apart.
+- **Held hands.** Each opponent holds their hand at the back of their mat, beside their
+  piles (`seatArea`'s `hand`): face-down cards fanned about a grip under them (`heldFan`),
+  leant back so their backs face you (a far seat's as far as the table leans away, so the
+  fan is square to the screen: leant less, the far corners see it from the side and it
+  skews; a near seat's 40°), swaying slightly; a drawn card rises into the
+  fan from their library. Its proxy (`HandProxy`) is laid on the middle card: the count,
+  and the `[data-hand-of]` element flights go to. The counts on piles and hands are grown
+  back by the proxy's shrink (`--unscale`), so they read one size near and far, and a
+  flight to a proxy lands at its size on the screen, not its size on the table.
+- **The tap mark.** A tapped card's proxy carries the tap symbol, as the CSS tile does,
+  only on a pile's top card.
+- **Art and name.** A permanent is drawn as the CSS tile is: its art crop at 5:4 in a band
+  of its frame colour, with its name in a bar along the top (`tileTexture`, a canvas per
+  card), which saves a third of a card's depth a row; the whole card is the hover's. Its
+  face lights itself partly (`FACE_GLOW`), so it reads in the hall's dim corners, and a
+  seat's cards grow up to `K_MAX_3D` (1.9) to fill their mat, which is the battlefield's
+  box less only the piles, the well's clearing and what stands on the screen over it.
+- **The board.** A torch-lit stone hall for four (garden.ts, Garden.tsx, Hall.tsx). Each
+  corner has a mat lying flat on the flagstones, all four one size on the table (the near
+  two starting just above the bottom of the screen); a seat alone on its side of the table
+  (two players, or you with three) has one mat the whole width of that side instead
+  (`gardenPlan` takes the seats). Each is its seat's battlefield:
+  the rows' box is the mat short of its piles, the well and what stands on the screen over
+  it (`seatArea`), with no lean. The mats are dark materials with their borders worked in
+  (leather, oak planks, slate, woven cloth); their albedo and normal maps are worked out per
+  pixel. The floor is rectangular flagstones in rows with dirt in the joints (floor.ts).
+  Dressed-stone walls with arched recesses run down both sides and across the far end, and
+  torches in sconces either side of the play area flicker, with their lights. A dim, cool
+  light from above casts the shadows; nothing on the walls casts one (the walls don't, so
+  an arch's frame would throw its shape onto the floor through them).
+- **Clicks on the board.** A click on a mat, the well or a path makes a burst there
+  (effects.tsx: a splash, dust off the leather, wood chips, sparks off the slate, lint off
+  the cloth, dust off the flagstones) with a soft sound (synth.ts). Only the bursts' own
+  component draws again for it. The bursts' materials are pooled and built as the board
+  first draws (`Warmup`): a new material's shader is the expensive part, and in headless
+  Chromium's software renderer the first one stalled the scene for seconds.
+
 What the spike leaves out, each a known piece of work rather than an open question:
 
-- The cards' corners are square (a box); rounded corners need an alpha-masked plane or a
-  rounded-box geometry.
-- The CSS tiles' name bar, ability dot, tap mark and the text-only fallback (`TextCard`)
-  aren't drawn in 3D: a card without an image shows its frame colour under its badges.
+- The CSS tiles' name bar, ability dot and the text-only fallback (`TextCard`) aren't
+  drawn in 3D: a card without an image shows its frame colour under its badges.
 - Phased-out, defeated and "mana source" styling is minimal (opacity only).
 - The push-in is the only camera move. Any other (a seat's turn, a spell resolving) is a
   few lines in `Rig`.
 - Environment props are procedural placeholders. A glTF model loads with
   `GLTFLoader` (or drei's `useGLTF`) in place of a `Tree`; the lighting and shadows already
   apply to it.
-- The table can't be switched on from the menu; it is a URL toggle.
+- The 3D table is the default since the spike; the CSS table is a URL toggle
+  (`?table=css`), not a menu choice.
 
 ## Sources
 

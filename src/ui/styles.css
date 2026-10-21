@@ -84,7 +84,8 @@ html {
   /* Older names, still used by the menu screens. */
   --cyan: var(--play);
   --orange: var(--attack);
-  --serif: 'Palatino Linotype', 'Book Antiqua', Palatino, Georgia, serif;
+  /* The one typeface for all the app's text: a clean sans-serif. */
+  --sans: 'Segoe UI', system-ui, -apple-system, 'Helvetica Neue', Arial, sans-serif;
   /* Arena-style arrow (cursor.png, see README credits). Its tip is the top-left pixel. */
   --cursor: url('./cursor.png') 0 0, auto;
 }
@@ -111,7 +112,7 @@ body {
   overflow: clip;
   background: #05060a;
   color: var(--text);
-  font-family: 'Segoe UI', system-ui, sans-serif;
+  font-family: var(--sans);
   user-select: none;
 }
 
@@ -224,6 +225,108 @@ button {
   cursor: pointer;
 }
 
+/* On the 3D table a pile's "x3" sits on its bottom-left corner, clear of the names along the tops and of the P/T at the bottom right. */
+.card-proxy > .tile-badge {
+  top: auto;
+  bottom: -0.6em;
+  left: -0.6em;
+}
+
+/*
+  The counts on a pile and on an opponent's held hand, and a pile's zone mark, read the same
+  size wherever the pile lies: the proxy is shrunk with the distance (useProxy), so they are
+  grown back by as much (--unscale), about their own corner.
+*/
+.zone-proxy .pile > .count,
+.hand-proxy .count {
+  scale: var(--unscale, 1);
+  transform-origin: 100% 100%;
+}
+
+.zone-proxy .pile:not(.empty) > .ms {
+  scale: var(--unscale, 1);
+  transform-origin: 0 0;
+}
+
+/*
+  A library, graveyard or exile on the 3D table: the CSS pile (.pile) laid onto the 3D pile's
+  top (ZoneProxy). The 3D pile draws the cards, so the DOM one hides its own and keeps its
+  icon, its count, its glow, its outline while empty, and the clicks and hovers.
+*/
+.zone-proxy > .pile {
+  pointer-events: auto;
+  cursor: pointer;
+}
+
+.zone-proxy .pile :is(img, .text-card, .card-back) {
+  opacity: 0;
+  box-shadow: none;
+}
+
+.zone-proxy .pile:not(.empty)::after {
+  display: none;
+}
+
+/*
+  An opponent's hand on the 3D table (HandProxy): laid on the middle card of the fan they hold,
+  with the hand's count at its foot. It is where cards fly to and from their hand.
+*/
+.hand-proxy .count {
+  right: auto;
+  left: 50%;
+  bottom: -1.2rem;
+  translate: -50% 0;
+  pointer-events: auto;
+}
+
+.hand-proxy .count {
+  transform-origin: 50% 100%;
+}
+
+/*
+  The exile on the 3D table: the pond (ExileProxy). A round the pond's size, laid on its water,
+  taking no pointer events (the pond takes the clicks). It glows when something in exile can
+  be cast, holds an invisible card-sized spot per player in its middle for the flights, and
+  carries the count at its near edge.
+*/
+.exile-proxy,
+.exile-proxy * {
+  pointer-events: none;
+}
+
+.exile-pool {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+}
+
+.exile-spot {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 30%;
+  aspect-ratio: 5 / 7;
+  translate: -50% -50%;
+}
+
+.exile-badge {
+  position: absolute;
+  left: 50%;
+  bottom: -1rem;
+  translate: -50% 0;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0 1rem;
+  font: 700 2.4rem / 3.6rem var(--sans);
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+  background: linear-gradient(180deg, #2a303b, #0d0f14);
+  border: 0.12rem solid rgba(180, 210, 255, 0.5);
+  border-radius: var(--r-pill);
+  box-shadow: var(--shadow-sm);
+}
+
 /* ---------- table ---------- */
 
 /*
@@ -317,7 +420,7 @@ button {
   inset: 0;
   display: grid;
   place-items: center;
-  font: 700 4.5rem var(--serif);
+  font: 700 4.5rem var(--sans);
   letter-spacing: 0.4rem;
   color: rgba(255, 255, 255, 0.7);
   text-shadow: 0 0.2rem 1rem #000;
@@ -449,7 +552,7 @@ button {
   bottom: -0.7rem;
   min-width: 2.4rem;
   padding: 0 0.5rem;
-  font: 700 1.35rem/2.1rem 'Segoe UI', sans-serif;
+  font: 700 1.35rem/2.1rem var(--sans);
   font-variant-numeric: tabular-nums;
   text-align: center;
   color: var(--text);
@@ -485,10 +588,11 @@ button {
 
 /*
   The back of every card: libraries, opponents' hands, cards flying face down. A dark field,
-  a gold double rule and a compass mark, drawn as one SVG so it is crisp at any size.
+  a gold double rule and the icon as a gold silhouette (card-back.svg, which the 3D table
+  draws too), crisp at any size.
 */
 .card-back {
-  --card-back: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 63 88' preserveAspectRatio='none'%3E %3Cdefs%3E %3CradialGradient id='f' cx='50%25' cy='45%25' r='70%25'%3E%3Cstop offset='0' stop-color='%23232c3d'/%3E%3Cstop offset='.6' stop-color='%23121722'/%3E%3Cstop offset='1' stop-color='%23080a0f'/%3E%3C/radialGradient%3E %3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0' stop-color='%23f6dd94'/%3E%3Cstop offset='.5' stop-color='%23d2aa42'/%3E%3Cstop offset='1' stop-color='%238a6a2c'/%3E%3C/linearGradient%3E %3C/defs%3E %3Crect width='63' height='88' fill='url%28%23f%29'/%3E %3Cg fill='none' stroke='%23d2aa42'%3E %3Ccircle cx='31.5' cy='44' r='21' stroke-opacity='.08' stroke-width='.5'/%3E %3Ccircle cx='31.5' cy='44' r='27' stroke-opacity='.06' stroke-width='.5'/%3E %3Ccircle cx='31.5' cy='44' r='33' stroke-opacity='.045' stroke-width='.5'/%3E %3C/g%3E %3Crect x='4.2' y='4.2' width='54.6' height='79.6' rx='2.2' fill='none' stroke='url%28%23g%29' stroke-width='.75'/%3E %3Crect x='6' y='6' width='51' height='76' rx='1.4' fill='none' stroke='%23d2aa42' stroke-opacity='.45' stroke-width='.3'/%3E %3Cpath d='M31.5 1.9 33.8 4.2 31.5 6.5 29.2 4.2Z M31.5 81.5 33.8 83.8 31.5 86.1 29.2 83.8Z' fill='url%28%23g%29'/%3E %3Ccircle cx='31.5' cy='44' r='11.5' fill='%230b0e14' fill-opacity='.55' stroke='url%28%23g%29' stroke-width='.7'/%3E %3Ccircle cx='31.5' cy='44' r='9.4' fill='none' stroke='%23d2aa42' stroke-opacity='.5' stroke-width='.25'/%3E %3Cpath d='M31.5 31.5 33.4 42.1 44 44 33.4 45.9 31.5 56.5 29.6 45.9 19 44 29.6 42.1Z' fill='url%28%23g%29'/%3E %3Cpath d='M31.5 37.6 32.5 43 37.9 44 32.5 45 31.5 50.4 30.5 45 25.1 44 30.5 43Z' fill='%230b0e14' fill-opacity='.35'/%3E %3C/svg%3E");
+  --card-back: url('./card-back.svg');
   aspect-ratio: 5 / 7;
   border-radius: 4.75% / 3.5%;
   background: var(--card-back) center / 100% 100% no-repeat, #0b0e14;
@@ -704,7 +808,7 @@ button {
   min-width: calc(var(--av) * 0.52);
   margin-top: calc(var(--av) * -0.2);
   padding: 0 0.8rem;
-  font: 700 calc(var(--av) * 0.3) / 1.25 var(--serif);
+  font: 700 calc(var(--av) * 0.3) / 1.25 var(--sans);
   font-variant-numeric: lining-nums;
   text-align: center;
   text-shadow: 0 0.1rem 0.25rem #000;
@@ -728,7 +832,7 @@ button {
 .avatar-name {
   z-index: 2;
   margin-top: 0.3rem;
-  font: 600 1.45rem var(--serif);
+  font: 600 1.45rem var(--sans);
   letter-spacing: 0.02em;
   white-space: nowrap;
   text-shadow: 0 0.1rem 0.4rem #000, 0 0 0.6rem #000;
@@ -828,14 +932,15 @@ button {
 .avatar-tax {
   right: calc(var(--av) * 0.146 - var(--badge) / 2);
   padding: 0 0.5rem;
-  font: 700 calc(var(--badge) * 0.48) / 1 'Segoe UI', sans-serif;
+  font: 700 calc(var(--badge) * 0.48) / 1 var(--sans);
   color: #fff;
 }
 
 .cmd-dmg {
   position: absolute;
-  left: calc(100% + 0.8rem);
-  top: 0.8rem;
+  /* On the portrait's rim, down its inner side, like the tax badge on its top. */
+  left: calc(100% - 1rem);
+  top: calc(var(--av) * 0.42);
   display: flex;
   flex-direction: column;
   gap: 0.3rem;
@@ -845,7 +950,7 @@ button {
 /* Beside the portrait, on the side away from the screen's edge. */
 .seat-right .cmd-dmg {
   left: auto;
-  right: calc(100% + 0.8rem);
+  right: calc(100% - 1rem);
 }
 
 .cmd-dmg span {
@@ -857,6 +962,7 @@ button {
   background-size: cover;
   background-position: center 20%;
   border: 0.15rem solid var(--gold);
+  box-shadow: var(--shadow-sm);
 }
 
 .cmd-dmg b {
@@ -871,7 +977,7 @@ button {
   width: 8rem;
   margin-left: -4rem;
   z-index: 5;
-  font: 700 3.6rem var(--serif);
+  font: 700 3.6rem var(--sans);
   text-align: center;
   pointer-events: none;
   text-shadow: 0 0 0.6rem #000, 0 0.2rem 0.3rem #000;
@@ -1011,7 +1117,7 @@ button {
   padding: calc(var(--name-size) * 1.6 + 0.2em) 0.5em 0.4em;
   overflow: hidden;
   color: #e8e2d0;
-  font-family: var(--serif);
+  font-family: var(--sans);
   background: linear-gradient(170deg, color-mix(in srgb, var(--frame) 30%, #11141a), #0b0d12);
 }
 
@@ -1043,7 +1149,7 @@ button {
   position: absolute;
   inset: var(--bezel) var(--bezel) auto;
   padding: 0 0.45em;
-  font: 600 var(--name-size) / 1.55 var(--serif);
+  font: 600 var(--name-size) / 1.55 var(--sans);
   color: var(--text-card);
   white-space: nowrap;
   overflow: hidden;
@@ -1074,7 +1180,7 @@ button {
   bottom: -0.3em;
   min-width: 2.3em;
   padding: 0 0.32em;
-  font: 700 max(1.7em, 1.5rem) / 1.25 var(--serif);
+  font: 700 max(1.7em, 1.5rem) / 1.25 var(--sans);
   text-align: center;
   color: #fff;
   text-shadow: 0 0.06em 0.1em #000;
@@ -1151,7 +1257,7 @@ button {
   display: flex;
   flex-direction: column;
   gap: 0.2em;
-  font: 700 max(1.2em, 1.1rem) / 1.6 'Segoe UI', sans-serif;
+  font: 700 max(1.2em, 1.1rem) / 1.6 var(--sans);
   /* Above .tile-tapmark, like the P/T box, so a tapped card's counters stay readable. */
   z-index: 1;
 }
@@ -1263,13 +1369,41 @@ button {
   background: rgba(6, 8, 14, 0.38);
 }
 
+/*
+  The tap symbol over a tapped card ({T}, the mana font's): large and see-through, in the
+  middle of the card, under its P/T and counters. On the CSS tiles (inside .tile-tapmark) and
+  on the 3D table's proxies alike; both are sized in their card's em (a tenth of its width).
+*/
+.tap-symbol {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  /* The glyph's ink sits 2.5% of its box low (measured in the mana font): up by as much, so it is centred on the card. */
+  translate: -50% -52.5%;
+  font-size: 5.2em;
+  line-height: 1;
+  color: rgba(255, 255, 255, 0.75);
+  text-shadow: 0 0 0.06em rgba(0, 0, 0, 0.55);
+  pointer-events: none;
+}
+
+/* In a pile, only the top card carries it. */
+.stack > :not(:last-child) .tap-symbol {
+  display: none;
+}
+
+/* A tile is landscape (5:4): the symbol takes most of its height instead. */
+.tile .tap-symbol {
+  font-size: 5em;
+}
+
 /* A pile's count: use the whole pile with it. */
 .tile-badge {
   position: absolute;
   left: -0.7em;
   top: -0.8em;
   padding: 0 0.45em;
-  font: 700 max(1.3em, 1.2rem) / 1.45 'Segoe UI', sans-serif;
+  font: 700 max(1.3em, 1.2rem) / 1.45 var(--sans);
   color: var(--text);
   background: linear-gradient(180deg, #2a303b, #0d0f14);
   border: 0.08em solid var(--edge-light);
@@ -1306,7 +1440,7 @@ button {
   padding: 3.5cqw;
   border: 2.4cqw solid color-mix(in srgb, var(--frame) 70%, #000);
   border-radius: inherit;
-  font-family: var(--serif);
+  font-family: var(--sans);
   text-align: left;
   color: var(--text-card);
   background: linear-gradient(170deg, color-mix(in srgb, var(--frame) 22%, #11141a), #0b0d12 60%);
@@ -1447,7 +1581,7 @@ button {
   align-items: center;
   gap: 0.7rem;
   padding: 0.45rem 0.55rem;
-  font: 700 1.8rem/1 'Segoe UI', sans-serif;
+  font: 700 1.8rem/1 var(--sans);
   white-space: nowrap;
   background: var(--panel);
   border: 0.1rem solid var(--edge);
@@ -1606,6 +1740,22 @@ button {
   gap: 0.2rem;
 }
 
+/*
+  Each symbol's glyph centred in its round: the mana font sets the round's line taller than
+  the round (1.35em in 1.3em), which sits the glyph low, so the round centres it itself; and
+  a little smaller than the font's, so it keeps clear of the rim at this size.
+*/
+.hand-cost .ms-cost {
+  display: inline-grid;
+  place-items: center;
+  line-height: 1;
+}
+
+.hand-cost .ms-cost::before {
+  font-size: 0.86em;
+  line-height: 1;
+}
+
 .hand-card :is(img, .text-card) {
   display: block;
   width: 100%;
@@ -1636,7 +1786,7 @@ button {
   justify-content: center;
   gap: 0.8rem;
   margin-top: 0.2rem;
-  font: 400 1.6rem 'Segoe UI', sans-serif;
+  font: 400 1.6rem var(--sans);
   text-shadow: none;
 }
 
@@ -1648,20 +1798,20 @@ button {
 
 .cast-label {
   min-width: 6rem;
-  font: 600 1.7rem var(--serif);
+  font: 600 1.7rem var(--sans);
   color: var(--gold-light);
 }
 
 .cast-x {
   min-width: 4rem;
-  font: 700 2.4rem var(--serif);
+  font: 700 2.4rem var(--sans);
   text-align: center;
 }
 
 :is(.cast-options, .prompt-actions, .damage-split, .paste-commanders) .chip {
   min-width: 4rem;
   padding: 0.4rem 1.2rem;
-  font: 600 1.6rem 'Segoe UI', sans-serif;
+  font: 600 1.6rem var(--sans);
   color: #fff;
   background: var(--raised);
   border: 0.15rem solid var(--edge);
@@ -1755,7 +1905,7 @@ button {
   align-items: center;
   gap: 0.9rem;
   text-align: center;
-  font: 600 2.2rem var(--serif);
+  font: 600 2.2rem var(--sans);
   color: var(--text);
   text-shadow: 0 0.15rem 0.3rem #000;
   background: linear-gradient(90deg, transparent, rgba(12, 15, 22, 0.92) 18%, rgba(12, 15, 22, 0.92) 82%, transparent);
@@ -1792,7 +1942,7 @@ button {
 .action-bar {
   position: absolute;
   left: 50%;
-  bottom: 0.4rem;
+  bottom: 1.6rem;
   translate: -50% 0;
   width: 36rem;
   display: flex;
@@ -1841,7 +1991,7 @@ button {
   gap: 0.7rem;
   height: 4.4rem;
   padding: 0 1.2rem;
-  font: 600 1.4rem 'Segoe UI', sans-serif;
+  font: 600 1.4rem var(--sans);
   color: var(--text-soft);
   background: var(--sunken);
   border: 0.1rem solid var(--line);
@@ -1967,7 +2117,7 @@ button {
 /* The turn and step: second only to the big button. */
 .phase-label {
   margin-top: 0.7rem;
-  font: 600 1.5rem var(--serif);
+  font: 600 1.5rem var(--sans);
   color: var(--text);
   white-space: nowrap;
   overflow: hidden;
@@ -1983,7 +2133,7 @@ button {
 .full-control {
   margin-left: 0.6rem;
   padding: 0.1rem 0.6rem;
-  font: 700 1rem 'Segoe UI', sans-serif;
+  font: 700 1rem var(--sans);
   letter-spacing: 0.08rem;
   text-transform: uppercase;
   vertical-align: 0.2rem;
@@ -2140,7 +2290,7 @@ button {
 }
 
 .btn-label {
-  font: 700 2.9rem/1.1 var(--serif);
+  font: 700 2.9rem/1.1 var(--sans);
 }
 
 .btn-sub {
@@ -2245,7 +2395,7 @@ button {
   align-items: center;
   gap: 0.6rem;
   padding: 0 1rem;
-  font: 600 1.2rem var(--sans, inherit);
+  font: 600 1.2rem var(--sans);
   letter-spacing: 0.14em;
   text-transform: uppercase;
   color: var(--text-soft);
@@ -2326,7 +2476,7 @@ button {
   left: 50%;
   z-index: 2;
   padding: 0.4rem 0.8rem;
-  font: 500 1.2rem var(--sans, inherit);
+  font: 500 1.2rem var(--sans);
   letter-spacing: normal;
   text-transform: none;
   white-space: nowrap;
@@ -2392,7 +2542,7 @@ button {
 }
 
 .setting-name {
-  font: 600 1.1rem var(--sans, inherit);
+  font: 600 1.1rem var(--sans);
   letter-spacing: 0.12em;
   text-transform: uppercase;
   color: var(--text-muted);
@@ -2905,14 +3055,14 @@ button {
 
 .spell-caster {
   margin-bottom: 0.6rem;
-  font: 600 2.3rem var(--serif);
+  font: 600 2.3rem var(--sans);
   text-shadow: 0 0.15rem 0.4rem #000, 0 0 0.8rem #000;
 }
 
 /* "Trigger" or "Ability" under a flashed ability's source card. */
 .spell-ability {
   margin-top: 0.6rem;
-  font: 600 2.3rem var(--serif);
+  font: 600 2.3rem var(--sans);
   text-shadow: 0 0.15rem 0.4rem #000, 0 0 0.8rem #000;
 }
 
@@ -2979,7 +3129,7 @@ button {
 
 .viewer h2 {
   margin: 0 0 1.5rem;
-  font: 700 2.6rem var(--serif);
+  font: 700 2.6rem var(--sans);
   text-transform: capitalize;
 }
 
@@ -2992,6 +3142,22 @@ button {
 .viewer-cards :is(img, .text-card) {
   width: 19rem;
   border-radius: 0.9rem;
+}
+
+/* The whole exile (the 3D table's pond): each owner's cards under their name. */
+.viewer-owner + .viewer-owner {
+  margin-top: 2rem;
+}
+
+.viewer-owner h3 {
+  margin: 0 0 1rem;
+  font: 600 1.9rem var(--sans);
+  color: var(--text-soft);
+}
+
+.viewer-empty {
+  margin: 0;
+  font-size: 1.6rem;
 }
 
 /* A card exiled face down (406.3). */
@@ -3066,7 +3232,7 @@ button {
 .picker-group h3 {
   margin: 0 0 0.8rem;
   padding-bottom: 0.4rem;
-  font: 600 1.8rem var(--serif);
+  font: 600 1.8rem var(--sans);
   color: var(--gold-light);
   border-bottom: 0.1rem solid var(--line);
 }
@@ -3115,7 +3281,7 @@ button {
   transform: translateX(-50%);
   min-width: 3.6rem;
   padding: 0.3rem 1rem;
-  font: 700 1.8rem var(--serif);
+  font: 700 1.8rem var(--sans);
   color: #fff;
   background: linear-gradient(#ffc56a, #d2670a);
   border-radius: 2rem;
@@ -3127,7 +3293,7 @@ button {
   right: 0.8rem;
   bottom: 0.8rem;
   padding: 0.2rem 1rem;
-  font: 700 2rem var(--serif);
+  font: 700 2rem var(--sans);
   color: #fff;
   background: var(--panel);
   border: 0.15rem solid var(--edge-light);
@@ -3196,7 +3362,7 @@ button {
   flex: 1;
   min-width: 0;
   padding: 1.2rem 1.6rem;
-  font: 600 2rem var(--serif);
+  font: 600 2rem var(--sans);
   color: #fff;
   background: rgba(255, 255, 255, 0.06);
   border: 0.15rem solid var(--edge-light);
@@ -3216,7 +3382,7 @@ button {
   z-index: 150;
   transform: translateX(-50%);
   padding: 1.2rem 3rem;
-  font: 600 2rem var(--serif);
+  font: 600 2rem var(--sans);
   color: #fff;
   background: var(--panel);
   border: 0.2rem solid var(--play);
@@ -3240,7 +3406,7 @@ button {
 
 .game-over h1 {
   margin: 0;
-  font: 700 9rem var(--serif);
+  font: 700 9rem var(--sans);
   color: var(--gold-light);
   text-shadow: 0 0.4rem 1.5rem #000;
 }
@@ -3280,7 +3446,7 @@ button {
 
 .confirm h2 {
   margin: 0;
-  font: 700 4rem var(--serif);
+  font: 700 4rem var(--sans);
   color: #f2e6c9;
 }
 
@@ -3304,7 +3470,7 @@ button {
   width: fit-content;
   margin: 0 auto;
   padding: 1rem 2.5rem;
-  font: 600 2rem var(--serif);
+  font: 600 2rem var(--sans);
   background: var(--panel);
   border: 0.15rem solid #8a6c6c;
   border-radius: 1rem;
@@ -3335,7 +3501,7 @@ button {
 
 .menu h1 {
   margin: 0;
-  font: 700 6.6rem var(--serif);
+  font: 700 6.6rem var(--sans);
   letter-spacing: 0.02em;
   color: #ffdf9a;
   text-shadow: 0 0.4rem 2.4rem rgba(0, 0, 0, 0.9);
@@ -3453,7 +3619,7 @@ button {
 .deck-section h2,
 .menu-panel h2 {
   margin: 0 0 1.2rem;
-  font: 600 1.4rem var(--sans, inherit);
+  font: 600 1.4rem var(--sans);
   letter-spacing: 0.16em;
   text-transform: uppercase;
   color: #8d97aa;
@@ -3509,7 +3675,7 @@ button {
   place-items: center;
   width: 2.8rem;
   height: 2.8rem;
-  font: 700 1.4rem var(--serif);
+  font: 700 1.4rem var(--sans);
   color: #1a1408;
   background: #ffdf9a;
   border-radius: 50%;
@@ -3645,7 +3811,7 @@ button {
 
 .deck-title {
   overflow: hidden;
-  font: 700 2.3rem var(--serif);
+  font: 700 2.3rem var(--sans);
   white-space: nowrap;
   text-overflow: ellipsis;
 }
@@ -3717,7 +3883,7 @@ button {
   place-items: center;
   width: 5.6rem;
   height: 5.6rem;
-  font: 300 4.4rem/1 var(--serif);
+  font: 300 4.4rem/1 var(--sans);
   color: #ffdf9a;
   border: 0.2rem solid currentColor;
   border-radius: 50%;
@@ -3743,7 +3909,7 @@ button {
 
 .menu-kicker {
   margin: 0 0 0.4rem;
-  font: 600 1.3rem var(--sans, inherit);
+  font: 600 1.3rem var(--sans);
   letter-spacing: 0.32em;
   text-transform: uppercase;
   color: #8d97aa;
@@ -3753,7 +3919,7 @@ button {
 
 .paste h2 {
   margin: 0 0 2.4rem;
-  font: 700 5rem var(--serif);
+  font: 700 5rem var(--sans);
   color: #ffdf9a;
 }
 
@@ -3866,7 +4032,7 @@ button {
 
 .lobby h2 {
   margin: 0 0 2.4rem;
-  font: 700 5rem var(--serif);
+  font: 700 5rem var(--sans);
   color: #ffdf9a;
 }
 
@@ -4241,7 +4407,7 @@ button {
 
 .crash-box h1 {
   margin: 0;
-  font: 700 5.5rem var(--serif);
+  font: 700 5.5rem var(--sans);
   color: #ffdf9a;
   text-align: center;
 }
@@ -4295,7 +4461,7 @@ button {
 .textless-badge {
   display: inline-block;
   padding: 0 0.45em;
-  font: 600 0.75em/1.5em 'Segoe UI', sans-serif;
+  font: 600 0.75em/1.5em var(--sans);
   letter-spacing: 0.02em;
   color: #d4dbe9;
   background: rgba(8, 10, 16, 0.85);
@@ -4341,7 +4507,7 @@ button {
 .preview-textless {
   margin-top: 0.8rem;
   padding: 0.8rem 1.2rem;
-  font: 600 1.5rem/1.35 'Segoe UI', sans-serif;
+  font: 600 1.5rem/1.35 var(--sans);
   color: #e6ebf4;
   background: rgba(8, 10, 16, 0.92);
   border: 0.15rem solid #7a8399;
@@ -4374,7 +4540,7 @@ button {
 .paste-refused h3,
 .paste-textless h3 {
   margin: 0 0 0.4rem;
-  font: 600 1.8rem var(--serif);
+  font: 600 1.8rem var(--sans);
   color: var(--f-gold);
 }
 
@@ -4421,7 +4587,7 @@ button {
 
 .refused-choice .chip {
   padding: 0.3rem 1rem;
-  font: 600 1.4rem 'Segoe UI', sans-serif;
+  font: 600 1.4rem var(--sans);
   color: #fff;
   background: #262c38;
   border: 0.15rem solid #4a5366;
@@ -4453,7 +4619,7 @@ button {
   left: 0.8rem;
   top: 0.8rem;
   padding: 0.4rem 1.2rem;
-  font: 600 1.4rem 'Segoe UI', sans-serif;
+  font: 600 1.4rem var(--sans);
   color: #fff;
   background: #262c38;
   border: 0.15rem solid var(--f-gold);

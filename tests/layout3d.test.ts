@@ -1,7 +1,8 @@
 // The 3D table's layout (src/ui/three/layout3d.ts): where each seat's cards lie on the table.
 import { describe, expect, it } from 'vitest';
 import { seatBox } from '../src/ui/table-layout';
-import { CARD3D, baseCamera, layoutSeat, quadMatrix } from '../src/ui/three/layout3d';
+import { CARD3D, HELD, HELD_LEAN, ROW_GAP_3D, baseCamera, heldFan, layoutSeat, quadMatrix } from '../src/ui/three/layout3d';
+import { CORNER, cardGeometry } from '../src/ui/three/geometry';
 import type { Row } from '../src/ui/three/layout3d';
 import { tableHeight, DEPTH } from '../src/ui/camera';
 import type { Seat } from '../src/ui/util';
@@ -54,11 +55,53 @@ describe('layoutSeat', () => {
     expect(layoutSeat(full, seatBox(full, W, H), rows([['l']], [], []), W, TABLE_H)[0].turn).toBe(0);
   });
 
+  it('leaves ROW_GAP_3D between rows', () => {
+    const seat: Seat = { v: 'bottom', h: 'full' };
+    const poses = layoutSeat(seat, seatBox(seat, W, H), rows([['l']], [['a']], [['c']]), W, TABLE_H);
+    const [l, a, c] = ['l', 'a', 'c'].map((id) => poses.find((p) => p.item === id)!);
+    expect(a.y - a.h / 2 - (l.y + l.h / 2)).toBeCloseTo(ROW_GAP_3D, 5);
+    expect(c.y - c.h / 2 - (a.y + a.h / 2)).toBeCloseTo(ROW_GAP_3D, 5);
+  });
+
   it('draws nothing for an empty seat and never below the smallest scale', () => {
     const seat: Seat = { v: 'top', h: 'left' };
     expect(layoutSeat(seat, seatBox(seat, W, H), rows([], [], []), W, TABLE_H)).toEqual([]);
     const crowded = layoutSeat(seat, seatBox(seat, W, H), rows([], [], [ids('c', 14).map((x) => [x])].flat()), W, TABLE_H);
     expect(crowded[0].w).toBeCloseTo(CARD3D.creature.w * 0.7, 5);
+  });
+});
+
+describe('heldFan', () => {
+  it('fans a hand out evenly from the middle, each card in front of the one before', () => {
+    const { cards, w, h } = heldFan(7, 100);
+    expect([w, h]).toEqual([HELD.w, HELD.h]);
+    expect(cards).toHaveLength(7);
+    // The middle card stands straight, the others lean out to their side, symmetric about it.
+    expect(cards[3].turn).toBeCloseTo(0);
+    expect(cards[3].x).toBeCloseTo(0);
+    expect(cards[3].y).toBeCloseTo(h / 2);
+    for (let i = 0; i < 3; i++) {
+      expect(cards[i].x).toBeCloseTo(-cards[6 - i].x);
+      expect(cards[i].turn).toBeCloseTo(-cards[6 - i].turn);
+      expect(cards[i].turn).toBeGreaterThan(0);
+    }
+    for (let i = 1; i < 7; i++) expect(cards[i].z).toBeGreaterThan(cards[i - 1].z);
+  });
+
+  it('shrinks to fit its room, and stands clear of the table', () => {
+    for (const n of [1, 4, 12]) {
+      const { cards, w, h, lift } = heldFan(n, 20);
+      const left = Math.min(...cards.map((c) => c.x - (w / 2) * Math.cos(c.turn) - (h / 2) * Math.abs(Math.sin(c.turn))));
+      const right = Math.max(...cards.map((c) => c.x + (w / 2) * Math.cos(c.turn) + (h / 2) * Math.abs(Math.sin(c.turn))));
+      expect(right - left).toBeLessThanOrEqual(20 + 1e-6);
+      // Leant back, the lowest corner is still above the table.
+      const low = Math.min(...cards.map((c) => c.y - (h / 2) * Math.cos(c.turn) - (w / 2) * Math.abs(Math.sin(c.turn))));
+      expect(lift + low * Math.cos(HELD_LEAN)).toBeGreaterThan(0);
+      // Leant back further, as a far seat's is, it stands lower.
+      const flat = heldFan(n, 20, 1.1);
+      expect(flat.lift + low * Math.cos(1.1)).toBeGreaterThan(0);
+      expect(flat.lift).toBeLessThanOrEqual(lift);
+    }
   });
 });
 
@@ -127,5 +170,24 @@ describe('quadMatrix', () => {
       [10, 160],
     ]);
     expect(m).toEqual([2, 0, 0, 0, 0, 2, 0, 0, 0, 0, 1, 0, 10, 20, 0, 1]);
+  });
+});
+
+describe('cardGeometry', () => {
+  it("rounds a card's corners and lays the face's image over its whole top", () => {
+    const g = cardGeometry(5, 7, 0.1);
+    expect(g.groups.map((x) => x.materialIndex)).toEqual([0, 1, 2]);
+    const pos = g.getAttribute('position');
+    const uv = g.getAttribute('uv');
+    const top = g.groups[1];
+    let nearest = Infinity;
+    for (let i = top.start; i < top.start + top.count; i++) {
+      // The face's uv is its position over the card's size.
+      expect(uv.getX(i)).toBeCloseTo(pos.getX(i) / 5 + 0.5, 6);
+      expect(uv.getY(i)).toBeCloseTo(pos.getY(i) / 7 + 0.5, 6);
+      nearest = Math.min(nearest, Math.hypot(Math.abs(pos.getX(i)) - 2.5, Math.abs(pos.getY(i)) - 3.5));
+    }
+    // No point reaches a square corner: the nearest is the arc's middle, r(√2 - 1) in from it.
+    expect(nearest).toBeCloseTo(CORNER * 5 * (Math.SQRT2 - 1), 6);
   });
 });
