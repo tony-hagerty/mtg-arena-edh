@@ -346,13 +346,24 @@ Since then:
   (`ZoneProxy`). Its cards are hidden, and it keeps the icon, the count, the empty outline,
   the right-click that opens the zone, the hover, and the elements flights fly to and from.
 - **Exile is the well.** Exile is shared (400.1), so the 3D table has one: a well with a
-  low cobblestone wall where the paths cross, its dark water turning in a slow whirlpool,
+  low cobblestone wall where the paths cross, its green-blue water turning in a slow
+  whirlpool (layered: the depths with drifting caustics, a glossy surface rippled two ways
+  that reflects a drawn hall with its torches, foam streaks and a foam rim),
   with the top card of each player's exile circling in it. Its proxy (`ExileProxy`) carries
   the count, the glow when something there can be cast, and one `[data-pile]` spot per
   player for the flights. A right-click on the water opens every player's exiled cards,
   under each owner's name (`ZoneViewer` with `pid` null).
 - **Rounded corners.** A card is `cardGeometry` (geometry.ts): a rounded slab whose face
-  image is laid over the whole rectangle, so the corners cut it as a card's are cut.
+  image is laid over the whole rectangle, so the corners cut it as a card's are cut. It is
+  0.3 rem thick, its edge the frame colour darkened, and tipped up 4° about its bottom edge
+  (`LIFT_RAD`); the rows are `ROW_GAP_3D` (3.4 rem) apart.
+- **Held hands.** Each opponent holds their hand at the back of their mat, beside their
+  piles (`seatArea`'s `hand`): face-down cards fanned about a grip under them (`heldFan`),
+  leant back 40° so their backs face you, swaying slightly; a drawn card rises into the
+  fan from their library. Its proxy (`HandProxy`) is laid on the middle card: the count,
+  and the `[data-hand-of]` element flights go to. The counts on piles and hands are grown
+  back by the proxy's shrink (`--unscale`), so they read one size near and far, and a
+  flight to a proxy lands at its size on the screen, not its size on the table.
 - **The tap mark.** A tapped card's proxy carries the tap symbol, as the CSS tile does,
   only on a pile's top card.
 - **Art and name.** A permanent is drawn as the CSS tile is: its art crop at 5:4 in a band
@@ -370,7 +381,8 @@ Since then:
   pixel. The floor is rectangular flagstones in rows with dirt in the joints (floor.ts).
   Dressed-stone walls with arched recesses run down both sides and across the far end, and
   torches in sconces either side of the play area flicker, with their lights. A dim, cool
-  light from above casts the shadows.
+  light from above casts the shadows; nothing on the walls casts one (the walls don't, so
+  an arch's frame would throw its shape onto the floor through them).
 - **Clicks on the board.** A click on a mat, the well or a path makes a burst there
   (effects.tsx: a splash, dust off the leather, wood chips, sparks off the slate, lint off
   the cloth, dust off the flagstones) with a soft sound (synth.ts). Only the bursts' own

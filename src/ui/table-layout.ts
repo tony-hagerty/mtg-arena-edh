@@ -44,13 +44,13 @@ export interface RowSpec {
 }
 
 /**
- * The biggest scale at which every row fits its length and all the rows, with ROW_GAP
- * between them, fit the seat's height, clamped to K_MIN..`max` (K_MAX unless given). Empty rows take no room.
+ * The biggest scale at which every row fits its length and all the rows, with `gap` (ROW_GAP
+ * unless given) between them, fit the seat's height, clamped to K_MIN..`max` (K_MAX unless given). Empty rows take no room.
  */
-export function seatScale({ rows, rowLen, room, max = K_MAX }: { rows: RowSpec[]; rowLen: number; room: number; max?: number }) {
+export function seatScale({ rows, rowLen, room, max = K_MAX, gap = ROW_GAP }: { rows: RowSpec[]; rowLen: number; room: number; max?: number; gap?: number }) {
   const used = rows.filter((r) => r.piles.length);
   if (!used.length) return max;
-  let k = (room - ROW_GAP * (used.length - 1)) / used.reduce((n, r) => n + r.h, 0);
+  let k = (room - gap * (used.length - 1)) / used.reduce((n, r) => n + r.h, 0);
   for (const r of used) k = Math.min(k, (rowLen - (r.piles.length - 1) * r.gap) / (rowUnits(r.piles) * r.w));
   return Math.max(K_MIN, Math.min(max, k));
 }

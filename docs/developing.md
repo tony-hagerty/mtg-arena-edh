@@ -90,9 +90,11 @@ src/ui/         App.tsx               menu or game screen; GameScreen.tsx lays t
                                       maths, tested); geometry.ts a card's rounded shape;
                                       garden.ts the board's plan: four mats, each a seat's
                                       battlefield (seatArea: its rows' box and its piles),
-                                      and the well that is the shared exile, with the mats'
-                                      maps (pure maths, tested); Garden.tsx draws them and
-                                      the well's whirlpool; Hall.tsx the stone walls and
+                                      where each opponent holds their hand, and the well
+                                      that is the shared exile, with the mats' maps (pure
+                                      maths, tested); layout3d.ts also fans a held hand
+                                      (heldFan); Garden.tsx draws the mats and the well's
+                                      water and whirlpool; Hall.tsx the stone walls and
                                       the torches; effects.tsx the bursts a click on the
                                       board makes; floor.ts the flagstones; noise.ts the
                                       noise they share; textures.ts card faces (a
@@ -197,7 +199,8 @@ seat-left` and the like). Two players sit bottom left and top right, three leave
 whole bottom edge (`full`) and take the top corners, four go bottom left, top left, top
 right, bottom right. On the 3D table each seat's rows and piles lie on its mat instead
 (`seatArea` in three/garden.ts: the mat short of its piles and the well, no lean), with
-exile shared in the well. On the CSS table each seat is drawn in two parts:
+exile shared in the well, and an opponent holds their hand on it (`HeldHand`). On the CSS
+table each seat is drawn in two parts:
 
 - **Its rows lie on the table** (`Seat` in Board.tsx, inside `.table`): lands nearest the
   seat's edge, then the other permanents, then creatures nearest the middle. `seatBox` in
@@ -242,7 +245,8 @@ the screen.
 for what can be played, `--target` yellow for what can be chosen, `--attack`, `--block`),
 lines, shadows and radii. Use them rather than new literal colours; the comment above them
 says what each is for. The card frame colours (`--f-W` to `--f-land`) double as each
-deck's seat colour.
+deck's seat colour. All the app's text is one sans-serif typeface, `--sans`: use it rather
+than naming a font (the 3D table's tile names read it too, `tileTexture`).
 
 - **Seats** have no mat of their own: the table is one floor, and each seat's rows mark
   its corner. Whose turn it is shows on their avatar (the rays and the gold life plate).

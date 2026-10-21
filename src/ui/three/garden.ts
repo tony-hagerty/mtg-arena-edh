@@ -116,10 +116,20 @@ export interface PileSpot {
   h: number;
 }
 
+/** Where an opponent holds their hand (`seatArea`): the foot of the fan's middle on the table, and how wide it may spread, rem. */
+export interface HandSpot {
+  x: number;
+  y: number;
+  room: number;
+}
+
 /** A pile's size on the table, rem, and the space between a seat's two: the same for every seat, so the far seats' look smaller. */
 export const PILE = { w: 10.8, h: 10.8 * 1.4, gap: 2.4 };
-/** How far the piles keep inside their mat's edges, past its border, rem. */
+/** How far the piles keep inside their mat's edges, past its border, rem; a near seat's a little further, so their counts clear the bottom of the screen. */
 const PILE_IN = BORDER + 0.9;
+const PILE_IN_NEAR = BORDER + 2.6;
+/** How far up its mat from the piles' near edge a near opponent holds their hand, rem. */
+const HAND_UP = 2.5;
 /**
  * How far each seat's library keeps from the table's middle across, rem: the near ones clear
  * the controls (36rem wide); the far ones lie against their mat's inner edge, by the middle
@@ -146,7 +156,8 @@ const CONTROLS_HALF = 20;
  * permanents fill (`layoutSeat`), in the CSS table's terms as `seatBox` gives it: as much of
  * the rest of the mat as is clear of the piles, the well and what stands on the screen over
  * the table. Rows lie square to the mat (no lean). The whole bottom edge (three
- * players) spans both near mats and the path between them.
+ * players) spans both near mats and the path between them. And where the seat's hand is held,
+ * if it is an opponent's (`HandSpot`).
  */
 export function seatArea(seat: Seat, g: Garden, stageW: number, stageH: number, tableW: number, tableH: number) {
   const cam = camera(stageW, stageH, 1);
@@ -163,7 +174,7 @@ export function seatArea(seat: Seat, g: Garden, stageW: number, stageH: number, 
   const y0 = beds[0].y0;
   const y1 = beds[0].y1;
   // The piles: outward from the inner edge, a pile and a gap a step.
-  const pileY = near ? y0 + PILE_IN + PILE.h / 2 : y1 - PILE_IN - PILE.h / 2;
+  const pileY = near ? y0 + PILE_IN_NEAR + PILE.h / 2 : y1 - PILE_IN - PILE.h / 2;
   const spot = (i: number): PileSpot => {
     const inner = (near ? PILE_INNER.near : PILE_INNER.far) + i * (PILE.w + PILE.gap) + PILE.w / 2;
     return { x: right ? inner : -inner, y: pileY, w: PILE.w, h: PILE.h };
@@ -204,7 +215,17 @@ export function seatArea(seat: Seat, g: Garden, stageW: number, stageH: number, 
     span = area(beside) > area(across) ? beside : across;
   }
   const box: SeatBox = { left: span.xa + tableW / 2, top: tableH - span.yb, width: span.xb - span.xa, height: span.yb - span.ya, lean: 0 };
-  return { box, piles };
+  // An opponent's hand, held at the back of their mat (its own edge) beside the piles, on the
+  // side away from the middle: on the far side of the middle from them for a seat along the
+  // whole edge. Its middle there, and how much of the edge it has.
+  // It stands at the near side of the piles' strip and leans back over it, so a far seat's
+  // stays on the screen; a near seat's a little further in, so its foot and count do.
+  const outer = PILE_INNER[near ? 'near' : 'far'] + 2 * PILE.w + PILE.gap + ROOM;
+  const from = seat.h === 'full' ? PILE_INNER[near ? 'near' : 'far'] : outer;
+  const to = right || seat.h === 'full' ? inX1 : -inX0;
+  const toward = right || seat.h === 'full' ? 1 : -1;
+  const hand: HandSpot = { x: toward * ((from + to) / 2), y: pileY - PILE.h / 2 + (near ? HAND_UP : 0), room: Math.max(0, to - from) };
+  return { box, piles, hand };
 }
 
 /* ---------- the mats' maps ---------- */

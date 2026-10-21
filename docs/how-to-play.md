@@ -80,7 +80,8 @@ The full guide to the game's screens and controls. For a quick start, see the
   beside the controls; the far seats' against their mat's inner edge, by the middle path). Exile is shared, so it is the well in the middle of the table, with the top
   card of each player's exile circling in its whirlpool and the count at its edge. The portrait sits
   on the seat's side edge, and an opponent's hand fans out of their corner, face down,
-  with a count. Hover any card to see
+  with a count (on the 3D table, they hold it up, fanned, at the back of their mat, beside
+  their piles). Hover any card to see
   it full size. A tapped card is dimmed, turned a little, and marked with a large,
   see-through tap symbol. A face-down card shows the program's icon in gold.
 - **Your hand** curves out of the bottom-left corner, its first card's left edge on the
@@ -282,17 +283,20 @@ The deck menu has the same sound and music controls in its top-right corner. Sou
 and damage choices are saved in the browser.
 
 **The 3D table** is the usual table: seen at a steep angle, like Arena's board, with the camera pushing in
-during combat. The cards lie on it as objects with rounded corners. So do each player's
+during combat. The cards lie on it as thick tiles with rounded corners, each tipped up a
+little at its top, with a wide gap between the rows. So do each player's
 library and graveyard: the library is a deck as thick as it is full. The board is a hall
 for four: a mat in each seat's corner, all four the same size (so the far two
 look smaller), lying flat on the flagstone floor of a torch-lit stone hall, your two
 starting just above the bottom of the screen. Each mat is a dark material with a border
 worked into it, in turn order from yours: worn leather with stitching, oak planks, slate
 slabs with a brass line, and a woven cloth with a gold trim. Where the paths between them
-cross is a well with a low cobblestone wall, which is the exile: its dark water turns in a
-slow whirlpool. Torches burn on the walls either side of the play area. Everything plays the
+cross is a well with a low cobblestone wall, which is the exile: its green-blue water, rippling
+and catching the torchlight, turns in a slow whirlpool with streaks of foam. Torches burn on the
+walls either side of the play area. Each opponent holds their hand up at the back of their mat,
+fanned out, backs to you, with its count at its foot. Everything plays the
 same: hover a card to read it, click it, drag from your hand, right-click a graveyard or the
-well to open it. The portraits, hands and the rest stay flat on the screen. It needs a browser with
+well to open it. The portraits, your hand and the rest stay flat on the screen. It needs a browser with
 WebGPU or WebGL 2 (every current one); `?gl=webgl` forces WebGL, and `?quality=low` drops
 the shadows for a weak machine. Add `?table=css` to the page's address for the older table
 drawn with CSS, flat cards on a gently leaning floor with each player's library, graveyard

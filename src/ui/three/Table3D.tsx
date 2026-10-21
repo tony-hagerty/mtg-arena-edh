@@ -2,8 +2,8 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef } fr
 import type { CSSProperties, ReactNode, RefObject } from 'react';
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import type { GLProps, ThreeEvent } from '@react-three/fiber';
-import { BufferAttribute, Group, MathUtils, Matrix4, Mesh, MeshBasicMaterial, OrthographicCamera, Plane, PlaneGeometry, Raycaster, Vector2, Vector3 } from 'three';
-import type { DirectionalLight, PerspectiveCamera, Texture, WebGLRenderer } from 'three';
+import { BufferAttribute, Color, Group, MathUtils, Matrix4, Mesh, MeshBasicMaterial, OrthographicCamera, Plane, PlaneGeometry, Raycaster, Vector2, Vector3 } from 'three';
+import type { BufferGeometry, DirectionalLight, PerspectiveCamera, Texture, WebGLRenderer } from 'three';
 import { WebGPURenderer } from 'three/webgpu';
 import { attachmentsOf, data, defenseOf, isBattle, isCreature, isPlaneswalker, loyaltyOf, stats } from '../../engine';
 import type { Card, Game, Player } from '../../engine';
@@ -24,9 +24,9 @@ import { Hall } from './Hall';
 import type { Floating } from './Garden';
 import { burst } from './effects';
 import { gardenPlan, seatArea } from './garden';
-import type { Garden as GardenPlan, PileSpot } from './garden';
+import type { Garden as GardenPlan, HandSpot, PileSpot } from './garden';
 import { cardGeometry, roundedPlane } from './geometry';
-import { CARD_THICKNESS, baseCamera, layoutSeat, quadMatrix, tiltRad } from './layout3d';
+import { CARD_THICKNESS, HELD_LEAN, LIFT_RAD, baseCamera, heldFan, layoutSeat, quadMatrix, tiltRad } from './layout3d';
 import type { Pose, Row } from './layout3d';
 import { SHADOW_SPREAD, backTexture, shadowTexture, tileTexture, useCardTexture, useFloorTextures } from './textures';
 
@@ -43,13 +43,14 @@ import { SHADOW_SPREAD, backTexture, shadowTexture, tileTexture, useCardTexture,
   so the seats' rows land where table-layout.ts designed them, and moves from there: a slow
   push in while combat is on.
 
-  The cards are thin slabs with rounded corners (geometry.ts), the card's image on top and a
-  drawn back underneath, lit and casting shadows on the board (Garden.tsx: four mats on a
-  flagstone floor, floor.ts, around a well), each with a soft dark under it where it rests, in
-  a torch-lit stone hall (Hall.tsx). Each seat's library, graveyard and
-  exile lie on the table too (`Pile3D`). Their
-  hover, click and glow come from raycasting on the meshes and go to the same view.ts handlers
-  the CSS tiles call.
+  The cards are slabs with rounded corners (geometry.ts), thick enough that their edge shows,
+  the card's art and name on top and a drawn back underneath, each tipped up a little about
+  its bottom edge (`LIFT_RAD`), lit and casting shadows on the board (Garden.tsx: four mats on
+  a flagstone floor, floor.ts, around a well), each with a soft dark under it where it rests,
+  in a torch-lit stone hall (Hall.tsx). Each seat's library and graveyard lie on the table too
+  (`Pile3D`), and each opponent holds their hand fanned at the back of their mat (`HeldHand`).
+  Their hover, click and glow come from raycasting on the meshes and go to the same view.ts
+  handlers the CSS tiles call.
 
   Each card also has a proxy: an empty div in `.card-proxies`, the card's size, laid onto the
   card on the screen every frame by a matrix3d (`useProxy`), so it leans, turns and
@@ -155,6 +156,8 @@ interface SeatLayout {
   piles: Map<string, Card[]>;
   /** Where the library and graveyard lie (`seatArea`). */
   zones: Record<PileZone, PileSpot>;
+  /** Where the hand is held, for an opponent's seat (`seatArea`); the bottom seat's hand is on the screen (`PlayerHand`). */
+  hand: HandSpot | null;
 }
 
 /**
@@ -171,6 +174,8 @@ const zoneKey = (pid: number, zone: PileZone) => `zone:${pid}:${zone}`;
 /** The whole seats' layout for this game, from the same piles the CSS table draws: each seat's rows and piles on its mat (`seatArea`). */
 function layoutSeats(v: View, players: Player[], plan: GardenPlan, stageW: number, stageH: number, tableH: number): SeatLayout[] {
   const g = v.g;
+  // The player at the bottom holds their hand on the screen (GameScreen's `bottom`).
+  const bottom = players[0];
   return players.map((p) => {
     const seat = seatOf(g, v.me, p.id);
     const area = seatArea(seat, plan, stageW, stageH, stageW, tableH);
@@ -182,7 +187,7 @@ function layoutSeats(v: View, players: Player[], plan: GardenPlan, stageW: numbe
       { kind: 'creature', piles: creaturePiles(v, p) },
     ];
     const piles = new Map(rows.flatMap((r) => r.piles.filter((pile) => pile.length > 1).map((pile) => [pile[pile.length - 1].id, pile] as const)));
-    return { player: p, seat, poses: layoutSeat(seat, box, rows, stageW, tableH), phased: new Set(phased.map((c) => c.id)), piles, zones: area.piles };
+    return { player: p, seat, poses: layoutSeat(seat, box, rows, stageW, tableH), phased: new Set(phased.map((c) => c.id)), piles, zones: area.piles, hand: p === bottom ? null : area.hand };
   });
 }
 
@@ -218,6 +223,7 @@ export default function Table3D({ players }: { players: Player[] }) {
           )),
         )}
         <ExileProxy players={players} />
+        {seats.map((s) => s.hand && <HandProxy key={handKey(s.player.id)} player={s.player} />)}
       </div>
     </div>
   );
@@ -294,6 +300,32 @@ function ZoneProxy({ id, children }: { id: string; children: ReactNode }) {
   );
 }
 
+/** An opponent's hand's proxy, in the proxies' map. */
+const handKey = (pid: number) => `hand:${pid}`;
+
+/**
+ * An opponent's hand's stand-in on the screen, kept over the middle card of the fan they hold
+ * (`HeldHand`): where cards going to their hand fly to and leave it from (`data-hand-of`,
+ * Flights.tsx), and the hand's count, on the fan's foot.
+ */
+function HandProxy({ player }: { player: Player }) {
+  const id = handKey(player.id);
+  const ref = useCallback(
+    (el: HTMLDivElement | null) => {
+      if (el) proxies.set(id, el);
+      else proxies.delete(id);
+    },
+    [id],
+  );
+  return (
+    <div ref={ref} className="card-proxy hand-proxy" data-hand-of={player.id}>
+      <span className="count" title={`${player.hand.length} cards in hand`}>
+        {player.hand.length}
+      </span>
+    </div>
+  );
+}
+
 /** Opens the exile: everyone's exiled cards, by owner (`ZoneViewer`). */
 const openExile = () => useStore.setState({ viewer: { pid: null, zone: 'exile' }, hover: null });
 
@@ -364,6 +396,7 @@ function Scene({ v, speed, w, h, tableH, seats, plan, players }: { v: View; spee
           <Hall w={w} tableH={tableH} cross={plan.pond.y} />
           {seats.map((s) => s.poses.map((p) => <Card3D key={p.item.id} pose={p} seat={s.seat} phased={s.phased.has(p.item.id)} />))}
           {seats.flatMap((s) => ZONES.map((zone) => <Pile3D key={zoneKey(s.player.id, zone)} player={s.player} zone={zone} spot={s.zones[zone]} />))}
+          {seats.map((s) => s.hand && <HeldHand key={handKey(s.player.id)} player={s.player} spot={s.hand} library={s.zones.library} />)}
         </group>
       </ViewContext.Provider>
     </SceneCtx.Provider>
@@ -404,7 +437,7 @@ const OVERHEAD = new Vector3(-170, 240, 200);
  * The overhead light's shadow camera fitted to the table and what stands on it: the box, in the light's
  * own view, around the table (with a margin for the props past its sides and far edge) from
  * the floor up to the treetops. The tighter it is, the more shadow map each card gets: a card
- * is 0.12 rem thick, so its shadow is a sliver that a loose box blurs away.
+ * is CARD_THICKNESS (0.3 rem) thick, so its shadow is a sliver that a loose box blurs away.
  */
 function overheadShadowBox(w: number, tableH: number) {
   // A camera, not a plain object: lookAt turns a camera's -z to the target, as the shadow camera's is.
@@ -448,7 +481,7 @@ function Lights({ w, tableH }: { w: number; tableH: number }) {
       <hemisphereLight args={['#8a98bb', '#1c1610', 0.7]} />
       {/*
         The light from above, cool and dim: the one light that casts shadows, over the whole table. The biases are small
-        next to a card's thickness (0.12): bigger, and the shadow comes loose from the card
+        next to a card's thickness (0.3): bigger, and the shadow comes loose from the card
         that casts it (peter-panning), so the card seems to float.
       */}
       <directionalLight
@@ -589,6 +622,10 @@ function useProxy(id: string, group: RefObject<Group | null>, w: number, h: numb
     el.style.fontSize = `${(bw / 10).toFixed(2)}px`;
     // A pile's own size (`.pile`), for a zone's proxy.
     el.style.setProperty('--pile-w', `${bw.toFixed(2)}px`);
+    // How much the matrix shrinks the box on the screen, along its top edge, undone by the
+    // badges that should read the same size near and far (a pile's or hand's count, `--unscale`).
+    const shown = Math.hypot(quad[1][0] - quad[0][0], quad[1][1] - quad[0][1]);
+    el.style.setProperty('--unscale', (bw / Math.max(1, shown)).toFixed(3));
     el.style.transform = `matrix3d(${matrix})`;
   };
 }
@@ -620,9 +657,11 @@ function onTable(table: Group, camera: PerspectiveCamera, canvas: HTMLCanvasElem
 function CardMaterials({ face, back, d, tapped, phased }: { face: Texture | null; back: Texture; d: ReturnType<typeof data>; tapped: boolean; phased: boolean }) {
   const tint = tapped ? '#8f8f8f' : '#ffffff';
   const opacity = phased ? 0.35 : 1;
+  // The edge is the frame's colour, darkened, as a solid tile's sides would be: it shows how thick the card is.
+  const edge = useMemo(() => new Color(FRAME[frameOf(d)] ?? FRAME.artifact).multiplyScalar(tapped ? 0.2 : 0.32), [d, tapped]);
   return (
     <>
-      <meshStandardMaterial attach="material-0" color={tapped ? '#8d877a' : '#ded6c2'} roughness={0.8} transparent={phased} opacity={opacity} />
+      <meshStandardMaterial attach="material-0" color={edge} roughness={0.75} transparent={phased} opacity={opacity} />
       {/* Keyed on having the image: a material made without a map can't be given one later without rebuilding its shader. */}
       {face ? (
         // Lit partly by itself (`FACE_GLOW`), so the card reads in the hall's dim corners; less so tapped, so a tapped card stays dimmed.
@@ -690,11 +729,13 @@ function Card3D({ pose, seat, phased }: { pose: Pose<Card>; seat: Seat; phased: 
     rz: pose.turn - (card.tapped ? TAPPED_RAD : 0),
   };
   const group = useRef<Group>(null);
+  /** The card tipped up about its bottom edge (`LIFT_RAD`), inside `group`: what the proxy follows. */
+  const tipped = useRef<Group>(null);
   const glowRef = useRef<Mesh>(null);
   const shadowRef = useRef<Mesh>(null);
   const { camera, gl } = useThree();
   const flight = useRef<{ started: boolean; landed: boolean }>({ started: false, landed: false });
-  const updateProxy = useProxy(card.id, group, pose.w, pose.h);
+  const updateProxy = useProxy(card.id, tipped, pose.w, pose.h);
   const shapes = useCardShapes(pose.w, pose.h);
   // Only a pile's bottom card lies on the floor; the ones over it shadow it through the light from above.
   const grounded = pose.stack === 0;
@@ -769,23 +810,26 @@ function Card3D({ pose, seat, phased }: { pose: Pose<Card>; seat: Seat; phased: 
 
   return (
     <group ref={group}>
-      <mesh castShadow receiveShadow geometry={shapes.card} onPointerOver={hover} onPointerOut={unhover} onClick={click}>
-        <CardMaterials face={face} back={back} d={d} tapped={card.tapped} phased={phased} />
-      </mesh>
+      {/* Tipped about its bottom edge, which stays where it lay: the middle rises by half the card's height times the lift. */}
+      <group ref={tipped} rotation-x={LIFT_RAD} position={[0, -(pose.h / 2) * (1 - Math.cos(LIFT_RAD)), (pose.h / 2) * Math.sin(LIFT_RAD)]}>
+        <mesh castShadow receiveShadow geometry={shapes.card} onPointerOver={hover} onPointerOut={unhover} onClick={click}>
+          <CardMaterials face={face} back={back} d={d} tapped={card.tapped} phased={phased} />
+        </mesh>
+        {glow && (
+          <mesh ref={glowRef} geometry={shapes.glow} position={[0, 0, -CARD_THICKNESS / 2 + GLOW_Z]} raycast={() => null}>
+            <meshBasicMaterial color={GLOW[glow]} transparent opacity={0.9} toneMapped={false} />
+          </mesh>
+        )}
+        {attached.map((a, i) => (
+          <Attached key={a.id} card={a} host={pose} index={i} inward={inward} />
+        ))}
+      </group>
       {grounded && (
         <mesh ref={shadowRef} renderOrder={-1} raycast={() => null}>
           <planeGeometry args={[pose.w * (1 + 2 * SHADOW_SPREAD), pose.h + 2 * SHADOW_SPREAD * pose.w]} />
           <meshBasicMaterial map={shadowTexture()} color="#000000" transparent opacity={SHADOW_OPACITY} depthWrite={false} />
         </mesh>
       )}
-      {glow && (
-        <mesh ref={glowRef} geometry={shapes.glow} position={[0, 0, -CARD_THICKNESS / 2 + GLOW_Z]} raycast={() => null}>
-          <meshBasicMaterial color={GLOW[glow]} transparent opacity={0.9} toneMapped={false} />
-        </mesh>
-      )}
-      {attached.map((a, i) => (
-        <Attached key={a.id} card={a} host={pose} index={i} inward={inward} />
-      ))}
     </group>
   );
 }
@@ -872,7 +916,11 @@ function Pile3D({ player, zone, spot }: { player: Player; zone: PileZone; spot: 
           <mesh castShadow receiveShadow geometry={shape} position-z={thick / 2} scale-z={thick} raycast={() => null}>
             <meshStandardMaterial attach="material-0" color={look.edge} roughness={0.9} />
             {face ? (
-              <meshStandardMaterial key="face" attach="material-1" map={face} color={look.tint} roughness={0.7} emissiveMap={face} emissive={look.tint} emissiveIntensity={FACE_GLOW * 0.8} />
+              // Lit by itself a little less than a card in play: the graveyard is worn and dim.
+              <meshStandardMaterial key="face" attach="material-1" map={face} color={look.tint} roughness={0.7} emissiveMap={face} emissive={look.tint} emissiveIntensity={FACE_GLOW * 0.4} />
+            ) : up ? (
+              // A face-up card whose picture hasn't loaded: plain, never a back, which would say it was face down.
+              <meshStandardMaterial key="plain" attach="material-1" color={FRAME[frameOf(data(top))] ?? FRAME.artifact} roughness={0.8} />
             ) : (
               <meshStandardMaterial key="back" attach="material-1" map={back} roughness={0.6} />
             )}
@@ -884,6 +932,101 @@ function Pile3D({ player, zone, spot }: { player: Player; zone: PileZone; spot: 
           </mesh>
         </>
       )}
+    </group>
+  );
+}
+
+/** How many of an opponent's cards their held fan draws, as the CSS fan did: past that, the count says. */
+const HELD_SHOWN = 12;
+
+/**
+ * An opponent's hand on the 3D table: their cards held up at the back of their mat at `spot`,
+ * fanned (`heldFan`), leant back so their backs face you, swaying a little as a held hand
+ * does. A card just drawn rises into the fan from their library (`library`); any other card
+ * reaching the hand rises from the fan's foot. Its proxy (`HandProxy`) is kept on the middle
+ * card.
+ */
+function HeldHand({ player, spot, library }: { player: Player; spot: HandSpot; library: PileSpot }) {
+  const { table } = useScene();
+  const n = Math.min(player.hand.length, HELD_SHOWN);
+  const fan = heldFan(n, spot.room);
+  const shape = useMemo(() => cardGeometry(fan.w, fan.h, CARD_THICKNESS), [fan.w, fan.h]);
+  useEffect(() => () => shape.dispose(), [shape]);
+  // What the hand and library held last time: more in hand, fewer in the library, is a draw.
+  const before = useRef({ hand: n, library: player.library.length });
+  const drew = n > before.current.hand && player.library.length < before.current.library;
+  const first = before.current.hand;
+  useEffect(() => {
+    before.current = { hand: n, library: player.library.length };
+  });
+  const plane = useRef<Group>(null);
+  const sway = useRef<Group>(null);
+  const anchor = useRef<Group>(null);
+  const updateProxy = useProxy(handKey(player.id), anchor, fan.w, fan.h);
+  const phase = useMemo(() => player.id * 1.7, [player.id]);
+  useFrame((state) => {
+    const t = state.clock.elapsedTime + phase;
+    // A held hand is never quite still.
+    if (sway.current) {
+      sway.current.rotation.z = 0.025 * Math.sin(t * 0.7);
+      sway.current.rotation.x = 0.02 * Math.sin(t * 0.53 + 1);
+    }
+    updateProxy(state.clock.elapsedTime);
+  });
+  /** Where a card drawn now starts: on the library's top, in the fan's own terms. */
+  const fromLibrary = () => {
+    const p = plane.current;
+    const t = table.current;
+    if (!p || !t) return null;
+    t.updateMatrixWorld();
+    const at = t.localToWorld(new Vector3(library.x, library.y, Math.max(CARD_THICKNESS, player.library.length * PILE_CARD)));
+    return sway.current!.worldToLocal(at);
+  };
+  const mid = n ? fan.cards[Math.floor((n - 1) / 2)] : { x: 0, y: fan.h / 2, z: 0, turn: 0 };
+  return (
+    <group position={[spot.x, spot.y, fan.lift]} rotation-x={Math.PI / 2 - HELD_LEAN}>
+      <group ref={plane}>
+        <group ref={sway}>
+          {fan.cards.map((c, i) => (
+            <HeldBack key={i} pose={c} shape={shape} from={i >= first ? (drew ? fromLibrary : 'below') : null} />
+          ))}
+          <group ref={anchor} position={[n % 2 ? mid.x : 0, mid.y, mid.z + CARD_THICKNESS]} />
+        </group>
+      </group>
+    </group>
+  );
+}
+
+/** The back of every held card, its face too: you never see an opponent's hand. */
+function HeldBack({ pose, shape, from }: { pose: { x: number; y: number; z: number; turn: number }; shape: BufferGeometry; from: (() => Vector3 | null) | 'below' | null }) {
+  const { speed } = useScene();
+  const ref = useRef<Group>(null);
+  const started = useRef(false);
+  useFrame((_, dt) => {
+    const o = ref.current;
+    if (!o) return;
+    if (!started.current) {
+      started.current = true;
+      const at = typeof from === 'function' ? from() : null;
+      if (at) o.position.copy(at);
+      else if (from === 'below') o.position.set(pose.x, pose.y - 6, pose.z);
+      else o.position.set(pose.x, pose.y, pose.z);
+      o.rotation.z = pose.turn;
+    }
+    const l = 7 * Math.sqrt(speed);
+    o.position.x = MathUtils.damp(o.position.x, pose.x, l, dt);
+    o.position.y = MathUtils.damp(o.position.y, pose.y, l, dt);
+    o.position.z = MathUtils.damp(o.position.z, pose.z, l, dt);
+    o.rotation.z = MathUtils.damp(o.rotation.z, pose.turn, l, dt);
+  });
+  const back = backTexture();
+  return (
+    <group ref={ref}>
+      <mesh castShadow geometry={shape} raycast={() => null}>
+        <meshStandardMaterial attach="material-0" color="#14161b" roughness={0.7} />
+        <meshStandardMaterial attach="material-1" map={back} roughness={0.55} emissiveMap={back} emissive="#ffffff" emissiveIntensity={FACE_GLOW * 0.5} />
+        <meshStandardMaterial attach="material-2" map={back} roughness={0.55} emissiveMap={back} emissive="#ffffff" emissiveIntensity={FACE_GLOW * 0.5} />
+      </mesh>
     </group>
   );
 }

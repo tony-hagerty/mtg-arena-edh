@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useRef } from 'react';
 import { useFrame } from '@react-three/fiber';
 import type { ThreeEvent } from '@react-three/fiber';
-import { AdditiveBlending, BoxGeometry, CanvasTexture, DataTexture, Group, LinearFilter, LinearMipmapLinearFilter, Mesh, MeshStandardMaterial, RGBAFormat, RepeatWrapping, SRGBColorSpace, UnsignedByteType, Vector2 } from 'three';
+import { AdditiveBlending, BoxGeometry, CanvasTexture, DataTexture, EquirectangularReflectionMapping, Group, LinearFilter, LinearMipmapLinearFilter, Mesh, MeshStandardMaterial, RGBAFormat, RepeatWrapping, SRGBColorSpace, UnsignedByteType, Vector2 } from 'three';
 import { Bursts, burst } from './effects';
 import { MATERIAL, bedMaps } from './garden';
 import type { Bed, Garden as Plan } from './garden';
 import { rng } from './floor';
+import { valueNoise } from './noise';
 import { cardGeometry } from './geometry';
 import { backTexture, useCardTexture } from './textures';
 
@@ -91,8 +92,9 @@ function Mat({ plan, bed, at }: { plan: Plan; bed: Bed; at: (e: ThreeEvent<Mouse
 /* ---------- the well ---------- */
 
 /**
- * A whirlpool's arms: soft pale spirals winding into a dark eye, on a clear ground, drawn once.
- * Laid over the water and turned slowly, two of them at different speeds (`Well`).
+ * A whirlpool's current: thin streaks of pale foam winding in toward the middle, on a clear
+ * ground, drawn once. Laid over the water and turned slowly, two of them at different speeds
+ * (`Well`), so the water is seen to turn without the middle looking like a hole.
  */
 let swirl: CanvasTexture | null = null;
 function swirlTexture() {
@@ -102,7 +104,7 @@ function swirlTexture() {
   c.width = c.height = N;
   const g = c.getContext('2d')!;
   const img = g.createImageData(N, N);
-  const ARMS = 4;
+  const ARMS = 5;
   for (let y = 0; y < N; y++)
     for (let x = 0; x < N; x++) {
       const dx = (x + 0.5) / N - 0.5;
@@ -110,15 +112,16 @@ function swirlTexture() {
       const r = Math.hypot(dx, dy) * 2;
       const o = (y * N + x) * 4;
       if (r >= 1) continue;
-      // A logarithmic spiral: the arms wind tighter toward the eye.
-      const a = Math.atan2(dy, dx) + Math.log(r + 0.05) * 2.6;
-      const arm = Math.pow(0.5 + 0.5 * Math.cos(a * ARMS), 3);
-      // Strongest midway out, fading at the rim and into the eye.
-      const fade = Math.sin(Math.min(1, r) * Math.PI) * Math.min(1, r * 3);
-      img.data[o] = 190;
-      img.data[o + 1] = 215;
-      img.data[o + 2] = 255;
-      img.data[o + 3] = arm * fade * 150;
+      // A logarithmic spiral, broken up by noise so the streaks come and go like foam.
+      const a = Math.atan2(dy, dx) + Math.log(r + 0.08) * 2.2;
+      const arm = Math.pow(0.5 + 0.5 * Math.cos(a * ARMS), 7);
+      const breakup = valueNoise(x / 9, y / 9, 31, N / 9, N / 9);
+      // Strongest midway out, gone at the rim and fading out before the middle.
+      const fade = Math.sin(Math.min(1, r) * Math.PI) * Math.min(1, r * 2.5);
+      img.data[o] = 230;
+      img.data[o + 1] = 244;
+      img.data[o + 2] = 240;
+      img.data[o + 3] = arm * fade * Math.max(0, breakup * 1.6 - 0.3) * 255;
     }
   g.putImageData(img, 0, 0);
   swirl = new CanvasTexture(c);
@@ -126,7 +129,7 @@ function swirlTexture() {
   return swirl;
 }
 
-/** The well's depths: dark water, black at the eye of the whirlpool, drawn once. */
+/** The well's water seen into: deep green-blue, a shade darker toward the middle where it is deepest, drawn once. */
 let depths: CanvasTexture | null = null;
 function depthsTexture() {
   if (depths) return depths;
@@ -135,9 +138,11 @@ function depthsTexture() {
   c.width = c.height = N;
   const g = c.getContext('2d')!;
   const grad = g.createRadialGradient(N / 2, N / 2, 0, N / 2, N / 2, N / 2);
-  grad.addColorStop(0, '#020407');
-  grad.addColorStop(0.35, '#08141c');
-  grad.addColorStop(1, '#173039');
+  grad.addColorStop(0, '#0e2f36');
+  grad.addColorStop(0.5, '#164650');
+  grad.addColorStop(0.85, '#1f5b61');
+  // Darker again just under the wall, in its shade.
+  grad.addColorStop(1, '#14383c');
   g.fillStyle = grad;
   g.fillRect(0, 0, N, N);
   depths = new CanvasTexture(c);
@@ -145,26 +150,91 @@ function depthsTexture() {
   return depths;
 }
 
-/** The water's ripples: a normal map of soft swells that tiles, drawn once, turned with the whirlpool. */
-let ripples: CanvasTexture | null = null;
-function rippleTexture() {
-  if (ripples) return ripples;
+/** Light through the ripples on the well's floor: a net of soft bright lines that tiles, drawn once, drifting under the water. */
+let caustic: CanvasTexture | null = null;
+function causticTexture() {
+  if (caustic) return caustic;
   const N = 256;
   const c = document.createElement('canvas');
   c.width = c.height = N;
   const g = c.getContext('2d')!;
   const img = g.createImageData(N, N);
-  const rand = rng(17);
+  for (let y = 0; y < N; y++)
+    for (let x = 0; x < N; x++) {
+      // Where two noises cross their middles: thin wandering lines, a net where they meet.
+      const a = valueNoise(x / 22, y / 22, 41, N / 22, N / 22);
+      const b = valueNoise(x / 15, y / 15, 42, N / 15, N / 15);
+      const line = Math.max(1 - Math.abs(a - 0.5) * 9, 0) + Math.max(1 - Math.abs(b - 0.5) * 9, 0);
+      const o = (y * N + x) * 4;
+      img.data[o] = 170;
+      img.data[o + 1] = 230;
+      img.data[o + 2] = 220;
+      img.data[o + 3] = Math.min(1, line * 0.8) * 255;
+    }
+  g.putImageData(img, 0, 0);
+  caustic = new CanvasTexture(c);
+  caustic.colorSpace = SRGBColorSpace;
+  caustic.wrapS = caustic.wrapT = RepeatWrapping;
+  caustic.repeat.set(3, 3);
+  return caustic;
+}
+
+/**
+ * What the water reflects: the hall above it, dark vaulting with the warm glow of the torches
+ * low on either side, as an equirectangular picture, drawn once. Only the water uses it.
+ */
+let hallSky: CanvasTexture | null = null;
+function reflectionTexture() {
+  if (hallSky) return hallSky;
+  const W = 256;
+  const H = 128;
+  const c = document.createElement('canvas');
+  c.width = W;
+  c.height = H;
+  const g = c.getContext('2d')!;
+  const sky = g.createLinearGradient(0, 0, 0, H);
+  sky.addColorStop(0, '#05070a');
+  sky.addColorStop(0.45, '#1a2028');
+  sky.addColorStop(0.55, '#2a2620');
+  sky.addColorStop(1, '#0a0806');
+  g.fillStyle = sky;
+  g.fillRect(0, 0, W, H);
+  // The torches: warm glows around the horizon, at the hall's sides.
+  for (const u of [0.12, 0.38, 0.62, 0.88]) {
+    const glow = g.createRadialGradient(u * W, H * 0.44, 0, u * W, H * 0.44, H * 0.22);
+    glow.addColorStop(0, 'rgba(255,190,110,0.95)');
+    glow.addColorStop(0.3, 'rgba(255,140,60,0.4)');
+    glow.addColorStop(1, 'rgba(255,120,40,0)');
+    g.fillStyle = glow;
+    g.fillRect(0, 0, W, H);
+  }
+  hallSky = new CanvasTexture(c);
+  hallSky.colorSpace = SRGBColorSpace;
+  hallSky.mapping = EquirectangularReflectionMapping;
+  return hallSky;
+}
+
+/** The water's ripples: a normal map of soft swells that tiles, drawn once per `seed`. Two of them drift across each other (`Well`). */
+const ripples = new Map<number, CanvasTexture>();
+function rippleTexture(seed: number) {
+  const cached = ripples.get(seed);
+  if (cached) return cached;
+  const N = 256;
+  const c = document.createElement('canvas');
+  c.width = c.height = N;
+  const g = c.getContext('2d')!;
+  const img = g.createImageData(N, N);
+  const rand = rng(seed);
   // A few waves that tile (whole numbers of them across), summed into a height, then its slope.
-  const waves = Array.from({ length: 6 }, () => ({ kx: Math.round(rand() * 6 - 3) || 1, ky: Math.round(rand() * 6 - 3) || 2, a: 0.4 + rand() * 0.6, p: rand() * Math.PI * 2 }));
+  const waves = Array.from({ length: 7 }, () => ({ kx: Math.round(rand() * 8 - 4) || 1, ky: Math.round(rand() * 8 - 4) || 2, a: 0.4 + rand() * 0.6, p: rand() * Math.PI * 2 }));
   for (let y = 0; y < N; y++)
     for (let x = 0; x < N; x++) {
       let dx = 0;
       let dy = 0;
       for (const w of waves) {
         const t = ((w.kx * x + w.ky * y) / N) * Math.PI * 2 + w.p;
-        dx += w.a * w.kx * Math.cos(t) * 0.08;
-        dy += w.a * w.ky * Math.cos(t) * 0.08;
+        dx += w.a * w.kx * Math.cos(t) * 0.07;
+        dy += w.a * w.ky * Math.cos(t) * 0.07;
       }
       const l = Math.hypot(dx, dy, 1);
       const o = (y * N + x) * 4;
@@ -174,11 +244,39 @@ function rippleTexture() {
       img.data[o + 3] = 255;
     }
   g.putImageData(img, 0, 0);
-  ripples = new CanvasTexture(c);
-  ripples.wrapS = ripples.wrapT = RepeatWrapping;
-  ripples.repeat.set(2, 2);
-  ripples.center.set(0.5, 0.5);
-  return ripples;
+  const t = new CanvasTexture(c);
+  t.wrapS = t.wrapT = RepeatWrapping;
+  t.repeat.set(2, 2);
+  t.center.set(0.5, 0.5);
+  ripples.set(seed, t);
+  return t;
+}
+
+/** A pale rim of foam where the water laps at the wall: brightest at the edge, broken up, gone a little way in. Drawn once. */
+let foam: CanvasTexture | null = null;
+function foamTexture() {
+  if (foam) return foam;
+  const N = 256;
+  const c = document.createElement('canvas');
+  c.width = c.height = N;
+  const g = c.getContext('2d')!;
+  const img = g.createImageData(N, N);
+  for (let y = 0; y < N; y++)
+    for (let x = 0; x < N; x++) {
+      const dx = (x + 0.5) / N - 0.5;
+      const dy = (y + 0.5) / N - 0.5;
+      const r = Math.hypot(dx, dy) * 2;
+      const o = (y * N + x) * 4;
+      if (r >= 1) continue;
+      const edge = Math.max(0, 1 - (1 - r) / 0.09);
+      const bits = valueNoise(x / 5, y / 5, 51, N / 5, N / 5);
+      img.data[o] = img.data[o + 1] = img.data[o + 2] = 235;
+      img.data[o + 3] = edge * edge * Math.max(0, bits * 1.5 - 0.35) * 255;
+    }
+  g.putImageData(img, 0, 0);
+  foam = new CanvasTexture(c);
+  foam.colorSpace = SRGBColorSpace;
+  return foam;
 }
 
 /** The wall's stones: one shape, scaled for each, and a few shades of worn stone. */
@@ -187,14 +285,26 @@ const STONE_LOOKS = ['#8a8274', '#978e7f', '#7b7468', '#a0968a'].map((color) => 
 
 /**
  * The well, which is the exile: a ring of cobblestones, two courses high and no higher than a
- * hand, round dark water turning slowly into a whirlpool, and the top card of each player's
- * exile circling in it. A click on the water splashes; a right-click opens the exile.
+ * hand, round deep green-blue water turning slowly in a whirlpool, and the top card of each
+ * player's exile circling in it. The water is layered: its depths with the light from the
+ * ripples drifting over them, then the surface, glossy, rippled two ways at once and mirroring
+ * the hall's torches, then streaks of foam in the current and a rim of it at the wall. A click
+ * on the water splashes; a right-click opens the exile.
  */
 function Well({ plan, exiled, at, onExile }: { plan: Plan; exiled: Floating[]; at: (e: ThreeEvent<MouseEvent>) => { x: number; y: number }; onExile: () => void }) {
   const { x, y, r } = plan.pond;
-  const water = useRef(rippleTexture());
+  const swell = useRef(rippleTexture(17));
+  const chop = useMemo(() => {
+    const t = rippleTexture(29).clone();
+    t.repeat.set(3.5, 3.5);
+    t.needsUpdate = true;
+    return t;
+  }, []);
+  useEffect(() => () => chop.dispose(), [chop]);
+  const light = useRef(causticTexture());
   const arms = useRef<Mesh>(null);
   const arms2 = useRef<Mesh>(null);
+  const rim = useRef<Mesh>(null);
   const stones = useMemo(() => {
     const rand = rng(23);
     const mid = r + WALL.t / 2;
@@ -218,23 +328,32 @@ function Well({ plan, exiled, at, onExile }: { plan: Plan; exiled: Floating[]; a
     );
   }, [r]);
   useFrame((_, dt) => {
-    // The whirlpool turns: the arms, the faster inner ones, and the water's ripples with them.
-    if (arms.current) arms.current.rotation.z -= dt * 0.35;
-    if (arms2.current) arms2.current.rotation.z -= dt * 0.6;
-    water.current.rotation -= dt * 0.2;
+    // The whirlpool turns: the foam, its faster inner streaks, the rim's, and the swell with them; the chop drifts across it.
+    if (arms.current) arms.current.rotation.z -= dt * 0.22;
+    if (arms2.current) arms2.current.rotation.z -= dt * 0.4;
+    if (rim.current) rim.current.rotation.z -= dt * 0.1;
+    swell.current.rotation -= dt * 0.12;
+    chop.offset.x += dt * 0.021;
+    chop.offset.y -= dt * 0.013;
+    light.current.offset.x -= dt * 0.012;
+    light.current.offset.y += dt * 0.008;
   });
   return (
     <group position={[x, y, 0]}>
       {stones.map((s, i) => (
         <mesh key={i} castShadow receiveShadow geometry={STONE} material={STONE_LOOKS[s.look]} position={[s.x, s.y, s.z]} rotation-z={s.turn} scale={s.size} raycast={() => null} />
       ))}
-      <mesh position-z={WATER_Z - 0.01} raycast={() => null}>
+      <mesh position-z={WATER_Z - 0.02} raycast={() => null}>
         <circleGeometry args={[r + 0.2, 48]} />
-        <meshStandardMaterial map={depthsTexture()} roughness={1} />
+        <meshStandardMaterial map={depthsTexture()} roughness={1} emissive="#0b2a2e" emissiveIntensity={0.6} />
+      </mesh>
+      <mesh position-z={WATER_Z - 0.015} renderOrder={1} raycast={() => null}>
+        <circleGeometry args={[r * 0.97, 48]} />
+        <meshBasicMaterial map={light.current} color="#7fd4c8" transparent opacity={0.16} blending={AdditiveBlending} depthWrite={false} toneMapped={false} />
       </mesh>
       <mesh
         position-z={WATER_Z}
-        renderOrder={1}
+        renderOrder={2}
         onClick={(e) => {
           e.stopPropagation();
           const p = at(e);
@@ -247,16 +366,36 @@ function Well({ plan, exiled, at, onExile }: { plan: Plan; exiled: Floating[]; a
         }}
       >
         <circleGeometry args={[r + 0.2, 48]} />
-        <meshStandardMaterial color="#2c5560" transparent opacity={0.5} roughness={0.08} metalness={0.3} normalMap={water.current} normalScale={new Vector2(0.5, 0.5)} depthWrite={false} />
+        <meshStandardMaterial
+          color="#3b7f86"
+          transparent
+          opacity={0.55}
+          roughness={0.06}
+          metalness={0.1}
+          normalMap={swell.current}
+          normalScale={new Vector2(0.7, 0.7)}
+          envMap={reflectionTexture()}
+          envMapIntensity={1.4}
+          depthWrite={false}
+        />
       </mesh>
-      {/* The arms of the whirlpool, glowing faintly: what is exiled is drawn away. */}
-      <mesh ref={arms} position-z={WATER_Z + 0.01} renderOrder={2} raycast={() => null}>
-        <circleGeometry args={[r, 48]} />
-        <meshBasicMaterial map={swirlTexture()} color="#9cc4ff" transparent opacity={0.55} blending={AdditiveBlending} depthWrite={false} toneMapped={false} />
+      {/* A second, finer set of ripples drifting the other way, so the surface never looks painted on. */}
+      <mesh position-z={WATER_Z + 0.004} renderOrder={3} raycast={() => null}>
+        <circleGeometry args={[r + 0.2, 48]} />
+        <meshStandardMaterial color="#5aa3a8" transparent opacity={0.18} roughness={0.1} normalMap={chop} normalScale={new Vector2(0.6, 0.6)} envMap={reflectionTexture()} envMapIntensity={1} depthWrite={false} />
       </mesh>
-      <mesh ref={arms2} position-z={WATER_Z + 0.012} renderOrder={2} rotation-z={1} scale={0.55} raycast={() => null}>
+      {/* The current: streaks of foam turning in toward the middle. */}
+      <mesh ref={arms} position-z={WATER_Z + 0.01} renderOrder={4} raycast={() => null}>
         <circleGeometry args={[r, 48]} />
-        <meshBasicMaterial map={swirlTexture()} color="#b9a8ff" transparent opacity={0.45} blending={AdditiveBlending} depthWrite={false} toneMapped={false} />
+        <meshBasicMaterial map={swirlTexture()} color="#e6f4f0" transparent opacity={0.3} depthWrite={false} />
+      </mesh>
+      <mesh ref={arms2} position-z={WATER_Z + 0.012} renderOrder={4} rotation-z={1} scale={0.6} raycast={() => null}>
+        <circleGeometry args={[r, 48]} />
+        <meshBasicMaterial map={swirlTexture()} color="#e6f4f0" transparent opacity={0.22} depthWrite={false} />
+      </mesh>
+      <mesh ref={rim} position-z={WATER_Z + 0.014} renderOrder={4} raycast={() => null}>
+        <circleGeometry args={[r + 0.2, 64]} />
+        <meshBasicMaterial map={foamTexture()} color="#e9f3ef" transparent opacity={0.5} depthWrite={false} />
       </mesh>
       {exiled.map((f, i) => (
         <FloatingCard key={f.id} f={f} index={i} count={exiled.length} r={r} />
