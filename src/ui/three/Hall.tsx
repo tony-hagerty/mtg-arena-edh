@@ -1,6 +1,6 @@
 import { useMemo, useRef } from 'react';
 import { useFrame } from '@react-three/fiber';
-import { CanvasTexture, DoubleSide, Group, PointLight, RepeatWrapping, SRGBColorSpace, Vector2 } from 'three';
+import { AdditiveBlending, CanvasTexture, DoubleSide, Group, PointLight, RepeatWrapping, SRGBColorSpace, Vector2 } from 'three';
 import type { Texture } from 'three';
 import { rng } from './floor';
 import { hash, valueNoise } from './noise';
@@ -94,8 +94,8 @@ function useWallMaps(len: number) {
   }, [len]);
 }
 
-/** A stretch of wall `len` long, its face toward the table: a slab of dressed stone with a row of arched recesses. Its own origin is the foot of its face's middle; its z is up. */
-function Wall({ len, arches }: { len: number; arches: number }) {
+/** A stretch of wall `len` long, its face toward the table: a slab of dressed stone with arched recesses at `arches` (along it from its middle). Its own origin is the foot of its face's middle; its z is up. */
+function Wall({ len, arches }: { len: number; arches: number[] }) {
   const maps = useWallMaps(len);
   return (
     <group>
@@ -109,8 +109,8 @@ function Wall({ len, arches }: { len: number; arches: number }) {
         <meshStandardMaterial attach="material-4" color="#2a2724" roughness={0.95} />
         <meshStandardMaterial attach="material-5" color="#2a2724" roughness={0.95} />
       </mesh>
-      {Array.from({ length: arches }, (_, i) => (
-        <Arch key={i} x={((i + 0.5) / arches - 0.5) * len} />
+      {arches.map((x) => (
+        <Arch key={x} x={x} />
       ))}
     </group>
   );
@@ -152,6 +152,25 @@ function Arch({ x }: { x: number }) {
   );
 }
 
+/** A flame's halo: a soft round glow, bright in the middle and gone at the edge, drawn once. */
+let halo: CanvasTexture | null = null;
+function haloTexture() {
+  if (halo) return halo;
+  const N = 64;
+  const c = document.createElement('canvas');
+  c.width = c.height = N;
+  const g = c.getContext('2d')!;
+  const grad = g.createRadialGradient(N / 2, N / 2, 0, N / 2, N / 2, N / 2);
+  grad.addColorStop(0, 'rgba(255,255,255,0.9)');
+  grad.addColorStop(0.35, 'rgba(255,255,255,0.35)');
+  grad.addColorStop(1, 'rgba(255,255,255,0)');
+  g.fillStyle = grad;
+  g.fillRect(0, 0, N, N);
+  halo = new CanvasTexture(c);
+  halo.colorSpace = SRGBColorSpace;
+  return halo;
+}
+
 /**
  * A torch in an iron sconce, mounted on a wall: a wooden haft, a cup of pitch, and a flame that
  * flickers, with a warm light that flickers with it. Its own origin is the wall's face, and it
@@ -167,7 +186,7 @@ function Torch({ seed }: { seed: number }) {
     const t = state.clock.elapsedTime + phase;
     // Flicker: a few incommensurate wobbles, never quite repeating.
     const f = 0.82 + 0.1 * Math.sin(t * 11.3) + 0.06 * Math.sin(t * 17.9 + 1.3) + 0.05 * Math.sin(t * 5.1 + 0.4);
-    if (light.current) light.current.intensity = 5200 * f;
+    if (light.current) light.current.intensity = 3800 * f;
     if (flame.current) {
       flame.current.scale.set(0.9 + 0.12 * f, 0.8 + 0.35 * f, 0.9 + 0.12 * f);
       flame.current.rotation.z = 0.08 * Math.sin(t * 7.7);
@@ -189,42 +208,57 @@ function Torch({ seed }: { seed: number }) {
           <cylinderGeometry args={[0.85, 0.5, 1.2, 10, 1, true]} />
           <meshStandardMaterial color="#2a2623" metalness={0.6} roughness={0.5} side={DoubleSide} />
         </mesh>
-        <group ref={flame} position={[0, 1.2, 0]}>
+        <group ref={flame} position={[0, 1.2, 0]} scale={1.6}>
           <mesh position={[0, 1, 0]}>
             <coneGeometry args={[0.75, 2.6, 10]} />
-            <meshBasicMaterial color="#ff8a2a" transparent opacity={0.85} toneMapped={false} />
+            <meshBasicMaterial color="#ff5a12" transparent opacity={0.9} toneMapped={false} />
           </mesh>
           <mesh position={[0, 0.75, 0]}>
             <coneGeometry args={[0.42, 1.6, 10]} />
-            <meshBasicMaterial color="#ffe08a" toneMapped={false} />
+            <meshBasicMaterial color="#ffc04a" toneMapped={false} />
           </mesh>
+          {/* A halo round the flame, always facing you, so it reads against a lit wall. */}
+          <sprite position={[0, 1.1, 0]} scale={5}>
+            <spriteMaterial map={haloTexture()} color="#ff9a40" transparent blending={AdditiveBlending} depthWrite={false} toneMapped={false} />
+          </sprite>
         </group>
-        <pointLight ref={light} position={[0, 3, 0]} color="#ff9a45" intensity={5200} distance={160} decay={2} />
+        <pointLight ref={light} position={[0, 3, 0]} color="#ff9a45" intensity={3800} distance={160} decay={2} />
       </group>
     </group>
   );
 }
 
+/** How far apart the side walls' arches are, rem: twice the torches' spacing, so the torches hang between them. */
+const ARCH_STEP = 50;
+
 /**
  * The hall: a wall down each side of the table, just past its edge, and one across the far
  * end, all with arched recesses; a torch on each side wall either side of the play area, at
- * `cross` (where the paths between the mats cross), one nearer you and one further off.
+ * `cross` (where the paths between the mats cross), one nearer you and one further off. The
+ * side walls' arches are spaced from the torches, one between them and the rest on along the
+ * wall, so every torch hangs on bare stone halfway between two.
  */
 export function Hall({ w, tableH, cross }: { w: number; tableH: number; cross: number }) {
   const side = w / 2 + WALL.side;
   const len = tableH + 60;
-  const torches = [cross - 26, cross + 24];
+  const mid = len / 2 - 30;
+  const torches = [cross - ARCH_STEP / 2, cross + ARCH_STEP / 2];
+  // The arches' places up the table, then along each side wall from its middle: the left wall
+  // runs up the table, the right one down it (each is turned to face in).
+  const archYs = Array.from({ length: 9 }, (_, i) => cross + (i - 4) * ARCH_STEP).filter((y) => Math.abs(y - mid) < len / 2 - 8);
+  const left = archYs.map((y) => y - mid);
+  const right = archYs.map((y) => mid - y);
   return (
     <>
       {/* The side walls run from well behind you to past the far end; their faces look in. */}
-      <group position={[-side, len / 2 - 30, 0]} rotation-z={Math.PI / 2}>
-        <Wall len={len} arches={6} />
+      <group position={[-side, mid, 0]} rotation-z={Math.PI / 2}>
+        <Wall len={len} arches={left} />
       </group>
-      <group position={[side, len / 2 - 30, 0]} rotation-z={-Math.PI / 2}>
-        <Wall len={len} arches={6} />
+      <group position={[side, mid, 0]} rotation-z={-Math.PI / 2}>
+        <Wall len={len} arches={right} />
       </group>
       <group position={[0, tableH + 6, 0]}>
-        <Wall len={2 * side + 2 * WALL.t} arches={5} />
+        <Wall len={2 * side + 2 * WALL.t} arches={[-2, -1, 0, 1, 2].map((i) => i * ((2 * side) / 5))} />
       </group>
       {torches.map((y, i) => (
         <group key={i}>

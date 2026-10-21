@@ -45,14 +45,14 @@ export interface RowSpec {
 
 /**
  * The biggest scale at which every row fits its length and all the rows, with ROW_GAP
- * between them, fit the seat's height, clamped to K_MIN..K_MAX. Empty rows take no room.
+ * between them, fit the seat's height, clamped to K_MIN..`max` (K_MAX unless given). Empty rows take no room.
  */
-export function seatScale({ rows, rowLen, room }: { rows: RowSpec[]; rowLen: number; room: number }) {
+export function seatScale({ rows, rowLen, room, max = K_MAX }: { rows: RowSpec[]; rowLen: number; room: number; max?: number }) {
   const used = rows.filter((r) => r.piles.length);
-  if (!used.length) return K_MAX;
+  if (!used.length) return max;
   let k = (room - ROW_GAP * (used.length - 1)) / used.reduce((n, r) => n + r.h, 0);
   for (const r of used) k = Math.min(k, (rowLen - (r.piles.length - 1) * r.gap) / (rowUnits(r.piles) * r.w));
-  return Math.max(K_MIN, Math.min(K_MAX, k));
+  return Math.max(K_MIN, Math.min(max, k));
 }
 
 /**
@@ -134,13 +134,17 @@ export const FAN_RADIUS = 30.4;
 export const FAN_PIVOT_SIDE = 9.3;
 export const FAN_PIVOT_BEYOND = 20;
 
+/** The most an opponent's fan turns from one card to the next, in degrees: a small hand stays a tight fan. */
+const FAN_STEP = 6;
+
 /**
  * How far card `i` of an opponent's `n` is turned about the pivot, in degrees clockwise from
- * pointing up: 14° to 50° across the hand (a lone card at 32°) for the bottom-left corner,
- * mirrored into the seat's own.
+ * pointing up: about 32° (a lone card's), spreading FAN_STEP a card, at most from 14° to 50°,
+ * for the bottom-left corner, mirrored into the seat's own.
  */
 export function fanAngle(i: number, n: number, s: Seat) {
-  let a = n > 1 ? 14 + (36 * i) / (n - 1) : 32;
+  const step = n > 1 ? Math.min(FAN_STEP, 36 / (n - 1)) : 0;
+  let a = 32 + (i - (n - 1) / 2) * step;
   if (s.h === 'right') a = -a;
   if (s.v === 'top') a = 180 - a;
   return a;
