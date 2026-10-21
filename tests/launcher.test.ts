@@ -7,6 +7,7 @@ import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Mock } from 'vitest';
 import { edgeArgs, edgeSpawnOptions, windowUrl } from '../launcher/edge';
+import { iconScript } from '../launcher/icon';
 import { createLifetime } from '../launcher/lifetime';
 import { pathsFor } from '../launcher/paths';
 import { filesFromDir, listen, makeServer, probe } from '../launcher/serve';
@@ -116,6 +117,17 @@ describe('paths', () => {
     expect(windowUrl('http://127.0.0.1:47180/')).toBe('http://127.0.0.1:47180/');
     expect(windowUrl('http://127.0.0.1:47180/', 'css')).toBe('http://127.0.0.1:47180/?table=css');
     expect(windowUrl('http://127.0.0.1:47180/', 'a b')).toBe('http://127.0.0.1:47180/?table=a%20b');
+  });
+
+  it("sets the game window's icon from the program, finding the window by the game's profile", () => {
+    const script = iconScript('msedge.exe', "D:\\Bob's games\\ArenaEDH-data\\edge", "D:\\Bob's games\\ArenaEDH.exe");
+    // Quotes in a path are doubled in PowerShell's single-quoted strings.
+    expect(script).toContain("$exe = 'D:\\Bob''s games\\ArenaEDH.exe'");
+    expect(script).toContain("$dataDir = '--user-data-dir=D:\\Bob''s games\\ArenaEDH-data\\edge'");
+    expect(script).toContain(`$filter = 'Name=''msedge.exe'''`);
+    // $profile is PowerShell's own: never assigned.
+    expect(script).not.toMatch(/\$profile\s*=/);
+    expect(script).toContain('[ArenaIcon]::Apply($exe');
   });
 
   // Node on Windows ends a child with its parent unless it is detached (libuv's job object):

@@ -87,7 +87,9 @@ export class GameHost implements GameService {
   /** What it takes to carry on with this game later (`load`): the game, everyone's settings, and its fetched cards. */
   snapshot(): { game: Game; prefs: Partial<Record<PlayerId, SeatPrefs>>; cards: CardData[] } | null {
     if (!this.game) return null;
-    return { game: this.game, prefs: this.prefs, cards: [...new Set(this.fetched.values())] };
+    // Without the games kept to take back mana abilities (`Game.manaRewind`): saved, they'd be copies of the whole game each.
+    const { manaRewind: _, ...game } = this.game;
+    return { game, prefs: this.prefs, cards: [...new Set(this.fetched.values())] };
   }
 
   get isPaused() {
