@@ -148,7 +148,7 @@ const RECIPES: Record<Sound, { tones?: Tone[]; noise?: Noise[] }> = {
   // A riffle: a run of tiny noise flicks.
   shuffle: { noise: Array.from({ length: 10 }, (_, i) => ({ freq: 2500 + (i % 3) * 400, q: 1.5, at: i * 0.035, dur: 0.03, gain: 0.4 })) },
   // A click on the 3D board (effects.tsx), each soft, since it is only the board answering.
-  // The pond: a low plop that falls, a wash of water after it and two little bubbles.
+  // The well: a low plop that falls, a wash of water after it and two little bubbles.
   splash: {
     tones: [
       { freq: 420, to: 160, dur: 0.12, gain: 0.16 },
@@ -157,13 +157,13 @@ const RECIPES: Record<Sound, { tones?: Tone[]; noise?: Noise[] }> = {
     ],
     noise: [{ freq: 900, to: 400, q: 0.7, at: 0.02, dur: 0.35, gain: 0.35 }],
   },
-  // Moss: a soft, muffled rustle.
-  moss: { noise: [{ freq: 1200, to: 700, q: 0.8, dur: 0.16, gain: 0.25 }] },
-  // Sand: a dry "shh", high and short.
-  sand: { noise: [{ freq: 4500, to: 3000, filter: 'highpass', dur: 0.14, gain: 0.12 }] },
-  // Gravel: a few small stones knocking.
-  gravel: { noise: [0, 0.03, 0.07, 0.1].map((at, i) => ({ freq: 2200 + i * 500, q: 3, at, dur: 0.035, gain: 0.35 })) },
-  // Stone: a light tap with a hint of ring.
+  // Leather: a soft, low pat.
+  leather: { tones: [{ freq: 140, to: 90, dur: 0.08, gain: 0.18 }], noise: [{ freq: 500, filter: 'lowpass', dur: 0.08, gain: 0.3 }] },
+  // Wood: a hollow knock on the planks.
+  wood: { tones: [{ freq: 260, to: 210, dur: 0.09, gain: 0.2 }, { freq: 640, dur: 0.04, gain: 0.05 }], noise: [{ freq: 1100, q: 2, dur: 0.03, gain: 0.3 }] },
+  // Cloth: a soft, muffled brush.
+  cloth: { noise: [{ freq: 1200, to: 700, q: 0.8, dur: 0.16, gain: 0.25 }] },
+  // Stone (the slate and the flagstones): a light tap with a hint of ring.
   stone: { tones: [{ freq: 1250, to: 1150, dur: 0.09, gain: 0.06 }], noise: [{ freq: 3000, q: 1.2, dur: 0.03, gain: 0.25 }] },
 };
 

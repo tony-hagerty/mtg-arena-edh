@@ -22,9 +22,9 @@ export type Sound =
   | 'resolve'
   | 'shuffle'
   | 'splash'
-  | 'moss'
-  | 'sand'
-  | 'gravel'
+  | 'leather'
+  | 'wood'
+  | 'cloth'
   | 'stone';
 
 const total = (g: Game, zone: 'battlefield') => g.players.reduce((n, p) => n + p[zone].length, 0);

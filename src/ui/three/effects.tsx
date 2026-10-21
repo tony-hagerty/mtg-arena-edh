@@ -6,9 +6,9 @@ import type { Sound } from '../sound';
 import { rng } from './floor';
 
 /*
-  What a click on the 3D board does where it lands: a splash on the pond, a puff of sand,
-  a few petals off the moss, pebbles hopping on the gravel, a glint of frost on the stone, a
-  little dust off the flagstones. Each is a handful of particles that live for a second, with
+  What a click on the 3D board does where it lands: a splash in the well, a puff of dust off
+  the leather, chips off the wood, sparks off the slate, lint off the cloth, a little dust off
+  the flagstones. Each is a handful of particles that live for a second, with
   a soft sound to match (synth.ts).
 
   A click adds one burst here (`burst`), and only this component draws again for it: the
@@ -16,10 +16,10 @@ import { rng } from './floor';
   own frame loop, off React.
 */
 
-export type Burst = 'splash' | 'moss' | 'sand' | 'gravel' | 'stone' | 'path';
+export type Burst = 'splash' | 'leather' | 'wood' | 'slate' | 'cloth' | 'path';
 
 /** Each burst's sound. */
-const SOUND: Record<Burst, Sound> = { splash: 'splash', moss: 'moss', sand: 'sand', gravel: 'gravel', stone: 'stone', path: 'stone' };
+const SOUND: Record<Burst, Sound> = { splash: 'splash', leather: 'leather', wood: 'wood', slate: 'stone', cloth: 'cloth', path: 'stone' };
 
 interface Live {
   id: number;
@@ -89,10 +89,15 @@ const RECIPES: Record<Burst, Recipe> = {
       { color: '#c6eef5', reach: 5, delay: 0.2 },
     ],
   },
-  sand: { count: 16, colors: ['#d8d0bc', '#c9bfa8', '#e6dfcd'], size: 0.28, shape: 'grain', out: [2.5, 6], up: [4, 7], gravity: 26, life: 0.85 },
-  moss: { count: 7, colors: ['#f4b6c9', '#f9d3de', '#9cbf6e'], size: 0.9, shape: 'petal', out: [1.5, 3.5], up: [3, 5], gravity: 3.5, life: 1.5 },
-  gravel: { count: 8, colors: ['#8f7f6c', '#a8957d', '#6f6252'], size: 0.42, shape: 'pebble', out: [2, 5], up: [5, 9], gravity: 34, life: 0.8 },
-  stone: { count: 10, colors: ['#ffffff', '#e6f2ff'], size: 0.2, shape: 'spark', out: [2.5, 6], up: [1.5, 4], gravity: 6, life: 0.75, rings: [{ color: '#f2f8ff', reach: 3.5, delay: 0 }] },
+  // Leather: a puff of old dust, slow to settle.
+  leather: { count: 12, colors: ['#9a8468', '#b39e80', '#7d6a52'], size: 0.22, shape: 'grain', out: [1.5, 4], up: [2.5, 4.5], gravity: 9, life: 1 },
+  // Wood: a few chips hop off the planks.
+  wood: { count: 7, colors: ['#8a6440', '#a47a4e', '#6e4e32'], size: 0.36, shape: 'pebble', out: [2, 5], up: [5, 9], gravity: 34, life: 0.8 },
+  // Slate: sparks off the stone, and a ring where it was struck.
+  slate: { count: 10, colors: ['#ffd9a0', '#fff1d6'], size: 0.2, shape: 'spark', out: [2.5, 6], up: [1.5, 4], gravity: 6, life: 0.75, rings: [{ color: '#ffe6c0', reach: 3.5, delay: 0 }] },
+  // Cloth: a few threads of lint drift up and settle.
+  cloth: { count: 7, colors: ['#c9a85a', '#8c3a3e', '#d8c7a0'], size: 0.8, shape: 'petal', out: [1.2, 3], up: [2.5, 4.5], gravity: 3.5, life: 1.4 },
+  // The flagstones: a little dust.
   path: { count: 9, colors: ['#8b8780', '#a39f97'], size: 0.24, shape: 'grain', out: [1.5, 4], up: [2.5, 5], gravity: 20, life: 0.65 },
 };
 
@@ -125,7 +130,7 @@ function make(kind: Burst, key: string): Mat {
     transparent: true,
     depthWrite: false,
     roughness: r.shape === 'drop' ? 0.1 : 0.9,
-    // Lit by their own colour a little too, so a petal or a grain reads in shade as well as in sun.
+    // Lit by their own colour a little too, so a mote or a chip reads in the hall's shadows.
     emissive: new Color(color),
     emissiveIntensity: r.shape === 'spark' ? 1.5 : 0.3,
   });

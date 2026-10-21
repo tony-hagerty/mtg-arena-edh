@@ -76,8 +76,8 @@ The full guide to the game's screens and controls. For a quick start, see the
   while a seat's rows have room and shrink as they fill up; a very crowded row overlaps
   its cards instead. The library and graveyard lie on the mat along the seat's own edge,
   the library nearest the middle (yours just above the bottom of the screen, beside the
-  controls). Exile is shared, so it is the pond in the middle of the table, with the top
-  card of each player's exile floating on it and the count at its edge. The portrait sits
+  controls). Exile is shared, so it is the well in the middle of the table, with the top
+  card of each player's exile circling in its whirlpool and the count at its edge. The portrait sits
   on the seat's side edge, and an opponent's hand fans out of their corner, face down,
   with a count. Hover any card to see
   it full size. A tapped card is dimmed, turned a little, and marked with a large,
@@ -231,7 +231,7 @@ The full guide to the game's screens and controls. For a quick start, see the
 | **Several abilities** (Deathrite Shaman) | Click the permanent to see every activated ability; the ones you can't use now are dimmed. With only one usable, clicking goes straight to it. |
 | **"One mana of any color"** | A window with the five colours opens while it resolves. **Lion's Eye Diamond** asks for the colour when you click it. |
 | **Aura and Equipment** | What is attached to a permanent fans out behind it, toward the top of the card, each showing its name and a strip of art; it taps and attacks with the permanent. Click an Equipment's strip to equip it to something else, hover a strip to read the card. An enchanted land stands on its own instead of in its pile. |
-| **Graveyard and exile** | A graveyard, or the pond (the exile), glows when something in it can be cast (flashback, escape, an adventurer card whose Adventure you cast, or a card an effect lets you cast or play, in anyone's exile). Right-click it to open it and click the glowing card. With escape (Underworld Breach) a window then asks for the three other cards to exile. A card exiled face down shows its back, unless you may look at it. |
+| **Graveyard and exile** | A graveyard, or the well (the exile), glows when something in it can be cast (flashback, escape, an adventurer card whose Adventure you cast, or a card an effect lets you cast or play, in anyone's exile). Right-click it to open it and click the glowing card. With escape (Underworld Breach) a window then asks for the three other cards to exile. A card exiled face down shows its back, unless you may look at it. |
 | **Gift, channel, bargain, plot** | Extra prompt rows and buttons: **Gift** (promise an opponent a gift, or none); a button beside **Cast** for a card with an ability that works from the hand (Otawara's channel) or that can be plotted instead (Highway Robbery); **No Sacrifice** skips a bargain sacrifice. |
 | **Sacrifice costs** (Goblin Bombardment, Village Rites) | After the targets, the creatures you could sacrifice glow yellow; click one. |
 | **Shock lands** | Asks whether you pay 2 life as you play it. |
@@ -261,8 +261,8 @@ The full guide to the game's screens and controls. For a quick start, see the
 | Hover a card | full-size view |
 | Right-click a card (in your hand, on the table, on the stack, or in a graveyard or exile window) | bigger view that stays up; left-click off it to close (over that window, the first click closes the view and the next the window) |
 | Right-click a graveyard (or, on the CSS table, an exile pile) | look through it; hovering the pile shows its top card |
-| Right-click the pond | look through the exile: everyone's exiled cards, under each owner's name |
-| Click a mat, the pond or a path | the board answers: a splash and a soft splash sound on the water, petals off the moss, a puff of sand, pebbles hopping on the gravel, a glint of frost on the stone, a little dust off the flagstones. It does nothing in the game. |
+| Right-click the well | look through the exile: everyone's exiled cards, under each owner's name |
+| Click a mat, the well or a path | the board answers: a splash and a soft splash sound in the well, a puff of dust off the leather, chips off the wood, sparks off the slate, lint off the cloth, a little dust off the flagstones, each with its own soft sound. It does nothing in the game. |
 | Right-click anywhere else | nothing: the browser's menu is off in the game (text boxes keep it, for copy and paste) |
 | Hover a card name in the log (dashed underline) | see the card |
 
@@ -282,15 +282,16 @@ and damage choices are saved in the browser.
 
 **The 3D table** is the usual table: seen at a steep angle, like Arena's board, with the camera pushing in
 during combat. The cards lie on it as objects with rounded corners. So do each player's
-library and graveyard: the library is a deck as thick as it is full. The board is a
-courtyard for four: a mat in each seat's corner, all four the same size (so the far two
-look smaller), each kept by a low curb, with flagstone paths between them and a koi pond
-with lily pads where the paths cross, which is the exile. Each mat is a season and a
-material, in turn order from yours: spring moss in a wooden edge, summer raked sand,
-autumn gravel in slate, winter pale stone slabs in marble, each with a few of its season's
-petals, leaves or frost along the curb. The trees around the table match them. Everything
-plays the same: hover a card to read it, click it, drag from your hand, right-click a
-graveyard or the pond to open it. The portraits, hands and the rest stay flat on the screen. It needs a browser with
+library and graveyard: the library is a deck as thick as it is full. The board is a hall
+for four: a mat in each seat's corner, all four the same size (so the far two
+look smaller), lying flat on the flagstone floor of a torch-lit stone hall, your two
+starting just above the bottom of the screen. Each mat is a dark material with a border
+worked into it, in turn order from yours: worn leather with stitching, oak planks, slate
+slabs with a brass line, and a woven cloth with a gold trim. Where the paths between them
+cross is a well with a low cobblestone wall, which is the exile: its dark water turns in a
+slow whirlpool. Torches burn on the walls either side of the play area. Everything plays the
+same: hover a card to read it, click it, drag from your hand, right-click a graveyard or the
+well to open it. The portraits, hands and the rest stay flat on the screen. It needs a browser with
 WebGPU or WebGL 2 (every current one); `?gl=webgl` forces WebGL, and `?quality=low` drops
 the shadows for a weak machine. Add `?table=css` to the page's address for the older table
 drawn with CSS, flat cards on a gently leaning floor with each player's library, graveyard
