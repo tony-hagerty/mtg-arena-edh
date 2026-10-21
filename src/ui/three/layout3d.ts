@@ -88,15 +88,15 @@ export interface Row<T> {
 export const K_MAX_3D = 1.9;
 
 /**
- * The biggest scale at which every row fits its length and all the rows, with `gap` between
- * them, fit the seat's height, clamped to K_MIN..`max`. Empty rows take no room.
+ * The biggest scale at which every row fits its length and all the rows, with ROW_GAP_3D
+ * between them, fit the seat's height, clamped to K_MIN..K_MAX_3D. Empty rows take no room.
  */
-export function seatScale({ rows, rowLen, room, max = K_MAX_3D, gap = ROW_GAP_3D }: { rows: RowSpec[]; rowLen: number; room: number; max?: number; gap?: number }) {
+export function seatScale({ rows, rowLen, room }: { rows: RowSpec[]; rowLen: number; room: number }) {
   const used = rows.filter((r) => r.piles.length);
-  if (!used.length) return max;
-  let k = (room - gap * (used.length - 1)) / used.reduce((n, r) => n + r.h, 0);
+  if (!used.length) return K_MAX_3D;
+  let k = (room - ROW_GAP_3D * (used.length - 1)) / used.reduce((n, r) => n + r.h, 0);
   for (const r of used) k = Math.min(k, (rowLen - (r.piles.length - 1) * r.gap) / (rowUnits(r.piles) * r.w));
-  return Math.max(K_MIN, Math.min(max, k));
+  return Math.max(K_MIN, Math.min(K_MAX_3D, k));
 }
 
 /**
