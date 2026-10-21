@@ -78,8 +78,10 @@ The full guide to the game's screens and controls. For a quick start, see the
   exile on its top or bottom edge (card-sized, the library nearest the middle; at the
   bottom they stand just above the tip of your hand, beside the controls), and an
   opponent's hand fans out of their corner, face down, with a count. Hover any card to see
-  it full size.
-- **Your hand** curves out of the bottom-left corner, flat at first and then bending down
+  it full size. A tapped card is dimmed, turned a little, and marked with a large,
+  see-through tap symbol. A face-down card shows the program's icon in gold.
+- **Your hand** curves out of the bottom-left corner, its first card's left edge on the
+  screen's left edge, flat at first and then bending down
   into the bottom edge. Up to seven cards show; with more, two small pills arc over the
   middle of the cards. Point at the left one to scroll to earlier cards, the right one to
   later ones (after a moment, one card at a time); a click moves one card. Each pill's
@@ -274,10 +276,15 @@ The deck menu has the same sound and music controls in its top-right corner. Sou
 and damage choices are saved in the browser.
 
 **The 3D table** (a work in progress): add `?table=3d` to the page's address to see the
-table drawn in 3D, with the cards as objects on a lit stone floor, trees and lantern pillars
-around it, and the camera pushing in during combat. Everything plays the same: hover a card
-to read it, click it, drag from your hand. The portraits, piles, hands and the rest stay as
-they are. It needs a browser with WebGPU or WebGL 2 (every current one), and
+table drawn in 3D, seen at a steeper angle, like Arena's board, with the camera pushing in
+during combat. The cards lie on it as objects with rounded corners. So do each player's
+library, graveyard and exile: the library is a deck as thick as it is full. The board is a
+courtyard for four: a bed of raked sand in each seat's corner, kept by a low stone curb,
+with flagstone paths between them and a koi pond with lily pads where the paths cross. Each
+bed is a season, in turn order from yours: spring (petals on the sand), summer (moss),
+autumn (fallen leaves), winter (frost). The trees around the table match them. Everything
+plays the same: hover a card to read it, click it, drag from your hand, click a pile to
+open it. The portraits, hands and the rest stay flat on the screen. It needs a browser with WebGPU or WebGL 2 (every current one), and
 `?table=3d&gl=webgl` forces WebGL. The Windows program opens it with `ArenaEDH.exe --table 3d`.
 
 The music is made as it plays, so it never loops: a harp arpeggio over a plucked bass and a

@@ -1,3 +1,4 @@
+import { camera } from '../camera';
 import { PILE_STEP, ROW_GAP, rowGap, rowUnits, seatScale } from '../table-layout';
 import type { SeatBox } from '../table-layout';
 import type { Seat } from '../util';
@@ -100,6 +101,55 @@ export function layoutSeat<T>(seat: Seat, box: SeatBox, rows: Row<T>[], tableW: 
     // Into table units: x from the middle, y up from the bottom edge. A clockwise CSS turn is a negative Three one.
     return { item: p.item, x: x - tableW / 2, y: tableH - y, w: p.w, h: p.h, turn: -lean || 0, stack: p.stack, pile: p.pile };
   });
+}
+
+export type PileZone = 'library' | 'graveyard' | 'exile';
+export interface PileSpot {
+  /** The pile's middle on the table, in table units (see above), and its size there (5:7). */
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+/*
+  The piles lie on the 3D table where the CSS table stands them on the screen (`.seat-zones` in
+  styles.css): along the seat's top or bottom edge, the library nearest the middle, its inner
+  edge PILE_INNER from the middle of the screen, the bottom seats' PILE_ABOVE up from the
+  bottom (over the tip of your hand), the top seats' PILE_BELOW down from the top (lower than
+  the CSS piles' 1.3rem: a pile's thickness rises toward the top of the screen). Each is as
+  wide on the table as PILE_W is on the screen where it lies, so the seats' boxes
+  (`seatBox`), which stop short of these places, still clear them.
+*/
+const PILE_W = 9.6;
+const PILE_GAP = 0.75;
+const PILE_INNER = 18.8;
+const PILE_ABOVE = 9.2;
+const PILE_BELOW = 4;
+
+/**
+ * Where a seat's library, graveyard and exile lie on the table, for a screen `stageW` × `stageH`
+ * rem and a table `tableW` × `tableH`. The bottom seats' piles keep their near edge where the
+ * CSS piles' bottom is; the top seats' their far edge where the CSS piles' top is.
+ */
+export function pileSpots(seat: Seat, stageW: number, stageH: number, tableW: number, tableH: number): Record<PileZone, PileSpot> {
+  const cam = camera(stageW, stageH, 1);
+  const right = seat.h === 'right';
+  const spot = (i: number): PileSpot => {
+    // The pile's sides on the screen: outward from the inner edge, one pile and a gap a step.
+    const inner = PILE_INNER + i * (PILE_W + PILE_GAP);
+    const x0 = right ? stageW / 2 + inner : stageW / 2 - inner - PILE_W;
+    const x1 = x0 + PILE_W;
+    const sy = seat.v === 'bottom' ? stageH - PILE_ABOVE : PILE_BELOW;
+    const a = cam.toTable({ x: x0, y: sy });
+    const b = cam.toTable({ x: x1, y: sy });
+    const w = b.x - a.x;
+    const h = w * 1.4;
+    // From the edge the pile keeps, half a pile toward the far edge (bottom seats) or the near one (top seats); table y runs down.
+    const cy = seat.v === 'bottom' ? a.y - h / 2 : a.y + h / 2;
+    return { x: (a.x + b.x) / 2 - tableW / 2, y: tableH - cy, w, h };
+  };
+  return { library: spot(0), graveyard: spot(1), exile: spot(2) };
 }
 
 /**

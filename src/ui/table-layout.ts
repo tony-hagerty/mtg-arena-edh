@@ -228,8 +228,22 @@ export function along(s: number): Pt & { th: number } {
 export const HAND_DROP = HAND_H / 4 - (MOCK_H - 818) / PX;
 /** How many cards show at once; a bigger hand scrolls. */
 export const HAND_VISIBLE = 7;
-/** Where the first card's centre is along the curve, just inside the left edge. */
-const S0 = 66 / PX;
+/** How far left of its centre a hand card at curve distance `s` reaches, turned to the curve there, in rem. */
+const reachLeft = (s: number) => {
+  const t = (along(s).th * Math.PI) / 180;
+  return (HAND_W / 2) * Math.abs(Math.cos(t)) + (HAND_H / 2) * Math.abs(Math.sin(t));
+};
+/** Where the first card's centre is along the curve: just far enough in that its left edge touches the screen's left edge (found by halving). */
+const S0 = (() => {
+  let lo = 0;
+  let hi = CURVE_LEN / 2;
+  for (let i = 0; i < 40; i++) {
+    const mid = (lo + hi) / 2;
+    if (along(mid).x - reachLeft(mid) < 0) lo = mid;
+    else hi = mid;
+  }
+  return hi;
+})();
 /** Where the last card's centre is: where the dropped curve reaches the bottom edge, so its corner still shows. */
 const S_END = (() => {
   const i = samples.findIndex((p) => p.y + HAND_DROP <= 0);

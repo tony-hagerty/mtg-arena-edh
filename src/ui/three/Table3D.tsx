@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef } from 'react';
-import type { CSSProperties, RefObject } from 'react';
+import type { CSSProperties, ReactNode, RefObject } from 'react';
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import type { GLProps, ThreeEvent } from '@react-three/fiber';
 import { BufferAttribute, Group, MathUtils, Matrix4, Mesh, MeshBasicMaterial, OrthographicCamera, Plane, PlaneGeometry, Raycaster, Vector2, Vector3 } from 'three';
@@ -7,7 +7,7 @@ import type { DirectionalLight, PerspectiveCamera, Texture, WebGLRenderer } from
 import { WebGPURenderer } from 'three/webgpu';
 import { attachmentsOf, data, defenseOf, isBattle, isCreature, isPlaneswalker, loyaltyOf, stats } from '../../engine';
 import type { Card, Game, Player } from '../../engine';
-import { creaturePiles, landPiles, otherPermanents } from '../Board';
+import { FaceUpPile, Library, creaturePiles, landPiles, otherPermanents } from '../Board';
 import { DEPTH, TILT, useStageSize, useTableSize } from '../camera';
 import { Counters, TextlessBadge } from '../Card';
 import { useStore } from '../store';
@@ -20,8 +20,10 @@ import type { View } from '../view';
 import { newGame, zoneMoves } from '../zone-moves';
 import type { Place } from '../zone-moves';
 import { AREA } from './floor';
-import { CARD_THICKNESS, baseCamera, layoutSeat, quadMatrix, tiltRad } from './layout3d';
-import type { Pose, Row } from './layout3d';
+import { Garden } from './Garden';
+import { cardGeometry, roundedPlane } from './geometry';
+import { CARD_THICKNESS, baseCamera, layoutSeat, pileSpots, quadMatrix, tiltRad } from './layout3d';
+import type { PileSpot, PileZone, Pose, Row } from './layout3d';
 import { SHADOW_SPREAD, backTexture, shadowTexture, useCardTexture, useFloorTextures } from './textures';
 
 /*
@@ -36,9 +38,11 @@ import { SHADOW_SPREAD, backTexture, shadowTexture, useCardTexture, useFloorText
   so the seats' rows land where table-layout.ts designed them, and moves from there: a slow
   push in while combat is on.
 
-  The cards are thin boxes with the card's image on top and a drawn back underneath, lit and
-  casting shadows on a flagstone floor (floor.ts), each with a soft dark under it where it
-  rests, with trees, rocks and lantern pillars around it. Their
+  The cards are thin slabs with rounded corners (geometry.ts), the card's image on top and a
+  drawn back underneath, lit and casting shadows on the board (Garden.tsx: beds of raked sand
+  on a flagstone floor, floor.ts, around a koi pond), each with a soft dark under it where it
+  rests, with trees, rocks and lantern pillars around it. Each seat's library, graveyard and
+  exile lie on the table too (`Pile3D`). Their
   hover, click and glow come from raycasting on the meshes and go to the same view.ts handlers
   the CSS tiles call.
 
@@ -57,7 +61,7 @@ const PARAMS = typeof location !== 'undefined' ? new URLSearchParams(location.se
 /** `?quality=low`: no shadows and no high-DPI drawing, for a weak machine. */
 const LOW = PARAMS.get('quality') === 'low';
 
-const BG = '#070a12';
+const BG = '#141a17';
 /** How far a tapped card is turned (rad). The CSS tile's is 8°. */
 const TAPPED_RAD = (8 * Math.PI) / 180;
 /** The highlight colours (`--play`, `--target`, `--danger` in styles.css). */
@@ -65,10 +69,11 @@ const GLOW: Record<string, string> = { play: '#39e3ff', attack: '#39e3ff', block
 
 /*
   What lies just under the cards, in the table's z (up off it), apart enough not to fight over
-  depth: the floor, a card's soft shadow on it, a card's glow over that, and the card's
-  underside at 0 (CARD_THICKNESS / 2 under the middle of the lowest card).
+  depth: the floor, the garden's sand (SAND_Z, Garden.tsx), a card's soft shadow on it, a
+  card's glow over that, and the card's underside at 0 (CARD_THICKNESS / 2 under the middle of
+  the lowest card).
 */
-const FLOOR_Z = -0.06;
+const FLOOR_Z = -0.12;
 const SHADOW_Z = -0.04;
 const GLOW_Z = -0.02;
 /** How dark a card's soft shadow is right under it, resting. */
@@ -143,7 +148,13 @@ interface SeatLayout {
   phased: Set<string>;
   /** Each pile of more than one card, by the id of the card on top, for its badge. */
   piles: Map<string, Card[]>;
+  /** Where the library, graveyard and exile lie (`pileSpots`). */
+  zones: Record<PileZone, PileSpot>;
 }
+
+const ZONES: PileZone[] = ['library', 'graveyard', 'exile'];
+/** A zone's proxy, in the proxies' map. */
+const zoneKey = (pid: number, zone: PileZone) => `zone:${pid}:${zone}`;
 
 /** The whole seats' layout for this game, from the same piles the CSS table draws. */
 function layoutSeats(v: View, players: Player[], stageW: number, stageH: number, tableH: number): SeatLayout[] {
@@ -158,7 +169,7 @@ function layoutSeats(v: View, players: Player[], stageW: number, stageH: number,
       { kind: 'creature', piles: creaturePiles(v, p) },
     ];
     const piles = new Map(rows.flatMap((r) => r.piles.filter((pile) => pile.length > 1).map((pile) => [pile[pile.length - 1].id, pile] as const)));
-    return { player: p, seat, poses: layoutSeat(seat, box, rows, stageW, tableH), phased: new Set(phased.map((c) => c.id)), piles };
+    return { player: p, seat, poses: layoutSeat(seat, box, rows, stageW, tableH), phased: new Set(phased.map((c) => c.id)), piles, zones: pileSpots(seat, stageW, stageH, stageW, tableH) };
   });
 }
 
@@ -181,6 +192,13 @@ export default function Table3D({ players }: { players: Player[] }) {
             <CardProxy key={p.item.id} card={p.item} g={v.g} pile={s.piles.get(p.item.id)} />,
             ...attachmentsOf(v.g, p.item).map((a) => <CardProxy key={a.id} card={a} g={v.g} />),
           ]),
+        )}
+        {seats.flatMap((s) =>
+          ZONES.map((zone) => (
+            <ZoneProxy key={zoneKey(s.player.id, zone)} id={zoneKey(s.player.id, zone)}>
+              {zone === 'library' ? <Library player={s.player} /> : <FaceUpPile player={s.player} zone={zone} />}
+            </ZoneProxy>
+          )),
         )}
       </div>
     </div>
@@ -216,6 +234,8 @@ function CardProxy({ card, g, pile }: { card: Card; g: Game; pile?: Card[] }) {
       {isBattle(g, card) && <div className="tile-pt tile-defense">{defenseOf(card)}</div>}
       <Counters card={card} />
       {sick && <i className="tile-sick ms ms-ability-summoning-sickness" title="Summoning sick" />}
+      {/* The 3D card already dims when tapped; the proxy adds only the symbol. */}
+      {card.tapped && <i className="tap-symbol ms ms-tap" />}
       {card.textless && <TextlessBadge />}
       {pile && (
         <div
@@ -229,6 +249,28 @@ function CardProxy({ card, g, pile }: { card: Card; g: Game; pile?: Card[] }) {
           x{pile.length}
         </div>
       )}
+    </div>
+  );
+}
+
+/**
+ * A library, graveyard or exile pile's stand-in: the CSS table's own pile (Board.tsx), kept
+ * over the 3D pile's top on the screen like a card's proxy. The 3D pile is what shows; the
+ * DOM one keeps its zone's icon, its count, its outline while empty, and everything that
+ * finds or uses a pile by its element: the click that opens the zone, the hover on the top
+ * card, and the flights to and from it.
+ */
+function ZoneProxy({ id, children }: { id: string; children: ReactNode }) {
+  const ref = useCallback(
+    (el: HTMLDivElement | null) => {
+      if (el) proxies.set(id, el);
+      else proxies.delete(id);
+    },
+    [id],
+  );
+  return (
+    <div ref={ref} className="card-proxy zone-proxy">
+      {children}
     </div>
   );
 }
@@ -254,15 +296,17 @@ function Scene({ v, speed, w, h, tableH, seats }: { v: View; speed: number; w: n
       {/* The view for anything inside that asks for it, as the DOM side has it. */}
       <ViewContext.Provider value={v}>
         <color attach="background" args={[BG]} />
-        {/* Only what lies past the table fades: the near edge is DEPTH away, the far one a little more. */}
-        <fog attach="fog" args={[BG, 660, 1500]} />
+        {/* Only what lies well past the table fades: the near edge is DEPTH away, the far one about twice that. */}
+        <fog attach="fog" args={[BG, DEPTH * 2.6, DEPTH * 5]} />
         <Rig w={w} h={h} combat={inCombat(v.g)} />
         <Lights w={w} tableH={tableH} />
         {/* The table leans away from you by TILT about its bottom edge, like the CSS one. Its own z is up off the table. */}
         <group ref={table} rotation-x={-tiltRad(TILT)}>
           <Floor w={w} tableH={tableH} />
+          <Garden w={w} tableH={tableH} stageW={w} stageH={h} />
           <Props w={w} tableH={tableH} />
           {seats.map((s) => s.poses.map((p) => <Card3D key={p.item.id} pose={p} seat={s.seat} phased={s.phased.has(p.item.id)} />))}
+          {seats.flatMap((s) => ZONES.map((zone) => <Pile3D key={zoneKey(s.player.id, zone)} player={s.player} zone={zone} spot={s.zones[zone]} />))}
         </group>
       </ViewContext.Provider>
     </SceneCtx.Provider>
@@ -290,25 +334,25 @@ function Rig({ w, h, combat }: { w: number; h: number; combat: boolean }) {
     // Gently: the rows must stay on the screen, under the same portraits and piles. Nearer
     // makes everything climb the screen (the camera's axis is the bottom edge), so it also
     // looks up by just enough that the far edge stays where it was and the near rows grow.
-    camera.position.set(0, 0, DEPTH - 40 * k);
+    camera.position.set(0, 0, DEPTH * (1 - 0.067 * k));
     camera.rotation.set(0.013 * k, 0, 0);
   });
   return null;
 }
 
-/** Where the moon is, in the world: high, beyond the far edge and to the left. */
-const MOON = new Vector3(-150, 260, 230);
+/** Where the sun is, in the world: high, beyond the far edge and to the left, low enough in the afternoon to rake across the sand. */
+const SUN = new Vector3(-170, 240, 200);
 
 /**
- * The moon's shadow camera fitted to the table and what stands on it: the box, in the light's
+ * The sun's shadow camera fitted to the table and what stands on it: the box, in the light's
  * own view, around the table (with a margin for the props past its sides and far edge) from
  * the floor up to the treetops. The tighter it is, the more shadow map each card gets: a card
  * is 0.12 rem thick, so its shadow is a sliver that a loose box blurs away.
  */
-function moonShadowBox(w: number, tableH: number) {
+function sunShadowBox(w: number, tableH: number) {
   // A camera, not a plain object: lookAt turns a camera's -z to the target, as the shadow camera's is.
   const view = new OrthographicCamera();
-  view.position.copy(MOON);
+  view.position.copy(SUN);
   view.lookAt(0, 0, 0);
   view.updateMatrixWorld();
   const toView = view.matrixWorldInverse;
@@ -337,23 +381,23 @@ function moonShadowBox(w: number, tableH: number) {
 }
 
 function Lights({ w, tableH }: { w: number; tableH: number }) {
-  const box = useMemo(() => moonShadowBox(w, tableH), [w, tableH]);
-  const moon = useRef<DirectionalLight>(null);
+  const box = useMemo(() => sunShadowBox(w, tableH), [w, tableH]);
+  const sun = useRef<DirectionalLight>(null);
   // Three reads the shadow camera's bounds only when it first sets the shadow up: a new size needs telling.
-  useEffect(() => moon.current?.shadow.camera.updateProjectionMatrix(), [box]);
+  useEffect(() => sun.current?.shadow.camera.updateProjectionMatrix(), [box]);
   return (
     <>
-      <hemisphereLight args={['#a9b9dc', '#2a2d36', 0.75]} />
+      <hemisphereLight args={['#dfe9ff', '#4a4134', 1.25]} />
       {/*
-        The moon: the one light that casts shadows, over the whole table. The biases are small
+        The sun, late in the afternoon: the one light that casts shadows, over the whole table. The biases are small
         next to a card's thickness (0.12): bigger, and the shadow comes loose from the card
         that casts it (peter-panning), so the card seems to float.
       */}
       <directionalLight
-        ref={moon}
-        position={MOON}
-        intensity={3.2}
-        color="#fbf5ea"
+        ref={sun}
+        position={SUN}
+        intensity={2.7}
+        color="#ffeed6"
         castShadow={!LOW}
         shadow-mapSize-width={4096}
         shadow-mapSize-height={4096}
@@ -420,7 +464,41 @@ function floorGeometry(fw: number, fh: number, w: number, tableH: number) {
 
 /* The props stand on the table (its z up): built from Three's Y-up primitives, so each is turned by a quarter about x. */
 
-function Tree({ x, y, s = 1 }: { x: number; y: number; s?: number }) {
+/** The seasons' foliage (garden.ts gives each bed its season; the trees nearest it wear it). */
+const LEAVES = {
+  spring: ['#f4b6c9', '#f9cfdb', '#e893ae'],
+  summer: ['#3f8a3c', '#4f9a45', '#356f34'],
+  autumn: ['#d8622a', '#e8962f', '#b8402a'],
+} as const;
+
+/** A broadleaf tree: a trunk and a crown of rounded clumps in the season's colours. */
+function RoundTree({ x, y, s = 1, season }: { x: number; y: number; s?: number; season: keyof typeof LEAVES }) {
+  const leaves = LEAVES[season];
+  const clumps: [number, number, number, number][] = [
+    [0, 13, 0, 5.5],
+    [-3.6, 11, 1.4, 4],
+    [3.4, 11.5, -1, 4.2],
+    [0.6, 16.5, 0.8, 3.8],
+    [-1.4, 10.5, -3, 3.6],
+  ];
+  return (
+    <group position={[x, y, 0]} rotation-x={Math.PI / 2} scale={s}>
+      <mesh castShadow position={[0, 5, 0]}>
+        <cylinderGeometry args={[0.7, 1.3, 10, 7]} />
+        <meshStandardMaterial color={season === 'spring' ? '#4a3332' : '#3a2a1c'} roughness={1} />
+      </mesh>
+      {clumps.map(([cx, cy, cz, r], i) => (
+        <mesh key={i} castShadow position={[cx, cy, cz]}>
+          <icosahedronGeometry args={[r, 0]} />
+          <meshStandardMaterial color={leaves[i % leaves.length]} roughness={0.85} flatShading />
+        </mesh>
+      ))}
+    </group>
+  );
+}
+
+/** A pine: a trunk and tiers of needles; in winter, snow on each tier. */
+function Tree({ x, y, s = 1, snow = false }: { x: number; y: number; s?: number; snow?: boolean }) {
   return (
     <group position={[x, y, 0]} rotation-x={Math.PI / 2} scale={s}>
       <mesh castShadow position={[0, 5, 0]}>
@@ -428,10 +506,18 @@ function Tree({ x, y, s = 1 }: { x: number; y: number; s?: number }) {
         <meshStandardMaterial color="#3a2a1c" roughness={1} />
       </mesh>
       {[0, 1, 2].map((i) => (
-        <mesh key={i} castShadow position={[0, 11 + i * 6.5, 0]}>
-          <coneGeometry args={[9 - i * 2.2, 11 - i * 2, 9]} />
-          <meshStandardMaterial color={i % 2 ? '#1f4a2d' : '#27593a'} roughness={0.9} flatShading />
-        </mesh>
+        <group key={i}>
+          <mesh castShadow position={[0, 11 + i * 6.5, 0]}>
+            <coneGeometry args={[9 - i * 2.2, 11 - i * 2, 9]} />
+            <meshStandardMaterial color={i % 2 ? '#1f4a2d' : '#27593a'} roughness={0.9} flatShading />
+          </mesh>
+          {snow && (
+            <mesh position={[0, 13.2 + i * 6.5, 0]}>
+              <coneGeometry args={[(9 - i * 2.2) * 0.62, (11 - i * 2) * 0.6, 9]} />
+              <meshStandardMaterial color="#f2f6fb" roughness={0.7} flatShading />
+            </mesh>
+          )}
+        </group>
       ))}
     </group>
   );
@@ -441,7 +527,7 @@ function Rock({ x, y, s, seed }: { x: number; y: number; s: number; seed: number
   return (
     <mesh castShadow receiveShadow position={[x, y, s * 0.45]} rotation={[seed * 0.7, seed * 1.3, seed * 2.1]} scale={[1.35, 1, 0.75]}>
       <dodecahedronGeometry args={[s, 0]} />
-      <meshStandardMaterial color="#454b56" roughness={0.95} flatShading />
+      <meshStandardMaterial color="#6b6a64" roughness={0.95} flatShading />
     </mesh>
   );
 }
@@ -452,47 +538,59 @@ function Pillar({ x, y }: { x: number; y: number }) {
     <group position={[x, y, 0]} rotation-x={Math.PI / 2}>
       <mesh castShadow receiveShadow position={[0, 1, 0]}>
         <boxGeometry args={[7, 2, 7]} />
-        <meshStandardMaterial color="#5e5a53" roughness={0.9} />
+        <meshStandardMaterial color="#7a766d" roughness={0.9} />
       </mesh>
       <mesh castShadow position={[0, 16, 0]}>
         <cylinderGeometry args={[2.2, 2.6, 28, 10]} />
-        <meshStandardMaterial color="#6b665e" roughness={0.85} />
+        <meshStandardMaterial color="#8a857b" roughness={0.85} />
       </mesh>
       <mesh castShadow position={[0, 30.8, 0]}>
         <boxGeometry args={[6.5, 1.8, 6.5]} />
-        <meshStandardMaterial color="#5e5a53" roughness={0.9} />
+        <meshStandardMaterial color="#7a766d" roughness={0.9} />
       </mesh>
       <mesh position={[0, 34, 0]}>
         <sphereGeometry args={[1.3, 12, 12]} />
         <meshStandardMaterial color="#ffb25a" emissive="#ffa040" emissiveIntensity={4} />
       </mesh>
-      <pointLight position={[0, 35, 0]} color="#ffa64d" intensity={3500} distance={150} decay={2} />
+      <pointLight position={[0, 35, 0]} color="#ffa64d" intensity={2500} distance={150} decay={2} />
     </group>
   );
 }
 
+/**
+ * Around the garden: lantern pillars at the far corners, a wood along the far edge and down
+ * both sides, each stretch in the season of the bed beside it (garden.ts): spring on your
+ * side to the left, summer beyond it, autumn beyond the right, winter on your side to the
+ * right. Rocks lie along the sides, just off the table.
+ */
 function Props({ w, tableH }: { w: number; tableH: number }) {
   const side = w / 2;
   return (
     <>
-      <Pillar x={-(side - 16)} y={tableH - 4} />
-      <Pillar x={side - 16} y={tableH - 4} />
-      {/* A wood along the far edge, in the strip past the top seats' rows (their piles hang over it on the screen), and past both sides. */}
-      <Tree x={-side * 0.62} y={tableH * 0.96} s={0.9} />
-      <Tree x={-side * 0.38} y={tableH * 0.99} s={1.05} />
-      <Tree x={-side * 0.1} y={tableH * 0.97} s={0.85} />
-      <Tree x={side * 0.18} y={tableH * 0.99} s={1} />
-      <Tree x={side * 0.44} y={tableH * 0.96} s={0.95} />
-      <Tree x={side * 0.68} y={tableH + 4} s={1.1} />
-      <Tree x={-side - 6} y={tableH * 0.55} s={1.2} />
-      <Tree x={side + 8} y={tableH * 0.5} s={1.1} />
-      <Tree x={-side - 14} y={tableH * 0.85} s={1} />
-      <Tree x={side + 16} y={tableH * 0.9} s={1.05} />
+      <Pillar x={-(side - 5)} y={tableH - 1.5} />
+      <Pillar x={side - 5} y={tableH - 1.5} />
+      {/* The far edge: summer on the left half, autumn on the right. */}
+      <RoundTree x={-side * 0.72} y={tableH + 4} s={1.1} season="summer" />
+      <Tree x={-side * 0.48} y={tableH + 7} s={1} />
+      <RoundTree x={-side * 0.22} y={tableH + 3} s={0.95} season="summer" />
+      <RoundTree x={side * 0.2} y={tableH + 4} s={1} season="autumn" />
+      <RoundTree x={side * 0.46} y={tableH + 6} s={1.1} season="autumn" />
+      <Tree x={side * 0.7} y={tableH + 3} s={0.9} />
+      {/* The left side: spring nearer you, summer further up. */}
+      <RoundTree x={-side - 9} y={tableH * 0.32} s={1.2} season="spring" />
+      <RoundTree x={-side - 7} y={tableH * 0.5} s={1} season="spring" />
+      <RoundTree x={-side - 12} y={tableH * 0.72} s={1.15} season="summer" />
+      <Tree x={-side - 16} y={tableH * 0.9} s={1} />
+      {/* The right side: winter nearer you, autumn further up. */}
+      <Tree x={side + 9} y={tableH * 0.3} s={1.1} snow />
+      <Tree x={side + 8} y={tableH * 0.48} s={0.95} snow />
+      <RoundTree x={side + 12} y={tableH * 0.7} s={1.1} season="autumn" />
+      <RoundTree x={side + 16} y={tableH * 0.9} s={1} season="autumn" />
       {[0.12, 0.3, 0.52, 0.74, 0.92].map((f, i) => (
-        <Rock key={`l${i}`} x={-(side - 5) + (i % 2) * 2} y={tableH * f} s={2.2 + (i % 3)} seed={i + 1} />
+        <Rock key={`l${i}`} x={-(side + 2.5) + (i % 2) * 1.5} y={tableH * f} s={2.2 + (i % 3)} seed={i + 1} />
       ))}
       {[0.08, 0.26, 0.48, 0.7, 0.88].map((f, i) => (
-        <Rock key={`r${i}`} x={side - 5 - (i % 2) * 2} y={tableH * f} s={2 + ((i + 1) % 3)} seed={i + 7} />
+        <Rock key={`r${i}`} x={side + 2.5 - (i % 2) * 1.5} y={tableH * f} s={2 + ((i + 1) % 3)} seed={i + 7} />
       ))}
     </>
   );
@@ -508,11 +606,12 @@ const hit = new Vector3();
 
 /**
  * Keeps `card`'s proxy on the card on the screen: a box the card's size (`w` × `h` rem), laid
- * by a homography onto its top face's four projected corners (`quadMatrix`), so the badges
+ * by a homography onto its top face's four projected corners (`quadMatrix`; the face is `z` up
+ * from the group's origin), so the badges
  * turn and foreshorten with it, and `getBoundingClientRect()` still gives the card's box.
  * Styles are written straight to the element, off React, and only when they change.
  */
-function useProxy(id: string, group: RefObject<Group | null>, w: number, h: number) {
+function useProxy(id: string, group: RefObject<Group | null>, w: number, h: number, z = CARD_THICKNESS / 2) {
   const { camera, gl } = useThree();
   const last = useRef('');
   /** `time`: the frame's clock, so the page is measured once a frame for all the proxies. */
@@ -532,7 +631,7 @@ function useProxy(id: string, group: RefObject<Group | null>, w: number, h: numb
     }
     o.updateMatrixWorld();
     CORNERS.forEach(([sx, sy], i) => {
-      corner.set((sx * w) / 2, (sy * h) / 2, CARD_THICKNESS / 2);
+      corner.set((sx * w) / 2, (sy * h) / 2, z);
       o.localToWorld(corner).project(camera);
       quad[i][0] = page.x + ((corner.x + 1) / 2) * page.w;
       quad[i][1] = page.y + ((1 - corner.y) / 2) * page.h;
@@ -551,6 +650,8 @@ function useProxy(id: string, group: RefObject<Group | null>, w: number, h: numb
     el.style.width = `${bw.toFixed(2)}px`;
     el.style.height = `${bh.toFixed(2)}px`;
     el.style.fontSize = `${(bw / 10).toFixed(2)}px`;
+    // A pile's own size (`.pile`), for a zone's proxy.
+    el.style.setProperty('--pile-w', `${bw.toFixed(2)}px`);
     el.style.transform = `matrix3d(${matrix})`;
   };
 }
@@ -578,26 +679,36 @@ function onTable(table: Group, camera: PerspectiveCamera, canvas: HTMLCanvasElem
   return table.worldToLocal(hit);
 }
 
-/** The six faces of a card's box: edges, then the face on top (+z) and the back underneath (-z). */
+/** A card's three materials (`cardGeometry`): its edge, the face on top (+z) and the back underneath (-z). */
 function CardMaterials({ face, back, d, tapped, phased }: { face: Texture | null; back: Texture; d: ReturnType<typeof data>; tapped: boolean; phased: boolean }) {
   const tint = tapped ? '#8f8f8f' : '#ffffff';
   const opacity = phased ? 0.35 : 1;
-  const edge = { color: tapped ? '#8d877a' : '#ded6c2', roughness: 0.8, transparent: phased, opacity };
   return (
     <>
-      {[0, 1, 2, 3].map((i) => (
-        <meshStandardMaterial key={i} attach={`material-${i}`} {...edge} />
-      ))}
+      <meshStandardMaterial attach="material-0" color={tapped ? '#8d877a' : '#ded6c2'} roughness={0.8} transparent={phased} opacity={opacity} />
       {/* Keyed on having the image: a material made without a map can't be given one later without rebuilding its shader. */}
       {face ? (
-        <meshStandardMaterial key="face" attach="material-4" map={face} color={tint} roughness={0.55} metalness={0} transparent={phased} opacity={opacity} />
+        <meshStandardMaterial key="face" attach="material-1" map={face} color={tint} roughness={0.55} metalness={0} transparent={phased} opacity={opacity} />
       ) : (
         // No image yet (or none loads): the frame's colour, with the proxy's badges over it.
-        <meshStandardMaterial key="plain" attach="material-4" color={FRAME[frameOf(d)] ?? FRAME.artifact} roughness={0.7} transparent={phased} opacity={opacity} />
+        <meshStandardMaterial key="plain" attach="material-1" color={FRAME[frameOf(d)] ?? FRAME.artifact} roughness={0.7} transparent={phased} opacity={opacity} />
       )}
-      <meshStandardMaterial attach="material-5" map={back} roughness={0.6} transparent={phased} opacity={opacity} />
+      <meshStandardMaterial attach="material-2" map={back} roughness={0.6} transparent={phased} opacity={opacity} />
     </>
   );
+}
+
+/** A card's shape at `w` × `h` (`cardGeometry`), and its glow's, made once per size and freed after. */
+function useCardShapes(w: number, h: number) {
+  const shapes = useMemo(() => ({ card: cardGeometry(w, h, CARD_THICKNESS), glow: roundedPlane(w * 1.16, h * 1.12, w * 0.12) }), [w, h]);
+  useEffect(
+    () => () => {
+      shapes.card.dispose();
+      shapes.glow.dispose();
+    },
+    [shapes],
+  );
+  return shapes;
 }
 
 /** The frame colours (`--f-*` in styles.css). */
@@ -637,7 +748,8 @@ function Card3D({ pose, seat, phased }: { pose: Pose<Card>; seat: Seat; phased: 
   const { camera, gl } = useThree();
   const flight = useRef<{ started: boolean; landed: boolean }>({ started: false, landed: false });
   const updateProxy = useProxy(card.id, group, pose.w, pose.h);
-  // Only a pile's bottom card lies on the floor; the ones over it shadow it through the moon.
+  const shapes = useCardShapes(pose.w, pose.h);
+  // Only a pile's bottom card lies on the floor; the ones over it shadow it through the sun.
   const grounded = pose.stack === 0;
 
   useFrame((state, dt) => {
@@ -710,8 +822,7 @@ function Card3D({ pose, seat, phased }: { pose: Pose<Card>; seat: Seat; phased: 
 
   return (
     <group ref={group}>
-      <mesh castShadow receiveShadow onPointerOver={hover} onPointerOut={unhover} onClick={click}>
-        <boxGeometry args={[pose.w, pose.h, CARD_THICKNESS]} />
+      <mesh castShadow receiveShadow geometry={shapes.card} onPointerOver={hover} onPointerOut={unhover} onClick={click}>
         <CardMaterials face={face} back={back} d={d} tapped={card.tapped} phased={phased} />
       </mesh>
       {grounded && (
@@ -721,8 +832,7 @@ function Card3D({ pose, seat, phased }: { pose: Pose<Card>; seat: Seat; phased: 
         </mesh>
       )}
       {glow && (
-        <mesh ref={glowRef} position={[0, 0, -CARD_THICKNESS / 2 + GLOW_Z]} raycast={() => null}>
-          <planeGeometry args={[pose.w * 1.16, pose.h * 1.12]} />
+        <mesh ref={glowRef} geometry={shapes.glow} position={[0, 0, -CARD_THICKNESS / 2 + GLOW_Z]} raycast={() => null}>
           <meshBasicMaterial color={GLOW[glow]} transparent opacity={0.9} toneMapped={false} />
         </mesh>
       )}
@@ -740,6 +850,7 @@ function Attached({ card, host, index, inward }: { card: Card; host: Pose<Card>;
   const face = useCardTexture(faceUp(card, v.me) ? d.image : null);
   const group = useRef<Group>(null);
   const updateProxy = useProxy(card.id, group, host.w, host.h);
+  const shapes = useCardShapes(host.w, host.h);
   useFrame((state) => {
     const el = proxies.get(card.id);
     if (el && el.dataset.card !== card.id) el.dataset.card = card.id;
@@ -750,6 +861,7 @@ function Attached({ card, host, index, inward }: { card: Card; host: Pose<Card>;
     <group ref={group} position={[0, inward * 1.6 * (index + 1), -(index + 1) * CARD_THICKNESS]}>
       <mesh
         castShadow
+        geometry={shapes.card}
         onPointerOver={(e) => {
           e.stopPropagation();
           const el = proxies.get(card.id);
@@ -764,14 +876,67 @@ function Attached({ card, host, index, inward }: { card: Card; host: Pose<Card>;
           clickPermanent(card);
         }}
       >
-        <boxGeometry args={[host.w, host.h, CARD_THICKNESS]} />
         <CardMaterials face={face} back={backTexture()} d={d} tapped={card.tapped} phased={false} />
       </mesh>
       {glow && (
-        <mesh position={[0, 0, -CARD_THICKNESS / 2 + GLOW_Z]} raycast={() => null}>
-          <planeGeometry args={[host.w * 1.16, host.h * 1.12]} />
+        <mesh geometry={shapes.glow} position={[0, 0, -CARD_THICKNESS / 2 + GLOW_Z]} raycast={() => null}>
           <meshBasicMaterial color={GLOW[glow]} transparent opacity={0.9} toneMapped={false} />
         </mesh>
+      )}
+    </group>
+  );
+}
+
+/** How thick a card in a pile is drawn, in rem: thinner than a card on the table, so a 99-card library stands 3.5 rem. */
+const PILE_CARD = 0.035;
+
+/** A pile's look: its top's tint and its edges'. The graveyard is worn and browned, exile washed out and pale blue, as the CSS piles are. */
+const PILE_LOOK: Record<PileZone, { tint: string; edge: string }> = {
+  library: { tint: '#ffffff', edge: '#2d333e' },
+  graveyard: { tint: '#c9b79a', edge: '#4a3d2e' },
+  exile: { tint: '#b4c6ea', edge: '#9fb8e0' },
+};
+
+/**
+ * A library, graveyard or exile lying on the table at `spot`: a block as thick as the pile,
+ * its top the library's back or the top card's face, with the soft shadow a card has. Its
+ * proxy (`ZoneProxy`) is kept on its top. Nothing is drawn while it is empty: the proxy's
+ * outline marks the place.
+ */
+function Pile3D({ player, zone, spot }: { player: Player; zone: PileZone; spot: PileSpot }) {
+  const { v } = useScene();
+  const cards = player[zone];
+  const n = cards.length;
+  const top = cards[n - 1];
+  const thick = n ? Math.max(CARD_THICKNESS, n * PILE_CARD) : 0;
+  const up = zone !== 'library' && top && faceUp(top, v.me);
+  const face = useCardTexture(up ? data(top).image : null);
+  const back = backTexture();
+  // One card's shape, a rem thick, stretched to the pile's thickness.
+  const shape = useMemo(() => cardGeometry(spot.w, spot.h, 1), [spot.w, spot.h]);
+  useEffect(() => () => shape.dispose(), [shape]);
+  const group = useRef<Group>(null);
+  const updateProxy = useProxy(zoneKey(player.id, zone), group, spot.w, spot.h, thick + 0.01);
+  useFrame((state) => updateProxy(state.clock.elapsedTime));
+  const look = PILE_LOOK[zone];
+  return (
+    <group ref={group} position={[spot.x, spot.y, 0]}>
+      {n > 0 && (
+        <>
+          <mesh castShadow receiveShadow geometry={shape} position-z={thick / 2} scale-z={thick} raycast={() => null}>
+            <meshStandardMaterial attach="material-0" color={look.edge} roughness={0.9} />
+            {face ? (
+              <meshStandardMaterial key="face" attach="material-1" map={face} color={look.tint} roughness={0.6} />
+            ) : (
+              <meshStandardMaterial key="back" attach="material-1" map={back} roughness={0.6} />
+            )}
+            <meshStandardMaterial attach="material-2" map={back} roughness={0.6} />
+          </mesh>
+          <mesh position-z={SHADOW_Z} renderOrder={-1} raycast={() => null}>
+            <planeGeometry args={[spot.w * (1 + 2 * SHADOW_SPREAD), spot.h + 2 * SHADOW_SPREAD * spot.w]} />
+            <meshBasicMaterial map={shadowTexture()} color="#000000" transparent opacity={SHADOW_OPACITY} depthWrite={false} />
+          </mesh>
+        </>
       )}
     </group>
   );
