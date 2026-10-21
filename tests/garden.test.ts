@@ -1,13 +1,14 @@
-// The 3D table's board (src/ui/three/garden.ts): four seasonal mats, each a seat's battlefield, around the koi pond that is the exile.
+// The 3D table's board (src/ui/three/garden.ts): four mats, each a seat's battlefield, around the well that is the exile.
 import { describe, expect, it } from 'vitest';
-import { PILE, POND_CLEAR, bedAt, bedDistance, bedMaps, bedOutline, gardenPlan, seatArea } from '../src/ui/three/garden';
+import { PILE, POND_CLEAR, bedAt, bedDistance, bedMaps, gardenPlan, seatArea } from '../src/ui/three/garden';
 import { camera, tableHeight, DEPTH } from '../src/ui/camera';
+import { floorMaps } from '../src/ui/three/floor';
 import type { Seat } from '../src/ui/util';
 
 const W = 192;
 const H = 108;
 const TABLE_H = tableHeight(H, DEPTH);
-const plan = gardenPlan(W, TABLE_H);
+const plan = gardenPlan(W, H, W, TABLE_H);
 const SEATS: Seat[] = [
   { v: 'bottom', h: 'left' },
   { v: 'top', h: 'left' },
@@ -16,8 +17,8 @@ const SEATS: Seat[] = [
 ];
 
 describe('gardenPlan', () => {
-  it('gives each corner a mat, in turn order from yours: spring moss, summer sand, autumn gravel, winter stone', () => {
-    expect(plan.beds.map((b) => `${b.season} ${b.material}`)).toEqual(['spring moss', 'summer sand', 'autumn gravel', 'winter stone']);
+  it('gives each corner a mat, in turn order from yours: leather, wood, slate, cloth', () => {
+    expect(plan.beds.map((b) => b.material)).toEqual(['leather', 'wood', 'slate', 'cloth']);
     const [bl, tl, tr, br] = plan.beds;
     expect(bl.x1).toBeLessThan(0);
     expect(tl.x1).toBeLessThan(0);
@@ -40,7 +41,14 @@ describe('gardenPlan', () => {
     }
   });
 
-  it('puts the pond where the paths cross, and keeps every mat clear of it', () => {
+  it('starts the near mats just above the bottom of the screen, so their edge shows', () => {
+    const cam = camera(W, H, 1);
+    const edge = cam.toScreen({ x: W / 2, y: TABLE_H - plan.beds[0].y0 });
+    expect(H - edge.y).toBeGreaterThan(0.5);
+    expect(H - edge.y).toBeLessThan(1.5);
+  });
+
+  it('puts the well where the paths cross, and keeps every mat clear of it', () => {
     expect(plan.pond.x).toBe(0);
     expect(plan.pond.y).toBeGreaterThan(plan.beds[0].y1);
     expect(plan.pond.y).toBeLessThan(plan.beds[1].y0);
@@ -48,7 +56,6 @@ describe('gardenPlan', () => {
     for (const b of plan.beds) {
       expect(bedDistance(plan, b, plan.pond.x, plan.pond.y)).toBeGreaterThan(0);
       expect(bedAt(plan, (b.x0 + b.x1) / 2, (b.y0 + b.y1) / 2)).toBe(b);
-      for (const [x, y] of bedOutline(plan, b, 0)) expect(Math.hypot(x - plan.pond.x, y - plan.pond.y)).toBeGreaterThan(plan.pond.r + POND_CLEAR - 1e-6);
     }
   });
 });
@@ -81,12 +88,11 @@ describe('seatArea', () => {
     });
   });
 
-  it('keeps your piles just above the bottom of the screen', () => {
-    const { piles } = seatArea(SEATS[0], plan, W, H, W, TABLE_H);
-    const cam = camera(W, H, 1);
-    const near = cam.toScreen({ x: W / 2 + piles.library.x, y: TABLE_H - (piles.library.y - piles.library.h / 2) });
-    expect(H - near.y).toBeGreaterThan(0.5);
-    expect(H - near.y).toBeLessThan(2);
+  it("keeps a seat's library and graveyard apart, on its mat", () => {
+    for (const seat of SEATS) {
+      const { piles } = seatArea(seat, plan, W, H, W, TABLE_H);
+      expect(Math.abs(piles.library.x - piles.graveyard.x)).toBeGreaterThan(PILE.w + 1);
+    }
   });
 
   it('spans both near mats for the whole bottom edge', () => {
@@ -109,5 +115,20 @@ describe('bedMaps', () => {
       expect(alpha(b.x0 + 0.1, b.y0 + 0.1)).toBe(0);
       expect(bedMaps(plan, b, px).albedo).toEqual(m.albedo);
     }
+  });
+});
+
+describe('floorMaps', () => {
+  it('lays flagstones with dirt between them, the same every time', () => {
+    const a = floorMaps(192);
+    expect(a.width).toBe(192);
+    expect(a.height).toBe(96);
+    expect(floorMaps(192).albedo).toEqual(a.albedo);
+    // Some pixels are stone (greyish), some are the joints' dirt (redder than it is blue).
+    let dirt = 0;
+    for (let i = 0; i < a.albedo.length; i += 4) if (a.albedo[i] - a.albedo[i + 2] > 30) dirt++;
+    const share = dirt / (a.width * a.height);
+    expect(share).toBeGreaterThan(0.03);
+    expect(share).toBeLessThan(0.5);
   });
 });

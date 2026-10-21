@@ -1336,12 +1336,18 @@ button {
   position: absolute;
   left: 50%;
   top: 50%;
-  translate: -50% -50%;
+  /* The glyph's ink sits 2.5% of its box low (measured in the mana font): up by as much, so it is centred on the card. */
+  translate: -50% -52.5%;
   font-size: 5.2em;
   line-height: 1;
-  color: rgba(255, 255, 255, 0.5);
-  text-shadow: 0 0 0.08em rgba(0, 0, 0, 0.7);
+  color: rgba(255, 255, 255, 0.75);
+  text-shadow: 0 0 0.06em rgba(0, 0, 0, 0.55);
   pointer-events: none;
+}
+
+/* In a pile, only the top card carries it. */
+.stack > :not(:last-child) .tap-symbol {
+  display: none;
 }
 
 /* A tile is landscape (5:4): the symbol takes most of its height instead. */

@@ -92,7 +92,7 @@ let shadow: CanvasTexture | null = null;
 /**
  * The soft dark under a card where it touches the floor (Table3D.tsx, `Card3D`): black, opaque
  * under the card and fading out over SHADOW_SPREAD past its edges, for a plane that size. The
- * sun's shadow of a card this thin is a sliver; this is the occlusion a card lying flat makes
+ * overhead light's shadow of a card this thin is a sliver; this is the occlusion a card lying flat makes
  * all around it, which is what shows it resting on the stone. Drawn once.
  */
 export function shadowTexture(): CanvasTexture {

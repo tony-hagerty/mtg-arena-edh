@@ -88,13 +88,15 @@ src/ui/         App.tsx               menu or game screen; GameScreen.tsx lays t
                                       cards' proxies; layout3d.ts where each card lies in its
                                       rows and the camera that matches camera.ts (pure
                                       maths, tested); geometry.ts a card's rounded shape;
-                                      garden.ts the board's plan: four seasonal mats, each
-                                      a seat's battlefield (seatArea: its rows' box and its
-                                      piles), and the koi pond that is the shared exile,
-                                      with the mats' maps (pure maths, tested); Garden.tsx
-                                      draws it; effects.tsx the bursts a click on the board
-                                      makes; floor.ts the flagstones; textures.ts card
-                                      faces, back and floor
+                                      garden.ts the board's plan: four mats, each a seat's
+                                      battlefield (seatArea: its rows' box and its piles),
+                                      and the well that is the shared exile, with the mats'
+                                      maps (pure maths, tested); Garden.tsx draws them and
+                                      the well's whirlpool; Hall.tsx the stone walls and
+                                      the torches; effects.tsx the bursts a click on the
+                                      board makes; floor.ts the flagstones; noise.ts the
+                                      noise they share; textures.ts card faces, back and
+                                      floor
                 card-back.svg         the back of every card, CSS and 3D alike
                 cursor.png            the mouse cursor, and cursor-down.png while a
                                       button is held (see Credits)
@@ -183,7 +185,7 @@ fixed spot on a 192 × 108 grid.
 **The table leans away from you**, like Arena's: `.table` (GameScreen.tsx) is turned by
 `TILT` (10°) about its bottom edge under a perspective of `DEPTH`, both in
 `src/ui/camera.ts`, which sets them on the stage as `--tilt` and `--depth`. The 3D table
-(`TABLE_3D`: the usual table, unless `?table=css` or the browser has no WebGL 2) has its own, steeper pair (30° and 170rem, the far edge about 0.6
+(`TABLE_3D`: the usual table, unless `?table=css` or the browser has no WebGL 2) has its own, steeper pair (26° and 170rem, the far edge about 0.6
 of the near one), and everything that projects through `camera()` follows it. The table is
 taller than the screen by just enough that, leaned over, its far edge lands on the top of
 the screen (`tableHeight`, set as `--table-h`).
@@ -193,8 +195,8 @@ the screen (`tableHeight`, set as `--table-h`).
 seat-left` and the like). Two players sit bottom left and top right, three leave you the
 whole bottom edge (`full`) and take the top corners, four go bottom left, top left, top
 right, bottom right. On the 3D table each seat's rows and piles lie on its mat instead
-(`seatArea` in three/garden.ts: the mat short of its piles and the pond, no lean), with
-exile shared in the pond. On the CSS table each seat is drawn in two parts:
+(`seatArea` in three/garden.ts: the mat short of its piles and the well, no lean), with
+exile shared in the well. On the CSS table each seat is drawn in two parts:
 
 - **Its rows lie on the table** (`Seat` in Board.tsx, inside `.table`): lands nearest the
   seat's edge, then the other permanents, then creatures nearest the middle. `seatBox` in

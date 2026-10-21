@@ -20,6 +20,7 @@ import { newGame, zoneMoves } from '../zone-moves';
 import type { Place } from '../zone-moves';
 import { AREA } from './floor';
 import { Garden, WATER_Z } from './Garden';
+import { Hall } from './Hall';
 import type { Floating } from './Garden';
 import { burst } from './effects';
 import { gardenPlan, seatArea } from './garden';
@@ -43,9 +44,9 @@ import { SHADOW_SPREAD, backTexture, shadowTexture, useCardTexture, useFloorText
   push in while combat is on.
 
   The cards are thin slabs with rounded corners (geometry.ts), the card's image on top and a
-  drawn back underneath, lit and casting shadows on the board (Garden.tsx: beds of raked sand
-  on a flagstone floor, floor.ts, around a koi pond), each with a soft dark under it where it
-  rests, with trees, rocks and lantern pillars around it. Each seat's library, graveyard and
+  drawn back underneath, lit and casting shadows on the board (Garden.tsx: four mats on a
+  flagstone floor, floor.ts, around a well), each with a soft dark under it where it rests, in
+  a torch-lit stone hall (Hall.tsx). Each seat's library, graveyard and
   exile lie on the table too (`Pile3D`). Their
   hover, click and glow come from raycasting on the meshes and go to the same view.ts handlers
   the CSS tiles call.
@@ -65,7 +66,7 @@ const PARAMS = typeof location !== 'undefined' ? new URLSearchParams(location.se
 /** `?quality=low`: no shadows and no high-DPI drawing, for a weak machine. */
 const LOW = PARAMS.get('quality') === 'low';
 
-const BG = '#141a17';
+const BG = '#06070a';
 /** How far a tapped card is turned (rad). The CSS tile's is 8°. */
 const TAPPED_RAD = (8 * Math.PI) / 180;
 /** The highlight colours (`--play`, `--target`, `--danger` in styles.css). */
@@ -157,12 +158,12 @@ interface SeatLayout {
 }
 
 /**
- * The piles each seat has on the 3D table. Exile is not one: it is shared (400.1), the pond
+ * The piles each seat has on the 3D table. Exile is not one: it is shared (400.1), the well
  * in the middle (Garden.tsx), with every player's exiled cards in it.
  */
 type PileZone = 'library' | 'graveyard';
 const ZONES: PileZone[] = ['library', 'graveyard'];
-/** The pond's proxy, in the proxies' map: the exile's stand-in on the screen. */
+/** The well's proxy, in the proxies' map: the exile's stand-in on the screen. */
 const EXILE_KEY = 'exile';
 /** A zone's proxy, in the proxies' map. */
 const zoneKey = (pid: number, zone: PileZone) => `zone:${pid}:${zone}`;
@@ -192,9 +193,9 @@ export default function Table3D({ players }: { players: Player[] }) {
   const table = useTableSize();
   const speed = useStore((s) => s.speed);
   // Laid out again only when the size changes by a rem or more, so a resize doesn't redraw the mats every frame.
-  const size = `${Math.round(stage.w)}x${Math.round(table.h)}`;
+  const size = `${Math.round(stage.w)}x${Math.round(stage.h)}x${Math.round(table.h)}`;
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  const plan = useMemo(() => gardenPlan(stage.w, table.h), [size]);
+  const plan = useMemo(() => gardenPlan(stage.w, stage.h, stage.w, table.h), [size]);
   const seats = layoutSeats(v, players, plan, stage.w, stage.h, table.h);
   useEffect(() => useStore.subscribe((s, old) => captureOrigins(s.game, old.game)), []);
   return (
@@ -205,7 +206,7 @@ export default function Table3D({ players }: { players: Player[] }) {
       <div className="card-proxies">
         {seats.flatMap((s) =>
           s.poses.flatMap((p) => [
-            <CardProxy key={p.item.id} card={p.item} g={v.g} pile={s.piles.get(p.item.id)} />,
+            <CardProxy key={p.item.id} card={p.item} g={v.g} pile={s.piles.get(p.item.id)} covered={p.stack < p.pile - 1} />,
             ...attachmentsOf(v.g, p.item).map((a) => <CardProxy key={a.id} card={a} g={v.g} />),
           ]),
         )}
@@ -225,8 +226,9 @@ export default function Table3D({ players }: { players: Player[] }) {
 /**
  * A card's stand-in on the screen (see the note at the top): kept over the card by `useProxy`,
  * carrying its badges. `pile`: it is the top of a pile, whose badge uses them all at once.
+ * `covered`: another card of its pile lies on it, so it shows no tap symbol (the top one does).
  */
-function CardProxy({ card, g, pile }: { card: Card; g: Game; pile?: Card[] }) {
+function CardProxy({ card, g, pile, covered = false }: { card: Card; g: Game; pile?: Card[]; covered?: boolean }) {
   const ref = useCallback(
     (el: HTMLDivElement | null) => {
       if (el) proxies.set(card.id, el);
@@ -252,7 +254,7 @@ function CardProxy({ card, g, pile }: { card: Card; g: Game; pile?: Card[] }) {
       <Counters card={card} />
       {sick && <i className="tile-sick ms ms-ability-summoning-sickness" title="Summoning sick" />}
       {/* The 3D card already dims when tapped; the proxy adds only the symbol. */}
-      {card.tapped && <i className="tap-symbol ms ms-tap" />}
+      {card.tapped && !covered && <i className="tap-symbol ms ms-tap" />}
       {card.textless && <TextlessBadge />}
       {pile && (
         <div
@@ -296,9 +298,9 @@ function ZoneProxy({ id, children }: { id: string; children: ReactNode }) {
 const openExile = () => useStore.setState({ viewer: { pid: null, zone: 'exile' }, hover: null });
 
 /**
- * The exile's stand-in on the screen, kept over the pond like a pile's (`ExileAnchor`): a
- * round the pond's size carrying the count and the exile's mark, glowing when something in
- * exile can be cast. It takes no pointer events (the pond takes the clicks), and holds one
+ * The exile's stand-in on the screen, kept over the well like a pile's (`ExileAnchor`): a
+ * round the well's size carrying the count and the exile's mark, glowing when something in
+ * exile can be cast. It takes no pointer events (the well takes the clicks), and holds one
  * spot per player for the flights to and from their exiled cards (`[data-pile]`).
  */
 function ExileProxy({ players }: { players: Player[] }) {
@@ -315,7 +317,7 @@ function ExileProxy({ players }: { players: Player[] }) {
         {players.map((p) => (
           <div key={p.id} className="exile-spot" data-pile={`${p.id}-exile`} />
         ))}
-        <div className="exile-badge" title={`Exile: ${total} cards — right-click the pond to view`}>
+        <div className="exile-badge" title={`Exile: ${total} cards — right-click the well to view`}>
           <i className="ms ms-exile" />
           {total}
         </div>
@@ -340,7 +342,7 @@ const inCombat = (g: Game) => g.step === 'beginCombat' || g.step === 'attackers'
 function Scene({ v, speed, w, h, tableH, seats, plan, players }: { v: View; speed: number; w: number; h: number; tableH: number; seats: SeatLayout[]; plan: GardenPlan; players: Player[] }) {
   const table = useRef<Group>(null);
   const state = useMemo(() => ({ v, speed, table }), [v, speed]);
-  // The top of each player's exile floats on the pond; one exiled face down shows its back (406.3).
+  // The top of each player's exile circles in the well; one exiled face down shows its back (406.3).
   const exiled: Floating[] = players.flatMap((p) => {
     const top = p.exile[p.exile.length - 1];
     return top ? [{ id: top.id, image: faceUp(top, v.me) ? data(top).image : null }] : [];
@@ -359,7 +361,7 @@ function Scene({ v, speed, w, h, tableH, seats, plan, players }: { v: View; spee
           <Floor w={w} tableH={tableH} />
           <Garden plan={plan} exiled={exiled} onExile={openExile} />
           <ExileAnchor plan={plan} />
-          <Props w={w} tableH={tableH} />
+          <Hall w={w} tableH={tableH} cross={plan.pond.y} />
           {seats.map((s) => s.poses.map((p) => <Card3D key={p.item.id} pose={p} seat={s.seat} phased={s.phased.has(p.item.id)} />))}
           {seats.flatMap((s) => ZONES.map((zone) => <Pile3D key={zoneKey(s.player.id, zone)} player={s.player} zone={zone} spot={s.zones[zone]} />))}
         </group>
@@ -395,19 +397,19 @@ function Rig({ w, h, combat }: { w: number; h: number; combat: boolean }) {
   return null;
 }
 
-/** Where the sun is, in the world: high, beyond the far edge and to the left, low enough in the afternoon to rake across the sand. */
-const SUN = new Vector3(-170, 240, 200);
+/** Where the light from above comes from, in the world: high, beyond the far edge and to the left, as from a shaft in the hall's roof. */
+const OVERHEAD = new Vector3(-170, 240, 200);
 
 /**
- * The sun's shadow camera fitted to the table and what stands on it: the box, in the light's
+ * The overhead light's shadow camera fitted to the table and what stands on it: the box, in the light's
  * own view, around the table (with a margin for the props past its sides and far edge) from
  * the floor up to the treetops. The tighter it is, the more shadow map each card gets: a card
  * is 0.12 rem thick, so its shadow is a sliver that a loose box blurs away.
  */
-function sunShadowBox(w: number, tableH: number) {
+function overheadShadowBox(w: number, tableH: number) {
   // A camera, not a plain object: lookAt turns a camera's -z to the target, as the shadow camera's is.
   const view = new OrthographicCamera();
-  view.position.copy(SUN);
+  view.position.copy(OVERHEAD);
   view.lookAt(0, 0, 0);
   view.updateMatrixWorld();
   const toView = view.matrixWorldInverse;
@@ -436,23 +438,24 @@ function sunShadowBox(w: number, tableH: number) {
 }
 
 function Lights({ w, tableH }: { w: number; tableH: number }) {
-  const box = useMemo(() => sunShadowBox(w, tableH), [w, tableH]);
-  const sun = useRef<DirectionalLight>(null);
+  const box = useMemo(() => overheadShadowBox(w, tableH), [w, tableH]);
+  const overhead = useRef<DirectionalLight>(null);
   // Three reads the shadow camera's bounds only when it first sets the shadow up: a new size needs telling.
-  useEffect(() => sun.current?.shadow.camera.updateProjectionMatrix(), [box]);
+  useEffect(() => overhead.current?.shadow.camera.updateProjectionMatrix(), [box]);
   return (
     <>
-      <hemisphereLight args={['#dfe9ff', '#4a4134', 1.25]} />
+      {/* A dim, cool fill: the hall is lit by the torches (Hall.tsx) and the light from above. */}
+      <hemisphereLight args={['#8a98bb', '#1c1610', 0.7]} />
       {/*
-        The sun, late in the afternoon: the one light that casts shadows, over the whole table. The biases are small
+        The light from above, cool and dim: the one light that casts shadows, over the whole table. The biases are small
         next to a card's thickness (0.12): bigger, and the shadow comes loose from the card
         that casts it (peter-panning), so the card seems to float.
       */}
       <directionalLight
-        ref={sun}
-        position={SUN}
-        intensity={2.7}
-        color="#ffeed6"
+        ref={overhead}
+        position={OVERHEAD}
+        intensity={1.9}
+        color="#d6defa"
         castShadow={!LOW}
         shadow-mapSize-width={4096}
         shadow-mapSize-height={4096}
@@ -469,7 +472,7 @@ function Lights({ w, tableH }: { w: number; tableH: number }) {
   );
 }
 
-/** Keeps the exile's proxy (`ExileProxy`) on the pond's water. */
+/** Keeps the exile's proxy (`ExileProxy`) on the well's water. */
 function ExileAnchor({ plan }: { plan: GardenPlan }) {
   const group = useRef<Group>(null);
   const d = plan.pond.r * 2;
@@ -504,9 +507,6 @@ function Floor({ w, tableH }: { w: number; tableH: number }) {
         normalMap={tex.normalMap}
         roughnessMap={tex.roughnessMap}
         roughness={1}
-        emissiveMap={tex.emissiveMap}
-        emissive="#ffffff"
-        emissiveIntensity={0.9}
         vertexColors
       />
     </mesh>
@@ -531,140 +531,6 @@ function floorGeometry(fw: number, fh: number, w: number, tableH: number) {
   }
   geo.setAttribute('color', new BufferAttribute(colors, 3));
   return geo;
-}
-
-/* The props stand on the table (its z up): built from Three's Y-up primitives, so each is turned by a quarter about x. */
-
-/** The seasons' foliage (garden.ts gives each bed its season; the trees nearest it wear it). */
-const LEAVES = {
-  spring: ['#f4b6c9', '#f9cfdb', '#e893ae'],
-  summer: ['#3f8a3c', '#4f9a45', '#356f34'],
-  autumn: ['#d8622a', '#e8962f', '#b8402a'],
-} as const;
-
-/** A broadleaf tree: a trunk and a crown of rounded clumps in the season's colours. */
-function RoundTree({ x, y, s = 1, season }: { x: number; y: number; s?: number; season: keyof typeof LEAVES }) {
-  const leaves = LEAVES[season];
-  const clumps: [number, number, number, number][] = [
-    [0, 13, 0, 5.5],
-    [-3.6, 11, 1.4, 4],
-    [3.4, 11.5, -1, 4.2],
-    [0.6, 16.5, 0.8, 3.8],
-    [-1.4, 10.5, -3, 3.6],
-  ];
-  return (
-    <group position={[x, y, 0]} rotation-x={Math.PI / 2} scale={s}>
-      <mesh castShadow position={[0, 5, 0]}>
-        <cylinderGeometry args={[0.7, 1.3, 10, 7]} />
-        <meshStandardMaterial color={season === 'spring' ? '#4a3332' : '#3a2a1c'} roughness={1} />
-      </mesh>
-      {clumps.map(([cx, cy, cz, r], i) => (
-        <mesh key={i} castShadow position={[cx, cy, cz]}>
-          <icosahedronGeometry args={[r, 0]} />
-          <meshStandardMaterial color={leaves[i % leaves.length]} roughness={0.85} flatShading />
-        </mesh>
-      ))}
-    </group>
-  );
-}
-
-/** A pine: a trunk and tiers of needles; in winter, snow on each tier. */
-function Tree({ x, y, s = 1, snow = false }: { x: number; y: number; s?: number; snow?: boolean }) {
-  return (
-    <group position={[x, y, 0]} rotation-x={Math.PI / 2} scale={s}>
-      <mesh castShadow position={[0, 5, 0]}>
-        <cylinderGeometry args={[0.9, 1.5, 10, 7]} />
-        <meshStandardMaterial color="#3a2a1c" roughness={1} />
-      </mesh>
-      {[0, 1, 2].map((i) => (
-        <group key={i}>
-          <mesh castShadow position={[0, 11 + i * 6.5, 0]}>
-            <coneGeometry args={[9 - i * 2.2, 11 - i * 2, 9]} />
-            <meshStandardMaterial color={i % 2 ? '#1f4a2d' : '#27593a'} roughness={0.9} flatShading />
-          </mesh>
-          {snow && (
-            <mesh position={[0, 13.2 + i * 6.5, 0]}>
-              <coneGeometry args={[(9 - i * 2.2) * 0.62, (11 - i * 2) * 0.6, 9]} />
-              <meshStandardMaterial color="#f2f6fb" roughness={0.7} flatShading />
-            </mesh>
-          )}
-        </group>
-      ))}
-    </group>
-  );
-}
-
-function Rock({ x, y, s, seed }: { x: number; y: number; s: number; seed: number }) {
-  return (
-    <mesh castShadow receiveShadow position={[x, y, s * 0.45]} rotation={[seed * 0.7, seed * 1.3, seed * 2.1]} scale={[1.35, 1, 0.75]}>
-      <dodecahedronGeometry args={[s, 0]} />
-      <meshStandardMaterial color="#6b6a64" roughness={0.95} flatShading />
-    </mesh>
-  );
-}
-
-/** A stone pillar with a lantern on top: a warm light on the cards near it. */
-function Pillar({ x, y }: { x: number; y: number }) {
-  return (
-    <group position={[x, y, 0]} rotation-x={Math.PI / 2}>
-      <mesh castShadow receiveShadow position={[0, 1, 0]}>
-        <boxGeometry args={[7, 2, 7]} />
-        <meshStandardMaterial color="#7a766d" roughness={0.9} />
-      </mesh>
-      <mesh castShadow position={[0, 16, 0]}>
-        <cylinderGeometry args={[2.2, 2.6, 28, 10]} />
-        <meshStandardMaterial color="#8a857b" roughness={0.85} />
-      </mesh>
-      <mesh castShadow position={[0, 30.8, 0]}>
-        <boxGeometry args={[6.5, 1.8, 6.5]} />
-        <meshStandardMaterial color="#7a766d" roughness={0.9} />
-      </mesh>
-      <mesh position={[0, 34, 0]}>
-        <sphereGeometry args={[1.3, 12, 12]} />
-        <meshStandardMaterial color="#ffb25a" emissive="#ffa040" emissiveIntensity={4} />
-      </mesh>
-      <pointLight position={[0, 35, 0]} color="#ffa64d" intensity={2500} distance={150} decay={2} />
-    </group>
-  );
-}
-
-/**
- * Around the garden: lantern pillars at the far corners, a wood along the far edge and down
- * both sides, each stretch in the season of the bed beside it (garden.ts): spring on your
- * side to the left, summer beyond it, autumn beyond the right, winter on your side to the
- * right. Rocks lie along the sides, just off the table.
- */
-function Props({ w, tableH }: { w: number; tableH: number }) {
-  const side = w / 2;
-  return (
-    <>
-      <Pillar x={-(side - 5)} y={tableH - 1.5} />
-      <Pillar x={side - 5} y={tableH - 1.5} />
-      {/* The far edge: summer on the left half, autumn on the right. */}
-      <RoundTree x={-side * 0.72} y={tableH + 4} s={1.1} season="summer" />
-      <Tree x={-side * 0.48} y={tableH + 7} s={1} />
-      <RoundTree x={-side * 0.22} y={tableH + 3} s={0.95} season="summer" />
-      <RoundTree x={side * 0.2} y={tableH + 4} s={1} season="autumn" />
-      <RoundTree x={side * 0.46} y={tableH + 6} s={1.1} season="autumn" />
-      <Tree x={side * 0.7} y={tableH + 3} s={0.9} />
-      {/* The left side: spring nearer you, summer further up. */}
-      <RoundTree x={-side - 9} y={tableH * 0.32} s={1.2} season="spring" />
-      <RoundTree x={-side - 7} y={tableH * 0.5} s={1} season="spring" />
-      <RoundTree x={-side - 12} y={tableH * 0.72} s={1.15} season="summer" />
-      <Tree x={-side - 16} y={tableH * 0.9} s={1} />
-      {/* The right side: winter nearer you, autumn further up. */}
-      <Tree x={side + 9} y={tableH * 0.3} s={1.1} snow />
-      <Tree x={side + 8} y={tableH * 0.48} s={0.95} snow />
-      <RoundTree x={side + 12} y={tableH * 0.7} s={1.1} season="autumn" />
-      <RoundTree x={side + 16} y={tableH * 0.9} s={1} season="autumn" />
-      {[0.12, 0.3, 0.52, 0.74, 0.92].map((f, i) => (
-        <Rock key={`l${i}`} x={-(side + 2.5) + (i % 2) * 1.5} y={tableH * f} s={2.2 + (i % 3)} seed={i + 1} />
-      ))}
-      {[0.08, 0.26, 0.48, 0.7, 0.88].map((f, i) => (
-        <Rock key={`r${i}`} x={side + 2.5 - (i % 2) * 1.5} y={tableH * f} s={2 + ((i + 1) % 3)} seed={i + 7} />
-      ))}
-    </>
-  );
 }
 
 /* ---------- cards ---------- */
@@ -820,7 +686,7 @@ function Card3D({ pose, seat, phased }: { pose: Pose<Card>; seat: Seat; phased: 
   const flight = useRef<{ started: boolean; landed: boolean }>({ started: false, landed: false });
   const updateProxy = useProxy(card.id, group, pose.w, pose.h);
   const shapes = useCardShapes(pose.w, pose.h);
-  // Only a pile's bottom card lies on the floor; the ones over it shadow it through the sun.
+  // Only a pile's bottom card lies on the floor; the ones over it shadow it through the light from above.
   const grounded = pose.stack === 0;
 
   useFrame((state, dt) => {

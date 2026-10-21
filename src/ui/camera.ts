@@ -38,7 +38,7 @@ export const TABLE_3D = typeof location !== 'undefined' && new URLSearchParams(l
  * little, so its tiles' text stays sharp; the 3D one leans as Arena's board does, its far
  * seats foreshortened, with the piles lying on it too.
  */
-export const TILT = TABLE_3D ? 30 : 10;
+export const TILT = TABLE_3D ? 26 : 10;
 /** The perspective distance in rem. Bigger is weaker (flatter). The 3D table's is Arena's: the far edge about 0.6 of the near one. */
 export const DEPTH = TABLE_3D ? 170 : 600;
 
