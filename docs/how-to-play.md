@@ -261,6 +261,7 @@ The full guide to the game's screens and controls. For a quick start, see the
 | `Ctrl+Z` / `Cmd+Z` | undo the last step that can be: close a mana choice; while casting, step back the last choice (a mana source untaps), or cancel at the start; otherwise take back the last mana you made, or the last attacker, block or blocker picked. Never a spell cast, a land played or a pass. |
 | `Ctrl+Space` | hold priority (see [Turns, priority and the stack](rules-coverage.md#turns-priority-and-the-stack)) |
 | `Ctrl+Shift` (the two alone, then let go) | full control on or off (see [The stack and your stops](#the-stack-and-your-stops)) |
+| `Alt+Enter` (`Option+Enter` on a Mac) | fullscreen on or off |
 | Hover a card | full-size view |
 | Right-click a card (in your hand, on the table, on the stack, or in a graveyard or exile window) | bigger view that stays up; left-click off it to close (over that window, the first click closes the view and the next the window) |
 | Right-click a graveyard | look through it, or see that it's empty; hovering the pile shows its top card |
@@ -277,7 +278,9 @@ and away again (it starts folded). On the right:
 - **Settings** (the gear) opens a small panel: **Bot speed** (1×, 2×, 4×), **Sound** and
   **Music** (each a mute button and a volume slider), and **Combat damage**, Auto or By
   hand, for dividing an attacker's damage among its blockers or trampling over. `Esc` or a
-  click elsewhere closes it.
+  click elsewhere closes it. **Hotkeys**, at the panel's foot, opens a window listing every
+  key and mouse control in this table. The game takes no keys while it's open: `Esc`,
+  **Close** or a click outside it closes it.
 - **Exit** (the door) asks before leaving the game for the deck menu.
 
 The deck menu has the same sound and music controls in its top-right corner. Sound, music

@@ -4,7 +4,7 @@ import type { Schedule } from '../engine';
 import { PlayerHand, SeatHud } from './Board';
 import { CAN_DRAW_3D } from './camera';
 import { Flights } from './Flights';
-import { ActionBar, ArrowLayer, ExitConfirm, GameOver, LogPanel, Preview, Prompt, SpellFlash, StackPanel, ZoneViewer } from './Hud';
+import { ActionBar, ArrowLayer, ExitConfirm, GameOver, HotkeysDialog, LogPanel, Preview, Prompt, SpellFlash, StackPanel, ZoneViewer } from './Hud';
 import { GameVotes, PausedOverlay } from './LobbyScreen';
 import { Decisions, DelvePicker, EscapePicker, GraveCostPicker, GraveyardTargets } from './Picker';
 import { useStore } from './store';
@@ -120,6 +120,7 @@ export function GameScreen() {
         {/* Before the exit dialog, so leaving a paused game still asks first. */}
         <PausedOverlay />
         <ExitConfirm />
+        <HotkeysDialog />
         <Handoff />
         <GameVotes />
       </div>
