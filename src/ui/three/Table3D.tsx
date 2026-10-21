@@ -31,17 +31,15 @@ import type { Pose, Row } from './layout3d';
 import { SHADOW_SPREAD, backTexture, shadowTexture, tileTexture, useCardTexture, useFloorTextures } from './textures';
 
 /*
-  The table drawn in 3D (see docs/plans/flutter-conversion.md): the usual table, unless the
-  page asks for the CSS one (`?table=css`) or the browser can't draw 3D (`TABLE_3D` in
-  camera.ts). It replaces `.table` in GameScreen and nothing else: the portraits, piles,
-  hands, HUD and pickers stay on the screen as before, over the canvas, and the engine, the
-  store and view.ts are untouched.
+  The table, drawn in 3D (docs/plans/flutter-conversion.md says how it came about), for a
+  browser that can draw it (`CAN_DRAW_3D` in camera.ts). It is the table in GameScreen and
+  nothing else: the portraits, your hand, the HUD and the pickers stay on the screen, over
+  the canvas, and the engine, the store and view.ts know nothing of it.
 
   The scene is Three.js through React Three Fiber, drawn with Three's WebGPU renderer, which
   falls back to WebGL 2 where the browser has no WebGPU (`?gl=webgl` forces that). The
-  camera starts where the CSS table's perspective puts the viewer (camera.ts, `baseCamera`),
-  so the seats' rows land where table-layout.ts designed them, and moves from there: a slow
-  push in while combat is on.
+  camera starts where camera.ts puts the viewer (`baseCamera`), so the seats' rows land where
+  board.ts lays them, and moves from there: a slow push in while combat is on.
 
   The cards are slabs with rounded corners (geometry.ts), thick enough that their edge shows,
   the card's art and name on top and a drawn back underneath, each tipped up a little about
@@ -49,8 +47,8 @@ import { SHADOW_SPREAD, backTexture, shadowTexture, tileTexture, useCardTexture,
   a flagstone floor, floor.ts, around a well), each with a soft dark under it where it rests,
   in a torch-lit stone hall (Hall.tsx). Each seat's library and graveyard lie on the table too
   (`Pile3D`), and each opponent holds their hand fanned at the back of their mat (`HeldHand`).
-  Their hover, click and glow come from raycasting on the meshes and go to the same view.ts
-  handlers the CSS tiles call.
+  Their hover, click and glow come from raycasting on the meshes and go to view.ts's
+  handlers, as a hand card's do.
 
   Each card also has a proxy: an empty div in `.card-proxies`, the card's size, laid onto the
   card on the screen every frame by a matrix3d (`useProxy`), so it leans, turns and
@@ -68,7 +66,7 @@ const PARAMS = typeof location !== 'undefined' ? new URLSearchParams(location.se
 const LOW = PARAMS.get('quality') === 'low';
 
 const BG = '#06070a';
-/** How far a tapped card is turned (rad). The CSS tile's is 8°. */
+/** How far a tapped card is turned (rad): 8°. */
 const TAPPED_RAD = (8 * Math.PI) / 180;
 /** The highlight colours (`--play`, `--target`, `--danger` in styles.css). */
 const GLOW: Record<string, string> = { play: '#39e3ff', attack: '#39e3ff', block: '#39e3ff', target: '#ffe45c', picked: '#ffffff', discard: '#ff5a4a' };
@@ -178,7 +176,7 @@ const EXILE_KEY = 'exile';
 /** A zone's proxy, in the proxies' map. */
 const zoneKey = (pid: number, zone: PileZone) => `zone:${pid}:${zone}`;
 
-/** The whole seats' layout for this game, from the same piles the CSS table draws: each seat's rows and piles on its mat (`seatArea`). */
+/** The whole seats' layout for this game, from the piles Board.tsx groups: each seat's rows and piles on its mat (`seatArea`). */
 function layoutSeats(v: View, players: Player[], plan: GardenPlan, stageW: number, stageH: number, tableH: number): SeatLayout[] {
   const g = v.g;
   // The player at the bottom holds their hand on the screen (GameScreen's `bottom`).
@@ -291,7 +289,7 @@ function CardProxy({ card, g, pile, covered = false }: { card: Card; g: Game; pi
 }
 
 /**
- * A library, graveyard or exile pile's stand-in: the CSS table's own pile (Board.tsx), kept
+ * A library, graveyard or exile pile's stand-in: the DOM pile (Board.tsx), kept
  * over the 3D pile's top on the screen like a card's proxy. The 3D pile is what shows; the
  * DOM one keeps its zone's icon, its count, its outline while empty, and everything that
  * finds or uses a pile by its element: the click that opens the zone, the hover on the top
@@ -400,7 +398,7 @@ function Scene({ v, speed, w, h, tableH, seats, plan, players }: { v: View; spee
         <fog attach="fog" args={[BG, DEPTH * 2.6, DEPTH * 5]} />
         <Rig w={w} h={h} combat={inCombat(v.g)} />
         <Lights w={w} tableH={tableH} />
-        {/* The table leans away from you by TILT about its bottom edge, like the CSS one. Its own z is up off the table. */}
+        {/* The table leans away from you by TILT about its bottom edge, as camera.ts has it. Its own z is up off the table. */}
         <group ref={table} rotation-x={-tiltRad(TILT)}>
           <Floor w={w} tableH={tableH} />
           <Garden plan={plan} exiled={exiled} onExile={openExile} />
@@ -416,7 +414,7 @@ function Scene({ v, speed, w, h, tableH, seats, plan, players }: { v: View; spee
 }
 
 /**
- * The camera: the CSS table's viewer to start with (`baseCamera`), so the rows fall where the
+ * The camera: camera.ts's viewer to start with (`baseCamera`), so the rows fall where the
  * layout puts them, and a slow push in, a little higher and looking down a little more, while
  * combat is on.
  */
@@ -530,7 +528,7 @@ function ExileAnchor({ plan }: { plan: GardenPlan }) {
  * The flagstones under everything, well past the table's edges: the far corners of the screen
  * look past its sides. Its maps (floor.ts) are laid on in rem, AREA to a picture, from the
  * table's middle, so they never show twice; it darkens toward its edges (the vertex colours),
- * as the CSS table's vignette does.
+ * as a vignette does.
  */
 function Floor({ w, tableH }: { w: number; tableH: number }) {
   const fw = w * 2.4;
@@ -725,7 +723,7 @@ function Card3D({ pose, seat, phased }: { pose: Pose<Card>; seat: Seat; phased: 
   const g = v.g;
   const card = pose.item;
   const d = data(card);
-  // Its art and name, as the CSS tile shows it; the full card is the hover's.
+  // Its art and name (a tile); the full card is the hover's.
   const face = faceUp(card, v.me) ? tileTexture(d.name, d.art, FRAME[frameOf(d)] ?? FRAME.artifact) : null;
   const back = backTexture();
   const glow = v.glow.get(card.id);
@@ -741,7 +739,7 @@ function Card3D({ pose, seat, phased }: { pose: Pose<Card>; seat: Seat; phased: 
     x: pose.x,
     y: pose.y + inward * lift,
     z: rest + (lift ? 0.6 : 0),
-    rz: pose.turn - (card.tapped ? TAPPED_RAD : 0),
+    rz: card.tapped ? -TAPPED_RAD : 0,
   };
   const group = useRef<Group>(null);
   /** The card tipped up about its bottom edge (`LIFT_RAD`), inside `group`: what the proxy follows. */

@@ -342,12 +342,17 @@ export class Table {
  * Commander, so legality isn't checked again.
  */
 function deckIssues({ deck, cards }: DeckChoice): string[] {
-  const fresh = cards.filter((c) => !isCardName(c.name));
+  const names = [...new Set([...deck.commanders, ...Object.keys(deck.basics), ...deck.cards])];
+  // 903.5a: a deck is 100 cards. A longer list is refused before any card it brings joins the pool.
+  if (names.length > 100) return [`names ${names.length} different cards, more than a deck holds`];
+  // The guest's program sends the list: only the cards this deck names are added, so it can't grow
+  // the pool every table on this computer shares.
+  const named = new Set(names);
+  const fresh = cards.filter((c) => named.has(c.name) && !isCardName(c.name));
   if (fresh.length) {
     registerCards(Object.fromEntries(fresh.map((c) => [c.name, c])));
     scriptCards(fresh.map((c) => c.name));
   }
-  const names = [...new Set([...deck.commanders, ...Object.keys(deck.basics), ...deck.cards])];
   // A card the deck plays without its rules text, by its player's choice, is played as a vanilla card.
   const cant = names.filter((n) => !playsWithoutText(deck, n)).flatMap((n) => unsupported(n).map((p) => `${n}: ${p}`));
   return cant.length ? cant : deckProblems(deck);

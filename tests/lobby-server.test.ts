@@ -7,7 +7,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import './fixtures';
-import { DECKS, cardData } from '../src/cards/db';
+import { DECKS, cardData, isCardName } from '../src/cards/db';
 import type { DeckDef } from '../src/cards/db';
 import { botAction, isHidden } from '../src/engine';
 import type { CardData } from '../src/engine';
@@ -233,6 +233,29 @@ describe('a table of friends', () => {
     host.game.setSpeed(2);
     host.clock.next();
     expect(got.slice(1).some((m) => m.cards?.length)).toBe(false);
+  });
+
+  it('adds only the fetched cards a friend’s deck names to the pool', async () => {
+    const base = cardData(DECKS[1].commanders[0]);
+    const fetched: CardData = { ...base, name: 'Ben’s Named Commander', oracleText: '', keywords: [] };
+    const stowaway: CardData = { ...base, name: 'Ben’s Stowaway', oracleText: '', keywords: [] };
+    const deck: DeckDef = { ...DECKS[1], id: 'ben', commanders: [fetched.name] };
+    const host = program();
+    await host.lobby.host({ name: 'Ana', deck: choice(DECKS[0]), seatCount: 3, fillBots: false });
+    await until(() => !!host.state().code);
+    const guest = program();
+    await guest.lobby.join({ code: host.state().code!, name: 'Ben', deck: choice(deck, [fetched, stowaway]) });
+    await until(() => !!host.state().seats[1].deck);
+    expect(isCardName(fetched.name)).toBe(true);
+    expect(isCardName(stowaway.name)).toBe(false);
+    // A list longer than any deck is refused before a card it brings is added.
+    const many = Array.from({ length: 150 }, (_, i): CardData => ({ ...base, name: `Eve’s Card ${i}`, oracleText: '', keywords: [] }));
+    const huge: DeckDef = { ...DECKS[2], id: 'eve', cards: many.map((c) => c.name) };
+    const other = program();
+    await other.lobby.join({ code: host.state().code!, name: 'Eve', deck: choice(huge, many) });
+    await until(() => !!other.state().error);
+    expect(other.state().error).toMatch(/more than a deck holds/);
+    expect(many.some((c) => isCardName(c.name))).toBe(false);
   });
 
   it('seats a friend whose deck the table can’t play, and says why', async () => {

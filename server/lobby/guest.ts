@@ -9,7 +9,8 @@ import type { DeckChoice, LobbyState } from '../../src/net/lobby';
 import type { SeatPrefs, ViewMessage } from '../../src/net/protocol';
 import { Refused } from '../game';
 import type { GameService } from '../game';
-import { connectToHost, decodeJoinCode, HostIdentityError, JoinCodeError } from '../net';
+import { connectToHost, HostIdentityError } from '../net';
+import type { JoinInfo } from '../net';
 import type { SaveCopy } from './saves';
 import { receive, send } from './wire';
 import type { GuestMessage, HostMessage } from './wire';
@@ -52,14 +53,8 @@ export class GuestLink implements GameService {
   /** The reason the host gave before closing, if it gave one. */
   private closing: string | null = null;
 
-  /** Connects to the host a code names and takes a seat. Throws `Refused` with the reason in plain words. */
-  static async join(code: string, name: string, deck: DeckChoice | null, version: string, events: GuestEvents): Promise<GuestLink> {
-    let info;
-    try {
-      info = decodeJoinCode(code);
-    } catch (err) {
-      throw new Refused(err instanceof JoinCodeError ? err.message : 'That doesn’t look like a code.');
-    }
+  /** Connects to the host a decoded join code names and takes a seat. Throws `Refused` with the reason in plain words. */
+  static async join(info: JoinInfo, name: string, deck: DeckChoice | null, version: string, events: GuestEvents): Promise<GuestLink> {
     let socket: TLSSocket;
     try {
       socket = await connectToHost(info.address, info.port, info.fingerprint);

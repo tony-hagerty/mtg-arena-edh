@@ -308,6 +308,8 @@ interface Store {
   showLog: boolean;
   /** The "leave this game?" dialog is open. */
   confirmExit: boolean;
+  /** The Hotkeys window, from the gear menu, is open. */
+  showHotkeys: boolean;
   speed: number;
   /** Where the game stops for the human, by seat counted from theirs (see `loadStops`). A UI preference passed to the engine. */
   stops: Stops;
@@ -367,6 +369,7 @@ export const useStore = create<Store>()((set, get) => ({
   manaPick: null,
   showLog: false,
   confirmExit: false,
+  showHotkeys: false,
   speed: 1,
   stops: loadStops(),
   fullControl: false,
