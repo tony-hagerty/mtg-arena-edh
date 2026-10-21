@@ -95,8 +95,9 @@ src/ui/         App.tsx               menu or game screen; GameScreen.tsx lays t
                                       the well's whirlpool; Hall.tsx the stone walls and
                                       the torches; effects.tsx the bursts a click on the
                                       board makes; floor.ts the flagstones; noise.ts the
-                                      noise they share; textures.ts card faces, back and
-                                      floor
+                                      noise they share; textures.ts card faces (a
+                                      permanent's art-and-name tile, tileTexture), back
+                                      and floor
                 card-back.svg         the back of every card, CSS and 3D alike
                 cursor.png            the mouse cursor, and cursor-down.png while a
                                       button is held (see Credits)

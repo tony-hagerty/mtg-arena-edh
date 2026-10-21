@@ -137,6 +137,10 @@ describe('fanAngle', () => {
     expect(fanAngle(0, 7, TL)).toBe(166);
     expect(fanAngle(6, 7, TR)).toBe(230);
     expect(fanAngle(0, 1, BL)).toBe(32);
+    // A small hand stays a tight fan about the middle, not spread across the whole of it.
+    expect([fanAngle(0, 2, BL), fanAngle(1, 2, BL)]).toEqual([29, 35]);
+    // A big one never spreads past 14° to 50°.
+    expect([fanAngle(0, 12, BL), fanAngle(11, 12, BL)]).toEqual([14, 50]);
   });
 });
 

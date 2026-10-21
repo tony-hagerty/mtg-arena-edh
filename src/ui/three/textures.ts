@@ -57,6 +57,87 @@ export function useCardTexture(url: string | null): Texture | null {
   return url ? (cache.get(url)?.texture ?? null) : null;
 }
 
+/** A tile's picture, in pixels: 5:4, as the CSS `.tile`. */
+const TILE_W = 320;
+const TILE_H = 256;
+const tiles = new Map<string, CanvasTexture>();
+
+/** `a` mixed `k` of the way toward `b`, both `#rrggbb`. */
+function mix(a: string, b: string, k: number) {
+  const p = (c: string, i: number) => parseInt(c.slice(1 + i * 2, 3 + i * 2), 16);
+  return `rgb(${[0, 1, 2].map((i) => Math.round(p(a, i) + (p(b, i) - p(a, i)) * k)).join(',')})`;
+}
+
+/** The name bar and the frame round the art, drawn over whatever is under them. */
+function drawFrame(g: CanvasRenderingContext2D, name: string, frame: string) {
+  const bezel = TILE_W * 0.026;
+  const bar = TILE_H * 0.155;
+  // The frame: a band of its colour round the art.
+  g.lineWidth = bezel * 2;
+  g.strokeStyle = frame;
+  g.strokeRect(0, 0, TILE_W, TILE_H);
+  // The name bar, as the CSS tile's: the frame's colour darkened, a light top edge, the name in serif.
+  const grad = g.createLinearGradient(0, bezel, 0, bezel + bar);
+  grad.addColorStop(0, mix(frame, '#262a33', 0.54));
+  grad.addColorStop(1, mix(frame, '#0b0c10', 0.7));
+  g.fillStyle = grad;
+  g.fillRect(bezel, bezel, TILE_W - 2 * bezel, bar);
+  g.fillStyle = 'rgba(255,255,255,0.2)';
+  g.fillRect(bezel, bezel, TILE_W - 2 * bezel, 1.5);
+  g.fillStyle = 'rgba(0,0,0,0.6)';
+  g.fillRect(bezel, bezel + bar, TILE_W - 2 * bezel, 2);
+  // The name, shrunk to fit the bar.
+  const room = TILE_W - 2 * bezel - 20;
+  let size = bar * 0.62;
+  const font = (px: number) => `600 ${px}px 'Palatino Linotype', 'Book Antiqua', Palatino, Georgia, serif`;
+  g.font = font(size);
+  while (size > 10 && g.measureText(name).width > room) g.font = font((size -= 1));
+  g.textBaseline = 'middle';
+  g.fillStyle = '#000';
+  g.fillText(name, bezel + 10, bezel + bar / 2 + 1.5, room);
+  g.fillStyle = '#f2ead8';
+  g.fillText(name, bezel + 10, bezel + bar / 2, room);
+}
+
+/**
+ * A permanent's face on the 3D table, as the CSS table's tile: the card's art crop filling a
+ * 5:4 tile inside a band of its frame colour, with its name in a bar along the top. Drawn on
+ * a canvas once per card (by name and art), at once with the frame colour where the art will
+ * be, and again when the art (Scryfall's art crop, which allows cross-origin use) has loaded.
+ * If the art never loads, the frame colour and the name stay.
+ */
+export function tileTexture(name: string, art: string, frame: string): CanvasTexture {
+  const key = `${name}|${art}`;
+  const had = tiles.get(key);
+  if (had) return had;
+  const c = document.createElement('canvas');
+  c.width = TILE_W;
+  c.height = TILE_H;
+  const g = c.getContext('2d')!;
+  g.fillStyle = mix(frame, '#0b0c10', 0.55);
+  g.fillRect(0, 0, TILE_W, TILE_H);
+  drawFrame(g, name, frame);
+  const t = new CanvasTexture(c);
+  t.colorSpace = SRGBColorSpace;
+  t.anisotropy = 4;
+  tiles.set(key, t);
+  if (art) {
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = () => {
+      // The art covers the tile, cropped to fit, centred a little high (faces are).
+      const k = Math.max(TILE_W / img.width, TILE_H / img.height);
+      const w = img.width * k;
+      const h = img.height * k;
+      g.drawImage(img, (TILE_W - w) / 2, (TILE_H - h) * 0.35, w, h);
+      drawFrame(g, name, frame);
+      t.needsUpdate = true;
+    };
+    img.src = art;
+  }
+  return t;
+}
+
 let back: CanvasTexture | null = null;
 
 /**

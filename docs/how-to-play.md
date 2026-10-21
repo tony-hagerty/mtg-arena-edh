@@ -74,9 +74,10 @@ The full guide to the game's screens and controls. For a quick start, see the
   nearest its edge, then artifacts, enchantments and the rest, then creatures nearest the
   middle of the table. Every card stands upright, whoever controls it. The cards grow
   while a seat's rows have room and shrink as they fill up; a very crowded row overlaps
-  its cards instead. The library and graveyard lie on the mat along the seat's own edge,
-  the library nearest the middle (yours just above the bottom of the screen, beside the
-  controls). Exile is shared, so it is the well in the middle of the table, with the top
+  its cards instead. On the 3D table a permanent shows its art and name, as the tiles do;
+  hover it for the whole card. The library and graveyard lie on the mat along the seat's
+  own edge, the library nearest the middle (yours just above the bottom of the screen,
+  beside the controls; the far seats' against their mat's inner edge, by the middle path). Exile is shared, so it is the well in the middle of the table, with the top
   card of each player's exile circling in its whirlpool and the count at its edge. The portrait sits
   on the seat's side edge, and an opponent's hand fans out of their corner, face down,
   with a count. Hover any card to see

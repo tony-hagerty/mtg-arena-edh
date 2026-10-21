@@ -353,7 +353,14 @@ Since then:
   under each owner's name (`ZoneViewer` with `pid` null).
 - **Rounded corners.** A card is `cardGeometry` (geometry.ts): a rounded slab whose face
   image is laid over the whole rectangle, so the corners cut it as a card's are cut.
-- **The tap mark.** A tapped card's proxy carries the tap symbol, as the CSS tile does.
+- **The tap mark.** A tapped card's proxy carries the tap symbol, as the CSS tile does,
+  only on a pile's top card.
+- **Art and name.** A permanent is drawn as the CSS tile is: its art crop at 5:4 in a band
+  of its frame colour, with its name in a bar along the top (`tileTexture`, a canvas per
+  card), which saves a third of a card's depth a row; the whole card is the hover's. Its
+  face lights itself partly (`FACE_GLOW`), so it reads in the hall's dim corners, and a
+  seat's cards grow up to `K_MAX_3D` (1.9) to fill their mat, which is the battlefield's
+  box less only the piles, the well's clearing and what stands on the screen over it.
 - **The board.** A torch-lit stone hall for four (garden.ts, Garden.tsx, Hall.tsx). Each
   corner has a mat lying flat on the flagstones, all four one size on the table (the near
   two starting just above the bottom of the screen), and each is its seat's battlefield:

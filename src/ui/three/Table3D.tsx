@@ -28,7 +28,7 @@ import type { Garden as GardenPlan, PileSpot } from './garden';
 import { cardGeometry, roundedPlane } from './geometry';
 import { CARD_THICKNESS, baseCamera, layoutSeat, quadMatrix, tiltRad } from './layout3d';
 import type { Pose, Row } from './layout3d';
-import { SHADOW_SPREAD, backTexture, shadowTexture, useCardTexture, useFloorTextures } from './textures';
+import { SHADOW_SPREAD, backTexture, shadowTexture, tileTexture, useCardTexture, useFloorTextures } from './textures';
 
 /*
   The table drawn in 3D (see docs/plans/flutter-conversion.md): the usual table, unless the
@@ -625,7 +625,8 @@ function CardMaterials({ face, back, d, tapped, phased }: { face: Texture | null
       <meshStandardMaterial attach="material-0" color={tapped ? '#8d877a' : '#ded6c2'} roughness={0.8} transparent={phased} opacity={opacity} />
       {/* Keyed on having the image: a material made without a map can't be given one later without rebuilding its shader. */}
       {face ? (
-        <meshStandardMaterial key="face" attach="material-1" map={face} color={tint} roughness={0.55} metalness={0} transparent={phased} opacity={opacity} />
+        // Lit partly by itself (`FACE_GLOW`), so the card reads in the hall's dim corners; less so tapped, so a tapped card stays dimmed.
+        <meshStandardMaterial key="face" attach="material-1" map={face} color={tint} roughness={0.7} metalness={0} emissiveMap={face} emissive="#ffffff" emissiveIntensity={tapped ? FACE_GLOW * 0.55 : FACE_GLOW} transparent={phased} opacity={opacity} />
       ) : (
         // No image yet (or none loads): the frame's colour, with the proxy's badges over it.
         <meshStandardMaterial key="plain" attach="material-1" color={FRAME[frameOf(d)] ?? FRAME.artifact} roughness={0.7} transparent={phased} opacity={opacity} />
@@ -648,6 +649,14 @@ function useCardShapes(w: number, h: number) {
   return shapes;
 }
 
+/**
+ * How much a card's face lights itself, as a share of its own colours: the hall is dim and
+ * its light uneven (torches at the sides), so without this a card in a dark corner is hard to
+ * read. Arena's cards read the same wherever they lie; this gets most of the way there while
+ * the scene's light still shades them a little.
+ */
+const FACE_GLOW = 0.55;
+
 /** The frame colours (`--f-*` in styles.css). */
 const FRAME: Record<string, string> = { W: '#e3d9ae', U: '#4a90d2', B: '#8a6cc4', R: '#e0553a', G: '#4fae62', gold: '#d2aa42', artifact: '#93a0af', land: '#8a765c' };
 
@@ -662,7 +671,8 @@ function Card3D({ pose, seat, phased }: { pose: Pose<Card>; seat: Seat; phased: 
   const g = v.g;
   const card = pose.item;
   const d = data(card);
-  const face = useCardTexture(faceUp(card, v.me) ? d.image : null);
+  // Its art and name, as the CSS tile shows it; the full card is the hover's.
+  const face = faceUp(card, v.me) ? tileTexture(d.name, d.art, FRAME[frameOf(d)] ?? FRAME.artifact) : null;
   const back = backTexture();
   const glow = v.glow.get(card.id);
   const attacking = g.combat?.attacks.some((a) => a.id === card.id) ?? false;
@@ -784,7 +794,7 @@ function Card3D({ pose, seat, phased }: { pose: Pose<Card>; seat: Seat; phased: 
 function Attached({ card, host, index, inward }: { card: Card; host: Pose<Card>; index: number; inward: number }) {
   const { v } = useScene();
   const d = data(card);
-  const face = useCardTexture(faceUp(card, v.me) ? d.image : null);
+  const face = faceUp(card, v.me) ? tileTexture(d.name, d.art, FRAME[frameOf(d)] ?? FRAME.artifact) : null;
   const group = useRef<Group>(null);
   const updateProxy = useProxy(card.id, group, host.w, host.h);
   const shapes = useCardShapes(host.w, host.h);
@@ -862,7 +872,7 @@ function Pile3D({ player, zone, spot }: { player: Player; zone: PileZone; spot: 
           <mesh castShadow receiveShadow geometry={shape} position-z={thick / 2} scale-z={thick} raycast={() => null}>
             <meshStandardMaterial attach="material-0" color={look.edge} roughness={0.9} />
             {face ? (
-              <meshStandardMaterial key="face" attach="material-1" map={face} color={look.tint} roughness={0.6} />
+              <meshStandardMaterial key="face" attach="material-1" map={face} color={look.tint} roughness={0.7} emissiveMap={face} emissive={look.tint} emissiveIntensity={FACE_GLOW * 0.8} />
             ) : (
               <meshStandardMaterial key="back" attach="material-1" map={back} roughness={0.6} />
             )}

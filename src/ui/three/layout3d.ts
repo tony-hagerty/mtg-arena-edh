@@ -14,14 +14,14 @@ import type { Seat } from '../util';
   down), and are converted.
 
   The rows follow the CSS table's order: lands nearest the seat's edge, then the other
-  permanents, then creatures nearest the middle. The cards are drawn at a real card's
-  proportions (5:7), not the tiles' 5:4, so they get their own base sizes.
+  permanents, then creatures nearest the middle. The cards are drawn as the tiles are, art and
+  name at 5:4, at their own base sizes.
 */
 
-/** Card sizes on the 3D table in rem, before `seatScale`: width, height (5:7) and the gap between piles. */
+/** Card sizes on the 3D table in rem, before `seatScale`: width, height and the gap between piles. A permanent is drawn as the CSS table's tile is, its art and name at 5:4 (`tileTexture`), which saves a row a third of a card's depth. */
 export const CARD3D = {
-  creature: { w: 8.6, h: 8.6 * 1.4, gap: 0.9 },
-  other: { w: 7.2, h: 7.2 * 1.4, gap: 0.7 },
+  creature: { w: 9.6, h: 9.6 * 0.8, gap: 0.9 },
+  other: { w: 8, h: 8 * 0.8, gap: 0.7 },
 } as const;
 
 /** How thick a card is, in rem. Cards in a pile sit this far apart. */
@@ -51,9 +51,17 @@ export interface Row<T> {
 }
 
 /**
+ * The biggest a seat's cards grow on the 3D table, before they would outgrow its mat: higher
+ * than the CSS table's K_MAX, since a mat is the whole battlefield and the far seats' cards
+ * are seen smaller.
+ */
+export const K_MAX_3D = 1.9;
+
+/**
  * Where the cards of one seat go. `rows` run from the seat's own edge inward (lands, others,
  * creatures). `box` is the seat's box on the CSS table (`seatBox`), `tableW` and `tableH` the
- * table's size in rem. The rows are centred in the box, with ROW_GAP between them, and each
+ * table's size in rem. The cards grow as big as the box lets them (`seatScale`, up to
+ * K_MAX_3D). The rows are centred in the box, with ROW_GAP between them, and each
  * row's piles are centred along it, as the CSS flex rows are, then the whole box is turned by
  * its lean about its centre.
  */
@@ -64,6 +72,7 @@ export function layoutSeat<T>(seat: Seat, box: SeatBox, rows: Row<T>[], tableW: 
     rows: used.map((r) => ({ ...CARD3D[r.kind], piles: r.piles.map((p) => p.length) })),
     rowLen: box.width,
     room: box.height,
+    max: K_MAX_3D,
   });
   const heights = used.map((r) => CARD3D[r.kind].h * k);
   const total = heights.reduce((a, b) => a + b, 0) + ROW_GAP * (used.length - 1);

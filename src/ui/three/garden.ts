@@ -118,26 +118,34 @@ export interface PileSpot {
 
 /** A pile's size on the table, rem, and the space between a seat's two: the same for every seat, so the far seats' look smaller. */
 export const PILE = { w: 10.8, h: 10.8 * 1.4, gap: 2.4 };
-/** How far each seat's library keeps from the table's middle across, rem: the near ones clear the controls (36rem wide), the far ones the log bar. */
-const PILE_INNER = { near: 19.5, far: 26 };
-/** How far the piles keep inside their mat's own edge, past its border, rem. */
+/** How far the piles keep inside their mat's edges, past its border, rem. */
 const PILE_IN = BORDER + 0.9;
+/**
+ * How far each seat's library keeps from the table's middle across, rem: the near ones clear
+ * the controls (36rem wide); the far ones lie against their mat's inner edge, by the middle
+ * path (above the controls' level, the log bar is short and sits higher on the screen).
+ */
+const PILE_INNER = { near: 19.5, far: PATH + PILE_IN };
 /** The space between the piles' strip and the rows, and between the rows and a mat's edge or the well, rem. */
 const ROOM = 1.5;
 /**
- * Where on the screen the rows keep clear of: the portraits along the side edges (the rows
- * start BOX_LEFT in), and at the bottom the hand and the controls with their seat arrows
- * (the near seats' rows start ABOVE_CONTROLS up). In screen rem, as table-layout.ts has them.
+ * What stands on the screen over the table, which the rows keep clear of: the portraits along
+ * the side edges (the rows start BOX_LEFT rem in), at the bottom your hand (ABOVE_HAND rem up
+ * at its highest) and the controls with their seat arrows in the middle (ABOVE_CONTROLS rem
+ * up, CONTROLS_HALF rem either side of the middle, table rem as much as screen rem there).
  */
 const BOX_LEFT = 20.3;
+const ABOVE_HAND = 17.5;
 const ABOVE_CONTROLS = 24.4;
+const CONTROLS_HALF = 20;
 
 /**
  * Seat `seat`'s area on its mat, for a screen `stageW` × `stageH` rem and its table: where its
- * library and graveyard lie (the library nearest the middle across, just inside the mat's own
- * edge), and the box its rows of permanents fill (`layoutSeat`), in the CSS table's terms as
- * `seatBox` gives it: the rest of the mat, short of the piles, the well and what stands on the
- * screen over the table. Rows lie square to the mat (no lean). The whole bottom edge (three
+ * library and graveyard lie (along the mat's own edge, just inside it, the library nearest the
+ * middle across: a far seat's against its mat's inner edge), and the box its rows of
+ * permanents fill (`layoutSeat`), in the CSS table's terms as `seatBox` gives it: as much of
+ * the rest of the mat as is clear of the piles, the well and what stands on the screen over
+ * the table. Rows lie square to the mat (no lean). The whole bottom edge (three
  * players) spans both near mats and the path between them.
  */
 export function seatArea(seat: Seat, g: Garden, stageW: number, stageH: number, tableW: number, tableH: number) {
@@ -161,14 +169,41 @@ export function seatArea(seat: Seat, g: Garden, stageW: number, stageH: number, 
     return { x: right ? inner : -inner, y: pileY, w: PILE.w, h: PILE.h };
   };
   const piles = { library: spot(0), graveyard: spot(1) };
-  // The rows' box, table y up: from past the piles (and the controls, at the bottom) to short of the well.
-  const clear = g.pond.y + (near ? -1 : 1) * (g.pond.r + POND_CLEAR + ROOM);
-  const ya = near ? Math.max(pileY + PILE.h / 2 + ROOM, upTable(ABOVE_CONTROLS, stageW, stageH, tableH)) : clear;
-  const yb = near ? clear : pileY - PILE.h / 2 - ROOM;
-  // Its sides: in from the mat's border, and clear of the portraits at the box's nearest (widest on the screen) edge.
-  const left = Math.max(x0 + BORDER + ROOM, xAt(BOX_LEFT, ya));
-  const rightSide = Math.min(x1 - BORDER - ROOM, xAt(stageW - BOX_LEFT, ya));
-  const box: SeatBox = { left: left + tableW / 2, top: tableH - yb, width: rightSide - left, height: yb - ya, lean: 0 };
+  // The rows' box, table y up (xa..xb across, ya..yb up), in from the mat's border.
+  const inX0 = x0 + BORDER + ROOM;
+  const inX1 = x1 - BORDER - ROOM;
+  const wellClear = g.pond.r + POND_CLEAR + ROOM;
+  /** Clear of the portraits, at the box's nearest (widest on the screen) edge. */
+  const sides = (ya: number) => ({ a: Math.max(inX0, xAt(BOX_LEFT, ya)), b: Math.min(inX1, xAt(stageW - BOX_LEFT, ya)) });
+  type Span = { xa: number; xb: number; ya: number; yb: number };
+  let span: Span;
+  if (near && seat.h !== 'full') {
+    // A near mat: above the piles and the hand, and beside the controls rather than above
+    // them, which keeps it clear of the well too (CONTROLS_HALF is wider than the well's
+    // clearing), so it runs all the way up to the mat's inner edge.
+    const ya = Math.max(pileY + PILE.h / 2 + ROOM, upTable(ABOVE_HAND, stageW, stageH, tableH));
+    const s = sides(ya);
+    const yb = CONTROLS_HALF >= wellClear ? y1 - BORDER - ROOM : g.pond.y - wellClear;
+    span = right ? { xa: Math.max(s.a, CONTROLS_HALF), xb: s.b, ya, yb } : { xa: s.a, xb: Math.min(s.b, -CONTROLS_HALF), ya, yb };
+  } else if (near) {
+    // The whole bottom edge: above the controls, short of the well.
+    const ya = Math.max(pileY + PILE.h / 2 + ROOM, upTable(ABOVE_CONTROLS, stageW, stageH, tableH));
+    const s = sides(ya);
+    span = { xa: s.a, xb: s.b, ya, yb: g.pond.y - wellClear };
+  } else {
+    // A far mat: short of the piles, and either short of the well across its whole width, or
+    // up to its inner edge beside the well; whichever leaves more room.
+    const yb = pileY - PILE.h / 2 - ROOM;
+    const fullYa = g.pond.y + wellClear;
+    const besideYa = y0 + BORDER + ROOM;
+    const sFull = sides(fullYa);
+    const sBeside = sides(besideYa);
+    const across: Span = { xa: sFull.a, xb: sFull.b, ya: fullYa, yb };
+    const beside: Span = right ? { xa: Math.max(sBeside.a, wellClear), xb: sBeside.b, ya: besideYa, yb } : { xa: sBeside.a, xb: Math.min(sBeside.b, -wellClear), ya: besideYa, yb };
+    const area = (p: Span) => (p.xb - p.xa) * (p.yb - p.ya);
+    span = area(beside) > area(across) ? beside : across;
+  }
+  const box: SeatBox = { left: span.xa + tableW / 2, top: tableH - span.yb, width: span.xb - span.xa, height: span.yb - span.ya, lean: 0 };
   return { box, piles };
 }
 
