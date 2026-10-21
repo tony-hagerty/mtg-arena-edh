@@ -1,9 +1,8 @@
-// The 3D table's layout (src/ui/three/layout3d.ts): where each seat's cards lie on the table.
+// The table's layout (src/ui/three/layout3d.ts): where each seat's cards lie on the table.
 import { describe, expect, it } from 'vitest';
-import { seatBox } from '../src/ui/table-layout';
-import { CARD3D, HELD, HELD_LEAN, ROW_GAP_3D, baseCamera, heldFan, layoutSeat, quadMatrix } from '../src/ui/three/layout3d';
+import { CARD3D, HELD, HELD_LEAN, K_MAX_3D, K_MIN, PILE_STEP, ROW_GAP_3D, baseCamera, heldFan, layoutSeat, quadMatrix, rowGap, rowUnits, seatScale } from '../src/ui/three/layout3d';
 import { CORNER, cardGeometry } from '../src/ui/three/geometry';
-import type { Row } from '../src/ui/three/layout3d';
+import type { Row, RowSpec, SeatBox } from '../src/ui/three/layout3d';
 import { tableHeight, DEPTH } from '../src/ui/camera';
 import type { Seat } from '../src/ui/util';
 
@@ -16,26 +15,76 @@ const rows = (lands: string[][], others: string[][], creatures: string[][]): Row
   { kind: 'other', piles: others },
   { kind: 'creature', piles: creatures },
 ];
+const row = (kind: keyof typeof CARD3D, piles: number[]): RowSpec => ({ ...CARD3D[kind], piles });
 
-/** A pose's centre back in the CSS table's terms (rem from the top-left, y down). */
+/** A seat's box, in rem from the table's top-left corner, y down: its half of the table, 36rem deep, short of the middle and of its edge. */
+const seatBox = (seat: Seat): SeatBox => ({
+  left: seat.h === 'right' ? W / 2 + 4 : 20,
+  width: seat.h === 'full' ? W - 40 : W / 2 - 24,
+  top: seat.v === 'top' ? 24 : TABLE_H - 60,
+  height: 36,
+});
+
+/** A pose's centre back in the box's terms (rem from the top-left, y down). */
 const css = (p: { x: number; y: number }) => ({ x: p.x + W / 2, y: TABLE_H - p.y });
+
+describe('rowUnits', () => {
+  it('counts a pile as one card and a step for each card under the top one', () => {
+    expect(rowUnits([])).toBe(0);
+    expect(rowUnits([1, 1, 1])).toBe(3);
+    expect(rowUnits([7, 1])).toBeCloseTo(2 + 6 * PILE_STEP, 9);
+  });
+});
+
+describe('seatScale', () => {
+  it('grows a small board to the biggest size', () => {
+    expect(seatScale({ rows: [row('other', [4]), row('other', []), row('creature', [1, 1])], rowLen: 73, room: 40 })).toBe(K_MAX_3D);
+  });
+
+  it('fits every row along its length', () => {
+    const rows = [row('creature', Array(8).fill(1))];
+    const k = seatScale({ rows, rowLen: 73, room: 100 });
+    expect(k).toBeLessThan(K_MAX_3D);
+    // The row fills its length exactly.
+    expect(8 * CARD3D.creature.w * k + 7 * CARD3D.creature.gap).toBeCloseTo(73, 6);
+  });
+
+  it('fits all the rows into the height, ignoring empty ones', () => {
+    const rows = [row('other', [1]), row('other', []), row('creature', [1])];
+    const k = seatScale({ rows, rowLen: 500, room: 20 });
+    expect(CARD3D.other.h * k + CARD3D.creature.h * k + ROW_GAP_3D).toBeCloseTo(20, 6);
+  });
+
+  it('never goes below the smallest size: a crowded row overlaps instead', () => {
+    const piles = Array(20).fill(1);
+    expect(seatScale({ rows: [row('creature', piles)], rowLen: 73, room: 30 })).toBe(K_MIN);
+    const w = CARD3D.creature.w * K_MIN;
+    const gap = rowGap(piles, w, CARD3D.creature.gap, 73);
+    expect(gap).toBeLessThan(0);
+    expect(20 * w + 19 * gap).toBeCloseTo(73, 6);
+  });
+
+  it('keeps the full gap while a row fits', () => {
+    expect(rowGap([3, 1], 10, 0.8, 73)).toBe(0.8);
+    expect(rowGap([1], 10, 0.8, 5)).toBe(0.8);
+  });
+});
 
 describe('layoutSeat', () => {
   it('keeps every card inside its seat box, lands nearest the edge and creatures nearest the middle', () => {
     for (const seat of [{ v: 'bottom', h: 'left' }, { v: 'top', h: 'right' }, { v: 'bottom', h: 'full' }] as Seat[]) {
-      const box = seatBox(seat, W, H);
+      const box = seatBox(seat);
       const poses = layoutSeat(seat, box, rows([ids('l', 3), ids('m', 2)], [['a']], [ids('c', 2), ['d']]), W, TABLE_H);
       expect(poses).toHaveLength(9);
       for (const p of poses) {
         const c = css(p);
-        // The lean turns the rows a little, so allow a card's size of slack.
-        expect(c.x).toBeGreaterThan(box.left - p.w);
-        expect(c.x).toBeLessThan(box.left + box.width + p.w);
-        expect(c.y).toBeGreaterThan(box.top - p.h);
-        expect(c.y).toBeLessThan(box.top + box.height + p.h);
+        expect(c.x).toBeGreaterThan(box.left);
+        expect(c.x).toBeLessThan(box.left + box.width);
+        expect(c.y).toBeGreaterThan(box.top);
+        expect(c.y).toBeLessThan(box.top + box.height);
       }
       const y = (id: string) => css(poses.find((p) => p.item === id)!).y;
-      // CSS y grows downward: at the bottom the lands are lowest (largest y), at the top highest.
+      // y grows downward: at the bottom the lands are lowest (largest y), at the top highest.
       if (seat.v === 'bottom') expect(y('l0')).toBeGreaterThan(y('c0'));
       else expect(y('l0')).toBeLessThan(y('c0'));
       expect(Math.abs(y('a') - (y('l0') + y('c0')) / 2)).toBeLessThan(CARD3D.creature.h);
@@ -44,20 +93,19 @@ describe('layoutSeat', () => {
 
   it('steps the cards of a pile along the row and up off the table', () => {
     const seat: Seat = { v: 'bottom', h: 'left' };
-    const poses = layoutSeat(seat, seatBox(seat, W, H), rows([ids('l', 4)], [], []), W, TABLE_H);
+    const poses = layoutSeat(seat, seatBox(seat), rows([ids('l', 4)], [], []), W, TABLE_H);
     expect(poses.map((p) => p.stack)).toEqual([0, 1, 2, 3]);
     expect(poses.every((p) => p.pile === 4)).toBe(true);
-    // Each card a tenth of a width along the row, which leans with the seat.
-    for (let i = 1; i < 4; i++) expect(Math.hypot(poses[i].x - poses[i - 1].x, poses[i].y - poses[i - 1].y)).toBeCloseTo(poses[i].w * 0.1, 5);
-    // The whole bottom edge has no lean; a corner does (the bottom-left leans 5° clockwise in CSS, so counterclockwise here is negative).
-    expect(poses[0].turn).toBeCloseTo((-5 * Math.PI) / 180, 5);
-    const full: Seat = { v: 'bottom', h: 'full' };
-    expect(layoutSeat(full, seatBox(full, W, H), rows([['l']], [], []), W, TABLE_H)[0].turn).toBe(0);
+    // Each card a tenth of a width along the row, square to the table.
+    for (let i = 1; i < 4; i++) {
+      expect(poses[i].x - poses[i - 1].x).toBeCloseTo(poses[i].w * PILE_STEP, 5);
+      expect(poses[i].y).toBeCloseTo(poses[i - 1].y, 9);
+    }
   });
 
   it('leaves ROW_GAP_3D between rows', () => {
     const seat: Seat = { v: 'bottom', h: 'full' };
-    const poses = layoutSeat(seat, seatBox(seat, W, H), rows([['l']], [['a']], [['c']]), W, TABLE_H);
+    const poses = layoutSeat(seat, seatBox(seat), rows([['l']], [['a']], [['c']]), W, TABLE_H);
     const [l, a, c] = ['l', 'a', 'c'].map((id) => poses.find((p) => p.item === id)!);
     expect(a.y - a.h / 2 - (l.y + l.h / 2)).toBeCloseTo(ROW_GAP_3D, 5);
     expect(c.y - c.h / 2 - (a.y + a.h / 2)).toBeCloseTo(ROW_GAP_3D, 5);
@@ -65,9 +113,9 @@ describe('layoutSeat', () => {
 
   it('draws nothing for an empty seat and never below the smallest scale', () => {
     const seat: Seat = { v: 'top', h: 'left' };
-    expect(layoutSeat(seat, seatBox(seat, W, H), rows([], [], []), W, TABLE_H)).toEqual([]);
-    const crowded = layoutSeat(seat, seatBox(seat, W, H), rows([], [], [ids('c', 14).map((x) => [x])].flat()), W, TABLE_H);
-    expect(crowded[0].w).toBeCloseTo(CARD3D.creature.w * 0.7, 5);
+    expect(layoutSeat(seat, seatBox(seat), rows([], [], []), W, TABLE_H)).toEqual([]);
+    const crowded = layoutSeat(seat, seatBox(seat), rows([], [], [ids('c', 14).map((x) => [x])].flat()), W, TABLE_H);
+    expect(crowded[0].w).toBeCloseTo(CARD3D.creature.w * K_MIN, 5);
   });
 });
 

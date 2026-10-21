@@ -69,7 +69,6 @@ describe('seatArea', () => {
       const { box, piles } = seatArea(seat, plan, W, H, W, TABLE_H);
       const b = plan.beds[i];
       const s = span(box);
-      expect(box.lean).toBe(0);
       expect(s.x0).toBeGreaterThanOrEqual(b.x0);
       expect(s.x1).toBeLessThanOrEqual(b.x1);
       expect(s.y0).toBeGreaterThanOrEqual(b.y0);
