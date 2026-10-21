@@ -436,7 +436,7 @@ const FLOAT_W = 5.5;
 
 /**
  * The top card of a player's exile, circling slowly in the whirlpool, drifting a little in and
- * out, washed pale blue as the CSS exile pile is. It takes no clicks: a right-click on it is
+ * out, washed pale blue as the exile pile's top card is (`.pile.exile`). It takes no clicks: a right-click on it is
  * the well's.
  */
 function FloatingCard({ f, index, count, r }: { f: Floating; index: number; count: number; r: number }) {

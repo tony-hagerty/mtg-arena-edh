@@ -91,7 +91,5 @@ that isn't signed. Click **More info**, then **Run anyway**, once.
 ## Flags (development)
 
 - `--no-window`: only serve the game and print its address.
-- `--table css`: open the window on the older table drawn with CSS (`?table=css`, see
-  [How to play](../docs/how-to-play.md#controls)). The usual table, drawn in 3D, otherwise.
 - `--browser <path>`: open the window in that Chromium-based browser instead of Edge.
 - `--dist <folder>`: serve that folder instead of `dist/` (from source only).

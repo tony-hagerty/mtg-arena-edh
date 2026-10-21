@@ -44,8 +44,8 @@ export function send(socket: Socket, message: GuestMessage | HostMessage) {
 }
 
 /**
- * Calls `on` with each message that arrives, in order. A line that isn't JSON, or is longer
- * than MAX_LINE, ends the connection: only a broken or hostile program sends one.
+ * Calls `on` with each message that arrives, in order. A line that isn't a JSON object, or
+ * is longer than MAX_LINE, ends the connection: only a broken or hostile program sends one.
  */
 export function receive<M>(socket: Socket, on: (message: M) => void) {
   let buffer = '';
@@ -56,13 +56,15 @@ export function receive<M>(socket: Socket, on: (message: M) => void) {
     while ((end = buffer.indexOf('\n')) >= 0) {
       const line = buffer.slice(0, end);
       buffer = buffer.slice(end + 1);
-      let message: M;
+      let message: unknown;
       try {
-        message = JSON.parse(line) as M;
+        message = JSON.parse(line);
       } catch {
         return void socket.destroy();
       }
-      on(message);
+      // The handlers read the message's fields: `null` or a number would throw in this event, and take the program down.
+      if (typeof message !== 'object' || message === null) return void socket.destroy();
+      on(message as M);
       if (socket.destroyed) return;
     }
     if (buffer.length > MAX_LINE) socket.destroy();

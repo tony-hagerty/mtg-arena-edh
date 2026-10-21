@@ -1,18 +1,16 @@
 import { memo, useEffect, useRef, useState } from 'react';
-import type { CSSProperties, ReactNode } from 'react';
+import type { CSSProperties } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import { cardData } from '../cards/db';
 import { COMMANDER_DAMAGE, attachmentsOf, creaturesOf, data, isCreature, isHidden, isLand, permanent } from '../engine';
 import type { Card, Game, ManaSym, Player } from '../engine';
-import { HandBack, HandCard, HiddenHandCard, Permanent } from './Card';
+import { HandCard, HiddenHandCard } from './Card';
 import { CardImage } from './TextCard';
 import { useRem } from './rem';
 import { useStore } from './store';
-import { TABLE_3D, useStageSize } from './camera';
-import { HAND_VISIBLE, TILE, fanAngle, handPills, handWindow, rowGap, seatBox, seatScale } from './table-layout';
+import { HAND_VISIBLE, handPills, handWindow } from './table-layout';
 import type { Pt } from './table-layout';
 import { cx, deckColor, faceUp, hoverProps, seatClass, seatOf } from './util';
-import type { Seat as SeatPos } from './util';
 import { clickCrown, clickPlayer, useView } from './view';
 import type { View } from './view';
 
@@ -52,7 +50,7 @@ export function landPiles(g: Game, player: Player): Card[][] {
   const piles = new Map<string, Card[]>();
   const order = (c: Card) => Number(floating(player, c)) * 2 + Number(c.tapped);
   for (const c of [...lands].sort((a, b) => a.name.localeCompare(b.name) || order(b) - order(a))) {
-    // An enchanted land stands alone, so what is attached to it shows (see `Permanent`).
+    // An enchanted land stands alone, so what is attached to it shows (Table3D.tsx draws attachments under their host).
     const key = attachmentsOf(g, c).length ? c.id : `${c.name}|${c.tapped}|${floating(player, c)}`;
     piles.set(key, [...(piles.get(key) ?? []), c]);
   }
@@ -61,97 +59,11 @@ export function landPiles(g: Game, player: Player): Card[][] {
 
 /** A player's artifacts, enchantments and the rest, and their phased-out permanents. */
 export function otherPermanents(g: Game, player: Player) {
-  // Auras and Equipment attached to something are drawn under it instead (see `Permanent`).
+  // Auras and Equipment attached to something are drawn under it instead (Table3D.tsx).
   const others = player.battlefield.filter((c) => !isLand(g, c) && !isCreature(g, c) && !(c.attachedTo && permanent(g, c.attachedTo)));
   // Phased-out permanents are treated as though they don't exist (702.26b), but stay in view, faded.
   return { others, phased: player.phasedOut ?? [] };
 }
-
-/** A row of a seat: its tiles `tw` rem wide, `gap` rem apart (less than nothing once they overlap). */
-function Row({ className, tw, gap, children }: { className: string; tw: number; gap: number; children: ReactNode }) {
-  return (
-    <div className={cx('row', className)} style={vars({ '--tw': `${tw}rem`, '--gap': `${gap}rem` })}>
-      {children}
-    </div>
-  );
-}
-
-/** A pile of permanents overlapping along the row; the top one carries the pile's badge. */
-function Pile({ cards }: { cards: Card[] }) {
-  return (
-    <div className="stack">
-      {cards.map((c, i) => (
-        <Permanent key={c.id} card={c} badge={cards.length > 1 && i === cards.length - 1 ? cards : undefined} />
-      ))}
-    </div>
-  );
-}
-
-/**
- * One player's rows on the table, in their corner (`seatBox`): lands nearest their edge, then
- * the other permanents, then creatures nearest the middle. The cards stay upright whoever
- * controls them, and grow while the rows fit the seat (`seatScale`).
- */
-export const Seat = memo(function Seat({ player }: { player: Player }) {
-  const v = useView();
-  const g = v.g;
-  const seat = seatOf(g, v.me, player.id);
-  const stage = useStageSize();
-  const box = seatBox(seat, stage.w, stage.h);
-  const creatures = creaturePiles(v, player);
-  const lands = landPiles(g, player);
-  const { others, phased } = otherPermanents(g, player);
-  const sizes = (piles: Card[][]) => piles.map((p) => p.length);
-  const otherSizes = [...others, ...phased].map(() => 1);
-  const k = seatScale({
-    rows: [
-      { ...TILE.other, piles: sizes(lands) },
-      { ...TILE.other, piles: otherSizes },
-      { ...TILE.creature, piles: sizes(creatures) },
-    ],
-    rowLen: box.width,
-    room: box.height,
-  });
-  const size = (kind: keyof typeof TILE, piles: number[]) => {
-    const tw = TILE[kind].w * k;
-    return { tw, gap: rowGap(piles, tw, TILE[kind].gap, box.width) };
-  };
-  return (
-    <section
-      className={cx('seat', seatClass(seat), g.active === player.id && 'active', player.lost && 'lost')}
-      style={vars({
-        left: `${box.left}rem`,
-        top: `${box.top}rem`,
-        width: `${box.width}rem`,
-        height: `${box.height}rem`,
-        rotate: `${box.lean}deg`,
-        '--deck': deckColor(player.colors),
-      })}
-    >
-      <Row className="lands" {...size('other', sizes(lands))}>
-        {lands.map((pile) => (
-          <Pile key={pile[0].id} cards={pile} />
-        ))}
-      </Row>
-      <Row className="others" {...size('other', otherSizes)}>
-        <AnimatePresence>
-          {others.map((c) => (
-            <Permanent key={c.id} card={c} />
-          ))}
-          {phased.map((c) => (
-            <Permanent key={c.id} card={c} phased />
-          ))}
-        </AnimatePresence>
-      </Row>
-      <Row className="creatures" {...size('creature', sizes(creatures))}>
-        <AnimatePresence>
-          {creatures.map((pile) => (pile.length === 1 ? <Permanent key={pile[0].id} card={pile[0]} /> : <Pile key={`stack-${pile[0].id}`} cards={pile} />))}
-        </AnimatePresence>
-      </Row>
-      {player.lost && <div className="defeated">Defeated</div>}
-    </section>
-  );
-});
 
 /** Floating "+3" / "-5" numbers whenever a life total changes. Each one fades out on its own after a couple of seconds. */
 function useLifeDeltas(life: number) {
@@ -333,16 +245,6 @@ export function Library({ player }: { player: Player }) {
   );
 }
 
-function Piles({ player }: { player: Player }) {
-  return (
-    <>
-      <Library player={player} />
-      <FaceUpPile player={player} zone="graveyard" />
-      <FaceUpPile player={player} zone="exile" />
-    </>
-  );
-}
-
 /** `value` as it was on the previous render (the current one on the first). */
 function usePrevious<T>(value: T) {
   const prev = useRef(value);
@@ -353,37 +255,9 @@ function usePrevious<T>(value: T) {
 }
 
 /**
- * An opponent's hand: face-down cards fanned out of their corner, partly off the screen,
- * with a count. The hand only shows a count, so a bigger hand next to a smaller library
- * means the new cards were drawn.
- */
-function OpponentHand({ player, seat }: { player: Player; seat: SeatPos }) {
-  const fanEl = useRef<HTMLDivElement>(null);
-  const shown = Math.min(player.hand.length, 12);
-  const before = usePrevious({ hand: Math.min(player.hand.length, 12), library: player.library.length });
-  const drew = shown > before.hand && player.library.length < before.library;
-  return (
-    <div className="opp-hand">
-      <div className="opp-fan" ref={fanEl}>
-        {/* Where a card going to this hand flies (Flights.tsx): a card back's place in the middle of the fan, never drawn. */}
-        <div className="card-back opp-hand-spot" data-hand-of={player.id} style={{ rotate: `${fanAngle(0, 1, seat)}deg` }} />
-        {Array.from({ length: shown }, (_, i) => (
-          <HandBack key={i} pid={player.id} fanEl={fanEl} angle={fanAngle(i, shown, seat)} drawn={drew && i >= before.hand ? i - before.hand : undefined} />
-        ))}
-      </div>
-      <span className="count" title={`${player.hand.length} cards in hand`}>
-        {player.hand.length}
-      </span>
-    </div>
-  );
-}
-
-/**
- * The parts of a player's seat that stand on the screen rather than lie on the table: the
- * portrait on their side edge, the library, graveyard and exile on their top or bottom edge
- * (on the 3D table, they lie on the table instead),
- * and an opponent's hand fanned out of their corner (on the 3D table, held on it). `you`: the seat at the bottom, whose
- * hand is `PlayerHand` and whose portrait carries the mana pool.
+ * The part of a player's seat that stands on the screen: the portrait on their side edge,
+ * with the mana pool under yours. Their rows, library, graveyard and an opponent's hand lie
+ * on the table (Table3D.tsx). `you`: the seat at the bottom, whose hand is `PlayerHand`.
  */
 export const SeatHud = memo(function SeatHud({ player, you }: { player: Player; you: boolean }) {
   const { g, me } = useView();
@@ -394,14 +268,6 @@ export const SeatHud = memo(function SeatHud({ player, you }: { player: Player; 
         <Avatar player={player} />
         {you && <ManaPool player={player} />}
       </div>
-      {/* The 3D table lays the piles on the table itself (Table3D.tsx). */}
-      {!TABLE_3D && (
-        <div className="seat-zones">
-          <Piles player={player} />
-        </div>
-      )}
-      {/* The 3D table has each opponent hold their hand on the table (Table3D.tsx). */}
-      {!you && !TABLE_3D && <OpponentHand player={player} seat={seat} />}
     </div>
   );
 });

@@ -1,19 +1,30 @@
 import { Suspense, lazy, useEffect, useMemo, useState } from 'react';
-import type { CSSProperties } from 'react';
 import { realSchedule, scheduleBot } from '../engine';
 import type { Schedule } from '../engine';
-import { PlayerHand, Seat, SeatHud } from './Board';
-import { DEPTH, TABLE_3D, TILT, useTableSize } from './camera';
+import { PlayerHand, SeatHud } from './Board';
+import { CAN_DRAW_3D } from './camera';
 import { Flights } from './Flights';
-import { ActionBar, ArrowLayer, ExitConfirm, GameOver, LogPanel, Preview, Prompt, SpellFlash, StackPanel, ZoneViewer } from './Hud';
+import { ActionBar, ArrowLayer, ExitConfirm, GameOver, HotkeysDialog, LogPanel, Preview, Prompt, SpellFlash, StackPanel, ZoneViewer } from './Hud';
 import { GameVotes, PausedOverlay } from './LobbyScreen';
 import { Decisions, DelvePicker, EscapePicker, GraveCostPicker, GraveyardTargets } from './Picker';
 import { useStore } from './store';
 import { fromSeat } from './util';
 import { ViewContext, buildView } from './view';
 
-/** The 3D table (`TABLE_3D`), loaded only when it is drawn, so the CSS table (`?table=css`) never downloads the 3D libraries. */
+/** The table (src/ui/three/Table3D.tsx), loaded only once a game is drawn, so the menu never waits for the 3D libraries. */
 const Table3D = lazy(() => import('./three/Table3D'));
+
+/** In the table's place, for a browser that can't draw it (`CAN_DRAW_3D`). */
+function NoTable() {
+  return (
+    <div className="modal">
+      <div className="game-over">
+        <h1>This browser can't draw the table</h1>
+        <p>The table needs WebGL 2, which every current browser has. Try another browser, or turn hardware acceleration on in this one.</p>
+      </div>
+    </div>
+  );
+}
 
 /**
  * Covers the table while the screen passes to the next person at it, so nobody sees
@@ -76,29 +87,22 @@ export function GameScreen() {
   // You sit at the bottom; the others sit clockwise in turn order after you (see `seatOf`).
   const players = fromSeat(game.players, human);
   const bottom = players[0];
-  const table = useTableSize();
   return (
     <ViewContext.Provider value={view}>
-      <div className="stage board" style={{ '--tilt': `${TILT}deg`, '--depth': `${DEPTH}rem`, '--table-h': `${table.h}rem` } as CSSProperties}>
-        {/* The table, leaning away from you (camera.ts): the seats' rows. The portraits, piles, hands and the HUD stay flat, in screen space. */}
-        {TABLE_3D ? (
+      <div className="stage board">
+        {/* The table, leaning away from you (camera.ts): the seats' cards, piles and held hands, drawn in 3D. The portraits, your hand and the HUD stay flat, in screen space. */}
+        {CAN_DRAW_3D ? (
           <Suspense fallback={null}>
             <Table3D players={players} />
           </Suspense>
         ) : (
-          <div className="table">
-            {players.map((p) => (
-              <Seat key={p.id} player={p} />
-            ))}
-            {/* Cards flying to somewhere on the table land here, over everything on it (Flights). */}
-            <div className="flights-table" />
-          </div>
+          <NoTable />
         )}
         {players.map((p) => (
           <SeatHud key={p.id} player={p} you={p === bottom} />
         ))}
         <PlayerHand player={bottom} />
-        {/* Cards moving between zones; the ones bound for the table fly on it (.flights-table), the rest over the screen. */}
+        {/* Cards moving between zones over the screen; arrivals on the table fly in the scene (Table3D.tsx). */}
         <Flights />
         <Prompt />
         <LogPanel />
@@ -116,6 +120,7 @@ export function GameScreen() {
         {/* Before the exit dialog, so leaving a paused game still asks first. */}
         <PausedOverlay />
         <ExitConfirm />
+        <HotkeysDialog />
         <Handoff />
         <GameVotes />
       </div>

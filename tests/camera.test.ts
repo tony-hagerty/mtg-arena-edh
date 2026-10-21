@@ -14,7 +14,7 @@ describe('tableHeight', () => {
     // The far edge, h up the table, projects to h·cos t·D / (D + h·sin t) up the screen.
     const up = (h * cos * DEPTH * REM) / (DEPTH * REM + h * sin);
     expect(up).toBeCloseTo(H, 6);
-    // Leaning over shortens the table, so it has to be taller than the screen (about 1.05× at 10° and 600rem).
+    // Leaning over shortens the table, so it has to be taller than the screen (about 1.6× at 26° and 170rem).
     expect(h).toBeGreaterThan(H);
   });
 

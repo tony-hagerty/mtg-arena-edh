@@ -1,5 +1,5 @@
 import { camera } from '../camera';
-import type { SeatBox } from '../table-layout';
+import type { SeatBox } from './layout3d';
 import type { Seat } from '../util';
 import { fbm, hash, valueNoise } from './noise';
 
@@ -168,7 +168,7 @@ const CONTROLS_HALF = 20;
  * Seat `seat`'s area on its mat, for a screen `stageW` × `stageH` rem and its table: where its
  * library and graveyard lie (along the mat's own edge, just inside it, the library nearest the
  * middle across: a far seat's against its mat's inner edge), and the box its rows of
- * permanents fill (`layoutSeat`), in the CSS table's terms as `seatBox` gives it: as much of
+ * permanents fill (`layoutSeat`), a `SeatBox` in rem from the table's top-left corner: as much of
  * the rest of the mat as is clear of the piles, the well and what stands on the screen over
  * the table. Rows lie square to the mat (no lean). The whole bottom edge (three
  * players) spans both near mats and the path between them. And where the seat's hand is held,
@@ -233,7 +233,7 @@ export function seatArea(seat: Seat, g: Garden, stageW: number, stageH: number, 
     const beside: Span = right ? { xa: Math.max(sBeside.a, wellClear), xb: sBeside.b, ya: besideYa, yb } : { xa: sBeside.a, xb: Math.min(sBeside.b, -wellClear), ya: besideYa, yb };
     span = area(beside) > area(across) ? beside : across;
   }
-  const box: SeatBox = { left: span.xa + tableW / 2, top: tableH - span.yb, width: span.xb - span.xa, height: span.yb - span.ya, lean: 0 };
+  const box: SeatBox = { left: span.xa + tableW / 2, top: tableH - span.yb, width: span.xb - span.xa, height: span.yb - span.ya };
   // An opponent's hand, held at the back of their mat (its own edge) beside the piles, on the
   // side away from the middle: on the far side of the middle from them for a seat along the
   // whole edge. Its middle there, and how much of the edge it has.

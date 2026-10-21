@@ -28,15 +28,6 @@ export function findEdge(env: NodeJS.ProcessEnv = process.env): string | undefin
   return undefined;
 }
 
-/**
- * The page the window opens: the game at `base`, drawn with `table` (`--table css` opens
- * `?table=css`, the older table drawn with CSS: see docs/how-to-play.md). Nothing is added
- * for the usual table, the 3D one, so the address stays the one the browser keeps saved decks and settings under.
- */
-export function windowUrl(base: string, table?: string): string {
-  return table ? `${base}?table=${encodeURIComponent(table)}` : base;
-}
-
 /** Edge's command line for the game window. */
 export function edgeArgs(url: string, profile: string): string[] {
   return [

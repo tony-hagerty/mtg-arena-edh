@@ -58,7 +58,7 @@ src/ui/         App.tsx               menu or game screen; GameScreen.tsx lays t
                 lobby.ts              the window's connection to the lobby; the name you play under
                 LobbyScreen.tsx       hosting a table, joining one with a code, the waiting room
                 view.ts               highlights, prompt, buttons, click handlers
-                Card/Board/Hud.tsx    components
+                Card/Board/Hud.tsx    components: your hand's cards, the portraits and piles, the HUD
                 TextCard.tsx          a card drawn as text when its image doesn't load
                 Menu.tsx              deck menu, opponent seats, the paste screen
                 card-requests.ts      sends refused cards to the dev server or a download
@@ -76,18 +76,15 @@ src/ui/         App.tsx               menu or game screen; GameScreen.tsx lays t
                 fullscreen.ts, rem.ts Alt+Enter fullscreen; the root font-size as a hook
                 camera.ts             the camera on the table: its tilt and perspective, the
                                       table's height, and the projection table <-> screen
-                table-layout.ts       where each seat's rows go and how big their cards are
-                                      (seatBox, seatScale), opponents' hand fans, and your
-                                      hand's curve and scroll pills (pure maths, tested)
+                table-layout.ts       your hand's curve and scroll pills (pure maths, tested)
                 util.ts               small helpers: class names, deck colours, hover props
                 styles.css            all styling
-                three/                the table drawn in 3D, the usual one (`?table=css`
-                                      draws the CSS one; see
+                three/                the table, drawn in 3D (how it came about:
                                       docs/plans/flutter-conversion.md). Table3D.tsx is the
                                       scene (Three.js through React Three Fiber) and the
                                       cards' proxies; layout3d.ts where each card lies in its
-                                      rows and the camera that matches camera.ts (pure
-                                      maths, tested); geometry.ts a card's rounded shape;
+                                      rows (seatScale) and the camera that matches camera.ts
+                                      (pure maths, tested); geometry.ts a card's rounded shape;
                                       board.ts the board's plan: four mats, each a seat's
                                       battlefield (seatArea: its rows' box and its piles),
                                       where each opponent holds their hand, and the well
@@ -100,7 +97,7 @@ src/ui/         App.tsx               menu or game screen; GameScreen.tsx lays t
                                       noise they share; textures.ts card faces (a
                                       permanent's art-and-name tile, tileTexture), back
                                       and floor
-                card-back.svg         the back of every card, CSS and 3D alike
+                card-back.svg         the back of every card, on the screen and in the scene
                 cursor.png            the mouse cursor, and cursor-down.png while a
                                       button is held (see Credits)
 tests/                                Vitest: card coverage, rules, the UI casting flow,
@@ -185,40 +182,27 @@ A wider or taller window gets extra `rem` on that side instead of empty bars. So
 things from an edge or the middle (`right: 2rem`, `top: calc(100% - 12rem)`), not from a
 fixed spot on a 192 × 108 grid.
 
-**The table leans away from you**, like Arena's: `.table` (GameScreen.tsx) is turned by
-`TILT` (10°) about its bottom edge under a perspective of `DEPTH`, both in
-`src/ui/camera.ts`, which sets them on the stage as `--tilt` and `--depth`. The 3D table
-(`TABLE_3D`: the usual table, unless `?table=css` or the browser has no WebGL 2) has its own, steeper pair (26° and 170rem, the far edge about 0.6
-of the near one), and everything that projects through `camera()` follows it. The table is
-taller than the screen by just enough that, leaned over, its far edge lands on the top of
-the screen (`tableHeight`, set as `--table-h`).
+**The table leans away from you**, like Arena's: the scene's table (three/Table3D.tsx) is
+turned by `TILT` (26°) about its bottom edge under a perspective of `DEPTH` (170rem, the
+far edge about 0.6 of the near one), both in `src/ui/camera.ts`, which the scene's camera
+is built from (`baseCamera`) and everything that projects through `camera()` follows. The
+table is taller than the screen by just enough that, leaned over, its far edge lands on the
+top of the screen (`tableHeight`). A browser without WebGL 2 gets a notice in the table's
+place (`CAN_DRAW_3D`).
 
 **Seats sit in the corners** (`seatOf` in util.ts: a `Seat` is `{ v: 'top' | 'bottom', h:
 'left' | 'right' | 'full' }`, and `seatClass` gives `seat-bottom-left seat-bottom
 seat-left` and the like). Two players sit bottom left and top right, three leave you the
 whole bottom edge (`full`) and take the top corners, four go bottom left, top left, top
-right, bottom right. On the 3D table each seat's rows and piles lie on its mat instead
-(`seatArea` in three/board.ts: the mat short of its piles and the well, no lean), with
-exile shared in the well, and an opponent holds their hand on it (`HeldHand`). On the CSS
-table each seat is drawn in two parts:
-
-- **Its rows lie on the table** (`Seat` in Board.tsx, inside `.table`): lands nearest the
-  seat's edge, then the other permanents, then creatures nearest the middle. `seatBox` in
-  `table-layout.ts` lays the seat's box out on the screen (across its half, from right of
-  the portraits to just short of the middle, and from just past the middle of the screen
-  to above the piles and the controls, less the rise of the rows' 5° lean), mirrored for
-  the top and right seats, then projects its corners back onto the table with `camera()`
-  and takes the rectangle inside them. `seatScale` picks the biggest scale (0.7 to 1.45)
-  at which every row fits its length and the rows fit the box's height; past 0.7 a
-  crowded row overlaps (`rowGap`, a negative `--gap`). Cards stay upright for everyone.
-- **Its portrait, piles and an opponent's hand stand on the screen** (`SeatHud`, outside
-  `.table`): the portrait 2.4rem in from the side edge, just below the middle for the
-  bottom seats and above it for the top ones; the library, graveyard and exile along the
-  seat's top or bottom edge (`.seat-zones`: 9.6rem piles, the library's inner edge 18.8rem
-  from the middle of the screen so it clears the controls and the log bar, and at the
-  bottom raised 9.2rem over the tip of your hand; the bottom seats' rows stop above them,
-  `BOX_ABOVE_EDGE`); an opponent's hand fanned from a pivot off the screen past their
-  corner (`fanAngle`).
+right, bottom right. Each seat's rows and piles lie on its mat (`seatArea` in
+three/board.ts: the mat short of its piles and the well): lands nearest the seat's edge,
+then the other permanents, then creatures nearest the middle, grown to the biggest scale
+(0.7 to 1.9) at which every row fits its length and the rows fit the mat (`seatScale` in
+three/layout3d.ts; past 0.7 a crowded row overlaps, `rowGap`). Cards stay upright for
+everyone. Exile is shared in the well, and an opponent holds their hand on their mat
+(`HeldHand`). Only the portrait stands on the screen (`SeatHud` in Board.tsx), 2.4rem in
+from the side edge, just below the middle for the bottom seats and above it for the top
+ones.
 
 Your hand follows a curve out of the bottom-left corner (`handSlot`), the first card placed
 along it so its left edge touches the screen's (`S0`): up to seven cards,
@@ -230,13 +214,15 @@ dragged (`holding` in the store) no other card hovers. The HUD sits flat on the 
 middle, the controls' plate with the seat arrows above it at the bottom in the middle,
 the stack over the middle of the table (`stackHidden` in the store tucks it into a chip).
 
-That leaves two coordinate spaces. Everything inside `.table` (the seats' rows and
-`.flights-table`) is laid out in the table's own px; the hand, the portraits, the piles,
-the HUD, the arrows and the hover preview sit flat on the screen. `getBoundingClientRect`
+That leaves two coordinate spaces. The cards, piles and held hands are laid out on the
+table, in its own rem (three/board.ts, three/layout3d.ts); the hand, the portraits, the
+HUD, the arrows and the hover preview sit flat on the screen. `getBoundingClientRect`
 always answers in screen px; `camera()` projects between the two (`toScreen`,
-`toTable`), which is how Flights.tsx lands a copy on a tilted tile: a flight bound for the
-table is drawn on it, in table px, and one bound for a pile, the stack or the hand over
-the screen.
+`toTable`), which is how board.ts keeps a mat's rows clear of what stands on the screen
+over it. Every card on the table has a proxy, a DOM box the scene lays over it on the
+screen each frame (`useProxy` in Table3D.tsx), so the preview, the arrows and the flights
+find it by its element as they find a hand card. The scene flies arrivals onto the table
+itself; Flights.tsx flies everything else over the screen.
 
 ### Colours and the table's look
 
@@ -246,21 +232,21 @@ for what can be played, `--target` yellow for what can be chosen, `--attack`, `-
 lines, shadows and radii. Use them rather than new literal colours; the comment above them
 says what each is for. The card frame colours (`--f-W` to `--f-land`) double as each
 deck's seat colour. All the app's text is one sans-serif typeface, `--sans`: use it rather
-than naming a font (the 3D table's tile names read it too, `tileTexture`).
+than naming a font (the tile names in the scene read it too, `tileTexture`).
 
-- **Seats** have no mat of their own: the table is one floor, and each seat's rows mark
-  its corner. Whose turn it is shows on their avatar (the rays and the gold life plate).
-- **Tiles** take their size from `--tw` (the row sets it; the tile's font-size is a tenth
-  of it), so a tile's parts are sized in `em`, with `rem` floors on text that must stay
-  readable. A pile shows `PILE_STEP` (table-layout.ts) of each card under its top one; keep the
-  CSS overlap in step with it.
+- **Seats** are the mats (three/Garden.tsx), one material each in turn order from yours.
+  Whose turn it is shows on their avatar (the rays and the gold life plate).
+- **A card's badges** (P/T, counters, the summoning-sick mark, a pile's count) are DOM, on
+  the card's proxy, whose font-size is a tenth of the card's width, so they are sized in
+  `em`, with `rem` floors on text that must stay readable. A pile shows `PILE_STEP`
+  (three/layout3d.ts) of each card under its top one.
 - **Rows** never wrap: a seat's three rows share its box (`seatScale`), and a row too long
   for it overlaps its cards (`rowGap`).
 - **The card back** is one SVG, `src/ui/card-back.svg` (the icon as a gold silhouette),
-  in `--card-back` wherever a card is face down, and drawn onto the 3D cards' undersides
-  and libraries (`backTexture`).
-- **A tapped card** carries the tap symbol (`.tap-symbol`, the mana font's {T}): on a tile
-  inside `.tile-tapmark`, on the 3D table on the card's proxy.
+  in `--card-back` wherever a card is face down on the screen, and drawn onto the cards'
+  undersides and the libraries in the scene (`backTexture`).
+- **A tapped card** lies turned 8° and carries the tap symbol on its proxy (`.tap-symbol`,
+  the mana font's {T}).
 
 ## Tests
 
@@ -340,20 +326,19 @@ What the browser spends its time on while the table is up, measured in
   one element under the pointer, and never on a floor-sized one, whose repaint is the
   table's. `:active` is no good for it either: the browser churns it during a drag. The
   same goes for anything else that changes a painted property on every element at once.
-- **The stage background is expensive to paint.** `--grain`, `--mottle` and `--stones`
-  are SVG textures, two of them `feTurbulence` filters that take hundreds of milliseconds
-  to rasterize at screen size. Nothing should invalidate the floor's paint per frame or
-  per click.
-- **Tiles are compositor layers** (`.tile { will-change: transform }`): Motion animates
-  them from script, and without a layer each animated frame repainted the table under
-  them. Keep anything Motion animates every frame on its own layer.
-- **The glow pulse is stepped.** `.board::after` and `.table::after` animate their opacity
-  without end, and an animating layer makes the compositor draw every frame for as long as
-  the table is up (in a software-rendered browser that alone halves the frame rate). The
-  compositor skips frames in which nothing changed, so the pulse runs in 24 steps
-  (`steps(24, jump-none)`): one change every 150 ms, too small to see, and the GPU draws
-  about seven times a second while the table is idle instead of sixty. Keep any always-on
-  animation stepped like this, or off.
+- **SVG filter textures are expensive to paint.** `--grain` (the graveyard's worn top
+  card) is an `feTurbulence` filter; at screen size such a texture takes hundreds of
+  milliseconds to rasterize (the old CSS floor was three of them). Keep them small, and
+  never invalidate their paint per frame or per click.
+- **What Motion animates every frame is a compositor layer** (`will-change: transform`,
+  as the cards' proxies have): without a layer each animated frame repainted the screen
+  under it.
+- **Keep any always-on DOM animation stepped, or off.** An animating layer makes the
+  compositor draw every frame for as long as it is up (in a software-rendered browser that
+  alone halves the frame rate), but it skips frames in which nothing changed, so a pulse
+  in steps (`steps(24, jump-none)`: one change every 150 ms, too small to see) draws about
+  seven times a second instead of sixty. The scene itself draws every frame (the water, the
+  torches); that is the table's cost, so nothing over it should add to it.
 - **A bot thinks inside its timer** (`scheduleBot` in ai.ts, which drives the bots on the
   screen and on the game server), never in the effect that follows a game change:
   `botAction` can take 30 to 70 ms and would stretch the frame that draws the last move.
@@ -361,10 +346,10 @@ What the browser spends its time on while the table is up, measured in
   move's own pause is up; the server's thinks at once, having no frame to keep smooth.
 - **Write to the DOM only on change.** `ArrowLayer` follows cards every frame; setting an
   SVG path's `d` repaints the whole full-screen SVG, so it sets it only when it moved.
-- **Every game change re-renders every tile**, through the view context, and that is
-  correct (any move can change any tile). UI-only changes (hover, drag, the hand's order)
-  don't. `Seat` and `SeatHud` are `memo`, so `GameScreen` re-rendering without a new view
-  (a speed or settings change) skips the seats and everything in them.
+- **Every game change re-renders every card on the table**, through the view context, and
+  that is correct (any move can change any card). UI-only changes (hover, drag, the hand's
+  order) don't. `SeatHud` is `memo`, so `GameScreen` re-rendering without a new view (a
+  speed or settings change) skips the portraits.
 
 ## Adding a card
 

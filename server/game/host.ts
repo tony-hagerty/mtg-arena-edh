@@ -130,7 +130,8 @@ export class GameHost implements GameService {
    */
   act(seat: PlayerId, seq: number, action: Action): boolean {
     const g = this.game;
-    this.acks.set(seat, Math.max(seq, this.acks.get(seat) ?? 0));
+    // `seq` comes over the wire: anything but a number would leave the ack NaN, and the window would drop every view after.
+    this.acks.set(seat, Math.max(Number.isFinite(seq) ? seq : 0, this.acks.get(seat) ?? 0));
     const ok = !!g && !this.paused && g.step !== 'gameOver' && g.priority === seat && !g.players[seat].isBot;
     const next = ok ? applyAction(g, action, this.options()) : g;
     if (next !== g) this.game = next;

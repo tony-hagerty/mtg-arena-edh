@@ -5,6 +5,7 @@ import { cardData } from '../cards/db';
 import { data, findCard, label, triggerText } from '../engine';
 import type { CardData, Game, LogEntry, Player, PlayerId, Step, StopKind } from '../engine';
 import { CardImage, ManaCost, frameOf } from './TextCard';
+import { hotkeys } from './hotkeys';
 import { useRem } from './rem';
 import { play } from './sound';
 import { MusicControl, SoundControl } from './SoundControl';
@@ -222,6 +223,8 @@ export function ActionBar() {
     const onKey = (e: KeyboardEvent) => {
       // A paused table's game takes no moves, from the keys either.
       if (useStore.getState().tableGame && useStore.getState().table?.paused) return;
+      // The Hotkeys window is only to read: it closes on Esc itself, and Space or Enter press its button.
+      if (useStore.getState().showHotkeys) return;
       // While the exit dialog is open the keys belong to it: Esc stays, Enter presses the focused button.
       if (useStore.getState().confirmExit) {
         if (e.code === 'Escape') useStore.setState({ confirmExit: false });
@@ -268,7 +271,7 @@ export function ActionBar() {
     };
     const onUp = (e: KeyboardEvent) => {
       const s = useStore.getState();
-      if (armed && modifier(e) && latest.current.me !== null && !s.confirmExit) s.setFullControl(!s.fullControl);
+      if (armed && modifier(e) && latest.current.me !== null && !s.confirmExit && !s.showHotkeys) s.setFullControl(!s.fullControl);
       armed = false;
     };
     const onBlur = () => (armed = false);
@@ -711,8 +714,8 @@ const DAMAGE_TIP = 'When an attacker of yours is blocked by two or more creature
 
 /**
  * The gear on the log bar and its popover: the settings that change how the game runs for
- * this person (bot speed, sound, and how combat damage is divided). Esc or a click
- * elsewhere closes it, before Esc reaches the game.
+ * this person (bot speed, sound, and how combat damage is divided), and the button that
+ * opens the Hotkeys window. Esc or a click elsewhere closes it, before Esc reaches the game.
  */
 function GameSettings() {
   const [open, setOpen] = useState(false);
@@ -780,6 +783,15 @@ function GameSettings() {
                 />
               </div>
             )}
+            <button
+              className="btn btn-plain small hotkeys-open"
+              onClick={() => {
+                setOpen(false);
+                useStore.setState({ showHotkeys: true });
+              }}
+            >
+              <span className="btn-label">Hotkeys</span>
+            </button>
           </motion.div>
         )}
       </AnimatePresence>
@@ -850,6 +862,73 @@ export function LogPanel() {
         )}
       </AnimatePresence>
     </aside>
+  );
+}
+
+/** Every key and mouse control, opened from the gear menu. Esc, Close or a click outside it closes it. */
+export function HotkeysDialog() {
+  const open = useStore((s) => s.showHotkeys);
+  const close = () => useStore.setState({ showHotkeys: false });
+  useEffect(() => {
+    if (!open) return;
+    const key = (e: KeyboardEvent) => {
+      if (e.code !== 'Escape') return;
+      // Capturing on the window runs before the game's own Esc (cancel).
+      e.stopPropagation();
+      useStore.setState({ showHotkeys: false });
+    };
+    window.addEventListener('keydown', key, true);
+    return () => window.removeEventListener('keydown', key, true);
+  }, [open]);
+  return (
+    <AnimatePresence>
+      {open && (
+        <motion.div className="modal" onClick={close} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+          <motion.div
+            className="hotkeys"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="hotkeys-title"
+            onClick={(e) => e.stopPropagation()}
+            initial={{ scale: 0.92 }}
+            animate={{ scale: 1 }}
+            exit={{ scale: 0.96 }}
+          >
+            <h2 id="hotkeys-title">Hotkeys</h2>
+            {hotkeys().map((group) => (
+              <section key={group.title}>
+                <h3>{group.title}</h3>
+                <dl>
+                  {group.rows.map((row) => (
+                    <div className="hotkey" key={row.keys.flat().join(' ')}>
+                      <dt>
+                        {row.keys.map((combo, i) => (
+                          <span key={combo.join('+')}>
+                            {i > 0 && <span className="hotkey-or">or</span>}
+                            {combo.map((k, j) => (
+                              <span key={k}>
+                                {j > 0 && '+'}
+                                {group.mouse ? k : <kbd>{k}</kbd>}
+                              </span>
+                            ))}
+                          </span>
+                        ))}
+                      </dt>
+                      <dd>{row.does}</dd>
+                    </div>
+                  ))}
+                </dl>
+              </section>
+            ))}
+            <div className="confirm-buttons">
+              <button className="btn btn-plain small" onClick={close} autoFocus>
+                <span className="btn-label">Close</span>
+              </button>
+            </div>
+          </motion.div>
+        </motion.div>
+      )}
+    </AnimatePresence>
   );
 }
 

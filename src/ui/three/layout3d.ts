@@ -1,36 +1,59 @@
-import { PILE_STEP, rowGap, rowUnits, seatScale } from '../table-layout';
-import type { SeatBox } from '../table-layout';
 import type { Seat } from '../util';
 
 /*
-  Where each card lies on the 3D table (Table3D.tsx). Pure maths, no React or Three:
+  Where each card lies on the table (Table3D.tsx). Pure maths, no React or Three:
   tests/layout3d.test.ts checks it.
 
-  The table is the same plane the CSS table is (camera.ts): the screen's width across, and
-  `tableHeight` deep, leaned away by TILT about its bottom edge. Its own coordinates here are
-  world units (1 unit = 1 rem), x from the middle of the bottom edge (right is positive), y up
-  the table from the bottom edge toward the far one, z up off the table. The seats' boxes come
-  from `seatBox` in table-layout.ts, in the CSS table's terms (rem from its top-left corner, y
-  down), and are converted.
+  The table is the plane camera.ts describes: the screen's width across, and `tableHeight`
+  deep, leaned away by TILT about its bottom edge. Its own coordinates here are world units
+  (1 unit = 1 rem), x from the middle of the bottom edge (right is positive), y up the table
+  from the bottom edge toward the far one, z up off the table. The seats' boxes come from
+  `seatArea` in board.ts, in rem from the table's top-left corner with y down (`SeatBox`),
+  and are converted.
 
-  The rows follow the CSS table's order: lands nearest the seat's edge, then the other
-  permanents, then creatures nearest the middle. The cards are drawn as the tiles are, art and
-  name at 5:4, at their own base sizes.
+  The rows run from the seat's edge inward: lands nearest it, then the other permanents, then
+  creatures nearest the middle. The cards are drawn as tiles, art and name at 5:4, at their
+  own base sizes, and grow while the rows fit the box (`seatScale`).
 */
 
-/** Card sizes on the 3D table in rem, before `seatScale`: width, height and the gap between piles. A permanent is drawn as the CSS table's tile is, its art and name at 5:4 (`tileTexture`), which saves a row a third of a card's depth. */
+/** Card sizes on the table in rem, before `seatScale`: width, height and the gap between piles. A permanent is drawn as a tile, its art and name at 5:4 (`tileTexture`), which saves a row a third of a card's depth. */
 export const CARD3D = {
   creature: { w: 9.6, h: 9.6 * 0.8, gap: 0.9 },
   other: { w: 8, h: 8 * 0.8, gap: 0.7 },
 } as const;
 
+/** How much of each card under the top one a pile shows, as a share of the card's width. */
+export const PILE_STEP = 0.1;
+
+/** The smallest a seat's cards are drawn. Below it, a crowded row overlaps its cards instead (`rowGap`). */
+export const K_MIN = 0.7;
+
+/** How many card widths a row of piles takes: each pile is one card and a step for every card under the top one. */
+export const rowUnits = (piles: number[]) => piles.reduce((n, k) => n + 1 + PILE_STEP * (k - 1), 0);
+
+export interface RowSpec {
+  /** Base card size and gap (`CARD3D`). */
+  w: number;
+  h: number;
+  gap: number;
+  /** How many cards are in each pile along the row; a lone card is a pile of 1. */
+  piles: number[];
+}
+
+/** A seat's rows' rectangle on the table, in rem from the table's top-left corner, y down (`seatArea` in board.ts). */
+export interface SeatBox {
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+}
+
 /** How thick a card is, in rem: a solid tile, thick enough that its edge shows. Cards in a pile sit this far apart. */
 export const CARD_THICKNESS = 0.3;
 
 /**
- * The space between a seat's rows on the 3D table, rem: wider than the CSS table's ROW_GAP,
- * so the lands read as a row apart from the creatures, and the badges between (P/T under a
- * card, a pile's count over one) have room.
+ * The space between a seat's rows, rem: wide, so the lands read as a row apart from the
+ * creatures, and the badges between (P/T under a card, a pile's count over one) have room.
  */
 export const ROW_GAP_3D = 3.4;
 
@@ -47,8 +70,6 @@ export interface Pose<T> {
   y: number;
   w: number;
   h: number;
-  /** The card's turn about its centre, in radians counterclockwise (Three's z rotation), from the seat's lean. */
-  turn: number;
   /** Its place in its pile, 0 for the bottom card; the top one carries the pile's badge. */
   stack: number;
   /** How many cards are in its pile. */
@@ -61,19 +82,38 @@ export interface Row<T> {
 }
 
 /**
- * The biggest a seat's cards grow on the 3D table, before they would outgrow its mat: higher
- * than the CSS table's K_MAX, since a mat is the whole battlefield and the far seats' cards
- * are seen smaller.
+ * The biggest a seat's cards grow, before they would outgrow its mat: a mat is the whole
+ * battlefield, and the far seats' cards are seen smaller.
  */
 export const K_MAX_3D = 1.9;
 
 /**
+ * The biggest scale at which every row fits its length and all the rows, with ROW_GAP_3D
+ * between them, fit the seat's height, clamped to K_MIN..K_MAX_3D. Empty rows take no room.
+ */
+export function seatScale({ rows, rowLen, room }: { rows: RowSpec[]; rowLen: number; room: number }) {
+  const used = rows.filter((r) => r.piles.length);
+  if (!used.length) return K_MAX_3D;
+  let k = (room - ROW_GAP_3D * (used.length - 1)) / used.reduce((n, r) => n + r.h, 0);
+  for (const r of used) k = Math.min(k, (rowLen - (r.piles.length - 1) * r.gap) / (rowUnits(r.piles) * r.w));
+  return Math.max(K_MIN, Math.min(K_MAX_3D, k));
+}
+
+/**
+ * The space between the piles of a row `len` long whose cards are `w` wide: `gap` while they
+ * fit, less (negative: they overlap) once they don't.
+ */
+export function rowGap(piles: number[], w: number, gap: number, len: number) {
+  if (piles.length < 2) return gap;
+  return Math.min(gap, (len - rowUnits(piles) * w) / (piles.length - 1));
+}
+
+/**
  * Where the cards of one seat go. `rows` run from the seat's own edge inward (lands, others,
- * creatures). `box` is the seat's box on the CSS table (`seatBox`), `tableW` and `tableH` the
- * table's size in rem. The cards grow as big as the box lets them (`seatScale`, up to
- * K_MAX_3D). The rows are centred in the box, with ROW_GAP_3D between them, and each
- * row's piles are centred along it, as the CSS flex rows are, then the whole box is turned by
- * its lean about its centre.
+ * creatures). `box` is the seat's box on the table (`seatArea` in board.ts), `tableW` and
+ * `tableH` the table's size in rem. The cards grow as big as the box lets them (`seatScale`,
+ * up to K_MAX_3D). The rows are centred in the box, with ROW_GAP_3D between them, and each
+ * row's piles are centred along it.
  */
 export function layoutSeat<T>(seat: Seat, box: SeatBox, rows: Row<T>[], tableW: number, tableH: number): Pose<T>[] {
   const used = rows.filter((r) => r.piles.length);
@@ -82,13 +122,11 @@ export function layoutSeat<T>(seat: Seat, box: SeatBox, rows: Row<T>[], tableW: 
     rows: used.map((r) => ({ ...CARD3D[r.kind], piles: r.piles.map((p) => p.length) })),
     rowLen: box.width,
     room: box.height,
-    max: K_MAX_3D,
-    gap: ROW_GAP_3D,
   });
   const heights = used.map((r) => CARD3D[r.kind].h * k);
   const total = heights.reduce((a, b) => a + b, 0) + ROW_GAP_3D * (used.length - 1);
-  // CSS terms first (rem from the table's top-left, y down). The bottom seats' rows run up from the box's bottom edge.
-  const poses: { x: number; y: number; w: number; h: number; stack: number; pile: number; item: T }[] = [];
+  // In the box's terms first (rem from the table's top-left, y down). The bottom seats' rows run up from the box's bottom edge.
+  const poses: Pose<T>[] = [];
   let edge = seat.v === 'bottom' ? box.top + box.height - (box.height - total) / 2 : box.top + (box.height - total) / 2;
   used.forEach((row, i) => {
     const size = CARD3D[row.kind];
@@ -100,26 +138,13 @@ export function layoutSeat<T>(seat: Seat, box: SeatBox, rows: Row<T>[], tableW: 
     const cy = seat.v === 'bottom' ? edge - h / 2 : edge + h / 2;
     let x = box.left + (box.width - len) / 2;
     for (const pile of row.piles) {
-      pile.forEach((item, j) => poses.push({ item, x: x + w / 2 + j * PILE_STEP * w, y: cy, w, h, stack: j, pile: pile.length }));
+      // Into table units: x from the middle, y up from the bottom edge.
+      pile.forEach((item, j) => poses.push({ item, x: x + w / 2 + j * PILE_STEP * w - tableW / 2, y: tableH - cy, w, h, stack: j, pile: pile.length }));
       x += (1 + PILE_STEP * (pile.length - 1)) * w + gap;
     }
     edge += (seat.v === 'bottom' ? -1 : 1) * (h + ROW_GAP_3D);
   });
-  // The lean: CSS turns the box clockwise about its centre.
-  const cx = box.left + box.width / 2;
-  const cy = box.top + box.height / 2;
-  const lean = (box.lean * Math.PI) / 180;
-  const cos = Math.cos(lean);
-  const sin = Math.sin(lean);
-  return poses.map((p) => {
-    const dx = p.x - cx;
-    const dy = p.y - cy;
-    // Clockwise in CSS (y down) is [cos -sin; sin cos].
-    const x = cx + dx * cos - dy * sin;
-    const y = cy + dx * sin + dy * cos;
-    // Into table units: x from the middle, y up from the bottom edge. A clockwise CSS turn is a negative Three one.
-    return { item: p.item, x: x - tableW / 2, y: tableH - y, w: p.w, h: p.h, turn: -lean || 0, stack: p.stack, pile: p.pile };
-  });
+  return poses;
 }
 
 /** A card held in an opponent's hand on the 3D table, before `heldFan` fits the fan to its room: its size, rem. */
@@ -205,7 +230,7 @@ export function quadMatrix(w: number, h: number, q: readonly (readonly [number, 
 }
 
 /**
- * The camera that sees the table as the CSS one does (camera.ts): at the middle of the
+ * The camera that sees the table as camera.ts describes it: at the middle of the
  * screen's bottom edge, `depth` out from the screen, looking straight in. Its frame is the
  * screen, `w` × `h` (rem), with that point at the bottom middle: a frustum twice the screen's
  * height, of which the top half is drawn (`viewOffset`). Degrees for the fov, as Three takes.
