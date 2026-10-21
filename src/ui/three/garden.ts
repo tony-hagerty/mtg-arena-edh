@@ -27,9 +27,9 @@ export type Material = 'leather' | 'wood' | 'slate' | 'cloth';
 
 export interface Bed {
   material: Material;
-  /** Which corner of the table. */
+  /** Which corner of the table, or the whole of its near or far side (`full`). */
   v: 'bottom' | 'top';
-  h: 'left' | 'right';
+  h: 'left' | 'right' | 'full';
   /** The mat's rectangle. */
   x0: number;
   y0: number;
@@ -74,19 +74,34 @@ function upTable(up: number, stageW: number, stageH: number, tableH: number) {
   return tableH - camera(stageW, stageH, 1).toTable({ x: stageW / 2, y: stageH - up }).y;
 }
 
-/** The board on a table `tableW` × `tableH` rem, seen on a screen `stageW` × `stageH`: four mats of one size, the well where the paths between them cross. */
-export function gardenPlan(stageW: number, stageH: number, tableW: number, tableH: number): Garden {
+/** The four corners' seats, for a game of four (`seatOf`). */
+const FOUR: Seat[] = CORNERS.map(({ v, h }) => ({ v, h }));
+
+/**
+ * The board on a table `tableW` × `tableH` rem, seen on a screen `stageW` × `stageH`, for the
+ * game's `seats` (`seatOf`; four corners unless given): a mat for each seat, the well where
+ * the paths between them cross. A seat in a corner has its corner's mat; a seat alone on its
+ * side of the table (two players, or you with three) has one mat the whole width of that side,
+ * in its own corner's material (the whole bottom edge is the bottom left's), curving in round
+ * the well. Every mat is the same depth, so the far ones look shallower.
+ */
+export function gardenPlan(stageW: number, stageH: number, tableW: number, tableH: number, seats: Seat[] = FOUR): Garden {
   const near = upTable(NEAR_ABOVE, stageW, stageH, tableH);
   const cross = (near + tableH - MARGIN.far) / 2;
-  const beds = CORNERS.map(
-    (c): Bed => ({
-      ...c,
-      x0: c.h === 'left' ? -tableW / 2 + MARGIN.side : PATH,
-      x1: c.h === 'left' ? -PATH : tableW / 2 - MARGIN.side,
-      y0: c.v === 'bottom' ? near : cross + PATH,
-      y1: c.v === 'bottom' ? cross - PATH : tableH - MARGIN.far,
-    }),
-  );
+  const beds = seats.map((seat): Bed => {
+    const alone = seat.h === 'full' || seats.filter((o) => o.v === seat.v).length === 1;
+    const h = alone ? 'full' : seat.h;
+    const corner = seat.h === 'full' ? 'left' : seat.h;
+    return {
+      material: CORNERS.find((c) => c.v === seat.v && c.h === corner)!.material,
+      v: seat.v,
+      h,
+      x0: h === 'right' ? PATH : -tableW / 2 + MARGIN.side,
+      x1: h === 'left' ? -PATH : tableW / 2 - MARGIN.side,
+      y0: seat.v === 'bottom' ? near : cross + PATH,
+      y1: seat.v === 'bottom' ? cross - PATH : tableH - MARGIN.far,
+    };
+  });
   return { beds, pond: { x: 0, y: cross, r: POND_R } };
 }
 
@@ -168,7 +183,9 @@ export function seatArea(seat: Seat, g: Garden, stageW: number, stageH: number, 
   };
   const right = seat.h === 'right';
   const near = seat.v === 'bottom';
-  const beds = g.beds.filter((b) => b.v === seat.v && (seat.h === 'full' || b.h === seat.h));
+  const beds = g.beds.filter((b) => b.v === seat.v && (seat.h === 'full' || b.h === 'full' || b.h === seat.h));
+  // Its mat spans its whole side: the rows may use all of it (the piles stay in the seat's corner).
+  const full = seat.h === 'full' || beds.some((b) => b.h === 'full');
   const x0 = Math.min(...beds.map((b) => b.x0));
   const x1 = Math.max(...beds.map((b) => b.x1));
   const y0 = beds[0].y0;
@@ -187,23 +204,26 @@ export function seatArea(seat: Seat, g: Garden, stageW: number, stageH: number, 
   /** Clear of the portraits, at the box's nearest (widest on the screen) edge. */
   const sides = (ya: number) => ({ a: Math.max(inX0, xAt(BOX_LEFT, ya)), b: Math.min(inX1, xAt(stageW - BOX_LEFT, ya)) });
   type Span = { xa: number; xb: number; ya: number; yb: number };
+  const area = (p: Span) => (p.xb - p.xa) * (p.yb - p.ya);
   let span: Span;
-  if (near && seat.h !== 'full') {
-    // A near mat: above the piles and the hand, and beside the controls rather than above
-    // them, which keeps it clear of the well too (CONTROLS_HALF is wider than the well's
-    // clearing), so it runs all the way up to the mat's inner edge.
-    const ya = Math.max(pileY + PILE.h / 2 + ROOM, upTable(ABOVE_HAND, stageW, stageH, tableH));
-    const s = sides(ya);
-    const yb = CONTROLS_HALF >= wellClear ? y1 - BORDER - ROOM : g.pond.y - wellClear;
-    span = right ? { xa: Math.max(s.a, CONTROLS_HALF), xb: s.b, ya, yb } : { xa: s.a, xb: Math.min(s.b, -CONTROLS_HALF), ya, yb };
-  } else if (near) {
-    // The whole bottom edge: above the controls, short of the well.
-    const ya = Math.max(pileY + PILE.h / 2 + ROOM, upTable(ABOVE_CONTROLS, stageW, stageH, tableH));
-    const s = sides(ya);
-    span = { xa: s.a, xb: s.b, ya, yb: g.pond.y - wellClear };
+  if (near) {
+    // Beside the controls: above the piles and the hand, on the seat's side of the controls
+    // rather than above them, which keeps it clear of the well too (CONTROLS_HALF is wider
+    // than the well's clearing), so it runs all the way up to the mat's inner edge.
+    const besideYa = Math.max(pileY + PILE.h / 2 + ROOM, upTable(ABOVE_HAND, stageW, stageH, tableH));
+    const sb = sides(besideYa);
+    const besideYb = CONTROLS_HALF >= wellClear ? y1 - BORDER - ROOM : g.pond.y - wellClear;
+    const beside: Span = right ? { xa: Math.max(sb.a, CONTROLS_HALF), xb: sb.b, ya: besideYa, yb: besideYb } : { xa: sb.a, xb: Math.min(sb.b, -CONTROLS_HALF), ya: besideYa, yb: besideYb };
+    // Above the controls: the mat's whole width, short of the well.
+    const aboveYa = Math.max(pileY + PILE.h / 2 + ROOM, upTable(ABOVE_CONTROLS, stageW, stageH, tableH));
+    const sa = sides(aboveYa);
+    const above: Span = { xa: sa.a, xb: sa.b, ya: aboveYa, yb: g.pond.y - wellClear };
+    // A corner's mat has only its side; the whole bottom edge's seat sits on both, so only
+    // above suits it; a corner seat with the whole side's mat takes whichever is bigger.
+    span = !full ? beside : seat.h === 'full' ? above : area(beside) > area(above) ? beside : above;
   } else {
     // A far mat: short of the piles, and either short of the well across its whole width, or
-    // up to its inner edge beside the well; whichever leaves more room.
+    // up to its inner edge beside the well (on the seat's own side of it); whichever leaves more room.
     const yb = pileY - PILE.h / 2 - ROOM;
     const fullYa = g.pond.y + wellClear;
     const besideYa = y0 + BORDER + ROOM;
@@ -211,7 +231,6 @@ export function seatArea(seat: Seat, g: Garden, stageW: number, stageH: number, 
     const sBeside = sides(besideYa);
     const across: Span = { xa: sFull.a, xb: sFull.b, ya: fullYa, yb };
     const beside: Span = right ? { xa: Math.max(sBeside.a, wellClear), xb: sBeside.b, ya: besideYa, yb } : { xa: sBeside.a, xb: Math.min(sBeside.b, -wellClear), ya: besideYa, yb };
-    const area = (p: Span) => (p.xb - p.xa) * (p.yb - p.ya);
     span = area(beside) > area(across) ? beside : across;
   }
   const box: SeatBox = { left: span.xa + tableW / 2, top: tableH - span.yb, width: span.xb - span.xa, height: span.yb - span.ya, lean: 0 };

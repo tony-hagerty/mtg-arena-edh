@@ -97,6 +97,10 @@ describe('heldFan', () => {
       // Leant back, the lowest corner is still above the table.
       const low = Math.min(...cards.map((c) => c.y - (h / 2) * Math.cos(c.turn) - (w / 2) * Math.abs(Math.sin(c.turn))));
       expect(lift + low * Math.cos(HELD_LEAN)).toBeGreaterThan(0);
+      // Leant back further, as a far seat's is, it stands lower.
+      const flat = heldFan(n, 20, 1.1);
+      expect(flat.lift + low * Math.cos(1.1)).toBeGreaterThan(0);
+      expect(flat.lift).toBeLessThanOrEqual(lift);
     }
   });
 });

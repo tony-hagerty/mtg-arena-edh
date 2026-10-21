@@ -288,7 +288,9 @@ little at its top, with a wide gap between the rows. So do each player's
 library and graveyard: the library is a deck as thick as it is full. The board is a hall
 for four: a mat in each seat's corner, all four the same size (so the far two
 look smaller), lying flat on the flagstone floor of a torch-lit stone hall, your two
-starting just above the bottom of the screen. Each mat is a dark material with a border
+starting just above the bottom of the screen. A player alone on their side of the table
+(both players in a two-player game, you in a three-player one) has one mat across the
+whole side instead, curving round the well. Each mat is a dark material with a border
 worked into it, in turn order from yours: worn leather with stitching, oak planks, slate
 slabs with a brass line, and a woven cloth with a gold trim. Where the paths between them
 cross is a well with a low cobblestone wall, which is the exile: its green-blue water, rippling

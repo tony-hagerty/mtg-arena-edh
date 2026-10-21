@@ -3,6 +3,7 @@ import { CanvasTexture, DataTexture, LinearFilter, LinearMipmapLinearFilter, RGB
 import { floorMaps } from './floor';
 import type { FloorMaps } from './floor';
 import backUrl from '../card-back.svg';
+import { CORNER } from './geometry';
 
 /*
   Textures for the 3D table: card faces from Scryfall (which allows cross-origin use of its
@@ -76,10 +77,20 @@ function drawFrame(g: CanvasRenderingContext2D, name: string, frame: string) {
   // A thin band: the art is what you look at.
   const bezel = TILE_W * 0.011;
   const bar = TILE_H * 0.155;
-  // The frame: a band of its colour round the art.
-  g.lineWidth = bezel * 2;
-  g.strokeStyle = frame;
-  g.strokeRect(0, 0, TILE_W, TILE_H);
+  // The card's corners are rounded (geometry.ts, CORNER of its width; its face is laid on the
+  // whole rectangle, so that is CORNER of this picture's width too). The band follows them
+  // round, the art inside it rounded to match, so a corner never cuts the band away.
+  const round = CORNER * TILE_W;
+  const inner = new Path2D();
+  inner.roundRect(bezel, bezel, TILE_W - 2 * bezel, TILE_H - 2 * bezel, Math.max(0, round - bezel));
+  const band = new Path2D();
+  band.rect(0, 0, TILE_W, TILE_H);
+  band.addPath(inner);
+  g.fillStyle = frame;
+  g.fill(band, 'evenodd');
+  // The rest is drawn inside the band.
+  g.save();
+  g.clip(inner);
   // The name bar, as the CSS tile's: the frame's colour darkened, a light top edge, the name in the app's typeface.
   const grad = g.createLinearGradient(0, bezel, 0, bezel + bar);
   grad.addColorStop(0, mix(frame, '#262a33', 0.54));
@@ -101,6 +112,7 @@ function drawFrame(g: CanvasRenderingContext2D, name: string, frame: string) {
   g.fillText(name, bezel + 10, bezel + bar / 2 + 1.5, room);
   g.fillStyle = '#f2ead8';
   g.fillText(name, bezel + 10, bezel + bar / 2, room);
+  g.restore();
 }
 
 /**

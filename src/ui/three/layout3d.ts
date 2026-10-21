@@ -129,7 +129,7 @@ const HELD_GRIP = 8;
 /** The most the fan turns from one card to the next, and over the whole hand, radians. */
 const HELD_STEP = (10 * Math.PI) / 180;
 const HELD_SPREAD = (80 * Math.PI) / 180;
-/** How far the held cards lean back from upright, away from you, radians: enough that their backs face you, as a held hand's do across a table. */
+/** How far a near seat's held cards lean back from upright, away from you, radians: enough that their backs face you. A far seat's lean back further (Table3D's `HeldHand`). */
 export const HELD_LEAN = (40 * Math.PI) / 180;
 /** How far apart the held cards are, front to back, rem. */
 const HELD_DEPTH = 0.06;
@@ -147,10 +147,10 @@ export interface HeldCard {
  * An opponent's `n` cards (up to 12 drawn) held fanned out in `room` rem across: each turned
  * about a grip under the fan, the first on the left and each next one in front of the one
  * before, as a hand is held. The fan is scaled down (`k`) to fit `room`. `lift` is how high its
- * plane's origin stands off the table, so that, leant back by HELD_LEAN, no corner dips into
- * the table.
+ * plane's origin stands off the table, so that, leant back by `lean` from upright, no corner
+ * dips into the table.
  */
-export function heldFan(n: number, room: number) {
+export function heldFan(n: number, room: number, lean = HELD_LEAN) {
   const step = n > 1 ? Math.min(HELD_STEP, HELD_SPREAD / (n - 1)) : 0;
   const half = (step * (n - 1)) / 2;
   const reach = HELD_GRIP + HELD.h;
@@ -170,7 +170,7 @@ export function heldFan(n: number, room: number) {
     low = Math.min(low, y - (h / 2) * Math.cos(a) - (w / 2) * Math.abs(Math.sin(a)));
     return { x, y, z: i * HELD_DEPTH, turn: -a };
   });
-  return { cards, w, h, k, lift: -low * Math.cos(HELD_LEAN) + 0.4 };
+  return { cards, w, h, k, lift: -low * Math.cos(lean) + 0.4 };
 }
 
 /**
