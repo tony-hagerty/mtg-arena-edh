@@ -116,7 +116,12 @@ function Wall({ len, arches }: { len: number; arches: number[] }) {
   );
 }
 
-/** An arched recess in a wall's face at `x`: dark stone, framed in lighter voussoirs. */
+/**
+ * An arched recess in a wall's face at `x`: dark stone, framed in lighter voussoirs. Nothing
+ * on a wall casts a shadow: the wall itself doesn't (it would shade the whole table from the
+ * light above), so a frame that did would throw its arch onto the floor as if the wall weren't
+ * there.
+ */
 function Arch({ x }: { x: number }) {
   const W = 9;
   const H = 16;
@@ -133,7 +138,7 @@ function Arch({ x }: { x: number }) {
       </mesh>
       {/* The frame: jambs up its sides and a ring of stones over it. */}
       {[-1, 1].map((s) => (
-        <mesh key={s} castShadow position={[s * (W / 2 + 0.6), (H - W / 2) / 2, 0.4]}>
+        <mesh key={s} position={[s * (W / 2 + 0.6), (H - W / 2) / 2, 0.4]}>
           <boxGeometry args={[1.2, H - W / 2, 0.8]} />
           <meshStandardMaterial color="#6a645b" roughness={0.9} />
         </mesh>
@@ -142,7 +147,7 @@ function Arch({ x }: { x: number }) {
         const a = (i / 8) * Math.PI;
         const rr = W / 2 + 0.6;
         return (
-          <mesh key={i} castShadow position={[Math.cos(a) * rr, H - W / 2 + Math.sin(a) * rr, 0.4]} rotation-z={a}>
+          <mesh key={i} position={[Math.cos(a) * rr, H - W / 2 + Math.sin(a) * rr, 0.4]} rotation-z={a}>
             <boxGeometry args={[1.2, 1.6, 0.8]} />
             <meshStandardMaterial color={i % 2 ? '#6a645b' : '#5e5951'} roughness={0.9} flatShading />
           </mesh>
@@ -195,16 +200,16 @@ function Torch({ seed }: { seed: number }) {
   return (
     <group rotation-x={Math.PI / 2}>
       {/* The bracket from the wall, and the iron cup it holds. */}
-      <mesh castShadow position={[0, 0, 1.4]}>
+      <mesh position={[0, 0, 1.4]}>
         <boxGeometry args={[0.5, 0.5, 2.8]} />
         <meshStandardMaterial color="#2a2623" metalness={0.6} roughness={0.5} />
       </mesh>
       <group position={[0, 0, 2.6]} rotation-x={0.3}>
-        <mesh castShadow position={[0, -1.6, 0]}>
+        <mesh position={[0, -1.6, 0]}>
           <cylinderGeometry args={[0.35, 0.28, 4.2, 8]} />
           <meshStandardMaterial color="#4a3423" roughness={0.9} />
         </mesh>
-        <mesh castShadow position={[0, 0.6, 0]}>
+        <mesh position={[0, 0.6, 0]}>
           <cylinderGeometry args={[0.85, 0.5, 1.2, 10, 1, true]} />
           <meshStandardMaterial color="#2a2623" metalness={0.6} roughness={0.5} side={DoubleSide} />
         </mesh>

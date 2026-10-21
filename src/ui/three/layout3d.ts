@@ -1,4 +1,4 @@
-import { PILE_STEP, ROW_GAP, rowGap, rowUnits, seatScale } from '../table-layout';
+import { PILE_STEP, rowGap, rowUnits, seatScale } from '../table-layout';
 import type { SeatBox } from '../table-layout';
 import type { Seat } from '../util';
 
@@ -24,8 +24,18 @@ export const CARD3D = {
   other: { w: 8, h: 8 * 0.8, gap: 0.7 },
 } as const;
 
-/** How thick a card is, in rem. Cards in a pile sit this far apart. */
-export const CARD_THICKNESS = 0.12;
+/** How thick a card is, in rem: a solid tile, thick enough that its edge shows. Cards in a pile sit this far apart. */
+export const CARD_THICKNESS = 0.3;
+
+/**
+ * The space between a seat's rows on the 3D table, rem: wider than the CSS table's ROW_GAP,
+ * so the lands read as a row apart from the creatures, and the badges between (P/T under a
+ * card, a pile's count over one) have room.
+ */
+export const ROW_GAP_3D = 3.4;
+
+/** How far each card on the table is tipped up, about its own bottom edge, so its top is a little lifted toward you (radians). */
+export const LIFT_RAD = (4 * Math.PI) / 180;
 
 /** The table's lean, as the 3D camera turns it: `TILT` in camera.ts, in radians. */
 export const tiltRad = (tiltDeg: number) => (tiltDeg * Math.PI) / 180;
@@ -61,7 +71,7 @@ export const K_MAX_3D = 1.9;
  * Where the cards of one seat go. `rows` run from the seat's own edge inward (lands, others,
  * creatures). `box` is the seat's box on the CSS table (`seatBox`), `tableW` and `tableH` the
  * table's size in rem. The cards grow as big as the box lets them (`seatScale`, up to
- * K_MAX_3D). The rows are centred in the box, with ROW_GAP between them, and each
+ * K_MAX_3D). The rows are centred in the box, with ROW_GAP_3D between them, and each
  * row's piles are centred along it, as the CSS flex rows are, then the whole box is turned by
  * its lean about its centre.
  */
@@ -73,9 +83,10 @@ export function layoutSeat<T>(seat: Seat, box: SeatBox, rows: Row<T>[], tableW: 
     rowLen: box.width,
     room: box.height,
     max: K_MAX_3D,
+    gap: ROW_GAP_3D,
   });
   const heights = used.map((r) => CARD3D[r.kind].h * k);
-  const total = heights.reduce((a, b) => a + b, 0) + ROW_GAP * (used.length - 1);
+  const total = heights.reduce((a, b) => a + b, 0) + ROW_GAP_3D * (used.length - 1);
   // CSS terms first (rem from the table's top-left, y down). The bottom seats' rows run up from the box's bottom edge.
   const poses: { x: number; y: number; w: number; h: number; stack: number; pile: number; item: T }[] = [];
   let edge = seat.v === 'bottom' ? box.top + box.height - (box.height - total) / 2 : box.top + (box.height - total) / 2;
@@ -92,7 +103,7 @@ export function layoutSeat<T>(seat: Seat, box: SeatBox, rows: Row<T>[], tableW: 
       pile.forEach((item, j) => poses.push({ item, x: x + w / 2 + j * PILE_STEP * w, y: cy, w, h, stack: j, pile: pile.length }));
       x += (1 + PILE_STEP * (pile.length - 1)) * w + gap;
     }
-    edge += (seat.v === 'bottom' ? -1 : 1) * (h + ROW_GAP);
+    edge += (seat.v === 'bottom' ? -1 : 1) * (h + ROW_GAP_3D);
   });
   // The lean: CSS turns the box clockwise about its centre.
   const cx = box.left + box.width / 2;
@@ -109,6 +120,57 @@ export function layoutSeat<T>(seat: Seat, box: SeatBox, rows: Row<T>[], tableW: 
     // Into table units: x from the middle, y up from the bottom edge. A clockwise CSS turn is a negative Three one.
     return { item: p.item, x: x - tableW / 2, y: tableH - y, w: p.w, h: p.h, turn: -lean || 0, stack: p.stack, pile: p.pile };
   });
+}
+
+/** A card held in an opponent's hand on the 3D table, before `heldFan` fits the fan to its room: its size, rem. */
+export const HELD = { w: 10.5, h: 10.5 * 1.4 };
+/** How far below the held cards' bottoms the fan turns about (the holder's grip), rem. */
+const HELD_GRIP = 8;
+/** The most the fan turns from one card to the next, and over the whole hand, radians. */
+const HELD_STEP = (10 * Math.PI) / 180;
+const HELD_SPREAD = (80 * Math.PI) / 180;
+/** How far the held cards lean back from upright, away from you, radians: enough that their backs face you, as a held hand's do across a table. */
+export const HELD_LEAN = (40 * Math.PI) / 180;
+/** How far apart the held cards are, front to back, rem. */
+const HELD_DEPTH = 0.06;
+
+export interface HeldCard {
+  /** The card's middle in the fan's plane (x across, y up it from the middle card's bottom edge) and how far in front of the first card, rem. */
+  x: number;
+  y: number;
+  z: number;
+  /** Its turn in the plane, radians counterclockwise (Three's z rotation): the left cards lean left. */
+  turn: number;
+}
+
+/**
+ * An opponent's `n` cards (up to 12 drawn) held fanned out in `room` rem across: each turned
+ * about a grip under the fan, the first on the left and each next one in front of the one
+ * before, as a hand is held. The fan is scaled down (`k`) to fit `room`. `lift` is how high its
+ * plane's origin stands off the table, so that, leant back by HELD_LEAN, no corner dips into
+ * the table.
+ */
+export function heldFan(n: number, room: number) {
+  const step = n > 1 ? Math.min(HELD_STEP, HELD_SPREAD / (n - 1)) : 0;
+  const half = (step * (n - 1)) / 2;
+  const reach = HELD_GRIP + HELD.h;
+  const width = 2 * reach * Math.sin(half) + HELD.w * Math.cos(half);
+  const k = Math.min(1, room / width);
+  const w = HELD.w * k;
+  const h = HELD.h * k;
+  const grip = HELD_GRIP * k;
+  let low = 0;
+  const cards: HeldCard[] = Array.from({ length: n }, (_, i) => {
+    const a = (i - (n - 1) / 2) * step;
+    // Clockwise from up by `a`: the right-hand cards lean right.
+    const r = grip + h / 2;
+    const x = r * Math.sin(a);
+    const y = r * Math.cos(a) - grip;
+    // The lowest of its bottom corners, in the plane.
+    low = Math.min(low, y - (h / 2) * Math.cos(a) - (w / 2) * Math.abs(Math.sin(a)));
+    return { x, y, z: i * HELD_DEPTH, turn: -a };
+  });
+  return { cards, w, h, k, lift: -low * Math.cos(HELD_LEAN) + 0.4 };
 }
 
 /**

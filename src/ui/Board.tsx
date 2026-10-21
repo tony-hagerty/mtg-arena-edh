@@ -382,7 +382,7 @@ function OpponentHand({ player, seat }: { player: Player; seat: SeatPos }) {
  * The parts of a player's seat that stand on the screen rather than lie on the table: the
  * portrait on their side edge, the library, graveyard and exile on their top or bottom edge
  * (on the 3D table, they lie on the table instead),
- * and an opponent's hand fanned out of their corner. `you`: the seat at the bottom, whose
+ * and an opponent's hand fanned out of their corner (on the 3D table, held on it). `you`: the seat at the bottom, whose
  * hand is `PlayerHand` and whose portrait carries the mana pool.
  */
 export const SeatHud = memo(function SeatHud({ player, you }: { player: Player; you: boolean }) {
@@ -400,7 +400,8 @@ export const SeatHud = memo(function SeatHud({ player, you }: { player: Player; 
           <Piles player={player} />
         </div>
       )}
-      {!you && <OpponentHand player={player} seat={seat} />}
+      {/* The 3D table has each opponent hold their hand on the table (Table3D.tsx). */}
+      {!you && !TABLE_3D && <OpponentHand player={player} seat={seat} />}
     </div>
   );
 });

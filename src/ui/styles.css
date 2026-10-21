@@ -84,7 +84,8 @@ html {
   /* Older names, still used by the menu screens. */
   --cyan: var(--play);
   --orange: var(--attack);
-  --serif: 'Palatino Linotype', 'Book Antiqua', Palatino, Georgia, serif;
+  /* The one typeface for all the app's text: a clean sans-serif. */
+  --sans: 'Segoe UI', system-ui, -apple-system, 'Helvetica Neue', Arial, sans-serif;
   /* Arena-style arrow (cursor.png, see README credits). Its tip is the top-left pixel. */
   --cursor: url('./cursor.png') 0 0, auto;
 }
@@ -111,7 +112,7 @@ body {
   overflow: clip;
   background: #05060a;
   color: var(--text);
-  font-family: 'Segoe UI', system-ui, sans-serif;
+  font-family: var(--sans);
   user-select: none;
 }
 
@@ -224,6 +225,29 @@ button {
   cursor: pointer;
 }
 
+/* On the 3D table a pile's "x3" sits on its bottom-left corner, clear of the names along the tops and of the P/T at the bottom right. */
+.card-proxy > .tile-badge {
+  top: auto;
+  bottom: -0.6em;
+  left: -0.6em;
+}
+
+/*
+  The counts on a pile and on an opponent's held hand, and a pile's zone mark, read the same
+  size wherever the pile lies: the proxy is shrunk with the distance (useProxy), so they are
+  grown back by as much (--unscale), about their own corner.
+*/
+.zone-proxy .pile > .count,
+.hand-proxy .count {
+  scale: var(--unscale, 1);
+  transform-origin: 100% 100%;
+}
+
+.zone-proxy .pile:not(.empty) > .ms {
+  scale: var(--unscale, 1);
+  transform-origin: 0 0;
+}
+
 /*
   A library, graveyard or exile on the 3D table: the CSS pile (.pile) laid onto the 3D pile's
   top (ZoneProxy). The 3D pile draws the cards, so the DOM one hides its own and keeps its
@@ -241,6 +265,22 @@ button {
 
 .zone-proxy .pile:not(.empty)::after {
   display: none;
+}
+
+/*
+  An opponent's hand on the 3D table (HandProxy): laid on the middle card of the fan they hold,
+  with the hand's count at its foot. It is where cards fly to and from their hand.
+*/
+.hand-proxy .count {
+  right: auto;
+  left: 50%;
+  bottom: -1.2rem;
+  translate: -50% 0;
+  pointer-events: auto;
+}
+
+.hand-proxy .count {
+  transform-origin: 50% 100%;
 }
 
 /*
@@ -278,7 +318,7 @@ button {
   align-items: center;
   gap: 0.5rem;
   padding: 0 1rem;
-  font: 700 2.4rem / 3.6rem 'Segoe UI', sans-serif;
+  font: 700 2.4rem / 3.6rem var(--sans);
   font-variant-numeric: tabular-nums;
   color: var(--text);
   background: linear-gradient(180deg, #2a303b, #0d0f14);
@@ -380,7 +420,7 @@ button {
   inset: 0;
   display: grid;
   place-items: center;
-  font: 700 4.5rem var(--serif);
+  font: 700 4.5rem var(--sans);
   letter-spacing: 0.4rem;
   color: rgba(255, 255, 255, 0.7);
   text-shadow: 0 0.2rem 1rem #000;
@@ -512,7 +552,7 @@ button {
   bottom: -0.7rem;
   min-width: 2.4rem;
   padding: 0 0.5rem;
-  font: 700 1.35rem/2.1rem 'Segoe UI', sans-serif;
+  font: 700 1.35rem/2.1rem var(--sans);
   font-variant-numeric: tabular-nums;
   text-align: center;
   color: var(--text);
@@ -768,7 +808,7 @@ button {
   min-width: calc(var(--av) * 0.52);
   margin-top: calc(var(--av) * -0.2);
   padding: 0 0.8rem;
-  font: 700 calc(var(--av) * 0.3) / 1.25 var(--serif);
+  font: 700 calc(var(--av) * 0.3) / 1.25 var(--sans);
   font-variant-numeric: lining-nums;
   text-align: center;
   text-shadow: 0 0.1rem 0.25rem #000;
@@ -792,7 +832,7 @@ button {
 .avatar-name {
   z-index: 2;
   margin-top: 0.3rem;
-  font: 600 1.45rem var(--serif);
+  font: 600 1.45rem var(--sans);
   letter-spacing: 0.02em;
   white-space: nowrap;
   text-shadow: 0 0.1rem 0.4rem #000, 0 0 0.6rem #000;
@@ -892,14 +932,15 @@ button {
 .avatar-tax {
   right: calc(var(--av) * 0.146 - var(--badge) / 2);
   padding: 0 0.5rem;
-  font: 700 calc(var(--badge) * 0.48) / 1 'Segoe UI', sans-serif;
+  font: 700 calc(var(--badge) * 0.48) / 1 var(--sans);
   color: #fff;
 }
 
 .cmd-dmg {
   position: absolute;
-  left: calc(100% + 0.8rem);
-  top: 0.8rem;
+  /* On the portrait's rim, down its inner side, like the tax badge on its top. */
+  left: calc(100% - 1rem);
+  top: calc(var(--av) * 0.42);
   display: flex;
   flex-direction: column;
   gap: 0.3rem;
@@ -909,7 +950,7 @@ button {
 /* Beside the portrait, on the side away from the screen's edge. */
 .seat-right .cmd-dmg {
   left: auto;
-  right: calc(100% + 0.8rem);
+  right: calc(100% - 1rem);
 }
 
 .cmd-dmg span {
@@ -921,6 +962,7 @@ button {
   background-size: cover;
   background-position: center 20%;
   border: 0.15rem solid var(--gold);
+  box-shadow: var(--shadow-sm);
 }
 
 .cmd-dmg b {
@@ -935,7 +977,7 @@ button {
   width: 8rem;
   margin-left: -4rem;
   z-index: 5;
-  font: 700 3.6rem var(--serif);
+  font: 700 3.6rem var(--sans);
   text-align: center;
   pointer-events: none;
   text-shadow: 0 0 0.6rem #000, 0 0.2rem 0.3rem #000;
@@ -1075,7 +1117,7 @@ button {
   padding: calc(var(--name-size) * 1.6 + 0.2em) 0.5em 0.4em;
   overflow: hidden;
   color: #e8e2d0;
-  font-family: var(--serif);
+  font-family: var(--sans);
   background: linear-gradient(170deg, color-mix(in srgb, var(--frame) 30%, #11141a), #0b0d12);
 }
 
@@ -1107,7 +1149,7 @@ button {
   position: absolute;
   inset: var(--bezel) var(--bezel) auto;
   padding: 0 0.45em;
-  font: 600 var(--name-size) / 1.55 var(--serif);
+  font: 600 var(--name-size) / 1.55 var(--sans);
   color: var(--text-card);
   white-space: nowrap;
   overflow: hidden;
@@ -1138,7 +1180,7 @@ button {
   bottom: -0.3em;
   min-width: 2.3em;
   padding: 0 0.32em;
-  font: 700 max(1.7em, 1.5rem) / 1.25 var(--serif);
+  font: 700 max(1.7em, 1.5rem) / 1.25 var(--sans);
   text-align: center;
   color: #fff;
   text-shadow: 0 0.06em 0.1em #000;
@@ -1215,7 +1257,7 @@ button {
   display: flex;
   flex-direction: column;
   gap: 0.2em;
-  font: 700 max(1.2em, 1.1rem) / 1.6 'Segoe UI', sans-serif;
+  font: 700 max(1.2em, 1.1rem) / 1.6 var(--sans);
   /* Above .tile-tapmark, like the P/T box, so a tapped card's counters stay readable. */
   z-index: 1;
 }
@@ -1361,7 +1403,7 @@ button {
   left: -0.7em;
   top: -0.8em;
   padding: 0 0.45em;
-  font: 700 max(1.3em, 1.2rem) / 1.45 'Segoe UI', sans-serif;
+  font: 700 max(1.3em, 1.2rem) / 1.45 var(--sans);
   color: var(--text);
   background: linear-gradient(180deg, #2a303b, #0d0f14);
   border: 0.08em solid var(--edge-light);
@@ -1398,7 +1440,7 @@ button {
   padding: 3.5cqw;
   border: 2.4cqw solid color-mix(in srgb, var(--frame) 70%, #000);
   border-radius: inherit;
-  font-family: var(--serif);
+  font-family: var(--sans);
   text-align: left;
   color: var(--text-card);
   background: linear-gradient(170deg, color-mix(in srgb, var(--frame) 22%, #11141a), #0b0d12 60%);
@@ -1539,7 +1581,7 @@ button {
   align-items: center;
   gap: 0.7rem;
   padding: 0.45rem 0.55rem;
-  font: 700 1.8rem/1 'Segoe UI', sans-serif;
+  font: 700 1.8rem/1 var(--sans);
   white-space: nowrap;
   background: var(--panel);
   border: 0.1rem solid var(--edge);
@@ -1728,7 +1770,7 @@ button {
   justify-content: center;
   gap: 0.8rem;
   margin-top: 0.2rem;
-  font: 400 1.6rem 'Segoe UI', sans-serif;
+  font: 400 1.6rem var(--sans);
   text-shadow: none;
 }
 
@@ -1740,20 +1782,20 @@ button {
 
 .cast-label {
   min-width: 6rem;
-  font: 600 1.7rem var(--serif);
+  font: 600 1.7rem var(--sans);
   color: var(--gold-light);
 }
 
 .cast-x {
   min-width: 4rem;
-  font: 700 2.4rem var(--serif);
+  font: 700 2.4rem var(--sans);
   text-align: center;
 }
 
 :is(.cast-options, .prompt-actions, .damage-split, .paste-commanders) .chip {
   min-width: 4rem;
   padding: 0.4rem 1.2rem;
-  font: 600 1.6rem 'Segoe UI', sans-serif;
+  font: 600 1.6rem var(--sans);
   color: #fff;
   background: var(--raised);
   border: 0.15rem solid var(--edge);
@@ -1847,7 +1889,7 @@ button {
   align-items: center;
   gap: 0.9rem;
   text-align: center;
-  font: 600 2.2rem var(--serif);
+  font: 600 2.2rem var(--sans);
   color: var(--text);
   text-shadow: 0 0.15rem 0.3rem #000;
   background: linear-gradient(90deg, transparent, rgba(12, 15, 22, 0.92) 18%, rgba(12, 15, 22, 0.92) 82%, transparent);
@@ -1933,7 +1975,7 @@ button {
   gap: 0.7rem;
   height: 4.4rem;
   padding: 0 1.2rem;
-  font: 600 1.4rem 'Segoe UI', sans-serif;
+  font: 600 1.4rem var(--sans);
   color: var(--text-soft);
   background: var(--sunken);
   border: 0.1rem solid var(--line);
@@ -2059,7 +2101,7 @@ button {
 /* The turn and step: second only to the big button. */
 .phase-label {
   margin-top: 0.7rem;
-  font: 600 1.5rem var(--serif);
+  font: 600 1.5rem var(--sans);
   color: var(--text);
   white-space: nowrap;
   overflow: hidden;
@@ -2075,7 +2117,7 @@ button {
 .full-control {
   margin-left: 0.6rem;
   padding: 0.1rem 0.6rem;
-  font: 700 1rem 'Segoe UI', sans-serif;
+  font: 700 1rem var(--sans);
   letter-spacing: 0.08rem;
   text-transform: uppercase;
   vertical-align: 0.2rem;
@@ -2232,7 +2274,7 @@ button {
 }
 
 .btn-label {
-  font: 700 2.9rem/1.1 var(--serif);
+  font: 700 2.9rem/1.1 var(--sans);
 }
 
 .btn-sub {
@@ -2337,7 +2379,7 @@ button {
   align-items: center;
   gap: 0.6rem;
   padding: 0 1rem;
-  font: 600 1.2rem var(--sans, inherit);
+  font: 600 1.2rem var(--sans);
   letter-spacing: 0.14em;
   text-transform: uppercase;
   color: var(--text-soft);
@@ -2418,7 +2460,7 @@ button {
   left: 50%;
   z-index: 2;
   padding: 0.4rem 0.8rem;
-  font: 500 1.2rem var(--sans, inherit);
+  font: 500 1.2rem var(--sans);
   letter-spacing: normal;
   text-transform: none;
   white-space: nowrap;
@@ -2484,7 +2526,7 @@ button {
 }
 
 .setting-name {
-  font: 600 1.1rem var(--sans, inherit);
+  font: 600 1.1rem var(--sans);
   letter-spacing: 0.12em;
   text-transform: uppercase;
   color: var(--text-muted);
@@ -2997,14 +3039,14 @@ button {
 
 .spell-caster {
   margin-bottom: 0.6rem;
-  font: 600 2.3rem var(--serif);
+  font: 600 2.3rem var(--sans);
   text-shadow: 0 0.15rem 0.4rem #000, 0 0 0.8rem #000;
 }
 
 /* "Trigger" or "Ability" under a flashed ability's source card. */
 .spell-ability {
   margin-top: 0.6rem;
-  font: 600 2.3rem var(--serif);
+  font: 600 2.3rem var(--sans);
   text-shadow: 0 0.15rem 0.4rem #000, 0 0 0.8rem #000;
 }
 
@@ -3071,7 +3113,7 @@ button {
 
 .viewer h2 {
   margin: 0 0 1.5rem;
-  font: 700 2.6rem var(--serif);
+  font: 700 2.6rem var(--sans);
   text-transform: capitalize;
 }
 
@@ -3093,7 +3135,7 @@ button {
 
 .viewer-owner h3 {
   margin: 0 0 1rem;
-  font: 600 1.9rem var(--serif);
+  font: 600 1.9rem var(--sans);
   color: var(--text-soft);
 }
 
@@ -3174,7 +3216,7 @@ button {
 .picker-group h3 {
   margin: 0 0 0.8rem;
   padding-bottom: 0.4rem;
-  font: 600 1.8rem var(--serif);
+  font: 600 1.8rem var(--sans);
   color: var(--gold-light);
   border-bottom: 0.1rem solid var(--line);
 }
@@ -3223,7 +3265,7 @@ button {
   transform: translateX(-50%);
   min-width: 3.6rem;
   padding: 0.3rem 1rem;
-  font: 700 1.8rem var(--serif);
+  font: 700 1.8rem var(--sans);
   color: #fff;
   background: linear-gradient(#ffc56a, #d2670a);
   border-radius: 2rem;
@@ -3235,7 +3277,7 @@ button {
   right: 0.8rem;
   bottom: 0.8rem;
   padding: 0.2rem 1rem;
-  font: 700 2rem var(--serif);
+  font: 700 2rem var(--sans);
   color: #fff;
   background: var(--panel);
   border: 0.15rem solid var(--edge-light);
@@ -3304,7 +3346,7 @@ button {
   flex: 1;
   min-width: 0;
   padding: 1.2rem 1.6rem;
-  font: 600 2rem var(--serif);
+  font: 600 2rem var(--sans);
   color: #fff;
   background: rgba(255, 255, 255, 0.06);
   border: 0.15rem solid var(--edge-light);
@@ -3324,7 +3366,7 @@ button {
   z-index: 150;
   transform: translateX(-50%);
   padding: 1.2rem 3rem;
-  font: 600 2rem var(--serif);
+  font: 600 2rem var(--sans);
   color: #fff;
   background: var(--panel);
   border: 0.2rem solid var(--play);
@@ -3348,7 +3390,7 @@ button {
 
 .game-over h1 {
   margin: 0;
-  font: 700 9rem var(--serif);
+  font: 700 9rem var(--sans);
   color: var(--gold-light);
   text-shadow: 0 0.4rem 1.5rem #000;
 }
@@ -3388,7 +3430,7 @@ button {
 
 .confirm h2 {
   margin: 0;
-  font: 700 4rem var(--serif);
+  font: 700 4rem var(--sans);
   color: #f2e6c9;
 }
 
@@ -3412,7 +3454,7 @@ button {
   width: fit-content;
   margin: 0 auto;
   padding: 1rem 2.5rem;
-  font: 600 2rem var(--serif);
+  font: 600 2rem var(--sans);
   background: var(--panel);
   border: 0.15rem solid #8a6c6c;
   border-radius: 1rem;
@@ -3443,7 +3485,7 @@ button {
 
 .menu h1 {
   margin: 0;
-  font: 700 6.6rem var(--serif);
+  font: 700 6.6rem var(--sans);
   letter-spacing: 0.02em;
   color: #ffdf9a;
   text-shadow: 0 0.4rem 2.4rem rgba(0, 0, 0, 0.9);
@@ -3561,7 +3603,7 @@ button {
 .deck-section h2,
 .menu-panel h2 {
   margin: 0 0 1.2rem;
-  font: 600 1.4rem var(--sans, inherit);
+  font: 600 1.4rem var(--sans);
   letter-spacing: 0.16em;
   text-transform: uppercase;
   color: #8d97aa;
@@ -3617,7 +3659,7 @@ button {
   place-items: center;
   width: 2.8rem;
   height: 2.8rem;
-  font: 700 1.4rem var(--serif);
+  font: 700 1.4rem var(--sans);
   color: #1a1408;
   background: #ffdf9a;
   border-radius: 50%;
@@ -3753,7 +3795,7 @@ button {
 
 .deck-title {
   overflow: hidden;
-  font: 700 2.3rem var(--serif);
+  font: 700 2.3rem var(--sans);
   white-space: nowrap;
   text-overflow: ellipsis;
 }
@@ -3825,7 +3867,7 @@ button {
   place-items: center;
   width: 5.6rem;
   height: 5.6rem;
-  font: 300 4.4rem/1 var(--serif);
+  font: 300 4.4rem/1 var(--sans);
   color: #ffdf9a;
   border: 0.2rem solid currentColor;
   border-radius: 50%;
@@ -3851,7 +3893,7 @@ button {
 
 .menu-kicker {
   margin: 0 0 0.4rem;
-  font: 600 1.3rem var(--sans, inherit);
+  font: 600 1.3rem var(--sans);
   letter-spacing: 0.32em;
   text-transform: uppercase;
   color: #8d97aa;
@@ -3861,7 +3903,7 @@ button {
 
 .paste h2 {
   margin: 0 0 2.4rem;
-  font: 700 5rem var(--serif);
+  font: 700 5rem var(--sans);
   color: #ffdf9a;
 }
 
@@ -3974,7 +4016,7 @@ button {
 
 .lobby h2 {
   margin: 0 0 2.4rem;
-  font: 700 5rem var(--serif);
+  font: 700 5rem var(--sans);
   color: #ffdf9a;
 }
 
@@ -4349,7 +4391,7 @@ button {
 
 .crash-box h1 {
   margin: 0;
-  font: 700 5.5rem var(--serif);
+  font: 700 5.5rem var(--sans);
   color: #ffdf9a;
   text-align: center;
 }
@@ -4403,7 +4445,7 @@ button {
 .textless-badge {
   display: inline-block;
   padding: 0 0.45em;
-  font: 600 0.75em/1.5em 'Segoe UI', sans-serif;
+  font: 600 0.75em/1.5em var(--sans);
   letter-spacing: 0.02em;
   color: #d4dbe9;
   background: rgba(8, 10, 16, 0.85);
@@ -4449,7 +4491,7 @@ button {
 .preview-textless {
   margin-top: 0.8rem;
   padding: 0.8rem 1.2rem;
-  font: 600 1.5rem/1.35 'Segoe UI', sans-serif;
+  font: 600 1.5rem/1.35 var(--sans);
   color: #e6ebf4;
   background: rgba(8, 10, 16, 0.92);
   border: 0.15rem solid #7a8399;
@@ -4482,7 +4524,7 @@ button {
 .paste-refused h3,
 .paste-textless h3 {
   margin: 0 0 0.4rem;
-  font: 600 1.8rem var(--serif);
+  font: 600 1.8rem var(--sans);
   color: var(--f-gold);
 }
 
@@ -4529,7 +4571,7 @@ button {
 
 .refused-choice .chip {
   padding: 0.3rem 1rem;
-  font: 600 1.4rem 'Segoe UI', sans-serif;
+  font: 600 1.4rem var(--sans);
   color: #fff;
   background: #262c38;
   border: 0.15rem solid #4a5366;
@@ -4561,7 +4603,7 @@ button {
   left: 0.8rem;
   top: 0.8rem;
   padding: 0.4rem 1.2rem;
-  font: 600 1.4rem 'Segoe UI', sans-serif;
+  font: 600 1.4rem var(--sans);
   color: #fff;
   background: #262c38;
   border: 0.15rem solid var(--f-gold);

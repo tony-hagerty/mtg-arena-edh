@@ -95,6 +95,21 @@ describe('seatArea', () => {
     }
   });
 
+  it("holds an opponent's hand at the back of their mat, beside the piles on the outer side", () => {
+    SEATS.forEach((seat, i) => {
+      const { hand, piles } = seatArea(seat, plan, W, H, W, TABLE_H);
+      const b = plan.beds[i];
+      expect(bedAt(plan, hand.x, hand.y)).toBe(b);
+      expect(hand.room).toBeGreaterThan(20);
+      // Further out across than the graveyard, clear of it, and along the piles' strip.
+      expect(Math.abs(hand.x) - hand.room / 2).toBeGreaterThan(Math.abs(piles.graveyard.x) + PILE.w / 2);
+      expect(Math.sign(hand.x)).toBe(Math.sign(piles.graveyard.x));
+      expect(Math.abs(hand.y - piles.graveyard.y)).toBeLessThanOrEqual(PILE.h);
+      // The fan's span stays on the mat.
+      expect(Math.abs(hand.x) + hand.room / 2).toBeLessThanOrEqual(Math.max(Math.abs(b.x0), Math.abs(b.x1)));
+    });
+  });
+
   it('spans both near mats for the whole bottom edge', () => {
     const { box } = seatArea({ v: 'bottom', h: 'full' }, plan, W, H, W, TABLE_H);
     const s = span(box);

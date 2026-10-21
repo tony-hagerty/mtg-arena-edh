@@ -68,15 +68,19 @@ function mix(a: string, b: string, k: number) {
   return `rgb(${[0, 1, 2].map((i) => Math.round(p(a, i) + (p(b, i) - p(a, i)) * k)).join(',')})`;
 }
 
+/** The app's typeface (`--sans` in styles.css), for text drawn on a canvas. */
+const typeface = () => getComputedStyle(document.documentElement).getPropertyValue('--sans').trim() || 'sans-serif';
+
 /** The name bar and the frame round the art, drawn over whatever is under them. */
 function drawFrame(g: CanvasRenderingContext2D, name: string, frame: string) {
-  const bezel = TILE_W * 0.026;
+  // A thin band: the art is what you look at.
+  const bezel = TILE_W * 0.011;
   const bar = TILE_H * 0.155;
   // The frame: a band of its colour round the art.
   g.lineWidth = bezel * 2;
   g.strokeStyle = frame;
   g.strokeRect(0, 0, TILE_W, TILE_H);
-  // The name bar, as the CSS tile's: the frame's colour darkened, a light top edge, the name in serif.
+  // The name bar, as the CSS tile's: the frame's colour darkened, a light top edge, the name in the app's typeface.
   const grad = g.createLinearGradient(0, bezel, 0, bezel + bar);
   grad.addColorStop(0, mix(frame, '#262a33', 0.54));
   grad.addColorStop(1, mix(frame, '#0b0c10', 0.7));
@@ -89,7 +93,7 @@ function drawFrame(g: CanvasRenderingContext2D, name: string, frame: string) {
   // The name, shrunk to fit the bar.
   const room = TILE_W - 2 * bezel - 20;
   let size = bar * 0.62;
-  const font = (px: number) => `600 ${px}px 'Palatino Linotype', 'Book Antiqua', Palatino, Georgia, serif`;
+  const font = (px: number) => `600 ${px}px ${typeface()}`;
   g.font = font(size);
   while (size > 10 && g.measureText(name).width > room) g.font = font((size -= 1));
   g.textBaseline = 'middle';

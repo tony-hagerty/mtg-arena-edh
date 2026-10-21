@@ -134,7 +134,10 @@ function spotOf(el: HTMLElement, visual: boolean, rem: number): Spot {
   const r = el.getBoundingClientRect();
   const turn = deg(getComputedStyle(el).rotate);
   // A turned box's bounding rectangle is wider than the card: its layout width is the card's.
-  const w = (visual && !turn) || !el.offsetWidth ? r.width : el.offsetWidth;
+  // Not so a 3D table's proxy (Table3D.tsx): its layout box is the card's size on the table,
+  // and its matrix shrinks it with the distance, so what it covers on the screen is the size.
+  const projected = el.closest('.card-proxy') !== null;
+  const w = (visual && !turn) || !el.offsetWidth || projected ? r.width : el.offsetWidth;
   // A zone's anchor (the hand's) can have no size: a card there is hand-sized.
   return { x: r.left + r.width / 2, y: r.top + r.height / 2, w: w || 15 * rem, turn };
 }
