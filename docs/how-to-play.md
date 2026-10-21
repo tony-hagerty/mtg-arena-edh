@@ -86,7 +86,7 @@ The full guide to the game's screens and controls. For a quick start, see the
   see-through tap symbol. A face-down card shows the program's icon in gold.
 - **Your hand** curves out of the bottom-left corner, its first card's left edge on the
   screen's left edge, flat at first and then bending down
-  into the bottom edge. Up to seven cards show; with more, two small pills arc over the
+  into the bottom edge. Up to seven cards show; with more, two short pills arc over the
   middle of the cards. Point at the left one to scroll to earlier cards, the right one to
   later ones (after a moment, one card at a time); a click moves one card. Each pill's
   chevrons dim once there is nothing more that way. Pointing at a card stands it up and
@@ -262,7 +262,7 @@ The full guide to the game's screens and controls. For a quick start, see the
 | `Ctrl+Shift` (the two alone, then let go) | full control on or off (see [The stack and your stops](#the-stack-and-your-stops)) |
 | Hover a card | full-size view |
 | Right-click a card (in your hand, on the table, on the stack, or in a graveyard or exile window) | bigger view that stays up; left-click off it to close (over that window, the first click closes the view and the next the window) |
-| Right-click a graveyard (or, on the CSS table, an exile pile) | look through it; hovering the pile shows its top card |
+| Right-click a graveyard (or, on the CSS table, an exile pile) | look through it, or see that it's empty; hovering the pile shows its top card |
 | Right-click the well | look through the exile: everyone's exiled cards, under each owner's name |
 | Click a mat, the well or a path | the board answers: a splash and a soft splash sound in the well, a puff of dust off the leather, chips off the wood, sparks off the slate, lint off the cloth, a little dust off the flagstones, each with its own soft sound. It does nothing in the game. |
 | Right-click anywhere else | nothing: the browser's menu is off in the game (text boxes keep it, for copy and paste) |

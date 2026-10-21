@@ -1,7 +1,7 @@
 // Where the seats' rows go and how big their cards are (src/ui/table-layout.ts).
 import { describe, expect, it } from 'vitest';
 import { camera } from '../src/ui/camera';
-import { CURVE_LEN, HAND_H, HAND_STEP, HAND_W, HAND_VISIBLE, K_MAX, K_MIN, PILE_STEP, ROW_GAP, ROW_LEAN, TILE, along, fanAngle, handPills, handSlot, handWindow, leanOf, rowGap, rowUnits, seatBox, seatScale } from '../src/ui/table-layout';
+import { CURVE_LEN, HAND_H, HAND_STEP, HAND_W, HAND_VISIBLE, K_MAX, K_MIN, PILE_STEP, PILL, ROW_GAP, ROW_LEAN, TILE, along, fanAngle, handPills, handSlot, handWindow, leanOf, rowGap, rowUnits, seatBox, seatScale } from '../src/ui/table-layout';
 import type { RowSpec } from '../src/ui/table-layout';
 import type { Seat } from '../src/ui/util';
 
@@ -212,6 +212,10 @@ describe('the hand curve', () => {
     expect(left.path[left.path.length - 1].x).toBeLessThan(right.path[0].x);
     // Lifted clear of the cards under them, which reach HAND_H / 4 + HAND_H / 2 at most.
     for (const p of [...left.path, ...right.path]) expect(p.y).toBeGreaterThan(HAND_H / 2 + 1);
+    // Clear of the mana costs on the card tops (1.35rem above them), with room to spare.
+    expect(PILL.above - PILL.thick / 2).toBeGreaterThan(1.35 + 0.5);
+    // About a card's strip long each, no longer.
+    expect(PILL.len).toBeLessThan(HAND_STEP * 1.2);
     // A chevron's middle point is its tip: left of its ends for "<", right of them for ">".
     const [l] = left.chevron;
     const [r] = right.chevron;

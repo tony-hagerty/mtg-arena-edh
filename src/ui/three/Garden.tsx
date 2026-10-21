@@ -1,14 +1,14 @@
-import { useEffect, useMemo, useRef } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useFrame } from '@react-three/fiber';
 import type { ThreeEvent } from '@react-three/fiber';
 import { AdditiveBlending, BoxGeometry, CanvasTexture, DataTexture, EquirectangularReflectionMapping, Group, LinearFilter, LinearMipmapLinearFilter, Mesh, MeshStandardMaterial, RGBAFormat, RepeatWrapping, SRGBColorSpace, UnsignedByteType, Vector2 } from 'three';
 import { Bursts, burst } from './effects';
 import { MATERIAL, bedMaps } from './board';
-import type { Bed, Garden as Plan } from './board';
+import type { Bed, BedMaps, Garden as Plan } from './board';
 import { rng } from './floor';
 import { valueNoise } from './noise';
 import { cardGeometry } from './geometry';
-import { backTexture, useCardTexture } from './textures';
+import { backTexture, inWorkers, useCardTexture } from './textures';
 
 /*
   The board on the 3D table (board.ts plans it): the four mats lying flat on the flagstones,
@@ -24,8 +24,13 @@ export const WATER_Z = -0.1;
 /** The well's wall: how high it stands, its thickness, and its stones' length along it, rem. */
 const WALL = { h: 1.1, t: 1.5, stone: 2.1 };
 
-/** How many pixels a rem the mats' maps get. */
-const MAT_PX = 8;
+/**
+ * How many pixels a rem the mats' maps get: as many as a 4K screen gives a rem near you, so a
+ * mat is as sharp as the screen, worked out off the main thread (maps.worker.ts). A rough
+ * version, MAT_FIRST, is drawn at once in the meantime.
+ */
+const MAT_PX = 20;
+const MAT_FIRST = 4;
 
 function dataTexture(data: Uint8ClampedArray, w: number, h: number, srgb: boolean) {
   const t = new DataTexture(new Uint8Array(data.buffer, data.byteOffset, data.byteLength), w, h, RGBAFormat, UnsignedByteType);
@@ -37,6 +42,12 @@ function dataTexture(data: Uint8ClampedArray, w: number, h: number, srgb: boolea
   t.needsUpdate = true;
   return t;
 }
+
+interface MatTextures {
+  map: DataTexture;
+  normalMap: DataTexture;
+}
+const matTextures = (m: BedMaps): MatTextures => ({ map: dataTexture(m.albedo, m.width, m.height, true), normalMap: dataTexture(m.normal, m.width, m.height, false) });
 
 /** A card floating in the well: the top of a player's exile. `image` null is a card exiled face down. */
 export interface Floating {
@@ -65,10 +76,18 @@ export function Garden({ plan, exiled, onExile }: { plan: Plan; exiled: Floating
 
 /** A mat: one flat plane over its rectangle, clear outside its rounded, well-cut shape. A click on it makes its material's burst. */
 function Mat({ plan, bed, at }: { plan: Plan; bed: Bed; at: (e: ThreeEvent<MouseEvent>) => { x: number; y: number } }) {
-  const tex = useMemo(() => {
-    const m = bedMaps(plan, bed, MAT_PX);
-    return { map: dataTexture(m.albedo, m.width, m.height, true), normalMap: dataTexture(m.normal, m.width, m.height, false) };
+  const rough = useMemo(() => matTextures(bedMaps(plan, bed, MAT_FIRST)), [plan, bed]);
+  const [sharp, setSharp] = useState<{ for: Bed; tex: MatTextures } | null>(null);
+  useEffect(() => {
+    let live = true;
+    void inWorkers<BedMaps>([{ kind: 'mat', plan, bed, px: MAT_PX }]).then((done) => {
+      if (live && done) setSharp({ for: bed, tex: matTextures(done[0]) });
+    });
+    return () => {
+      live = false;
+    };
   }, [plan, bed]);
+  const tex = sharp?.for === bed ? sharp.tex : rough;
   useEffect(
     () => () => {
       tex.map.dispose();
@@ -99,7 +118,9 @@ function Mat({ plan, bed, at }: { plan: Plan; bed: Bed; at: (e: ThreeEvent<Mouse
 let swirl: CanvasTexture | null = null;
 function swirlTexture() {
   if (swirl) return swirl;
-  const N = 256;
+  // Sharp on a 4K screen: the well is some 500 pixels across there. Its noise is laid in 256ths.
+  const N = 1024;
+  const k = N / 256;
   const c = document.createElement('canvas');
   c.width = c.height = N;
   const g = c.getContext('2d')!;
@@ -115,7 +136,7 @@ function swirlTexture() {
       // A logarithmic spiral, broken up by noise so the streaks come and go like foam.
       const a = Math.atan2(dy, dx) + Math.log(r + 0.08) * 2.2;
       const arm = Math.pow(0.5 + 0.5 * Math.cos(a * ARMS), 7);
-      const breakup = valueNoise(x / 9, y / 9, 31, N / 9, N / 9);
+      const breakup = valueNoise(x / (9 * k), y / (9 * k), 31, N / (9 * k), N / (9 * k));
       // Strongest midway out, gone at the rim and fading out before the middle.
       const fade = Math.sin(Math.min(1, r) * Math.PI) * Math.min(1, r * 2.5);
       img.data[o] = 230;
@@ -154,7 +175,8 @@ function depthsTexture() {
 let caustic: CanvasTexture | null = null;
 function causticTexture() {
   if (caustic) return caustic;
-  const N = 256;
+  const N = 512;
+  const k = N / 256;
   const c = document.createElement('canvas');
   c.width = c.height = N;
   const g = c.getContext('2d')!;
@@ -162,8 +184,8 @@ function causticTexture() {
   for (let y = 0; y < N; y++)
     for (let x = 0; x < N; x++) {
       // Where two noises cross their middles: thin wandering lines, a net where they meet.
-      const a = valueNoise(x / 22, y / 22, 41, N / 22, N / 22);
-      const b = valueNoise(x / 15, y / 15, 42, N / 15, N / 15);
+      const a = valueNoise(x / (22 * k), y / (22 * k), 41, N / (22 * k), N / (22 * k));
+      const b = valueNoise(x / (15 * k), y / (15 * k), 42, N / (15 * k), N / (15 * k));
       const line = Math.max(1 - Math.abs(a - 0.5) * 9, 0) + Math.max(1 - Math.abs(b - 0.5) * 9, 0);
       const o = (y * N + x) * 4;
       img.data[o] = 170;
@@ -219,7 +241,8 @@ const ripples = new Map<number, CanvasTexture>();
 function rippleTexture(seed: number) {
   const cached = ripples.get(seed);
   if (cached) return cached;
-  const N = 256;
+  // Its waves are whole numbers of them across, and their slopes worked out from the picture's width, so it is the same at any size.
+  const N = 512;
   const c = document.createElement('canvas');
   c.width = c.height = N;
   const g = c.getContext('2d')!;
@@ -256,7 +279,8 @@ function rippleTexture(seed: number) {
 let foam: CanvasTexture | null = null;
 function foamTexture() {
   if (foam) return foam;
-  const N = 256;
+  const N = 1024;
+  const k = N / 256;
   const c = document.createElement('canvas');
   c.width = c.height = N;
   const g = c.getContext('2d')!;
@@ -269,7 +293,7 @@ function foamTexture() {
       const o = (y * N + x) * 4;
       if (r >= 1) continue;
       const edge = Math.max(0, 1 - (1 - r) / 0.09);
-      const bits = valueNoise(x / 5, y / 5, 51, N / 5, N / 5);
+      const bits = valueNoise(x / (5 * k), y / (5 * k), 51, N / (5 * k), N / (5 * k));
       img.data[o] = img.data[o + 1] = img.data[o + 2] = 235;
       img.data[o + 3] = edge * edge * Math.max(0, bits * 1.5 - 0.35) * 255;
     }

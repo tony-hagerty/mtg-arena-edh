@@ -268,8 +268,12 @@ What is in it:
   normal map, with a roughness map, so the moon catches their edges. The maps are one
   192 × 96 rem picture (4096 px across, about 21 px a rem) that wraps without a seam, laid
   on in rem from the table's middle, so the screen never shows it twice. The full size takes
-  a second or two, so a worker (`floor.worker.ts`) draws it while a 512 px version of the
-  same stones, drawn at once, stands in.
+  ten seconds' work, so workers (`maps.worker.ts`) draw it in bands side by side
+  (`floorBand`, `joinFloor`) while a 512 px version of the same stones, drawn at once, stands
+  in. The mats' maps are drawn the same way, rough at once and then 20 px a rem from a
+  worker: a 4K screen's pixel a rem near you. The canvas draws at up to twice the page's
+  pixels (`dpr`), so it is sharp on a high-DPI screen; the well's water, foam and the walls'
+  stone are drawn at sizes to match.
 - **The camera** starts exactly where the CSS table's perspective puts the viewer
   (`baseCamera` in layout3d.ts: the same TILT and DEPTH as camera.ts, with an off-centre
   projection whose axis is the bottom of the screen), so the seats' rows land where
@@ -362,7 +366,7 @@ Since then:
   piles (`seatArea`'s `hand`): face-down cards fanned about a grip under them (`heldFan`),
   leant back so their backs face you (a far seat's as far as the table leans away, so the
   fan is square to the screen: leant less, the far corners see it from the side and it
-  skews; a near seat's 40°), swaying slightly; a drawn card rises into the
+  skews; a near seat's 40°), held still; a drawn card rises into the
   fan from their library. Its proxy (`HandProxy`) is laid on the middle card: the count,
   and the `[data-hand-of]` element flights go to. The counts on piles and hands are grown
   back by the proxy's shrink (`--unscale`), so they read one size near and far, and a

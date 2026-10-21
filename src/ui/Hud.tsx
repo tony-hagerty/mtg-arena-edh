@@ -1241,6 +1241,7 @@ export function ZoneViewer() {
             <h2>
               {whose(owners[0])} {viewer.zone} ({total})
             </h2>
+            {!total && <p className="viewer-empty">Nothing is in {owners[0].id === me ? 'your' : `${owners[0].name}'s`} {viewer.zone}.</p>}
             <div className="viewer-cards">{cardsOf(owners[0])}</div>
           </>
         )}
