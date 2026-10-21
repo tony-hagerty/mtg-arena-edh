@@ -73,6 +73,8 @@ src/ui/         App.tsx               menu or game screen; GameScreen.tsx lays t
                 zone-moves.ts         which cards changed zones between two games (zoneMoves)
                 Flights.tsx           cards flying between zones, drawn from that diff
                 SoundControl.tsx      mute buttons and volume sliders for sound and music
+                hotkeys.ts            every key and mouse control, for the gear menu's Hotkeys window
+                BoardSplash.tsx       the splash over the board while the 3D table loads
                 fullscreen.ts, rem.ts Alt+Enter fullscreen; the root font-size as a hook
                 camera.ts             the camera on the table: its tilt and perspective, the
                                       table's height, and the projection table <-> screen
@@ -189,6 +191,14 @@ is built from (`baseCamera`) and everything that projects through `camera()` fol
 table is taller than the screen by just enough that, leaned over, its far edge lands on the
 top of the screen (`tableHeight`). A browser without WebGL 2 gets a notice in the table's
 place (`CAN_DRAW_3D`).
+
+**The table loads behind a splash.** Its code is loaded only once a game starts, and its
+renderer starts and its first frames build the shaders after that, with the canvas blank
+until they're done: a few seconds the first time. `Table3D` reports each step through
+`onProgress` (`BoardStep`: loaded, renderer, drawn), and GameScreen's `Board3D` shows
+`BoardSplash` until the scene has drawn three frames. The splash's bar fills by those
+steps; it gives up after 15 seconds (`SPLASH_MAX_MS`) so it can never hide the game for good.
+A hidden window draws no frames, so there the splash waits until the window shows.
 
 **Seats sit in the corners** (`seatOf` in util.ts: a `Seat` is `{ v: 'top' | 'bottom', h:
 'left' | 'right' | 'full' }`, and `seatClass` gives `seat-bottom-left seat-bottom

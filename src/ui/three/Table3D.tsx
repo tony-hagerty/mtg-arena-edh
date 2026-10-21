@@ -7,6 +7,7 @@ import type { BufferGeometry, DirectionalLight, PerspectiveCamera, Texture, WebG
 import { WebGPURenderer } from 'three/webgpu';
 import { attachmentsOf, data, defenseOf, isBattle, isCreature, isPlaneswalker, loyaltyOf, stats } from '../../engine';
 import type { Card, Game, Player } from '../../engine';
+import type { BoardStep } from '../BoardSplash';
 import { FaceUpPile, Library, creaturePiles, landPiles, otherPermanents } from '../Board';
 import { DEPTH, TILT, useStageSize, useTableSize } from '../camera';
 import { Counters, TextlessBadge } from '../Card';
@@ -152,6 +153,18 @@ async function makeRenderer(props: RendererProps) {
   return renderer as unknown as WebGLRenderer;
 }
 
+/** How many frames the scene draws before it counts as shown: the first ones build the shaders, and the canvas is blank until they're done. */
+const DRAWN_FRAMES = 3;
+
+/** Says once when the scene has drawn its first frames (`DRAWN_FRAMES`). A frame's callbacks run before it draws, so by the third the first two are on the screen. */
+function FirstFrames({ onDrawn }: { onDrawn: () => void }) {
+  const frames = useRef(0);
+  useFrame(() => {
+    if (++frames.current === DRAWN_FRAMES) onDrawn();
+  });
+  return null;
+}
+
 interface SeatLayout {
   player: Player;
   seat: Seat;
@@ -196,8 +209,11 @@ function layoutSeats(v: View, players: Player[], plan: GardenPlan, stageW: numbe
   });
 }
 
-/** The 3D table in place of `.table`: the canvas, and the proxies over it. */
-export default function Table3D({ players }: { players: Player[] }) {
+/**
+ * The 3D table: the canvas, and the proxies over it. `onProgress` hears each step of its
+ * loading (`BoardStep`), for the splash over the board (BoardSplash.tsx).
+ */
+export default function Table3D({ players, onProgress }: { players: Player[]; onProgress?: (step: BoardStep) => void }) {
   const v = useView();
   const stage = useStageSize();
   const table = useTableSize();
@@ -213,10 +229,13 @@ export default function Table3D({ players }: { players: Player[] }) {
   );
   const seats = layoutSeats(v, players, plan, stage.w, stage.h, table.h);
   useEffect(() => useStore.subscribe((s, old) => captureOrigins(s.game, old.game)), []);
+  // This code has arrived and drawn its first render; the renderer starts next.
+  useEffect(() => onProgress?.('loaded'), [onProgress]);
   return (
     <div className="table3d">
-      <Canvas gl={makeRenderer} shadows={!LOW} dpr={LOW ? 1 : [1, 2]} camera={{ manual: true, position: [0, 0, DEPTH], near: 5, far: 2500 }}>
+      <Canvas onCreated={() => onProgress?.('renderer')} gl={makeRenderer} shadows={!LOW} dpr={LOW ? 1 : [1, 2]} camera={{ manual: true, position: [0, 0, DEPTH], near: 5, far: 2500 }}>
         <Scene v={v} speed={speed} w={stage.w} h={stage.h} tableH={table.h} seats={seats} plan={plan} players={players} />
+        <FirstFrames onDrawn={() => onProgress?.('drawn')} />
       </Canvas>
       <div className="card-proxies">
         {seats.flatMap((s) =>
