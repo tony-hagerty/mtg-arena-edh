@@ -88,7 +88,7 @@ src/ui/         App.tsx               menu or game screen; GameScreen.tsx lays t
                                       cards' proxies; layout3d.ts where each card lies in its
                                       rows and the camera that matches camera.ts (pure
                                       maths, tested); geometry.ts a card's rounded shape;
-                                      garden.ts the board's plan: four mats, each a seat's
+                                      board.ts the board's plan: four mats, each a seat's
                                       battlefield (seatArea: its rows' box and its piles),
                                       where each opponent holds their hand, and the well
                                       that is the shared exile, with the mats' maps (pure
@@ -198,7 +198,7 @@ the screen (`tableHeight`, set as `--table-h`).
 seat-left` and the like). Two players sit bottom left and top right, three leave you the
 whole bottom edge (`full`) and take the top corners, four go bottom left, top left, top
 right, bottom right. On the 3D table each seat's rows and piles lie on its mat instead
-(`seatArea` in three/garden.ts: the mat short of its piles and the well, no lean), with
+(`seatArea` in three/board.ts: the mat short of its piles and the well, no lean), with
 exile shared in the well, and an opponent holds their hand on it (`HeldHand`). On the CSS
 table each seat is drawn in two parts:
 

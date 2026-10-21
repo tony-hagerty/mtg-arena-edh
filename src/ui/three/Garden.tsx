@@ -3,15 +3,15 @@ import { useFrame } from '@react-three/fiber';
 import type { ThreeEvent } from '@react-three/fiber';
 import { AdditiveBlending, BoxGeometry, CanvasTexture, DataTexture, EquirectangularReflectionMapping, Group, LinearFilter, LinearMipmapLinearFilter, Mesh, MeshStandardMaterial, RGBAFormat, RepeatWrapping, SRGBColorSpace, UnsignedByteType, Vector2 } from 'three';
 import { Bursts, burst } from './effects';
-import { MATERIAL, bedMaps } from './garden';
-import type { Bed, Garden as Plan } from './garden';
+import { MATERIAL, bedMaps } from './board';
+import type { Bed, Garden as Plan } from './board';
 import { rng } from './floor';
 import { valueNoise } from './noise';
 import { cardGeometry } from './geometry';
 import { backTexture, useCardTexture } from './textures';
 
 /*
-  The board on the 3D table (garden.ts plans it): the four mats lying flat on the flagstones,
+  The board on the 3D table (board.ts plans it): the four mats lying flat on the flagstones,
   the well where the paths cross (the exile), and the bursts a click on any of them makes
   (effects.tsx). Drawn in the table's group, so its z is up off the table, between the floor
   (Table3D's FLOOR_Z) and the cards' soft shadows (SHADOW_Z): `SAND_Z` is the mats.

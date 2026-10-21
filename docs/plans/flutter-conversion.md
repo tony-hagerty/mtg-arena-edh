@@ -375,7 +375,7 @@ Since then:
   face lights itself partly (`FACE_GLOW`), so it reads in the hall's dim corners, and a
   seat's cards grow up to `K_MAX_3D` (1.9) to fill their mat, which is the battlefield's
   box less only the piles, the well's clearing and what stands on the screen over it.
-- **The board.** A torch-lit stone hall for four (garden.ts, Garden.tsx, Hall.tsx). Each
+- **The board.** A torch-lit stone hall for four (board.ts, Garden.tsx, Hall.tsx). Each
   corner has a mat lying flat on the flagstones, all four one size on the table (the near
   two starting just above the bottom of the screen); a seat alone on its side of the table
   (two players, or you with three) has one mat the whole width of that side instead
