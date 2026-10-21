@@ -23,9 +23,12 @@ Node version from nodejs.org the first time, checks its published SHA-256, and k
   (what Explorer's Properties and Task Manager show). The page offers the same icon as
   PNGs (`vite.config.ts`), but Edge gives an app window its page's icon at 16 px only, so
   the taskbar showed it blurred: once the window is open, a hidden PowerShell (`icon.ts`)
-  sets the program's own icon on it, at the window's display scale, and keeps it there
-  until the window closes. It finds the window by its Edge running with the game's
-  profile.
+  sets the program's own icon on it, at the window's display scale, and gives it the
+  program's taskbar identity (AppUserModelID `ArenaEDH.Game`, with the program as its
+  relaunch command and icon), so it gets a taskbar button of its own and pinning it pins
+  the program. It keeps both there until the window closes, and finds the window by its
+  Edge running with the game's profile. What it does, and any failure, goes in
+  `launcher.log` as lines starting `Window icon:`.
 - **The window** is Microsoft Edge in app mode (`--app`): the normal title bar, no tabs or
   address bar. Edge gets its own profile folder (`--user-data-dir`) beside the .exe, so it
   is separate from the user's everyday Edge.

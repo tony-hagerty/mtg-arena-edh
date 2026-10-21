@@ -7,7 +7,7 @@ import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Mock } from 'vitest';
 import { edgeArgs, edgeSpawnOptions, windowUrl } from '../launcher/edge';
-import { iconScript } from '../launcher/icon';
+import { APP_ID, iconScript } from '../launcher/icon';
 import { createLifetime } from '../launcher/lifetime';
 import { pathsFor } from '../launcher/paths';
 import { filesFromDir, listen, makeServer, probe } from '../launcher/serve';
@@ -127,7 +127,10 @@ describe('paths', () => {
     expect(script).toContain(`$filter = 'Name=''msedge.exe'''`);
     // $profile is PowerShell's own: never assigned.
     expect(script).not.toMatch(/\$profile\s*=/);
-    expect(script).toContain('[ArenaIcon]::Apply($exe');
+    expect(script).toContain('[ArenaIcon]::Apply($exe, $id');
+    expect(script).toContain(`$id = '${APP_ID}'`);
+    // What it does is written out, for the launcher's log: failures included.
+    expect(script).toMatch(/^trap \{ \[Console\]::WriteLine/m);
   });
 
   // Node on Windows ends a child with its parent unless it is detached (libuv's job object):
