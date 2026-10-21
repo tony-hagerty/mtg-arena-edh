@@ -20,7 +20,9 @@ const WALL = { h: 30, t: 3, side: 4, block: { w: 5.2, h: 2.6 } };
 let wallMaps: { map: CanvasTexture; normalMap: CanvasTexture } | null = null;
 function wallTextures() {
   if (wallMaps) return wallMaps;
-  const N = 512;
+  // 48 pixels a rem, sharp on a 4K screen. The sizes below are laid out in 512ths (k of them a 512th).
+  const N = 1024;
+  const k = N / 512;
   // The picture is 4 blocks across and 8 courses up, so it tiles.
   const cols = 4;
   const rows = 8;
@@ -40,12 +42,14 @@ function wallTextures() {
       const u = xs - col * bw;
       const mortar = Math.min(u, bw - u, v, bh - v);
       const block = hash(col, row, 3);
-      const face = valueNoise(x / 14, y / 14, 4, N / 14, N / 14);
-      const fine = valueNoise(x / 3, y / 3, 5, N / 3, N / 3);
+      const face = valueNoise(x / (14 * k), y / (14 * k), 4, N / (14 * k), N / (14 * k));
+      const fine = valueNoise(x / (3 * k), y / (3 * k), 5, N / (3 * k), N / (3 * k));
+      // The stone's grain, a few of these pixels across.
+      const grit = valueNoise(x / 1.6, y / 1.6, 6, N / 1.6, N / 1.6);
       // Rounded, chipped block edges into recessed mortar.
-      const edge = Math.min(1, Math.max(0, (mortar - 3 + (fine - 0.5) * 3) / 6));
-      height[y * N + x] = edge * (0.7 + face * 0.3);
-      const shade = edge > 0 ? (0.55 + block * 0.3 + face * 0.25 + (fine - 0.5) * 0.12) * (0.75 + edge * 0.25) : 0.25 + fine * 0.1;
+      const edge = Math.min(1, Math.max(0, (mortar / k - 3 + (fine - 0.5) * 3) / 6));
+      height[y * N + x] = edge * (0.7 + face * 0.3 + (grit - 0.5) * 0.04);
+      const shade = edge > 0 ? (0.55 + block * 0.3 + face * 0.25 + (fine - 0.5) * 0.12 + (grit - 0.5) * 0.1) * (0.75 + edge * 0.25) : 0.25 + fine * 0.1 + grit * 0.05;
       const o = (y * N + x) * 4;
       color.data[o] = 120 * shade;
       color.data[o + 1] = 114 * shade;
@@ -55,8 +59,9 @@ function wallTextures() {
   }
   for (let y = 0; y < N; y++)
     for (let x = 0; x < N; x++) {
-      const hx = (height[y * N + ((x + 1) % N)] - height[y * N + ((x - 1 + N) % N)]) * 2;
-      const hy = (height[((y + 1) % N) * N + x] - height[((y - 1 + N) % N) * N + x]) * 2;
+      // Smaller pixels, smaller steps between them: k times as steep, the same slope.
+      const hx = (height[y * N + ((x + 1) % N)] - height[y * N + ((x - 1 + N) % N)]) * 2 * k;
+      const hy = (height[((y + 1) % N) * N + x] - height[((y - 1 + N) % N) * N + x]) * 2 * k;
       const l = Math.hypot(hx, hy, 1);
       const o = (y * N + x) * 4;
       // Canvas rows run down; the normal's y is up the picture, so it is flipped.

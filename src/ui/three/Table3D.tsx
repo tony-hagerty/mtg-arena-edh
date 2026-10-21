@@ -25,7 +25,7 @@ import type { Floating } from './Garden';
 import { burst } from './effects';
 import { gardenPlan, seatArea } from './board';
 import type { Garden as GardenPlan, HandSpot, PileSpot } from './board';
-import { cardGeometry, roundedPlane } from './geometry';
+import { CORNER, cardGeometry, roundedPlane } from './geometry';
 import { CARD_THICKNESS, HELD_LEAN, LIFT_RAD, baseCamera, heldFan, layoutSeat, quadMatrix, tiltRad } from './layout3d';
 import type { Pose, Row } from './layout3d';
 import { SHADOW_SPREAD, backTexture, shadowTexture, tileTexture, useCardTexture, useFloorTextures } from './textures';
@@ -75,13 +75,20 @@ const GLOW: Record<string, string> = { play: '#39e3ff', attack: '#39e3ff', block
 
 /*
   What lies just under the cards, in the table's z (up off it), apart enough not to fight over
-  depth: the floor, the garden's sand (SAND_Z, Garden.tsx), a card's soft shadow on it, a
-  card's glow over that, and the card's underside at 0 (CARD_THICKNESS / 2 under the middle of
-  the lowest card).
+  depth: the floor, the garden's sand (SAND_Z, Garden.tsx), a card's soft shadow on it, and
+  the card's underside at 0 (CARD_THICKNESS / 2 under the middle of the lowest card). A card's
+  glow is a ring round its face, GLOW_DROP under the face.
 */
 const FLOOR_Z = -0.12;
 const SHADOW_Z = -0.04;
-const GLOW_Z = -0.02;
+/**
+ * How far a card's glow lies under its face, rem: just enough that the face covers it. Any
+ * lower, and the card's thickness hides more of the ring on its far side than on its near one,
+ * since the table is seen at an angle.
+ */
+const GLOW_DROP = 0.02;
+/** How far a card's glow reaches past its edge, as a share of its width: the same all round. */
+const GLOW_REACH = 0.04;
 /** How dark a card's soft shadow is right under it, resting. */
 const SHADOW_OPACITY = 0.7;
 
@@ -210,7 +217,7 @@ export default function Table3D({ players }: { players: Player[] }) {
   useEffect(() => useStore.subscribe((s, old) => captureOrigins(s.game, old.game)), []);
   return (
     <div className="table3d">
-      <Canvas gl={makeRenderer} shadows={!LOW} dpr={LOW ? 1 : [1, 1.5]} camera={{ manual: true, position: [0, 0, DEPTH], near: 5, far: 2500 }}>
+      <Canvas gl={makeRenderer} shadows={!LOW} dpr={LOW ? 1 : [1, 2]} camera={{ manual: true, position: [0, 0, DEPTH], near: 5, far: 2500 }}>
         <Scene v={v} speed={speed} w={stage.w} h={stage.h} tableH={table.h} seats={seats} plan={plan} players={players} />
       </Canvas>
       <div className="card-proxies">
@@ -682,7 +689,10 @@ function CardMaterials({ face, back, d, tapped, phased }: { face: Texture | null
 
 /** A card's shape at `w` × `h` (`cardGeometry`), and its glow's, made once per size and freed after. */
 function useCardShapes(w: number, h: number) {
-  const shapes = useMemo(() => ({ card: cardGeometry(w, h, CARD_THICKNESS), glow: roundedPlane(w * 1.16, h * 1.12, w * 0.12) }), [w, h]);
+  const shapes = useMemo(() => {
+    const m = w * GLOW_REACH;
+    return { card: cardGeometry(w, h, CARD_THICKNESS), glow: roundedPlane(w + 2 * m, h + 2 * m, w * CORNER + m) };
+  }, [w, h]);
   useEffect(
     () => () => {
       shapes.card.dispose();
@@ -821,7 +831,7 @@ function Card3D({ pose, seat, phased }: { pose: Pose<Card>; seat: Seat; phased: 
           <CardMaterials face={face} back={back} d={d} tapped={card.tapped} phased={phased} />
         </mesh>
         {glow && (
-          <mesh ref={glowRef} geometry={shapes.glow} position={[0, 0, -CARD_THICKNESS / 2 + GLOW_Z]} raycast={() => null}>
+          <mesh ref={glowRef} geometry={shapes.glow} position={[0, 0, CARD_THICKNESS / 2 - GLOW_DROP]} raycast={() => null}>
             <meshBasicMaterial color={GLOW[glow]} transparent opacity={0.9} toneMapped={false} />
           </mesh>
         )}
@@ -875,7 +885,7 @@ function Attached({ card, host, index, inward }: { card: Card; host: Pose<Card>;
         <CardMaterials face={face} back={backTexture()} d={d} tapped={card.tapped} phased={false} />
       </mesh>
       {glow && (
-        <mesh geometry={shapes.glow} position={[0, 0, -CARD_THICKNESS / 2 + GLOW_Z]} raycast={() => null}>
+        <mesh geometry={shapes.glow} position={[0, 0, CARD_THICKNESS / 2 - GLOW_DROP]} raycast={() => null}>
           <meshBasicMaterial color={GLOW[glow]} transparent opacity={0.9} toneMapped={false} />
         </mesh>
       )}
@@ -946,9 +956,9 @@ const HELD_SHOWN = 12;
 
 /**
  * An opponent's hand on the 3D table: their cards held up at the back of their mat at `spot`,
- * fanned (`heldFan`), leant back so their backs face you (a far seat's square to the screen), swaying a little as a held hand
- * does. A card just drawn rises into the fan from their library (`library`); any other card
- * reaching the hand rises from the fan's foot. Its proxy (`HandProxy`) is kept on the middle
+ * fanned (`heldFan`), leant back so their backs face you (a far seat's square to the
+ * screen), held still. A card just drawn rises into the fan from their library (`library`);
+ * any other card reaching the hand rises from the fan's foot. Its proxy (`HandProxy`) is kept on the middle
  * card.
  */
 function HeldHand({ player, spot, library, far }: { player: Player; spot: HandSpot; library: PileSpot; far: boolean }) {
@@ -969,19 +979,10 @@ function HeldHand({ player, spot, library, far }: { player: Player; spot: HandSp
     before.current = { hand: n, library: player.library.length };
   });
   const plane = useRef<Group>(null);
-  const sway = useRef<Group>(null);
+  const fanGroup = useRef<Group>(null);
   const anchor = useRef<Group>(null);
   const updateProxy = useProxy(handKey(player.id), anchor, fan.w, fan.h);
-  const phase = useMemo(() => player.id * 1.7, [player.id]);
-  useFrame((state) => {
-    const t = state.clock.elapsedTime + phase;
-    // A held hand is never quite still.
-    if (sway.current) {
-      sway.current.rotation.z = 0.025 * Math.sin(t * 0.7);
-      sway.current.rotation.x = 0.02 * Math.sin(t * 0.53 + 1);
-    }
-    updateProxy(state.clock.elapsedTime);
-  });
+  useFrame((state) => updateProxy(state.clock.elapsedTime));
   /** Where a card drawn now starts: on the library's top, in the fan's own terms. */
   const fromLibrary = () => {
     const p = plane.current;
@@ -989,13 +990,13 @@ function HeldHand({ player, spot, library, far }: { player: Player; spot: HandSp
     if (!p || !t) return null;
     t.updateMatrixWorld();
     const at = t.localToWorld(new Vector3(library.x, library.y, Math.max(CARD_THICKNESS, player.library.length * PILE_CARD)));
-    return sway.current!.worldToLocal(at);
+    return fanGroup.current!.worldToLocal(at);
   };
   const mid = n ? fan.cards[Math.floor((n - 1) / 2)] : { x: 0, y: fan.h / 2, z: 0, turn: 0 };
   return (
     <group position={[spot.x, spot.y, fan.lift]} rotation-x={Math.PI / 2 - lean}>
       <group ref={plane}>
-        <group ref={sway}>
+        <group ref={fanGroup}>
           {fan.cards.map((c, i) => (
             <HeldBack key={i} pose={c} shape={shape} from={i >= first ? (drew ? fromLibrary : 'below') : null} />
           ))}
