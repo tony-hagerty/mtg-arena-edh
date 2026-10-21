@@ -2947,6 +2947,86 @@ button {
   margin-top: 2.5rem;
 }
 
+/*
+  The splash over the board while the 3D table loads (BoardSplash.tsx): the logo, the five
+  mana symbols bouncing one after another, and a bar that fills step by step. Above the
+  dialogs and votes; under the hot-seat handoff, which must hide the hand.
+*/
+.board-splash {
+  position: absolute;
+  inset: 0;
+  z-index: 190;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2rem;
+  background: radial-gradient(110rem 60rem at 50% 40%, #1a1d26, #05060a 75%);
+}
+.board-splash-logo {
+  width: 13rem;
+  height: 13rem;
+  filter: drop-shadow(0 0.6rem 2.4rem rgba(0, 0, 0, 0.8));
+}
+.board-splash h1 {
+  margin: 0;
+  font: 700 5rem var(--sans);
+  letter-spacing: 0.02em;
+  color: #ffdf9a;
+  text-shadow: 0 0.4rem 2.4rem rgba(0, 0, 0, 0.9);
+}
+.board-splash-mana {
+  display: flex;
+  gap: 1.8rem;
+  /* Room above for the bounce, so the symbols don't push the text below. */
+  padding-top: 2rem;
+  font-size: 3.6rem;
+}
+.board-splash-mana .ms {
+  animation: mana-bounce 1.5s ease-in-out infinite;
+}
+.board-splash-mana .ms:nth-child(2) {
+  animation-delay: 0.15s;
+}
+.board-splash-mana .ms:nth-child(3) {
+  animation-delay: 0.3s;
+}
+.board-splash-mana .ms:nth-child(4) {
+  animation-delay: 0.45s;
+}
+.board-splash-mana .ms:nth-child(5) {
+  animation-delay: 0.6s;
+}
+@keyframes mana-bounce {
+  0%,
+  40%,
+  100% {
+    transform: translateY(0);
+  }
+  20% {
+    transform: translateY(-2rem);
+  }
+}
+.board-splash-text {
+  margin: 0;
+  font: 600 1.8rem var(--sans);
+  letter-spacing: 0.04em;
+  color: var(--text-soft);
+}
+.board-splash-bar {
+  width: 36rem;
+  height: 0.6rem;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 0.3rem;
+}
+.board-splash-bar > div {
+  height: 100%;
+  background: linear-gradient(90deg, #d2aa42, #ffdf9a);
+  border-radius: inherit;
+  transition: width 0.5s ease-out;
+}
+
 .knocked-out {
   position: absolute;
   left: 0;
