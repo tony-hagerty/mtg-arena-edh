@@ -9,8 +9,8 @@ import { CORNER } from './geometry';
 /*
   Textures for the 3D table: card faces from Scryfall (which allows cross-origin use of its
   images, so WebGL may read them), the card back and a card's soft shadow drawn on a canvas,
-  and the floor worked out pixel by pixel (floor.ts), so there are no image files, as with
-  the CSS table's SVG back.
+  and the floor worked out pixel by pixel (floor.ts), so there are no image files beyond
+  card-back.svg.
 */
 
 type Entry = { texture: Texture | null; failed: boolean; waiting: Set<() => void> };
@@ -59,7 +59,7 @@ export function useCardTexture(url: string | null): Texture | null {
   return url ? (cache.get(url)?.texture ?? null) : null;
 }
 
-/** A tile's picture, in pixels: 5:4, as the CSS `.tile`. */
+/** A tile's picture, in pixels: 5:4. */
 const TILE_W = 320;
 const TILE_H = 256;
 const tiles = new Map<string, CanvasTexture>();
@@ -92,7 +92,7 @@ function drawFrame(g: CanvasRenderingContext2D, name: string, frame: string) {
   // The rest is drawn inside the band.
   g.save();
   g.clip(inner);
-  // The name bar, as the CSS tile's: the frame's colour darkened, a light top edge, the name in the app's typeface.
+  // The name bar: the frame's colour darkened, a light top edge, the name in the app's typeface.
   const grad = g.createLinearGradient(0, bezel, 0, bezel + bar);
   grad.addColorStop(0, mix(frame, '#262a33', 0.54));
   grad.addColorStop(1, mix(frame, '#0b0c10', 0.7));
@@ -117,7 +117,7 @@ function drawFrame(g: CanvasRenderingContext2D, name: string, frame: string) {
 }
 
 /**
- * A permanent's face on the 3D table, as the CSS table's tile: the card's art crop filling a
+ * A permanent's face on the table, a tile: the card's art crop filling a
  * 5:4 tile inside a band of its frame colour, with its name in a bar along the top. Drawn on
  * a canvas once per card (by name and art), at once with the frame colour where the art will
  * be, and again when the art (Scryfall's art crop, which allows cross-origin use) has loaded.
@@ -158,7 +158,7 @@ export function tileTexture(name: string, art: string, frame: string): CanvasTex
 let back: CanvasTexture | null = null;
 
 /**
- * The card back: card-back.svg, the CSS `.card-back`'s picture, drawn onto a canvas once it has
+ * The card back: card-back.svg (the DOM `.card-back`'s picture too), drawn onto a canvas once it has
  * loaded (the field's dark until then). Drawn once.
  */
 export function backTexture(): CanvasTexture {

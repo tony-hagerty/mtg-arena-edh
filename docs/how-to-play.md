@@ -66,7 +66,7 @@ The full guide to the game's screens and controls. For a quick start, see the
 ## Playing cards
 
 - **The table** is drawn in 3D and seen from above your seat, leaning away from you like
-  Arena's board (see "The 3D table" below for the CSS table, which leans only slightly). Everyone sits in a corner: you at the bottom left, the others clockwise
+  Arena's board (see "The table" below). Everyone sits in a corner: you at the bottom left, the others clockwise
   in turn order. Two players sit in opposite corners (you bottom left, the opponent top
   right); at three you have the whole bottom edge and the others take the top corners;
   at four the seats go bottom left (you), top left, top right, bottom right.
@@ -74,14 +74,12 @@ The full guide to the game's screens and controls. For a quick start, see the
   nearest its edge, then artifacts, enchantments and the rest, then creatures nearest the
   middle of the table. Every card stands upright, whoever controls it. The cards grow
   while a seat's rows have room and shrink as they fill up; a very crowded row overlaps
-  its cards instead. On the 3D table a permanent shows its art and name, as the tiles do;
-  hover it for the whole card. The library and graveyard lie on the mat along the seat's
+  its cards instead. A permanent shows its art and name; hover it for the whole card. The library and graveyard lie on the mat along the seat's
   own edge, the library nearest the middle (yours just above the bottom of the screen,
   beside the controls; the far seats' against their mat's inner edge, by the middle path). Exile is shared, so it is the well in the middle of the table, with the top
   card of each player's exile circling in its whirlpool and the count at its edge. The portrait sits
-  on the seat's side edge, and an opponent's hand fans out of their corner, face down,
-  with a count (on the 3D table, they hold it up, fanned, at the back of their mat, beside
-  their piles). Hover any card to see
+  on the seat's side edge, and an opponent holds their hand up, fanned, face down, at the
+  back of their mat beside their piles, with a count at its foot. Hover any card to see
   it full size. A tapped card is dimmed, turned a little, and marked with a large,
   see-through tap symbol. A face-down card shows the program's icon in gold.
 - **Your hand** curves out of the bottom-left corner, its first card's left edge on the
@@ -152,8 +150,8 @@ The full guide to the game's screens and controls. For a quick start, see the
   or the graveyard, from the battlefield to a graveyard or exile pile, back to a hand or
   the command zone. A spell or ability that resolves glows gold as it leaves the stack, an
   ability flies back into the permanent it came from, and the log lines it wrote flash
-  gold. A new token flares as it appears. A card landing on the battlefield folds into
-  its tile: the frame closes in on the picture as the tile fades in under it. At a higher
+  gold. A new token pops up where it lands, and a card reaching the battlefield flies
+  down onto the table from where it was and settles. At a higher
   **Speed** the flights are quicker,
   and with your system set to reduce motion cards just appear where they go.
 - With the stack empty, the game passes for you except at your **stops**. The tracker on
@@ -265,7 +263,7 @@ The full guide to the game's screens and controls. For a quick start, see the
 | `Ctrl+Shift` (the two alone, then let go) | full control on or off (see [The stack and your stops](#the-stack-and-your-stops)) |
 | Hover a card | full-size view |
 | Right-click a card (in your hand, on the table, on the stack, or in a graveyard or exile window) | bigger view that stays up; left-click off it to close (over that window, the first click closes the view and the next the window) |
-| Right-click a graveyard (or, on the CSS table, an exile pile) | look through it, or see that it's empty; hovering the pile shows its top card |
+| Right-click a graveyard | look through it, or see that it's empty; hovering the pile shows its top card |
 | Right-click the well | look through the exile: everyone's exiled cards, under each owner's name |
 | Click a mat, the well or a path | the board answers: a splash and a soft splash sound in the well, a puff of dust off the leather, chips off the wood, sparks off the slate, lint off the cloth, a little dust off the flagstones, each with its own soft sound. It does nothing in the game. |
 | Right-click anywhere else | nothing: the browser's menu is off in the game (text boxes keep it, for copy and paste) |
@@ -285,7 +283,7 @@ and away again (it starts folded). On the right:
 The deck menu has the same sound and music controls in its top-right corner. Sound, music
 and damage choices are saved in the browser.
 
-**The 3D table** is the usual table: seen at a steep angle, like Arena's board, with the camera pushing in
+**The table** is seen at a steep angle, like Arena's board, with the camera pushing in
 during combat. The cards lie on it as thick tiles with rounded corners, each tipped up a
 little at its top, with a wide gap between the rows. So do each player's
 library and graveyard: the library is a deck as thick as it is full. The board is a hall
@@ -303,11 +301,7 @@ fanned out, backs to you, with its count at its foot. Everything plays the
 same: hover a card to read it, click it, drag from your hand, right-click a graveyard or the
 well to open it. The portraits, your hand and the rest stay flat on the screen. It needs a browser with
 WebGPU or WebGL 2 (every current one); `?gl=webgl` forces WebGL, and `?quality=low` drops
-the shadows for a weak machine. Add `?table=css` to the page's address for the older table
-drawn with CSS, flat cards on a gently leaning floor with each player's library, graveyard
-and exile standing on the screen
-(`ArenaEDH.exe --table css` in the Windows program). A browser that can't draw 3D gets that
-table by itself.
+the shadows for a weak machine. A browser that can't draw it says so in the table's place.
 
 The music is made as it plays, so it never loops: a harp arpeggio over a plucked bass and a
 soft frame drum, with a melody and a shaker coming and going as it builds and eases off. It

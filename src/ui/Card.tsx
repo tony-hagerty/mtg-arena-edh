@@ -1,36 +1,16 @@
 import { useEffect, useRef, useState } from 'react';
-import type { CSSProperties, RefObject } from 'react';
 import { motion, useDragControls } from 'motion/react';
-import { activatedAbilities, attachmentsOf, data, defenseOf, isBattle, isCreature, isPlaneswalker, abilitiesOf, loyaltyOf, stats } from '../engine';
-import type { Card, Game } from '../engine';
+import { data } from '../engine';
+import type { Card } from '../engine';
 import { useRem } from './rem';
 import { play } from './sound';
 import { hoverHandCard, leaveHandCard, useStore } from './store';
-import { CardImage, frameOf, ManaCost, useArtLoads } from './TextCard';
-import { BACK_H, BACK_W, FAN_RADIUS, HAND_H, HAND_STEP, HAND_VISIBLE, HAND_W, handSlot } from './table-layout';
-import { cx, hoverProps, seatOf } from './util';
-import { clickGroup, clickPermanent, loyaltyCost, playHandCard, useView } from './view';
-
-const KEYWORD_ICONS = [
-  'flying',
-  'reach',
-  'first strike',
-  'double strike',
-  'deathtouch',
-  'lifelink',
-  'trample',
-  'vigilance',
-  'haste',
-  'menace',
-  'defender',
-  'hexproof',
-  'indestructible',
-];
+import { CardImage, ManaCost } from './TextCard';
+import { HAND_H, HAND_STEP, HAND_VISIBLE, HAND_W, handSlot } from './table-layout';
+import { cx } from './util';
+import { playHandCard, useView } from './view';
 
 const SPRING = { type: 'spring', stiffness: 420, damping: 36 } as const;
-
-/** One step from a seat's edge of the table toward the middle: up for the bottom seats, down for the top ones. */
-const INWARD = { bottom: -1, top: 1 } as const;
 
 /** A drawn card's trip from the library to the hand. Cards drawn together leave the pile one after another. */
 const flight = (order: number) => ({ type: 'tween', duration: 0.55, ease: [0.25, 0.8, 0.35, 1], delay: order * 0.14 }) as const;
@@ -113,172 +93,7 @@ export function Counters({ card }: { card: Card }) {
   );
 }
 
-/**
- * Auras and Equipment attached to a permanent, fanned out behind it with their name bar and
- * some art showing (`.tile-attached`). Click one to use it (an Equipment's equip ability),
- * hover to read it. `host` is the permanent they are attached to.
- */
-function Attachments({ cards, host }: { cards: Card[]; host: Card }) {
-  const { glow } = useView();
-  // The last one is furthest out, so it is drawn first: each nearer one covers all of it but its top.
-  return (
-    <>
-      {cards
-        .map((c, i) => (
-          <div
-            key={c.id}
-            data-card={c.id}
-            className={cx('tile-attached', `frame-${frameOf(data(c))}`, glow.get(c.id) && `glow-${glow.get(c.id)}`)}
-            style={{ '--i': i, '--n': cards.length } as CSSProperties}
-            onClick={(e) => {
-              e.stopPropagation();
-              clickPermanent(c);
-            }}
-            {...hoverProps(data(c))}
-            // Onto the permanent itself: it gets no mouseenter of its own, the pointer never left it.
-            onMouseLeave={(e) => {
-              const tile = e.currentTarget.parentElement!;
-              const onHost = e.relatedTarget instanceof Node && tile.contains(e.relatedTarget) && !(e.relatedTarget as Element).closest?.('.tile-attached');
-              useStore.setState({ hover: onHost ? { name: host.name, d: data(host), el: tile } : null });
-            }}
-          >
-            <AttachedArt url={data(c).art} />
-            <div className="tile-name">{data(c).name}</div>
-          </div>
-        ))
-        .reverse()}
-    </>
-  );
-}
-
-/** An attachment's art, or just its frame colour if the art doesn't load: its name shows on it either way. */
-function AttachedArt({ url }: { url: string }) {
-  const ok = useArtLoads(url);
-  return ok ? <div className="tile-art" style={{ backgroundImage: `url(${url})` }} /> : null;
-}
-
-/** The hover text for a permanent's activated abilities: its `activated` one, and each loyalty ability (606). */
-const abilityText = (g: Game, card: Card) => {
-  const script = abilitiesOf(g, card);
-  return [...activatedAbilities(g, card).map((ab) => ab.text), ...(script.loyalty ?? []).map((ab) => `${loyaltyCost(ab.cost)}: ${ab.text}`)].filter(Boolean).join('\n');
-};
-
-/** `phased`: the permanent is phased out (702.26b): drawn faded, and treated as though it doesn't exist, so clicks do nothing. */
-export function Permanent({ card, badge, phased }: { card: Card; badge?: Card[]; phased?: boolean }) {
-  const v = useView();
-  const g = v.g;
-  const d = data(card);
-  const creature = isCreature(g, card);
-  const s = creature ? stats(g, card) : null;
-  const attacking = g.combat?.attacks.some((a) => a.id === card.id) ?? false;
-  const blocking = g.combat?.attacks.some((a) => a.blockers.includes(card.id)) ?? false;
-  const glow = v.glow.get(card.id);
-  const rem = useRem();
-  const inward = INWARD[seatOf(g, v.me, card.controller).v];
-  const lift = (attacking ? 2 : blocking ? 1 : 0) * rem;
-  const printed = { power: parseInt(d.power ?? '0', 10) || 0, toughness: parseInt(d.toughness ?? '0', 10) || 0 };
-  const ptClass =
-    s && card.damage > 0
-      ? 'hurt'
-      : s && (s.power > printed.power || s.toughness > printed.toughness)
-        ? 'buffed'
-        : s && (s.power < printed.power || s.toughness < printed.toughness)
-          ? 'hurt'
-          : '';
-  const sick = creature && card.sick && g.active === card.controller && !s!.keywords.has('haste');
-  const attached = attachmentsOf(g, card);
-  const artOk = useArtLoads(d.art);
-
-  return (
-    <motion.div
-      layoutId={card.id}
-      data-card={card.id}
-      className={cx(
-        'tile',
-        `frame-${frameOf(d)}`,
-        card.tapped && 'tapped',
-        attacking && 'attacking',
-        blocking && 'blocking',
-        sick && 'sick',
-        card.isCommander && 'commander',
-        v.mana.has(card.id) && 'mana-source',
-        glow && `glow-${glow}`,
-        phased && 'phased-out',
-        card.textless && 'textless',
-      )}
-      title={phased ? 'Phased out until its controller\'s next untap step' : undefined}
-      initial={{ opacity: 0, scale: 0.6 }}
-      animate={{ opacity: phased ? 0.35 : 1, scale: 1, rotate: card.tapped ? 8 : 0, x: 0, y: inward * lift }}
-      exit={{ opacity: 0, scale: 0.4, transition: { duration: 0.3 } }}
-      transition={SPRING}
-      onClick={() => !phased && clickPermanent(card)}
-      {...hoverProps(d, { textless: card.textless })}
-    >
-      {attached.length > 0 && <Attachments cards={attached} host={card} />}
-      <div className="tile-face">
-        {artOk ? (
-          <div className="tile-art" style={{ backgroundImage: `url(${d.art})` }} />
-        ) : (
-          // No art: the type line and rules text fill the space instead. Hovering shows the whole card.
-          <div className="tile-art tile-text">
-            <div>{d.typeLine}</div>
-            <p>{d.oracleText}</p>
-          </div>
-        )}
-        <div className="tile-name" title={card.chosen ? `Chosen: ${card.chosen}` : undefined}>
-          {card.isCommander && <span className="crown">♛</span>}
-          {d.name}
-          {card.chosen && ` (${card.chosen})`}
-        </div>
-        {s && (
-          <div className="tile-keywords">
-            {KEYWORD_ICONS.filter((k) => s.keywords.has(k)).map((k) => (
-              <i key={k} title={k} className={`ms ms-ability-${k.replace(' ', '-')}`} />
-            ))}
-          </div>
-        )}
-        {s && (
-          <div className={cx('tile-pt', ptClass)}>
-            {s.power}/{s.toughness - card.damage}
-          </div>
-        )}
-        {isPlaneswalker(g, card) && !s && (
-          <div className="tile-pt tile-loyalty" title="Loyalty">
-            {loyaltyOf(card)}
-          </div>
-        )}
-        {isBattle(g, card) && (
-          <div className="tile-pt tile-defense" title={`Defense${card.protector !== null ? ` — protected by ${g.players[card.protector].name}` : ''}`}>
-            {defenseOf(card)}
-          </div>
-        )}
-        <Counters card={card} />
-        {sick && <i className="tile-sick ms ms-ability-summoning-sickness" title="Summoning sick" />}
-        {(activatedAbilities(g, card).length > 0 || abilitiesOf(g, card).loyalty) && <div className="tile-ability" title={abilityText(g, card)} />}
-        {card.tapped && (
-          <div className="tile-tapmark">
-            <i className="tap-symbol ms ms-tap" />
-          </div>
-        )}
-        {card.textless && <TextlessBadge />}
-        {badge && (
-          <div
-            className="tile-badge"
-            title={`Use all ${badge.length}`}
-            onClick={(e) => {
-              e.stopPropagation();
-              clickGroup(badge);
-            }}
-          >
-            x{badge.length}
-          </div>
-        )}
-      </div>
-    </motion.div>
-  );
-}
-
-/** A card played without its rules text (`Card.textless`): a small plain mark, on its tile and in the hand. */
+/** A card played without its rules text (`Card.textless`): a small plain mark, on its proxy on the table and in the hand. */
 export const TextlessBadge = () => (
   <div className="textless-badge" title="Played without its rules text: the game can't read it yet, so it is a plain card here">
     no text
@@ -461,46 +276,5 @@ export function HiddenHandCard({ card, index, slot, drawn }: { card: Card; index
         onAnimationComplete={fly.landed}
       />
     </motion.div>
-  );
-}
-
-/**
- * Where a card back starts when it was just drawn: shrunk onto its owner's library pile.
- * The card turns about `pivot` (its hand's anchor) and hangs `FAN_RADIUS` above it, so its
- * middle is `FAN_RADIUS + BACK_H / 2` from the pivot along the way it points. The turn is
- * the pile's, give or take half turns (a card back looks the same upside down), whichever
- * is nearest the card's own `angle`, so it never spins more than a quarter turn.
- */
-function backOnLibrary(pid: number, pivot: Element | null, angle: number, rem: number) {
-  const top = libraryTop(pid);
-  if (!top || !pivot) return null;
-  const a = pivot.getBoundingClientRect();
-  const scale = top.w / (BACK_W * rem);
-  let rotate = top.turn;
-  while (rotate - angle > 90) rotate -= 180;
-  while (rotate - angle < -90) rotate += 180;
-  const t = (rotate * Math.PI) / 180;
-  // The card's middle, from the pivot, before it is turned: straight up.
-  const up = -(FAN_RADIUS + BACK_H / 2) * rem * scale;
-  return { x: top.x - a.left + up * Math.sin(t), y: top.y - a.top - up * Math.cos(t), scale, rotate };
-}
-
-/**
- * A face-down card in an opponent's hand, turned `angle` degrees about the hand's pivot
- * (`fanEl`, see `fanAngle`). A card just drawn flies in from `pid`'s library.
- */
-export function HandBack({ pid, fanEl, angle, drawn }: { pid: number; fanEl: RefObject<HTMLDivElement | null>; angle: number; drawn?: number }) {
-  const rem = useRem();
-  const fly = useFlight(drawn, () => backOnLibrary(pid, fanEl.current, angle, rem));
-  return (
-    <motion.div
-      className="card-back"
-      // Turned about the pivot, below the card's bottom edge.
-      style={{ originY: (FAN_RADIUS + BACK_H) / BACK_H }}
-      initial={fly.start ? { opacity: 1, ...fly.start } : { opacity: 0, x: 0, y: 0, rotate: angle, scale: 0.9 }}
-      animate={{ opacity: 1, x: 0, y: 0, rotate: angle, scale: 1 }}
-      transition={fly.transition}
-      onAnimationComplete={fly.landed}
-    />
   );
 }

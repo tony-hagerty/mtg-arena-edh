@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Mock } from 'vitest';
-import { edgeArgs, edgeSpawnOptions, windowUrl } from '../launcher/edge';
+import { edgeArgs, edgeSpawnOptions } from '../launcher/edge';
 import { APP_ID, iconScript } from '../launcher/icon';
 import { createLifetime } from '../launcher/lifetime';
 import { pathsFor } from '../launcher/paths';
@@ -111,12 +111,6 @@ describe('paths', () => {
     const args = edgeArgs('http://127.0.0.1:47180/', 'D:\\ArenaEDH-data\\edge');
     expect(args).toContain('--app=http://127.0.0.1:47180/');
     expect(args).toContain('--user-data-dir=D:\\ArenaEDH-data\\edge');
-  });
-
-  it('opens the CSS table with --table css, and the plain address (the 3D table) otherwise', () => {
-    expect(windowUrl('http://127.0.0.1:47180/')).toBe('http://127.0.0.1:47180/');
-    expect(windowUrl('http://127.0.0.1:47180/', 'css')).toBe('http://127.0.0.1:47180/?table=css');
-    expect(windowUrl('http://127.0.0.1:47180/', 'a b')).toBe('http://127.0.0.1:47180/?table=a%20b');
   });
 
   it("sets the game window's icon from the program, finding the window by the game's profile", () => {
