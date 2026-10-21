@@ -85,13 +85,15 @@ src/ui/         App.tsx               menu or game screen; GameScreen.tsx lays t
                                       draws the CSS one; see
                                       docs/plans/flutter-conversion.md). Table3D.tsx is the
                                       scene (Three.js through React Three Fiber) and the
-                                      cards' proxies; layout3d.ts where each card lies on the
-                                      table, where the piles lie (pileSpots) and the camera
-                                      that matches camera.ts (pure maths, tested);
-                                      geometry.ts a card's rounded shape; garden.ts and
-                                      Garden.tsx the board (four seasonal sand beds and a
-                                      koi pond; the plan and the sand's maps are pure maths,
-                                      tested); floor.ts the flagstones; textures.ts card
+                                      cards' proxies; layout3d.ts where each card lies in its
+                                      rows and the camera that matches camera.ts (pure
+                                      maths, tested); geometry.ts a card's rounded shape;
+                                      garden.ts the board's plan: four seasonal mats, each
+                                      a seat's battlefield (seatArea: its rows' box and its
+                                      piles), and the koi pond that is the shared exile,
+                                      with the mats' maps (pure maths, tested); Garden.tsx
+                                      draws it; effects.tsx the bursts a click on the board
+                                      makes; floor.ts the flagstones; textures.ts card
                                       faces, back and floor
                 card-back.svg         the back of every card, CSS and 3D alike
                 cursor.png            the mouse cursor, and cursor-down.png while a
@@ -190,7 +192,9 @@ the screen (`tableHeight`, set as `--table-h`).
 'left' | 'right' | 'full' }`, and `seatClass` gives `seat-bottom-left seat-bottom
 seat-left` and the like). Two players sit bottom left and top right, three leave you the
 whole bottom edge (`full`) and take the top corners, four go bottom left, top left, top
-right, bottom right. Each seat is drawn in two parts:
+right, bottom right. On the 3D table each seat's rows and piles lie on its mat instead
+(`seatArea` in three/garden.ts: the mat short of its piles and the pond, no lean), with
+exile shared in the pond. On the CSS table each seat is drawn in two parts:
 
 - **Its rows lie on the table** (`Seat` in Board.tsx, inside `.table`): lands nearest the
   seat's edge, then the other permanents, then creatures nearest the middle. `seatBox` in

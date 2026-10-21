@@ -147,6 +147,24 @@ const RECIPES: Record<Sound, { tones?: Tone[]; noise?: Noise[] }> = {
   resolve: { tones: [{ freq: C6, dur: 0.3, gain: 0.12 }, { freq: G5 * 2, at: 0.04, dur: 0.3, gain: 0.08 }] },
   // A riffle: a run of tiny noise flicks.
   shuffle: { noise: Array.from({ length: 10 }, (_, i) => ({ freq: 2500 + (i % 3) * 400, q: 1.5, at: i * 0.035, dur: 0.03, gain: 0.4 })) },
+  // A click on the 3D board (effects.tsx), each soft, since it is only the board answering.
+  // The pond: a low plop that falls, a wash of water after it and two little bubbles.
+  splash: {
+    tones: [
+      { freq: 420, to: 160, dur: 0.12, gain: 0.16 },
+      { freq: 900, to: 1400, at: 0.1, dur: 0.05, gain: 0.04 },
+      { freq: 1100, to: 1700, at: 0.17, dur: 0.04, gain: 0.03 },
+    ],
+    noise: [{ freq: 900, to: 400, q: 0.7, at: 0.02, dur: 0.35, gain: 0.35 }],
+  },
+  // Moss: a soft, muffled rustle.
+  moss: { noise: [{ freq: 1200, to: 700, q: 0.8, dur: 0.16, gain: 0.25 }] },
+  // Sand: a dry "shh", high and short.
+  sand: { noise: [{ freq: 4500, to: 3000, filter: 'highpass', dur: 0.14, gain: 0.12 }] },
+  // Gravel: a few small stones knocking.
+  gravel: { noise: [0, 0.03, 0.07, 0.1].map((at, i) => ({ freq: 2200 + i * 500, q: 3, at, dur: 0.035, gain: 0.35 })) },
+  // Stone: a light tap with a hint of ring.
+  stone: { tones: [{ freq: 1250, to: 1150, dur: 0.09, gain: 0.06 }], noise: [{ freq: 3000, q: 1.2, dur: 0.03, gain: 0.25 }] },
 };
 
 /** Plays sound `name` now into `out`. */

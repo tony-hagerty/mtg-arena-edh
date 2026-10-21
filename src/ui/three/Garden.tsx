@@ -1,28 +1,32 @@
 import { useEffect, useMemo, useRef } from 'react';
 import { useFrame } from '@react-three/fiber';
+import type { ThreeEvent } from '@react-three/fiber';
 import { CanvasTexture, DataTexture, ExtrudeGeometry, Group, LinearFilter, LinearMipmapLinearFilter, Path, RGBAFormat, RepeatWrapping, SRGBColorSpace, Shape, ShapeGeometry, UnsignedByteType, Vector2 } from 'three';
 import type { Texture } from 'three';
-import { CURB, bedOutline, gardenMaps, gardenPlan } from './garden';
-import type { Bed, Garden as Plan } from './garden';
+import { Bursts, burst } from './effects';
+import { CURB, MATERIAL, bedMaps, bedOutline } from './garden';
+import type { Bed, Garden as Plan, Material } from './garden';
 import { rng } from './floor';
+import { cardGeometry } from './geometry';
+import { backTexture, useCardTexture } from './textures';
 
 /*
-  The board on the 3D table (garden.ts plans it): the beds of raked sand with their curbs,
-  the koi pond where the paths cross, and the seasons' trees around the table. Drawn in the
-  table's group, so its z is up off the table, between the floor (Table3D's FLOOR_Z) and the
-  cards' soft shadows (SHADOW_Z): `SAND_Z` is the sand.
+  The board on the 3D table (garden.ts plans it): the four mats with their curbs, the koi
+  pond where the paths cross (the exile), and the bursts a click on any of them makes
+  (effects.tsx). Drawn in the table's group, so its z is up off the table, between the floor
+  (Table3D's FLOOR_Z) and the cards' soft shadows (SHADOW_Z): `SAND_Z` is the mats.
 */
 
-/** The sand's height, between the floor (-0.12) and the cards' soft shadows (-0.04). */
+/** The mats' height, between the floor (-0.12) and the cards' soft shadows (-0.04). */
 export const SAND_Z = -0.08;
 /** The pond's layers, from its bed up: the koi swim between the bed and the surface. */
 const POND_BED_Z = SAND_Z + 0.01;
 const KOI_Z = SAND_Z + 0.025;
-const WATER_Z = SAND_Z + 0.045;
+export const WATER_Z = SAND_Z + 0.045;
 const PAD_Z = SAND_Z + 0.055;
 
-/** How many pixels a rem the sand's maps get. */
-const SAND_PX = 6;
+/** How many pixels a rem the mats' maps get. */
+const MAT_PX = 7;
 
 function dataTexture(data: Uint8ClampedArray, w: number, h: number, srgb: boolean) {
   const t = new DataTexture(new Uint8Array(data.buffer, data.byteOffset, data.byteLength), w, h, RGBAFormat, UnsignedByteType);
@@ -35,29 +39,40 @@ function dataTexture(data: Uint8ClampedArray, w: number, h: number, srgb: boolea
   return t;
 }
 
-/** The garden on a table `w` × `tableH` rem, for a screen `stageW` × `stageH`. */
-export function Garden({ w, tableH, stageW, stageH }: { w: number; tableH: number; stageW: number; stageH: number }) {
-  // Laid out again only when the size changes by a rem or more, so a resize doesn't redraw the sand every frame.
-  const key = `${Math.round(w)}x${Math.round(tableH)}`;
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  const plan = useMemo(() => gardenPlan(stageW, stageH, w, tableH), [key]);
+/** A card floating on the pond: the top of a player's exile. `image` null is a card exiled face down. */
+export interface Floating {
+  id: string;
+  image: string | null;
+}
+
+/**
+ * The garden for `plan`: the mats, the curbs and the pond. `exiled`: the cards to float on the
+ * pond. `onExile`: a right-click on the pond, which opens the exile.
+ */
+export function Garden({ plan, exiled, onExile }: { plan: Plan; exiled: Floating[]; onExile: () => void }) {
+  const root = useRef<Group>(null);
+  /** Where on the table an event landed: the garden's group is the table's own coordinates. */
+  const at = (e: ThreeEvent<MouseEvent>) => root.current!.worldToLocal(e.point.clone());
   return (
-    <>
-      <Sand plan={plan} w={w} tableH={tableH} />
+    <group ref={root}>
+      {plan.beds.map((b) => (
+        <Mat key={b.season} plan={plan} bed={b} at={at} />
+      ))}
       {plan.beds.map((b) => (
         <Curb key={b.season} plan={plan} bed={b} />
       ))}
-      <Pond plan={plan} />
-    </>
+      <Pond plan={plan} exiled={exiled} at={at} onExile={onExile} />
+      <Bursts />
+    </group>
   );
 }
 
-/** The beds' sand: one plane over the whole table, clear outside the beds, so the floor's flagstones are the paths. */
-function Sand({ plan, w, tableH }: { plan: Plan; w: number; tableH: number }) {
+/** A mat: one plane over its rectangle, clear outside its rounded, pond-cut shape. A click on it makes its material's burst. */
+function Mat({ plan, bed, at }: { plan: Plan; bed: Bed; at: (e: ThreeEvent<MouseEvent>) => { x: number; y: number } }) {
   const tex = useMemo(() => {
-    const m = gardenMaps(plan, w, tableH, SAND_PX);
+    const m = bedMaps(plan, bed, MAT_PX);
     return { map: dataTexture(m.albedo, m.width, m.height, true), normalMap: dataTexture(m.normal, m.width, m.height, false) };
-  }, [plan, w, tableH]);
+  }, [plan, bed]);
   useEffect(
     () => () => {
       tex.map.dispose();
@@ -65,15 +80,28 @@ function Sand({ plan, w, tableH }: { plan: Plan; w: number; tableH: number }) {
     },
     [tex],
   );
+  const click = (e: ThreeEvent<MouseEvent>) => {
+    e.stopPropagation();
+    const p = at(e);
+    burst(bed.material, p.x, p.y, SAND_Z);
+  };
   return (
-    <mesh receiveShadow position={[0, tableH / 2, SAND_Z]} raycast={() => null}>
-      <planeGeometry args={[w, tableH]} />
-      <meshStandardMaterial map={tex.map} normalMap={tex.normalMap} normalScale={new Vector2(1.4, 1.4)} roughness={0.95} alphaTest={0.5} />
+    <mesh receiveShadow position={[(bed.x0 + bed.x1) / 2, (bed.y0 + bed.y1) / 2, SAND_Z]} onClick={click}>
+      <planeGeometry args={[bed.x1 - bed.x0, bed.y1 - bed.y0]} />
+      <meshStandardMaterial map={tex.map} normalMap={tex.normalMap} normalScale={new Vector2(1.2, 1.2)} roughness={MATERIAL[bed.material].roughness} alphaTest={0.5} />
     </mesh>
   );
 }
 
-/** A bed's curb: a low stone kerb around it (`bedOutline`, curving in around the pond), its top edges eased. */
+/** Each mat's curb: wood round the moss, pale granite round the sand, dark slate round the gravel, marble round the stone. */
+const CURB_LOOK: Record<Material, { color: string; roughness: number }> = {
+  moss: { color: '#6e5238', roughness: 0.85 },
+  sand: { color: '#b3ada0', roughness: 0.9 },
+  gravel: { color: '#5c5e62', roughness: 0.8 },
+  stone: { color: '#dadcdf', roughness: 0.45 },
+};
+
+/** A mat's curb: a low kerb around it (`bedOutline`, curving in around the pond), its top edges eased. */
 function Curb({ plan, bed }: { plan: Plan; bed: Bed }) {
   const geometry = useMemo(() => {
     const path = <T extends Path>(p: T, pts: [number, number][]) => {
@@ -89,7 +117,7 @@ function Curb({ plan, bed }: { plan: Plan; bed: Bed }) {
   useEffect(() => () => geometry.dispose(), [geometry]);
   return (
     <mesh castShadow receiveShadow geometry={geometry} position-z={SAND_Z} raycast={() => null}>
-      <meshStandardMaterial color="#a39f94" roughness={0.88} />
+      <meshStandardMaterial {...CURB_LOOK[bed.material]} />
     </mesh>
   );
 }
@@ -195,8 +223,12 @@ const padGeometry = new ShapeGeometry(
 );
 const koiGeometry = new ShapeGeometry(KOI_SHAPE, 8);
 
-/** The koi pond: a ring of rim stones, the bed, the koi circling, the rippling surface, lily pads and two lotus flowers. */
-function Pond({ plan }: { plan: Plan }) {
+/**
+ * The koi pond, which is the exile: a ring of rim stones, the bed, the koi circling, the
+ * rippling surface, lily pads and two lotus flowers, and the top card of each player's exile
+ * drifting on the water. A click on the water splashes; a right-click opens the exile.
+ */
+function Pond({ plan, exiled, at, onExile }: { plan: Plan; exiled: Floating[]; at: (e: ThreeEvent<MouseEvent>) => { x: number; y: number }; onExile: () => void }) {
   const { x, y, r } = plan.pond;
   const water = useRef<Texture>(rippleTexture());
   const koi = useRef<(Group | null)[]>([]);
@@ -243,7 +275,20 @@ function Pond({ plan }: { plan: Plan }) {
           </mesh>
         </group>
       ))}
-      <mesh position-z={WATER_Z} renderOrder={1} raycast={() => null}>
+      <mesh
+        position-z={WATER_Z}
+        renderOrder={1}
+        onClick={(e) => {
+          e.stopPropagation();
+          const p = at(e);
+          burst('splash', p.x, p.y, WATER_Z);
+        }}
+        onContextMenu={(e) => {
+          e.stopPropagation();
+          e.nativeEvent.preventDefault();
+          onExile();
+        }}
+      >
         <circleGeometry args={[r + 0.2, 48]} />
         <meshStandardMaterial color="#5aa3a6" transparent opacity={0.42} roughness={0.06} metalness={0.25} normalMap={water.current} normalScale={new Vector2(0.6, 0.6)} depthWrite={false} />
       </mesh>
@@ -255,6 +300,40 @@ function Pond({ plan }: { plan: Plan }) {
           {p.flower && <Lotus />}
         </group>
       ))}
+      {exiled.map((f, i) => (
+        <FloatingCard key={f.id} f={f} index={i} count={exiled.length} r={r} />
+      ))}
+    </group>
+  );
+}
+
+/** A floating card's size on the pond, rem. */
+const FLOAT_W = 6;
+
+/**
+ * The top card of a player's exile, drifting slowly round the pond on the water, washed
+ * pale blue as the CSS exile pile is. It takes no clicks: a right-click on it is the pond's.
+ */
+function FloatingCard({ f, index, count, r }: { f: Floating; index: number; count: number; r: number }) {
+  const face = useCardTexture(f.image);
+  const shape = useMemo(() => cardGeometry(FLOAT_W, FLOAT_W * 1.4, 0.08), []);
+  useEffect(() => () => shape.dispose(), [shape]);
+  const ref = useRef<Group>(null);
+  useFrame((state) => {
+    const o = ref.current;
+    if (!o) return;
+    const t = state.clock.elapsedTime;
+    const a = (index / count) * Math.PI * 2 + t * 0.04;
+    o.position.set(Math.cos(a) * r * 0.45, Math.sin(a) * r * 0.45, PAD_Z + 0.06 + 0.02 * Math.sin(t * 1.3 + index));
+    o.rotation.set(0.02 * Math.sin(t * 0.9 + index), 0.02 * Math.cos(t * 1.1 + index), a * 0.3 + index);
+  });
+  return (
+    <group ref={ref}>
+      <mesh geometry={shape} castShadow raycast={() => null}>
+        <meshStandardMaterial attach="material-0" color="#cfdcf0" roughness={0.6} />
+        {face ? <meshStandardMaterial key="face" attach="material-1" map={face} color="#c4d6f2" roughness={0.4} /> : <meshStandardMaterial key="back" attach="material-1" map={backTexture()} roughness={0.5} />}
+        <meshStandardMaterial attach="material-2" map={backTexture()} roughness={0.5} />
+      </mesh>
     </group>
   );
 }

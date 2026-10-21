@@ -39,6 +39,12 @@ window.addEventListener(
   { capture: true, passive: true },
 );
 
+// No browser menu on a right-click anywhere in the game: right-click is the game's (it opens a
+// graveyard or the exile, and pins a card's preview). Text boxes keep theirs, for copy and paste.
+window.addEventListener('contextmenu', (e) => {
+  if (!(e.target instanceof Element && e.target.closest('input, textarea, [contenteditable]'))) e.preventDefault();
+});
+
 // Errors nothing else caught go to the program's log (crash.ts); drawing errors show the error screen (App).
 watchPageErrors();
 

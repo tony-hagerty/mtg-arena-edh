@@ -20,7 +20,12 @@ export type Sound =
   | 'cast'
   | 'enter'
   | 'resolve'
-  | 'shuffle';
+  | 'shuffle'
+  | 'splash'
+  | 'moss'
+  | 'sand'
+  | 'gravel'
+  | 'stone';
 
 const total = (g: Game, zone: 'battlefield') => g.players.reduce((n, p) => n + p[zone].length, 0);
 
