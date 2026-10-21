@@ -110,11 +110,36 @@ describe('seatArea', () => {
     });
   });
 
-  it('spans both near mats for the whole bottom edge', () => {
-    const { box } = seatArea({ v: 'bottom', h: 'full' }, plan, W, H, W, TABLE_H);
+  it('gives a seat alone on its side of the table one mat across that side, and lays its rows across it', () => {
+    const three: Seat[] = [{ v: 'bottom', h: 'full' }, SEATS[1], SEATS[2]];
+    const two: Seat[] = [SEATS[0], SEATS[2]];
+    for (const seats of [three, two]) {
+      const g = gardenPlan(W, H, W, TABLE_H, seats);
+      expect(g.beds).toHaveLength(seats.length);
+      seats.forEach((seat, i) => {
+        const b = g.beds[i];
+        const alone = seats.filter((o) => o.v === seat.v).length === 1;
+        expect(b.h).toBe(alone ? 'full' : seat.h);
+        if (alone) {
+          // The whole side, the well cut out of its middle.
+          expect(b.x0).toBeLessThan(-W / 4);
+          expect(b.x1).toBeGreaterThan(W / 4);
+          expect(bedAt(g, 0, g.pond.y)).toBeNull();
+        }
+        const { box, piles } = seatArea(seat, g, W, H, W, TABLE_H);
+        const s = span(box);
+        expect(s.x0).toBeGreaterThanOrEqual(b.x0);
+        expect(s.x1).toBeLessThanOrEqual(b.x1);
+        for (const p of [piles.library, piles.graveyard]) expect(bedAt(g, p.x, p.y)).toBe(b);
+      });
+      // Its corner's material: the bottom is yours (leather), the top right slate.
+      expect(g.beds[0].material).toBe('leather');
+    }
+    // The whole bottom edge's rows run across the middle, above the controls.
+    const { box } = seatArea(three[0], gardenPlan(W, H, W, TABLE_H, three), W, H, W, TABLE_H);
     const s = span(box);
-    expect(s.x0).toBeLessThan(plan.beds[0].x1);
-    expect(s.x1).toBeGreaterThan(plan.beds[3].x0);
+    expect(s.x0).toBeLessThan(-10);
+    expect(s.x1).toBeGreaterThan(10);
   });
 });
 

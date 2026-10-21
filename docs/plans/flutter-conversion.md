@@ -355,11 +355,14 @@ Since then:
   under each owner's name (`ZoneViewer` with `pid` null).
 - **Rounded corners.** A card is `cardGeometry` (geometry.ts): a rounded slab whose face
   image is laid over the whole rectangle, so the corners cut it as a card's are cut. It is
-  0.3 rem thick, its edge the frame colour darkened, and tipped up 4° about its bottom edge
+  0.3 rem thick, its edge the frame colour darkened, its art's thin frame band rounded at the
+  corners as the card is, and tipped up 4° about its bottom edge
   (`LIFT_RAD`); the rows are `ROW_GAP_3D` (3.4 rem) apart.
 - **Held hands.** Each opponent holds their hand at the back of their mat, beside their
   piles (`seatArea`'s `hand`): face-down cards fanned about a grip under them (`heldFan`),
-  leant back 40° so their backs face you, swaying slightly; a drawn card rises into the
+  leant back so their backs face you (a far seat's as far as the table leans away, so the
+  fan is square to the screen: leant less, the far corners see it from the side and it
+  skews; a near seat's 40°), swaying slightly; a drawn card rises into the
   fan from their library. Its proxy (`HandProxy`) is laid on the middle card: the count,
   and the `[data-hand-of]` element flights go to. The counts on piles and hands are grown
   back by the proxy's shrink (`--unscale`), so they read one size near and far, and a
@@ -374,7 +377,9 @@ Since then:
   box less only the piles, the well's clearing and what stands on the screen over it.
 - **The board.** A torch-lit stone hall for four (garden.ts, Garden.tsx, Hall.tsx). Each
   corner has a mat lying flat on the flagstones, all four one size on the table (the near
-  two starting just above the bottom of the screen), and each is its seat's battlefield:
+  two starting just above the bottom of the screen); a seat alone on its side of the table
+  (two players, or you with three) has one mat the whole width of that side instead
+  (`gardenPlan` takes the seats). Each is its seat's battlefield:
   the rows' box is the mat short of its piles, the well and what stands on the screen over
   it (`seatArea`), with no lean. The mats are dark materials with their borders worked in
   (leather, oak planks, slate, woven cloth); their albedo and normal maps are worked out per

@@ -1740,6 +1740,22 @@ button {
   gap: 0.2rem;
 }
 
+/*
+  Each symbol's glyph centred in its round: the mana font sets the round's line taller than
+  the round (1.35em in 1.3em), which sits the glyph low, so the round centres it itself; and
+  a little smaller than the font's, so it keeps clear of the rim at this size.
+*/
+.hand-cost .ms-cost {
+  display: inline-grid;
+  place-items: center;
+  line-height: 1;
+}
+
+.hand-cost .ms-cost::before {
+  font-size: 0.86em;
+  line-height: 1;
+}
+
 .hand-card :is(img, .text-card) {
   display: block;
   width: 100%;

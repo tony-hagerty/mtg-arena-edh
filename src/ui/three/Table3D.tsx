@@ -197,10 +197,15 @@ export default function Table3D({ players }: { players: Player[] }) {
   const stage = useStageSize();
   const table = useTableSize();
   const speed = useStore((s) => s.speed);
-  // Laid out again only when the size changes by a rem or more, so a resize doesn't redraw the mats every frame.
-  const size = `${Math.round(stage.w)}x${Math.round(stage.h)}x${Math.round(table.h)}`;
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  const plan = useMemo(() => gardenPlan(stage.w, stage.h, stage.w, table.h), [size]);
+  // Laid out again only when the size changes by a rem or more, so a resize doesn't redraw the
+  // mats every frame, or when the seats do (a mat for each, `gardenPlan`).
+  const seatsKey = players.map((p) => JSON.stringify(seatOf(v.g, v.me, p.id))).join();
+  const size = `${Math.round(stage.w)}x${Math.round(stage.h)}x${Math.round(table.h)}|${seatsKey}`;
+  const plan = useMemo(
+    () => gardenPlan(stage.w, stage.h, stage.w, table.h, players.map((p) => seatOf(v.g, v.me, p.id))),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [size],
+  );
   const seats = layoutSeats(v, players, plan, stage.w, stage.h, table.h);
   useEffect(() => useStore.subscribe((s, old) => captureOrigins(s.game, old.game)), []);
   return (
@@ -396,7 +401,7 @@ function Scene({ v, speed, w, h, tableH, seats, plan, players }: { v: View; spee
           <Hall w={w} tableH={tableH} cross={plan.pond.y} />
           {seats.map((s) => s.poses.map((p) => <Card3D key={p.item.id} pose={p} seat={s.seat} phased={s.phased.has(p.item.id)} />))}
           {seats.flatMap((s) => ZONES.map((zone) => <Pile3D key={zoneKey(s.player.id, zone)} player={s.player} zone={zone} spot={s.zones[zone]} />))}
-          {seats.map((s) => s.hand && <HeldHand key={handKey(s.player.id)} player={s.player} spot={s.hand} library={s.zones.library} />)}
+          {seats.map((s) => s.hand && <HeldHand key={handKey(s.player.id)} player={s.player} spot={s.hand} library={s.zones.library} far={s.seat.v === 'top'} />)}
         </group>
       </ViewContext.Provider>
     </SceneCtx.Provider>
@@ -941,15 +946,19 @@ const HELD_SHOWN = 12;
 
 /**
  * An opponent's hand on the 3D table: their cards held up at the back of their mat at `spot`,
- * fanned (`heldFan`), leant back so their backs face you, swaying a little as a held hand
+ * fanned (`heldFan`), leant back so their backs face you (a far seat's square to the screen), swaying a little as a held hand
  * does. A card just drawn rises into the fan from their library (`library`); any other card
  * reaching the hand rises from the fan's foot. Its proxy (`HandProxy`) is kept on the middle
  * card.
  */
-function HeldHand({ player, spot, library }: { player: Player; spot: HandSpot; library: PileSpot }) {
+function HeldHand({ player, spot, library, far }: { player: Player; spot: HandSpot; library: PileSpot; far: boolean }) {
   const { table } = useScene();
   const n = Math.min(player.hand.length, HELD_SHOWN);
-  const fan = heldFan(n, spot.room);
+  // A far seat's fan faces you square: leant back as far as the table leans away, its plane is
+  // the screen's, so it reads as an even fan. Leant less, the far corners of the table see it
+  // from the side, and it skews. A near seat's stands more upright (HELD_LEAN).
+  const lean = far ? Math.PI / 2 - tiltRad(TILT) : HELD_LEAN;
+  const fan = heldFan(n, spot.room, lean);
   const shape = useMemo(() => cardGeometry(fan.w, fan.h, CARD_THICKNESS), [fan.w, fan.h]);
   useEffect(() => () => shape.dispose(), [shape]);
   // What the hand and library held last time: more in hand, fewer in the library, is a draw.
@@ -984,7 +993,7 @@ function HeldHand({ player, spot, library }: { player: Player; spot: HandSpot; l
   };
   const mid = n ? fan.cards[Math.floor((n - 1) / 2)] : { x: 0, y: fan.h / 2, z: 0, turn: 0 };
   return (
-    <group position={[spot.x, spot.y, fan.lift]} rotation-x={Math.PI / 2 - HELD_LEAN}>
+    <group position={[spot.x, spot.y, fan.lift]} rotation-x={Math.PI / 2 - lean}>
       <group ref={plane}>
         <group ref={sway}>
           {fan.cards.map((c, i) => (
