@@ -1232,12 +1232,38 @@ function undoOf(g: Game, pid: PlayerId, c: Card): { source: string; undo: ManaUn
 }
 
 /**
- * Using a mana ability by hand can be taken back while all the mana it made, and any left
- * over from paying its mana cost, is still unspent in the pool, and everything it tapped is
- * still tapped. Not if it did anything else, like paying life, dealing damage, sacrificing,
- * or triggering an ability (see `tapForMana`): that has happened and others may have seen it.
+ * Can `pid` take back a mana ability they used by hand, by clicking `c` (Ctrl+Z names it by
+ * id)? Either way does it:
+ *
+ * - Since they used it they've done nothing but use mana abilities (`Game.manaRewind`): the
+ *   game goes back to just before it, whatever it did, and the ones used after it are used
+ *   again (`applyAction`).
+ * - Or it changed nothing but what is tapped and the pool (`canUntapInPlace`), and its mana
+ *   is all still there: it is taken back where it stands.
+ *
+ * A convenience, not a rule: mana abilities can't be undone in paper Magic (605.3b).
  */
-export function canUntapMana(g: Game, pid: PlayerId, c: Card): boolean {
+export function canUntapMana(g: Game, pid: PlayerId, c: Card | string): boolean {
+  if (manaRewindOf(g, pid, typeof c === 'string' ? c : c.id) >= 0) return true;
+  return typeof c !== 'string' && canUntapInPlace(g, pid, c);
+}
+
+/** Which of `Game.manaRewind` clicking `id` takes back, `pid`'s and the latest using it, or -1. */
+export function manaRewindOf(g: Game, pid: PlayerId, id: string): number {
+  const list = g.manaRewind ?? [];
+  if (!list.length || list[0].pid !== pid || g.priority !== pid) return -1;
+  for (let i = list.length - 1; i >= 0; i--) if (list[i].tapped.includes(id)) return i;
+  return -1;
+}
+
+/**
+ * Using a mana ability by hand can be taken back where it stands while all the mana it made,
+ * and any left over from paying its mana cost, is still unspent in the pool, and everything
+ * it tapped is still tapped. Not if it did anything else, like paying life, dealing damage,
+ * sacrificing, or triggering an ability (see `tapForMana`): that takes going back
+ * (`Game.manaRewind`), which only works until the player does something else.
+ */
+export function canUntapInPlace(g: Game, pid: PlayerId, c: Card): boolean {
   const found = undoOf(g, pid, c);
   if (!found) return false;
   const { source, undo } = found;

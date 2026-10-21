@@ -333,19 +333,45 @@ describe('lands and mana from Oracle text', () => {
       expect(back.players[0].pool).toEqual([]);
       expect(back.players[0].battlefield.filter((c) => c.tapped)).toEqual([]);
       // Once the {C} is spent, Sol Ring's tap can't be taken back, so neither can the Signet's.
+      // (Spending it is something else done, which forgets the games to go back to.)
       const spent = produce(g, (d) => {
         d.players[0].pool = d.players[0].pool.filter((m) => m.sym !== 'C');
+        delete d.manaRewind;
       });
       expect(applyAction(spent, { type: 'untapMana', card: signet })).toBe(spent);
     });
 
-    it("can't take back a Talisman's coloured mana: it dealt damage", () => {
+    it("takes back a Talisman's coloured mana, and the damage it dealt", () => {
       let g = emptyGame((d) => put(d, 0, 'Talisman of Dominance'));
       const talisman = byName(g, 0, 'Talisman of Dominance')!.id;
       const colourless = run(g, { type: 'tapMana', card: talisman, ability: 0 });
       expect(run(colourless, { type: 'untapMana', card: talisman }).players[0].pool).toEqual([]);
       g = run(g, { type: 'tapMana', card: talisman, ability: 1, mana: ['B'] });
       expect(g.players[0].life).toBe(39);
+      g = run(g, { type: 'untapMana', card: talisman });
+      expect([g.players[0].life, g.players[0].pool, byName(g, 0, 'Talisman of Dominance')!.tapped]).toEqual([40, [], false]);
+    });
+
+    it('takes back a Lotus Petal: it comes back from the graveyard', () => {
+      let g = emptyGame((d) => put(d, 0, 'Lotus Petal'));
+      const petal = byName(g, 0, 'Lotus Petal')!.id;
+      g = run(g, { type: 'tapMana', card: petal, color: 'G' });
+      expect([g.players[0].pool.map((m) => m.sym), g.players[0].graveyard.map((c) => c.id)]).toEqual([['G'], [petal]]);
+      // Gone from the battlefield, it is named by id, as Ctrl+Z does.
+      g = run(g, { type: 'untapMana', card: petal });
+      expect([g.players[0].pool, g.players[0].graveyard, byName(g, 0, 'Lotus Petal')?.zone]).toEqual([[], [], 'battlefield']);
+    });
+
+    it('goes back only while the player has done nothing but use mana abilities', () => {
+      let g = emptyGame((d) => {
+        put(d, 0, 'Talisman of Dominance');
+        put(d, 0, 'Sol Ring', 'hand'); // {1}
+      });
+      const talisman = byName(g, 0, 'Talisman of Dominance')!.id;
+      g = run(g, { type: 'tapMana', card: talisman, ability: 1, mana: ['B'] });
+      expect(g.manaRewind?.length).toBe(1);
+      g = run(g, { type: 'cast', card: byName(g, 0, 'Sol Ring', 'hand')!.id });
+      expect(g.manaRewind).toBeUndefined();
       expect(applyAction(g, { type: 'untapMana', card: talisman })).toBe(g);
     });
 

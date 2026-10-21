@@ -73,7 +73,11 @@ function logLine(l: LogEntry, viewer: PlayerId | null): LogEntry {
  * Counts stay right: hands and libraries keep their size, which anyone may count (402.3).
  */
 export function viewFor(g: Game, viewer: PlayerId | null): Game {
-  const view = structuredClone(g) as Game;
+  // The games before mana abilities used by hand hold every hidden card: only which cards can
+  // be taken back goes in a view (`Game.manaRewind`), and the games aren't copied at all.
+  const { manaRewind, ...rest } = g;
+  const view = structuredClone(rest) as Game;
+  if (manaRewind) view.manaRewind = manaRewind.map(({ pid, card, tapped }) => ({ pid, card, tapped: [...tapped] }));
   const looking = viewer === null ? new Set<string>() : lookingAt(g, viewer);
   const ids = new Map<string, string>();
   const scratch = { nextId: 0 } as Game;

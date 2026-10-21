@@ -752,14 +752,18 @@ These are deliberate cuts for a prototype. The biggest ones come first.
 - **Snow mana** {S} isn't supported.
 - **Phyrexian mana** is always paid with mana when the mana is there; you can't choose to
   pay life instead. Tapping lands by hand first lets you steer it.
-- **Taking mana back:** a source tapped by hand can be clicked again to take its mana
-  back while all of that mana is unspent. This is a convenience, not a rule: mana
-  abilities can't be undone in paper Magic. It works only when using the ability changed
-  nothing but which permanents are tapped and what is in your pool. A Signet or filter
-  land can be taken back, and the mana or lands that paid its cost come back too. Not
-  when it paid life, dealt damage (painlands, a Talisman's coloured mana), sacrificed or
-  exiled something (a Treasure), discarded a card, or triggered an ability: those have
-  happened, and other players have seen them.
+- **Taking mana back:** any mana ability (605.1a) used by hand can be taken back by
+  clicking its source again (or the creature tapped for it, Relic of Legends; Ctrl+Z names
+  a source that left, a Treasure). This is a convenience, not a rule: mana abilities can't
+  be undone in paper Magic (605.3b). Until the player does anything but use mana
+  abilities, taking one back returns the game to just before it (`Game.manaRewind`):
+  life paid, damage dealt (painlands, a Talisman's coloured mana, Ancient Tomb), a
+  sacrificed Treasure or Lotus Petal, a discarded or exiled card and what it triggered all
+  come back, even though other players have seen them. The mana abilities used after it
+  are used again; one that was paid with its mana stays taken back. Once the player does
+  something else, a source that changed nothing but what is tapped and the pool can still
+  be taken back while its mana is unspent (a Signet or filter land with the mana or lands
+  that paid its cost).
 - **Auto-pay's lookahead** checks your other cards at what they cost now, with commander
   tax and cost increases and reductions (601.2f), but with no kicker, X as 0 and no
   alternative cost. It doesn't foresee cost changes the spell being paid for will bring.

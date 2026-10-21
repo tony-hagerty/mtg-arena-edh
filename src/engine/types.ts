@@ -21,6 +21,18 @@ export interface Mana {
   /** Left over from paying the mana cost of this permanent's mana ability by hand: taking that back takes this too. */
   along?: string;
 }
+/** A mana ability used by hand, which can be taken back (`Game.manaRewind`). */
+export interface ManaRewind {
+  pid: PlayerId;
+  /** The source. */
+  card: string;
+  /** What clicking takes it back: the source, if using it tapped it or took it away (a Lotus Petal), and a creature tapped for its cost (Relic of Legends). */
+  tapped: string[];
+  /** The action, and the game before it: the server's own; a player's view leaves them out. */
+  action?: Extract<Action, { type: 'tapMana' }>;
+  before?: Game;
+}
+
 /**
  * How to take back a mana ability a player used by hand. Only one that changed nothing but
  * which permanents are tapped and what is in the pool gets one.
@@ -1080,6 +1092,15 @@ export interface Game {
    * are restored first.
    */
   replay?: { action: Action; autoPass: boolean; stops?: unknown; fullControl?: PlayerId[]; answers: number[]; decision: Decision | null; priority: PlayerId };
+  /**
+   * The mana abilities (605.1a) the player with priority has used by hand since they last did
+   * anything else, oldest first, each with the game as it was just before: so one can be
+   * taken back whatever else it did (life paid, damage, a sacrifice, a discard, what it
+   * triggered), with the ones used after it used again (`applyAction`'s `rewindMana`). A
+   * convenience, not a rule (see docs/rules-coverage.md). A player's view keeps only which
+   * cards can be taken back: the games before hold hidden cards.
+   */
+  manaRewind?: ManaRewind[];
   entering?: {
     id: string;
     ready: { id: string; moves: number; opts: object }[];
