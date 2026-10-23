@@ -49,6 +49,12 @@ export interface Targeting {
   /** Creatures picked to crew a Vehicle (702.122a), and whether the human is done picking. */
   crew?: string[];
   crewDone?: boolean;
+  /** A modal activated ability (700.2a): the modes picked so far, and whether the human is still picking them: X and targets come next. */
+  modes?: number[];
+  choosingModes?: boolean;
+  /** Permanents picked to tap for an ability's "Tap ten untapped Elves you control" cost (Lathril), and whether the human is done picking. */
+  tap?: string[];
+  tapDone?: boolean;
   /** The loyalty ability (606) or Class level bar being activated, by index, or undefined for one of the card's `activated` abilities. */
   ability?: number;
   /** Which of the card's `activated` abilities, by index (left out, the first). */

@@ -35,7 +35,7 @@
 import { current, isDraft, original } from 'immer';
 import { CREATURE_TYPES, SUBTYPES, cardData } from '../cards/db';
 import { anyRemovingScript, hasRemovingScript, hasStaticScript, scriptHas } from './registry';
-import { CANT_ATTACK, CANT_BLOCK, MUST_ATTACK, SUPPORTED_KEYWORDS, battlefield, counterCount, data, hasReconfigure, permanent, scriptFor } from './rules';
+import { ASSIGNS_TOUGHNESS, ATTACKS_DESPITE_DEFENDER, CANT_ATTACK, CANT_BLOCK, MUST_ATTACK, SUPPORTED_KEYWORDS, battlefield, counterCount, data, hasReconfigure, permanent, scriptFor } from './rules';
 import type { Card, CardScript, Characteristics, ContinuousEffect, Game, LayerParts } from './types';
 
 /** The layers that change characteristics this engine has effects for, in order (613.1, 613.4). Layers 1-3 come first: see `LayerParts`. */
@@ -223,7 +223,7 @@ function changeling(typeLine: string, keywords: string[]): string {
 }
 
 /** Can a "keywords" part carry this without it being an ability, so it isn't lost with them: a restriction (113.12)? */
-const notAbility = (k: string) => k === CANT_ATTACK || k === CANT_BLOCK || k === MUST_ATTACK;
+const notAbility = (k: string) => k === CANT_ATTACK || k === CANT_BLOCK || k === MUST_ATTACK || k === ATTACKS_DESPITE_DEFENDER || k === ASSIGNS_TOUGHNESS;
 /** Flags that are designations, not abilities (701.64b). */
 const DESIGNATIONS = ['harnessed'];
 /** Keyword abilities the engine reads from the keyword list alone, so losing one is taking it off the list (`LayerParts.lose`). */
