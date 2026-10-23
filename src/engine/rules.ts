@@ -3900,15 +3900,18 @@ export const EXILED_CAST = '@exiledCast';
  * After `exileUntil`: "You may cast that card without paying its mana cost" (608.2g), and
  * then "put the rest on the bottom of your library in a random order". `maxMv`: only if the
  * resulting spell's mana value is that or less (discover, 701.57a). `toHand`: if it isn't
- * cast it goes into its owner's hand (discover); otherwise it is one of the rest (Jodah).
+ * cast it goes into its owner's hand (discover); otherwise it stays in exile, and can't be
+ * cast later (Jodah's rulings). With no card found, every exiled card goes back to the
+ * library in a random order.
  */
 export function castFromExiled(g: Game, pid: PlayerId, hit: Card | undefined, rest: Card[], opts: { maxMv?: number; toHand?: boolean; text: string }) {
   const keep = (c: Card) => ({ id: c.id, moves: c.moves });
-  if (!hit || g.players[pid].lost) return putOnBottomRandomly(g, hit ? [...rest, hit] : rest);
+  if (!hit) return putOnBottomRandomly(g, rest);
+  if (g.players[pid].lost) return;
   offerCast(g, pid, hit, { free: true, ...(opts.maxMv !== undefined ? { maxMv: opts.maxMv } : {}), text: opts.text, then: EXILED_CAST, data: { hit: keep(hit), rest: rest.map(keep), toHand: !!opts.toHand } });
 }
 
-/** `castFromExiled`'s continuation: the card not cast goes into its owner's hand or with the rest, and the rest go on the bottom in a random order. */
+/** `castFromExiled`'s continuation: the card not cast goes into its owner's hand or stays in exile, and the rest go on the bottom in a random order. */
 export function finishExiledCast(g: Game, yes: boolean, data: Record<string, unknown>) {
   const inExile = (ref: { id: string; moves: number }) => g.players.flatMap((p) => p.exile).find((c) => sameCard(c, ref));
   const hit = yes ? undefined : inExile(data.hit as { id: string; moves: number });
@@ -3916,7 +3919,7 @@ export function finishExiledCast(g: Game, yes: boolean, data: Record<string, unk
   if (hit && data.toHand) {
     log(g, `${says(g.players[hit.owner], 'puts')} ${label(hit)} into ${their(g.players[hit.owner])} hand.`, hit.owner, [hit]);
     moveCard(g, hit, 'hand');
-  } else if (hit) rest.push(hit);
+  }
   if (rest.length) log(g, `${rest.length === 1 ? 'The other card goes' : `The other ${rest.length} cards go`} on the bottom of ${their(g.players[rest[0].owner])} library in a random order.`, rest[0].owner);
   putOnBottomRandomly(g, rest);
 }

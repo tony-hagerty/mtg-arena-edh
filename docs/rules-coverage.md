@@ -629,8 +629,9 @@ are from the Comprehensive Rules in `docs/rules/`.
   bottom in a random order" (Atla Palani, Tom Bombadil, and the parser's template, with "into
   your hand" too): everyone sees the cards revealed. "Exile cards from the top until you
   exile a legendary nonland card with lesser mana value. You may cast that card without
-  paying its mana cost. Put the rest on the bottom" (Jodah): a card not cast goes with the
-  rest. "Reveal that many cards ... put any number of Dinosaur creature cards onto the
+  paying its mana cost. Put the rest on the bottom" (Jodah): as its rulings say, a card not
+  cast then stays in exile and can't be cast later, and with none found the exiled cards
+  become the library again in a random order. "Reveal that many cards ... put any number of Dinosaur creature cards onto the
   battlefield" (Gishath), "look at that many ... one into your hand, any number of lands onto
   the battlefield tapped and the rest into your graveyard" (Choco), and "look at the top N.
   You may put a Dragon creature card from among them onto the battlefield" (Ureni).

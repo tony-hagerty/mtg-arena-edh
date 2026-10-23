@@ -5,7 +5,7 @@ import { produce } from 'immer';
 import { describe, expect, it } from 'vitest';
 import { problemsOf } from '../src/cards/support';
 import { scriptCards } from '../src/cards/oracle';
-import { addCounters, applyAction, applyBotAction, botAction, destroy, draw, enterBattlefield, exileAll, has, label, legalTargets, makeCard, pump, scriptOf, stats } from '../src/engine';
+import { addCounters, applyAction, applyBotAction, botAction, canCast, destroy, draw, enterBattlefield, exileAll, has, label, legalTargets, makeCard, pump, scriptOf, stats } from '../src/engine';
 import type { Action, Card, Game, PlayerId, TargetRef } from '../src/engine';
 import { byName, emptyGame, put, run, runWith } from './helpers';
 import './fixtures';
@@ -340,6 +340,14 @@ describe('Pantlaza, Sun-Favored', () => {
     expect(byName(g, 0, 'Elite Vanguard')).toBeDefined();
   });
 
+  it('finding no card, the exiled cards go back on the bottom in a random order', () => {
+    let g = until(enter(setup(), 'Pantlaza, Sun-Favored'), decides('ask'));
+    g = produce(g, (d) => top(d, 0, ['Plains', 'Colossal Dreadmaw']));
+    g = until(run(g, { type: 'answer', yes: true }), quiet);
+    expect(g.players[0].exile).toHaveLength(0);
+    expect(names(g.players[0].library).sort()).toEqual(['Colossal Dreadmaw', 'Plains']);
+  });
+
   it('declining leaves it for the next Dinosaur this turn', () => {
     let g = until(enter(setup(), 'Pantlaza, Sun-Favored'), decides('ask'));
     g = until(run(g, { type: 'answer', yes: false }), quiet);
@@ -382,11 +390,26 @@ describe('Jodah, the Unifier', () => {
     expect(names(g.players[0].library.slice(1)).sort()).toEqual(['Plains', 'Shivan Dragon']);
   });
 
-  it('a card not cast goes on the bottom with the rest', () => {
+  it("a card not cast stays in exile and can't be cast later; only the rest go on the bottom (Jodah's rulings)", () => {
     let g = until(run(setup(), { type: 'cast', card: byName(setup(), 0, 'Kokusho, the Evening Star', 'hand')!.id }), decides('cast'));
     g = until(run(g, { type: 'answer', yes: false }), quiet);
+    expect(names(g.players[0].exile)).toEqual(['Sheoldred, the Apocalypse']);
+    expect(names(g.players[0].library)[0]).toBe('Island');
+    expect(names(g.players[0].library.slice(1)).sort()).toEqual(['Plains', 'Shivan Dragon']);
+    expect(canCast(g, 0, byName(g, 0, 'Sheoldred, the Apocalypse', 'exile')!)).toBe(false);
+  });
+
+  it('with no legendary nonland card of lesser mana value, the whole library is exiled and becomes the library again', () => {
+    let g = emptyGame((d) => {
+      put(d, 0, 'Jodah, the Unifier');
+      put(d, 0, 'Swamp', 'battlefield', 6);
+      put(d, 0, 'Kokusho, the Evening Star', 'hand');
+      // The only legendary card has the same mana value (6), not lesser.
+      top(d, 0, ['Plains', 'Shivan Dragon', 'Kokusho, the Evening Star', 'Island']);
+    });
+    g = until(run(g, { type: 'cast', card: byName(g, 0, 'Kokusho, the Evening Star', 'hand')!.id }), quiet);
     expect(g.players[0].exile).toHaveLength(0);
-    expect(names(g.players[0].library.slice(1)).sort()).toEqual(['Plains', 'Sheoldred, the Apocalypse', 'Shivan Dragon']);
+    expect(names(g.players[0].library).sort()).toEqual(['Island', 'Kokusho, the Evening Star', 'Plains', 'Shivan Dragon']);
   });
 
   it("doesn't trigger for a legendary spell cast from the command zone", () => {
