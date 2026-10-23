@@ -8,6 +8,10 @@ export interface Mana {
   ability?: number;
   /** "Until end of turn, you don't lose this mana as steps and phases end" (Birgi): the turn it lasts until (500.5). */
   keep?: number;
+  /** "Until end of combat, you don't lose this mana as steps and phases end" (firebending, 702.189a): the turn whose combat phase it lasts through (500.5a). */
+  combat?: number;
+  /** The name of the source that made it, for "mana from Treasures spent to activate this ability" (Mr. House). */
+  name?: string;
   /** "Spend this mana only to cast a creature spell of the chosen type" (106.6): that creature type. */
   only?: string;
   /** "Spend this mana only to cast a legendary spell" (106.6, Plaza of Heroes). */
@@ -443,6 +447,18 @@ export interface Card {
   warped?: number;
   /** Phased out indirectly with the permanent it is attached to (702.26g): it phases in with that one. */
   phasedWith?: string;
+  /**
+   * Goaded (701.15b): a designation, not an ability, so it stays when the creature loses its
+   * abilities. One entry for each player who goaded it (701.15c), each lasting until that
+   * player's next turn (701.15a); the same player goading it again adds nothing (701.15d).
+   */
+  goaded?: { by: PlayerId }[];
+  /**
+   * Earthbent (701.66a): the players whose earthbend made this land a creature, each with a
+   * delayed triggered ability waiting: "When that land dies or is put into exile, return it to
+   * the battlefield tapped under your control" (603.7).
+   */
+  earthbent?: PlayerId[];
 }
 
 /**
@@ -531,7 +547,14 @@ export interface Player {
    * there is a choice (510.1c, 702.19b). Off, it is split automatically.
    */
   manualDamage?: boolean;
+  /** The bending keyword actions this player has done this turn (Avatar Aang's "if you've done all four this turn"). */
+  bent?: Bend[];
+  /** Additional lands this player may play this turn from one-shot effects ("You may play an additional land this turn", 305.2b). */
+  extraLands?: number;
 }
+
+/** The bending keyword actions and abilities: waterbend (701.67), earthbend (701.66), firebending (702.189) and airbend (701.65). */
+export type Bend = 'waterbend' | 'earthbend' | 'firebend' | 'airbend';
 
 /** An effect that lasts until end of turn (514.2) and isn't attached to a permanent. */
 export type TurnEffect =
@@ -741,6 +764,10 @@ export interface StackItem {
   /** Permanents sacrificed to pay its costs, as they last were on the battlefield, and their power then. */
   sacrificed?: Card[];
   sacrificedPower?: number[];
+  /** The creature tapped to pay a station cost (702.184a), as it was then: its power as the ability resolves, or as it last was (608.2h). */
+  stationed?: Card;
+  /** The mana spent to activate it, by source: for "each mana from Treasures spent to activate this ability" (Mr. House). */
+  spentFrom?: { source: string; name?: string }[];
 }
 
 /**
@@ -1118,6 +1145,8 @@ export interface Game {
   did?: Record<string, number>;
   /** Paradigm spells that have resolved, by player and name: only the first gives the copies (702.192a). */
   paradigms?: { player: PlayerId; name: string }[];
+  /** The monarch (725.1), once an effect has made a player the monarch; null while there is none. */
+  monarch?: PlayerId | null;
 }
 
 export type Action =
@@ -1136,7 +1165,8 @@ export type Action =
   /** `x`: the value of X, for an ability with {X} or −X in its cost (107.3a). */
   /** `exile`: the permanent for an "Exile a creature you control" cost (The Soul Stone). */
   /** `graveyard`: the cards in its controller's graveyard exiled for an "Exile two cards from your graveyard" cost (Matoc). */
-  | { type: 'activate'; card: string; ability?: number; activated?: number; x?: number; targets?: (TargetRef | null)[]; hold?: boolean; crew?: string[]; discard?: string[]; sacrifice?: string[]; exile?: string[]; graveyard?: string[] }
+  /** `station`: the other creature tapped to pay a station cost (702.184a). */
+  | { type: 'activate'; card: string; ability?: number; activated?: number; x?: number; targets?: (TargetRef | null)[]; hold?: boolean; crew?: string[]; discard?: string[]; sacrifice?: string[]; exile?: string[]; graveyard?: string[]; station?: string }
   /**
    * `ability`: which of its mana abilities (`manaAbilities`). Left out, the one that suits
    * the player best. `color`: the colour to make, for an ability with a choice. `mana`: the
@@ -1239,6 +1269,10 @@ export interface Ctx {
   x?: number;
   /** A modal triggered ability's chosen modes (603.3c), in printed order. */
   modes?: number[];
+  /** A station ability's tapped creature (702.184a), as it was when the ability was activated (`StackItem.stationed`). */
+  stationed?: Card;
+  /** The mana spent to activate the ability, by source (`StackItem.spentFrom`). */
+  spentFrom?: { source: string; name?: string }[];
 }
 
 /** What a static ability does to an object it applies to (611.3), by layer. */
@@ -1355,6 +1389,29 @@ export interface TriggerEvents {
   onEvoked: object;
   /** Offspring's "When this permanent enters, if its offspring cost was paid, create a 1/1 token copy of it" (702.175a). */
   onOffspring: object;
+  /**
+   * "Whenever you waterbend, earthbend, firebend, or airbend" (Avatar Aang): a player bent, as
+   * each keyword says it triggers (701.65b, 701.66b, 701.67c, 702.189b).
+   */
+  onBend: { player: PlayerId; kind: Bend };
+  /** "Whenever you roll a 4 or higher" (706): one die rolled by `player`, its natural result and its result after modifiers (706.2). */
+  onRoll: { player: PlayerId; sides: number; natural: number; result: number };
+  /**
+   * "Whenever one or more [creatures] deal combat damage to a player": once for each player dealt
+   * combat damage in a combat damage step (510.2, 603.2c), with the creatures that dealt it, as they were.
+   */
+  onPlayerCombatDamaged: { player: PlayerId; sources: Card[]; amount: number };
+  /**
+   * The monarch's inherent triggered abilities (725.2), which have no source: `draw` is "At the
+   * beginning of the monarch's end step, that player draws a card"; `take` is "Whenever a creature
+   * deals combat damage to the monarch, its controller becomes the monarch", with that creature.
+   */
+  onMonarch: { what: 'draw' } | { what: 'take'; creature: Card };
+  /**
+   * Earthbend's delayed triggered ability (701.66a, 603.7): "When that land dies or is put into
+   * exile, return it to the battlefield tapped under your control". `id` and `moves` name the card as it is now.
+   */
+  onEarthbent: { id: string; moves: number };
 }
 
 /** What ward costs (702.21a): mana, life, or both. */
@@ -1523,6 +1580,8 @@ export interface ActivatedAbility {
     exileOne?: TargetSpec;
     /** "Exile two cards from your graveyard" (Matoc): that many cards from its controller's graveyard, chosen as it is activated. */
     exileGraveyard?: number;
+    /** Station (702.184a): "Tap another untapped creature you control", chosen as it is activated; the resolve reads it as `ctx.stationed`. */
+    station?: boolean;
   };
   sorcery?: boolean;
   /** Activated from its owner's hand rather than the battlefield, like channel. */
@@ -1577,6 +1636,20 @@ export interface CardScript extends Triggers {
    * (positive) or less (negative), e.g. "noncreature spells cost {1} more" (601.2f).
    */
   costModifier?: (g: Game, self: Card, spell: Card, caster: PlayerId, from: Zone | 'stack') => number;
+  /**
+   * While this permanent is on the battlefield: coloured or colourless mana `spell` costs less,
+   * as a mana string ("{W}{U}{B}{R}{G}", Aang, Master of Elements), or null. Each symbol takes
+   * off one mana of its type from the cost, or one generic mana if the cost has none of that
+   * type left (118.7b-d).
+   */
+  reducesCost?: (g: Game, self: Card, spell: Card, caster: PlayerId, from: Zone | 'stack') => string | null;
+  /**
+   * While this permanent is on the battlefield: how many more lands `pid` may play on each of
+   * their turns (305.2b): Exploration's "You may play an additional land on each of your turns".
+   */
+  extraLands?: (g: Game, self: Card, pid: PlayerId) => number;
+  /** "This token crews Vehicles as though its power were 2 greater" (Pilot tokens): how much more power it crews with (702.122a). */
+  crewBonus?: (g: Game, self: Card, vehicle: Card) => number;
   /** Kicker (702.33): an optional additional cost. `multi` is multikicker, paid any number of times (702.33c). */
   kicker?: { mana: string; multi?: boolean };
   /**
@@ -1816,5 +1889,5 @@ export interface CardScript extends Triggers {
 /** Hooks that every permanent on the battlefield hears, not only the card the event is about. */
 export type BroadcastHook = Exclude<
   TriggerHook,
-  'onEnter' | 'onDies' | 'onAttack' | 'onBlock' | 'onCombatDamageToPlayer' | 'onDefeat' | 'onChapter' | 'onLevel' | 'onStorm' | 'onDelayed' | 'onTapped' | 'onWard' | 'onMadness' | 'onMiracle' | 'onSuspendUpkeep' | 'onSuspendCast' | 'onLeave' | 'onCounters' | 'onReflexive' | 'onEvoked' | 'onOffspring'
+  'onEnter' | 'onDies' | 'onAttack' | 'onBlock' | 'onCombatDamageToPlayer' | 'onDefeat' | 'onChapter' | 'onLevel' | 'onStorm' | 'onDelayed' | 'onTapped' | 'onWard' | 'onMadness' | 'onMiracle' | 'onSuspendUpkeep' | 'onSuspendCast' | 'onLeave' | 'onCounters' | 'onReflexive' | 'onEvoked' | 'onOffspring' | 'onMonarch' | 'onEarthbent'
 >;
