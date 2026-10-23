@@ -60,6 +60,7 @@ import {
   tapCandidates,
   manaAbilities,
   attackCost,
+  attackForbidden,
   canPayAttacks,
   costText,
   isFree,
@@ -90,6 +91,7 @@ import {
   checkWard,
   counter,
   counterCount,
+  countResolution,
   discard,
   fitsSpec,
   freeCast,
@@ -146,6 +148,7 @@ import { NeedsChoice, replace, withReplacementAnswers } from './replace';
 import type {
   AbilityRef,
   Action,
+  ActivatedAbility,
   Mana,
   ManaRewind,
   AskChoice,
@@ -927,12 +930,15 @@ function canPayActivation(g: Game, pid: PlayerId, c: Card, activated: number, x:
   if (ab.cost.crew && crewPower(g, pid, c, crewOptions(g, pid, c)) < ab.cost.crew) return false;
   if (ab.cost.counters && counterCount(c, ab.cost.counters.kind) < ab.cost.counters.n) return false;
   if (ab.cost.discard && discardOptions(g, pid, c, ab.cost.discardFilter).length < ab.cost.discard) return false;
-  if (ab.cost.sacrificeOne && activationSacrificeOptions(g, pid, c, activated).length < (ab.cost.sacrificeCount ?? 1)) return false;
+  if (ab.cost.sacrificeOne && activationSacrificeOptions(g, pid, c, activated).length < sacrificesFor(ab, x)) return false;
   if (ab.cost.exileOne && !activationExileOptions(g, pid, c, activated).length) return false;
   if (ab.cost.exileGraveyard && g.players[pid].graveyard.length < ab.cost.exileGraveyard) return false;
   // The source can't also make the mana if tapping, sacrificing or exiling it is part of the cost.
   return !(ab.cost.mana || ab.cost.life) || !!planPayment(g, pid, activationCost(g, pid, c, ab, x), undefined, ab.cost.tap || ab.cost.sacrifice || ab.cost.exileSelf ? [c.id] : []);
 }
+
+/** How many permanents an activated ability's "Sacrifice ..." cost takes with this X: one, "two", or X ("Sacrifice X Squirrels", 107.3a). */
+export const sacrificesFor = (ab: ActivatedAbility, x: number): number => (!ab.cost.sacrificeOne ? 0 : ab.cost.sacrificeCount === 'x' ? x : (ab.cost.sacrificeCount ?? 1));
 
 /** Permanents `pid` could exile to pay an "Exile a creature you control" cost of `c`'s activated ability `activated` (The Soul Stone). */
 export function activationExileOptions(g: Game, pid: PlayerId, c: Card, activated = 0): Card[] {
@@ -957,7 +963,9 @@ export const discardOptions = (g: Game, pid: PlayerId, c: Card, filter?: (g: Gam
 export function abilityHasX(g: Game, c: Card, ref: AbilityRef): boolean {
   const script = abilitiesOf(g, c);
   if (ref.ability !== undefined) return !script.levels && script.loyalty?.[ref.ability]?.cost === '-X';
-  return parseCost(activatedAt(g, c, ref.activated)?.cost.mana ?? '').x > 0;
+  const ab = activatedAt(g, c, ref.activated);
+  // "Sacrifice X Squirrels:" has X in its cost too (107.3a).
+  return parseCost(ab?.cost.mana ?? '').x > 0 || ab?.cost.sacrificeCount === 'x';
 }
 
 /**
@@ -1545,7 +1553,8 @@ function mustAttack(g: Game, pid: PlayerId) {
   for (const c of attackCandidates(g, pid)) {
     if (!has(g, c, MUST_ATTACK) || combat.attacks.some((a) => a.id === c.id)) continue;
     // Nobody has to pay to meet a requirement (508.1d): it attacks an opponent it can attack for free, if any.
-    const free = turnOrder(g, pid).find((o) => o !== pid && isFree(attackCost(g, [{ id: c.id, defender: o, target: null }])));
+    // It can't break a restriction to meet it either (508.1d): only an opponent it may attack (508.1c).
+    const free = turnOrder(g, pid).find((o) => o !== pid && !attackForbidden(g, c, o, null) && isFree(attackCost(g, [{ id: c.id, defender: o, target: null }])));
     if (free !== undefined) combat.attacks.push({ id: c.id, defender: free, target: null, blockers: [], blocked: false });
   }
 }
@@ -1796,6 +1805,8 @@ function resolveTop(g: Game) {
       script.onResolve?.(g, { self: card, you: controller, targets, sacrificed: item.sacrificed, sacrificedPower: item.sacrificedPower });
     }
   } else if (!fizzled) {
+    // It resolves (608.2): counted for "if this is the second time this ability has resolved this turn".
+    countResolution(g, item);
     // An ability uses its source as it is now, or as it last was if it has gone (113.7a).
     const ctx = { self: permanent(g, card.id) ?? card, you: controller, targets, sacrificed: item.sacrificed, sacrificedPower: item.sacrificedPower, x: item.x ?? 0, ...(item.modes ? { modes: item.modes } : {}) };
     if (item.kind === 'activated' && item.ability !== undefined && script.levels) {
@@ -2377,7 +2388,7 @@ function act(g: Game, a: Action): boolean {
       if (discarding.length !== (ab.cost.discard ?? 0) || discarding.some((x) => !x) || new Set(a.discard).size !== discarding.length) return false;
       // "Sacrifice a creature": exactly one that fits, or as many different ones as it says.
       const sacrificing = (a.sacrifice ?? []).map((id) => activationSacrificeOptions(g, pid, c, a.activated).find((x) => x.id === id));
-      if (sacrificing.length !== (ab.cost.sacrificeOne ? (ab.cost.sacrificeCount ?? 1) : 0) || sacrificing.some((x) => !x) || new Set(a.sacrifice).size !== sacrificing.length) return false;
+      if (sacrificing.length !== sacrificesFor(ab, x) || sacrificing.some((x) => !x) || new Set(a.sacrifice).size !== sacrificing.length) return false;
       // "Exile a creature you control": exactly one that fits (The Soul Stone).
       const exiling = (a.exile ?? []).map((id) => activationExileOptions(g, pid, c, a.activated).find((x) => x.id === id));
       if (exiling.length !== (ab.cost.exileOne ? 1 : 0) || exiling.some((x) => !x)) return false;
@@ -2468,6 +2479,8 @@ function act(g: Game, a: Action): boolean {
       if (deciding !== 'attackers' || !g.combat || !c || !canAttack(g, c)) return false;
       const target = a.target ?? null;
       if (!attackOptions(g, pid).some((o) => o.defender === a.defender && o.target === target)) return false;
+      // "Can't attack you or planeswalkers you control" (508.1c).
+      if (attackForbidden(g, c, a.defender, target)) return false;
       // Attacks that cost something (Propaganda) can be declared only if they can all be paid for (508.1d, 508.1h).
       const next = [...g.combat.attacks.filter((x) => x.id !== c.id), { id: c.id, defender: a.defender, target }];
       // "No more than one creature can attack The Eternal Wanderer each combat" (508.1c).

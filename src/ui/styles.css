@@ -736,6 +736,12 @@ button {
   text-shadow: 0 0 0.3rem #000, 0 0 0.3rem #000, 0 0 0.5rem #000;
 }
 
+/* An emblem in the command zone (114), under the commander damage. */
+.cmd-dmg .emblem {
+  background: var(--raised);
+  color: var(--gold);
+}
+
 .life-delta {
   position: absolute;
   left: 50%;
