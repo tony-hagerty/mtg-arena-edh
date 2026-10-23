@@ -245,6 +245,9 @@ The full guide to the game's screens and controls. For a quick start, see the
 | **Cast as it resolves** (Beseech the Mirror) | A window offers **Cast** or **Don't Cast**; casting goes through the usual targets and costs. |
 | **A choice from several places** (Highway Robbery: discard a card or sacrifice a land) | The window groups the cards by where they are, **Your hand** and **Your battlefield**, so a Mountain in your hand isn't taken for one on the table. |
 | **Library search** (Rampant Growth, Cultivate, Path to Exile, ...) | Your whole library opens. Cards you could find glow; click one and press **Choose**, or **Find Nothing**. |
+| **Ward that asks for a sacrifice** (Ygra's "Ward—Sacrifice a Food") | When your spell or ability targets it, a window shows what of yours you could sacrifice: pick one and press **Sacrifice**, or **Don't Pay** to have it countered. |
+| **The Ring tempts you** (Frodo, Sauron) | With two or more creatures, a window asks which is your **Ring-bearer**. It carries a gold ring on the table, and the log counts the times the Ring has tempted you. |
+| **Amass** (Sauron) | With two or more Armies, a window asks which gets the counters. |
 
 ## Triggers and pop-up windows
 
