@@ -5,7 +5,7 @@ import type { GLProps, ThreeEvent } from '@react-three/fiber';
 import { BufferAttribute, Color, Group, MathUtils, Matrix4, Mesh, MeshBasicMaterial, OrthographicCamera, Plane, PlaneGeometry, Raycaster, Vector2, Vector3 } from 'three';
 import type { BufferGeometry, DirectionalLight, PerspectiveCamera, Texture, WebGLRenderer } from 'three';
 import { WebGPURenderer } from 'three/webgpu';
-import { attachmentsOf, data, defenseOf, isBattle, isCreature, isPlaneswalker, loyaltyOf, stats } from '../../engine';
+import { attachmentsOf, canLookAtTop, data, defenseOf, isBattle, isCreature, isHidden, isPlaneswalker, loyaltyOf, stats } from '../../engine';
 import type { Card, Game, Player } from '../../engine';
 import type { BoardStep } from '../BoardSplash';
 import { FaceUpPile, Library, creaturePiles, landPiles, otherPermanents } from '../Board';
@@ -929,9 +929,10 @@ function Pile3D({ player, zone, spot }: { player: Player; zone: PileZone; spot: 
   const { v } = useScene();
   const cards = player[zone];
   const n = cards.length;
-  const top = cards[n - 1];
+  // A library's top is its first card; its owner sees it face up when a permanent lets them look at it any time (Glarb).
+  const top = zone === 'library' ? cards[0] : cards[n - 1];
   const thick = n ? Math.max(CARD_THICKNESS, n * PILE_CARD) : 0;
-  const up = zone !== 'library' && top && faceUp(top, v.me);
+  const up = zone === 'library' ? !!top && !isHidden(top) && canLookAtTop(v.g, v.me, player.id) : top && faceUp(top, v.me);
   const face = useCardTexture(up ? data(top).image : null);
   const back = backTexture();
   // One card's shape, a rem thick, stretched to the pile's thickness.

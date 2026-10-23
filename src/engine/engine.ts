@@ -94,7 +94,6 @@ import {
   fitsSpec,
   freeCast,
   castsForAlt,
-  hasEscape,
   manaValue,
   permission,
   ask,
@@ -139,6 +138,15 @@ import {
   triggerModeOptions,
   rememberModes,
   CARD_TYPES,
+  offeredNow,
+  ownRightToCast,
+  playPermissions,
+  permitFor,
+  permitSlot,
+  usePermit,
+  landsAllowed,
+  offerCastAny,
+  paidCostText,
 } from './rules';
 import type { EnterOpts } from './rules';
 import { inBase, settled, untouched } from './layers';
@@ -170,6 +178,7 @@ import type {
   ThenCtx,
   TriggerEvents,
   Zone,
+  Phase,
 } from './types';
 
 /** The five colours, by mana symbol (105.1), for naming a colour. */
@@ -560,6 +569,12 @@ const ENGINE_THEN: Record<string, (g: Game, ctx: ThenCtx) => void> = {
   '@ward': (g, { yes, data }) => {
     if (!yes) counter(g, { kind: 'stack', id: data.item as string });
   },
+  // "You may cast any number of spells from among them" (Kotis, Etali): after one is cast, the rest are offered again; declining ends it.
+  '@castAny': (g, { yes, picked, chooser, data }) => {
+    if (!yes) return;
+    const left = (data.cards as string[]).filter((id) => id !== picked[0]?.id).map((id) => findCard(g, id)).filter((c): c is Card => !!c && c.zone !== 'stack' && c.zone !== 'battlefield');
+    offerCastAny(g, chooser, left, { free: data.free as boolean, ...(data.maxMv !== undefined ? { maxMv: data.maxMv as number } : {}), text: data.text as string });
+  },
 };
 
 /** Carries out a card choice once the player has made it. */
@@ -639,13 +654,23 @@ export function canPlayLand(g: Game, pid: PlayerId, c: Card, face?: number): boo
   if (base) return canPlayLand(base, pid, inBase(c), face);
   const faces = landFaces(g, c);
   if (face !== undefined ? !faces.includes(face) : !faces.length) return false;
-  // From a hand, or from exile with an effect that lets them play it (Jeska's Will). Either
-  // way it counts as their land for the turn (305.2a).
+  // From a hand, or from exile with an effect that lets them play it (Jeska's Will), or from a
+  // graveyard, exile or the top of their library by a permanent's permission (Muldrotha, Glarb).
+  // Either way it counts as one of their lands for the turn (305.2a).
   // A land with an Adventure can be played from exile once its Adventure has resolved (715.3d).
-  const from =
-    c.zone === 'hand' ? c.owner === pid : (c.zone === 'exile' && c.adventure && c.owner === pid) || ((c.zone === 'exile' || c.zone === 'graveyard') && !!permission(g, pid, c)?.play);
-  return from && g.players[pid].landsPlayed < 1 && timingOk(g, pid, false);
+  const from = c.zone === 'hand' ? c.owner === pid : ownRightToPlayLand(g, pid, c) || playPermissions(g, pid, c).some((x) => x.p.land);
+  return from && g.players[pid].landsPlayed < landsAllowed(g, pid) && timingOk(g, pid, false);
 }
+
+/** May `pid` play land `c` from exile or a graveyard without a permanent's permission: after its Adventure (715.3d), or by an effect's permission? */
+const ownRightToPlayLand = (g: Game, pid: PlayerId, c: Card) => (c.zone === 'exile' && c.adventure && c.owner === pid) || ((c.zone === 'exile' || c.zone === 'graveyard') && !!permission(g, pid, c)?.play);
+
+/** Every card `pid` might play as a land from where it is: their hand, every graveyard and exile, and the top of their library. */
+export const landCandidates = (g: Game, pid: PlayerId): Card[] => {
+  const p = g.players[pid];
+  // In a player's view the top card is a stand-in (`isHidden` in view.ts) unless they may look at it.
+  return [...p.hand, ...g.players.flatMap((o) => [...o.exile, ...o.graveyard]), ...p.library.slice(0, 1).filter((c) => c.name !== '')];
+};
 
 /**
  * Can `pid` cast `c` from the zone it's in? Their own from a hand or the command zone; from
@@ -655,23 +680,20 @@ export function canPlayLand(g: Game, pid: PlayerId, c: Card, face?: number): boo
  */
 function castableFrom(g: Game, pid: PlayerId, c: Card): boolean {
   if (castingNow(g, pid, c)) return true;
-  if (c.zone === 'hand' || c.zone === 'command') return c.owner === pid;
-  // A card an effect lets them play from there (Tablet of Discovery) needn't be theirs.
-  if (c.zone === 'graveyard') return (c.owner === pid && (!!flashbackCost(g, c) || hasEscape(g, c) || facesOf(c).some((f) => isAftermath(c, f)))) || !!permission(g, pid, c);
-  if (c.zone !== 'exile') return false;
-  // Its owner may cast it while it stays exiled: airbent (701.65a), warped on a later turn
-  // (702.185a), or plotted on a later turn (702.170d).
-  const mine = c.owner === pid && (c.adventure || c.airbent || (c.warped !== undefined && g.turn > c.warped) || (c.plotted !== undefined && g.turn > c.plotted));
-  return mine || !!permission(g, pid, c);
+  // Their own from a hand or the command zone; from a graveyard with flashback, escape or an
+  // aftermath half; from exile after its Adventure, airbent, warped or plotted; a card an effect
+  // lets them play from there (Tablet of Discovery), which needn't be theirs (`ownRightToCast`);
+  // or one a permanent lets them cast from a graveyard, exile or the top of their library (601.3).
+  return ownRightToCast(g, pid, c) || playPermissions(g, pid, c).some((x) => x.p.cast);
 }
 
-/** Is `c` the card `pid` may cast while a spell resolves (608.2g)? */
-const castingNow = (g: Game, pid: PlayerId, c: Card) => g.decision?.type === 'cast' && g.decision.choice.card === c.id && g.decision.choice.player === pid;
+/** Is `c` the card (or one of the cards) `pid` may cast while a spell resolves (608.2g)? */
+const castingNow = (g: Game, pid: PlayerId, c: Card) => offeredNow(g, c) && g.decision?.type === 'cast' && g.decision.choice.player === pid;
 
-/** Every card `pid` might cast from where it is: their hand, command zone and graveyard, and every exile. */
+/** Every card `pid` might cast from where it is: their hand, command zone and graveyard, every exile, and the top of their library. */
 export function castableCards(g: Game, pid: PlayerId): Card[] {
   const p = g.players[pid];
-  return [...p.hand, ...p.command, ...p.graveyard, ...g.players.flatMap((o) => o.exile)].filter((c) => castableFrom(g, pid, c));
+  return [...p.hand, ...p.command, ...p.graveyard, ...g.players.flatMap((o) => o.exile), ...p.library.slice(0, 1).filter((c) => c.name !== '')].filter((c) => castableFrom(g, pid, c));
 }
 
 /** Cards in `pid`'s graveyard that delve could exile to pay for `c` (702.66a): any but `c` itself. */
@@ -795,11 +817,22 @@ function choicesOk(g: Game, pid: PlayerId, c: Card, ch: CastChoices): boolean {
   if (ch.protector !== undefined && !(isBattle(g, spell) && canProtect(g, spell, ch.protector))) return false;
   // A gift is promised to an opponent (702.174a), and only by a spell with gift.
   if (ch.gift !== undefined && (!script.gift || ch.gift === pid || g.players[ch.gift]?.lost !== false)) return false;
+  // A permanent's permission to cast it from where it is (601.3): the one named must apply, with
+  // the use chosen if it has several; it is an alternative cost when it is free or has a cost of
+  // its own, so no other alternative cost goes with it (118.9a).
+  const permit = permitFor(g, pid, c, ch);
+  if ((ch.permit !== undefined || ch.slot !== undefined) && !permit) return false;
+  // A card with no right of its own to be cast from where it is needs a permission that applies with these choices (601.3).
+  if (!permit && !ownRightToCast(g, pid, c)) return false;
+  // X is chosen only for a cost with {X} in it (107.3b): none when it is cast free (Kotis's rulings: "you must choose 0").
+  if (x > 0 && !parseCost(paidCostText(g, c, ch, pid)).x && script.additionalCost?.life !== 'x') return false;
+  if (permit && (permit.p.free || permit.p.cost !== undefined) && ch.alt !== undefined) return false;
+  if (permit && ch.escape) return false;
   // From a graveyard: with escape, three other cards from it are exiled (702.138a); otherwise it needs flashback.
   const escape = ch.escape ?? [];
   if (c.zone === 'graveyard') {
     const ways = graveyardWays(g, c, face);
-    if (ch.escape ? !ways.escape : !(ways.flashback || ways.aftermath || ways.permitted)) return false;
+    if (ch.escape ? !ways.escape : !(ways.flashback || ways.aftermath || ways.permitted || permit)) return false;
     // Exactly as many other cards as one of its escape abilities exiles (702.138a).
     const options = new Set(escapeOptions(g, c).map((x) => x.id));
     if (ch.escape && (!escapeFor(g, c, escape.length) || new Set(escape).size !== escape.length || escape.some((id) => !options.has(id)))) return false;
@@ -872,11 +905,14 @@ export function canCastAs(g: Game, pid: PlayerId, c: Card, face: number, choices
   const modeSets: (number[] | undefined)[] = script.modal ? modeChoices(g, pid, c, face) : [undefined];
   if (!modeSets.length) return false;
   let routes: CastChoices[];
+  // By a permanent's permission (Muldrotha, Glarb, Maralen): each permission, and each use it has left.
+  const permits = playPermissions(g, pid, c).filter((x) => x.p.cast).flatMap((x): CastChoices[] => (x.p.slots ? x.p.slots.map((slot) => ({ face, permit: x.source.id, slot })) : [{ face, permit: x.source.id }]));
   if (c.zone === 'graveyard') {
     const ways = graveyardWays(g, c, face);
     const escaping = escapes(g, c).filter((e) => escapeOptions(g, c).length >= e.exile).map((e): CastChoices => ({ face, escape: Array.from({ length: e.exile }, () => '') }));
-    routes = [...(ways.flashback || ways.aftermath || ways.permitted ? [{ face }] : []), ...escaping];
-  } else routes = [...(castsForAlt(g, c) ? [] : [undefined]), ...altCostsOf(g, c, face, pid)].map((alt) => ({ alt, face }));
+    routes = [...(ways.flashback || ways.aftermath || ways.permitted ? [{ face }] : []), ...escaping, ...permits];
+  } else if (!ownRightToCast(g, pid, c)) routes = permits;
+  else routes = [...[...(castsForAlt(g, c) ? [] : [undefined]), ...altCostsOf(g, c, face, pid)].map((alt) => ({ alt, face })), ...permits];
   // Each of the additional costs it offers a choice of ("pay 5 life or pay {2}").
   const extras: (number | undefined)[] = script.additionalCost?.oneOf ? script.additionalCost.oneOf.map((_, i) => i) : [undefined];
   return routes.some((r) => modeSets.some((modes) => extras.some((extra) => {
@@ -890,7 +926,7 @@ export function maxX(g: Game, pid: PlayerId, c: Card, choices: CastChoices = {})
   // An alternative cost without X, like flashback or "without paying its mana cost", makes X 0 (107.3b).
   // "Pay X life" (118.8) has its X whatever is paid instead of the mana cost.
   const lifeX = scriptFor(asSpell(c, choices.face ?? 0)).additionalCost?.life === 'x';
-  if (!lifeX && (!parseCost(data(asSpell(c, choices.face ?? 0)).manaCost).x || choices.alt !== undefined || paysFlashback(g, c, choices) || freeCast(g, c))) return 0;
+  if (!lifeX && (!parseCost(data(asSpell(c, choices.face ?? 0)).manaCost).x || choices.alt !== undefined || paysFlashback(g, c, choices) || freeCast(g, c) || permitFor(g, pid, c, choices)?.p.free)) return 0;
   let x = -1;
   const spell = asSpell(c, choices.face ?? 0, pid);
   while (x < 99 && planPayment(g, pid, castCost(g, c, { ...choices, x: x + 1 }, pid), spell)) x++;
@@ -1116,7 +1152,7 @@ export function actionsFor(g: Game, pid: PlayerId): { cast: Card[]; play: Card[]
     const p = g.players[pid];
     return {
       cast: castableCards(g, pid).filter((c) => canCast(g, pid, c)),
-      play: [...p.hand, ...g.players.flatMap((o) => o.exile)].filter((c) => canPlayLand(g, pid, c)),
+      play: landCandidates(g, pid).filter((c) => canPlayLand(g, pid, c)),
       activate: [...p.battlefield, ...p.hand].filter((c) => activatable(g, pid, c).length > 0),
     };
   });
@@ -1126,7 +1162,7 @@ function canActNow(g: Game, pid: PlayerId): boolean {
   const p = g.players[pid];
   return (
     castableCards(g, pid).some((c) => canCast(g, pid, c)) ||
-    [...p.hand, ...g.players.flatMap((o) => o.exile)].some((c) => canPlayLand(g, pid, c)) ||
+    landCandidates(g, pid).some((c) => canPlayLand(g, pid, c)) ||
     [...p.battlefield, ...p.hand].some((c) => activatable(g, pid, c).length > 0)
   );
 }
@@ -1243,6 +1279,8 @@ function beginTurn(g: Game, pid: PlayerId, extra?: ExtraTurn) {
   g.combatDamaged = [];
   g.extraBeginnings = 0;
   g.inExtraBeginning = false;
+  g.extraSteps = undefined;
+  g.extraStep = undefined;
   for (const p of g.players) {
     p.spellsCast = 0;
     p.noncreatureSpellsCast = 0;
@@ -1414,6 +1452,12 @@ function nextStep(g: Game) {
   // Unspent mana empties (500.5), except mana an effect says isn't lost this turn (Birgi).
   for (const p of g.players) p.pool = p.pool.filter((m) => m.keep === g.turn || keptMana(g, p.id, m));
   const combat = g.combat;
+  // An additional step an effect added after a phase (500.9) is over: the next one, or the turn goes on from that phase.
+  if (g.extraStep) {
+    const { after } = g.extraStep;
+    g.extraStep = undefined;
+    return afterPhase(g, after);
+  }
   switch (g.step) {
     case 'upkeep':
       // "Skip your draw step" (614.1b): the step doesn't happen at all (614.10).
@@ -1422,13 +1466,14 @@ function nextStep(g: Game) {
         log(g, `${says(g.players[g.active], 'skips')} ${their(g.players[g.active])} first draw step.`, g.active);
         return beginStep(g, 'main1');
       }
-      if (replace(g, { kind: 'begin', player: g.active, what: 'drawStep' }).kind === 'none') return afterBeginning(g);
+      if (replace(g, { kind: 'begin', player: g.active, what: 'drawStep' }).kind === 'none') return afterPhase(g, 'beginning');
       return beginStep(g, 'draw');
     case 'draw':
-      return afterBeginning(g);
+      return afterPhase(g, 'beginning');
+    case 'main1':
+      return afterPhase(g, 'main1');
     case 'main2':
-      // An additional beginning phase comes right after this phase (500.8).
-      return g.extraBeginnings ? beginExtraBeginning(g) : beginStep(g, 'end');
+      return afterPhase(g, 'main2');
     case 'attackers':
       // With no attackers, the declare blockers and combat damage steps are skipped (508.8).
       return beginStep(g, combat?.attacks.length ? 'blockers' : 'endCombat');
@@ -1437,9 +1482,36 @@ function nextStep(g: Game) {
       return beginStep(g, combat?.moreDamage ? 'damage' : 'endCombat');
     case 'endCombat':
       g.combat = null; // everything is removed from combat (511.3)
-      return beginStep(g, 'main2');
+      return afterPhase(g, 'combat');
     default:
       return beginStep(g, STEP_ORDER[STEP_ORDER.indexOf(g.step) + 1]);
+  }
+}
+
+/**
+ * A phase is over: an additional step added directly after it comes first, the most recently
+ * added of them (500.9), then the turn goes on to the next phase.
+ */
+function afterPhase(g: Game, phase: Phase) {
+  const i = g.extraSteps?.map((e) => e.after).lastIndexOf(phase) ?? -1;
+  if (i >= 0) {
+    const [extra] = g.extraSteps!.splice(i, 1);
+    g.extraStep = { after: phase };
+    log(g, `An additional ${extra.step} step begins.`, g.active);
+    return beginStep(g, extra.step);
+  }
+  switch (phase) {
+    case 'beginning':
+      return afterBeginning(g);
+    case 'main1':
+      return beginStep(g, 'beginCombat');
+    case 'combat':
+      return beginStep(g, 'main2');
+    case 'main2':
+      // An additional beginning phase comes right after this phase (500.8).
+      return g.extraBeginnings ? beginExtraBeginning(g) : beginStep(g, 'end');
+    case 'ending':
+      return beginStep(g, 'cleanup');
   }
 }
 
@@ -2196,11 +2268,22 @@ function act(g: Game, a: Action): boolean {
       const c = findCard(g, a.card);
       if (!c || !canPlayLand(g, pid, c, a.face)) return false;
       p.landsPlayed++;
+      // From a graveyard, exile or the top of the library by a permanent's permission (Muldrotha,
+      // Glarb): one with a limited use spends it. An effect's own permission (Jeska's Will) or the
+      // card's own right (715.3d) is used first, since it spends nothing.
+      const from = c.zone;
+      const permits = c.zone === 'hand' || ownRightToPlayLand(g, pid, c) ? [] : playPermissions(g, pid, c).filter((x) => x.p.land);
+      const permit = permits.find((x) => !x.p.slots) ?? permits[0];
+      if (permit?.p.slots) usePermit(g, permit.source, permit.p.slots.includes('Land') ? 'Land' : permit.p.slots[0]);
       // A modal double-faced card is played as one of its land faces (712.12).
       const face = a.face ?? landFaces(g, c)[0];
-      log(g, `${says(p, 'plays')} ${label(c)}${textlessNote(c)}.`, pid, [c]);
+      const how = from === 'library' ? ` from the top of ${their(p)} library` : from === 'graveyard' ? ` from ${their(p)} graveyard` : '';
+      log(g, `${says(p, 'plays')} ${label(c)}${how}${permit ? ` with ${label(permit.source)}` : ''}${textlessNote(c)}.`, pid, [c]);
       enterBattlefield(g, c, { face, controller: pid, quiet: true });
       g.passes = 0; // the player keeps priority after a special action (117.3c)
+      // "Whenever you play a land" (Flubs): the land as it is on the battlefield, if it got there.
+      const played = permanent(g, c.id);
+      if (played) broadcast(g, 'onLandPlayed', { player: pid, land: played });
       // A choice made as it enters, like Cavern of Souls's creature type (614.12a).
       nextChoice(g);
       return true;
@@ -2213,7 +2296,7 @@ function act(g: Game, a: Action): boolean {
       const c = findCard(g, a.card);
       // Everything announced with it (601.2b), convoke and offspring included.
       const { type: _type, card: _card, targets: _targets, hold: _hold, ...choices } = a;
-      if (!c || !['hand', 'command', 'graveyard', 'exile'].includes(c.zone) || !canCast(g, pid, c, choices)) return false;
+      if (!c || !['hand', 'command', 'graveyard', 'exile', 'library'].includes(c.zone) || !canCast(g, pid, c, choices)) return false;
       const face = choices.face ?? 0;
       const specs = specsFor(castTargets(c, choices.modes, face, choices.gift, choices.alt), a.targets?.length ?? 0);
       const targets = specs.map((_, i) => a.targets?.[i] ?? null);
@@ -2223,8 +2306,12 @@ function act(g: Game, a: Action): boolean {
       if (!divisionOk(script, choices.x ?? 0, targets, choices.divide)) return false;
       const from = c.zone as Zone;
       // Cast while a spell resolves (608.2g): the choice that allowed it is answered.
-      const during = g.decision?.type === 'cast' ? g.decision.choice : null;
-      const free = freeCast(g, c);
+      const during = g.decision?.type === 'cast' && offeredNow(g, c) ? g.decision.choice : null;
+      // By a permanent's permission to cast it from where it is (601.3): its use this turn is spent.
+      const permit = permitFor(g, pid, c, choices);
+      const slot = permit && permitSlot(permit, choices);
+      if (permit && slot !== undefined) usePermit(g, permit.source, slot);
+      const free = freeCast(g, c) || !!permit?.p.free;
       // Cast from exile for {2} after being airbent (701.65a), or free as a plotted card (702.170d).
       const fromExile = exileCast(c);
       const escaped = from === 'graveyard' && !!choices.escape;
@@ -2235,9 +2322,7 @@ function act(g: Game, a: Action): boolean {
       const exileInstead = from === 'graveyard' && !flashback && !escaped && !!permission(g, pid, c)?.graveyardToExile;
       const alt = choices.alt === undefined ? undefined : script.alternativeCosts![choices.alt];
       // X is chosen only if the cost being paid has {X}: an alternative cost without it makes X 0 (107.3b).
-      const escapeMana = escaped ? escapeFor(g, c, choices.escape!.length)?.mana : undefined;
-      const paying = free || fromExile === 'plotted' ? '' : fromExile === 'airbent' ? '{2}' : flashback ? flashbackCost(g, c)! : (escapeMana ?? (alt ? alt.mana : data(spell).manaCost));
-      const hasX = parseCost(paying).x > 0 || script.additionalCost?.life === 'x';
+      const hasX = parseCost(paidCostText(g, c, choices, pid)).x > 0 || script.additionalCost?.life === 'x';
       const cost = castCost(g, c, choices, pid);
       // Costs are paid (601.2f-h): mana and life, then sacrifices and cards exiled.
       const paid = pay(g, pid, cost, spell, choices.sacrifice, choices.convoke)!;
@@ -2247,7 +2332,7 @@ function act(g: Game, a: Action): boolean {
       const escapedWith = (choices.escape ?? []).map((id) => g.players[c.owner].graveyard.find((x) => x.id === id)!);
       const delved = (choices.delve ?? []).map((id) => p.graveyard.find((x) => x.id === id)!);
       if (from === 'command') p.commanderCasts[commanderIndex(g, c)]++; // commander tax (903.8, 702.124d)
-      const zone = g.players[c.owner][from as 'hand' | 'command' | 'graveyard' | 'exile'];
+      const zone = g.players[c.owner][from as 'hand' | 'command' | 'graveyard' | 'exile' | 'library'];
       zone.splice(zone.findIndex((x) => x.id === c.id), 1);
       c.zone = 'stack'; // 601.2a
       c.controller = pid; // its caster controls it (601.2a)
@@ -2269,11 +2354,12 @@ function act(g: Game, a: Action): boolean {
         flashback,
         ...(exileOnLeave ? { exileOnLeave } : {}),
         ...(delved.length ? { delved: delved.length } : {}),
-        ...((during?.card === c.id && during.graveyardToExile) || exileInstead ? { graveyardToExile: true } : {}),
+        ...(during?.graveyardToExile || exileInstead ? { graveyardToExile: true } : {}),
         from,
         alt: choices.alt,
         dash: !!alt?.dash,
-        ...(during?.card === c.id && during.via === 'suspend' ? { suspend: true } : {}),
+        ...(during?.via === 'suspend' ? { suspend: true } : {}),
+        ...(permit ? { permit: permit.source.id } : {}),
         ...(alt?.impending ? { impending: true } : {}),
         escaped,
         free,
@@ -2308,6 +2394,10 @@ function act(g: Game, a: Action): boolean {
         exileOnLeave && 'aftermath',
         delved.length && `delving ${delved.length}`,
         from === 'exile' && 'from exile',
+        from === 'library' && `from the top of ${their(p)} library`,
+        from === 'graveyard' && !flashback && !escaped && !exileOnLeave && `from ${their(p)} graveyard`,
+        permit && permit.source.id !== c.id && `with ${label(permit.source)}${slot !== undefined && permit.p.slots!.length > 1 ? ` as ${slot === 'Land' ? 'a land' : `an ${slot.toLowerCase()}`}` : ''}`,
+        permit && permit.source.id === c.id && 'mayhem',
         fromExile === 'airbent' && 'airbent, for {2}',
         fromExile === 'plotted' && 'plotted',
         (free || fromExile === 'plotted') && 'without paying its mana cost',
