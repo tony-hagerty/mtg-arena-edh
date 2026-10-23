@@ -630,7 +630,9 @@ are from the Comprehensive Rules in `docs/rules/`.
 - **"When enchanted permanent dies or is put into exile, return that card"** (Kaya's
   Ghostform): it looks back in time, so it works when the Aura goes at the same time.
 - **"Do this only once each turn" (603.2h):** the ability doesn't trigger again that turn
-  once its controller has done it (G'raha Tia, Emet-Selch).
+  once its controller has done it (G'raha Tia, Emet-Selch). Declining a "you may" isn't
+  doing it, and one that triggered alongside does nothing once the action is taken (Tidus's
+  Cheer: "you may draw a card and proliferate").
 - **Looking at the top of a library:** "the rest on the bottom in any order" lets you
   order them (401.4); "in a random order" shuffles them. A look can show cards you can't
   take (Silundi Vision's six, only an instant or sorcery can be taken).
@@ -643,6 +645,50 @@ are from the Comprehensive Rules in `docs/rules/`.
   (Flameshape, whose cards are exiled face down but you may look at them). "As many times
   as you choose, exile the top card" (Dance with Calamity), and "exile cards until a
   nonland card" (Tibalt's Trickery, Ensnared by the Mara).
+- **Counters on players (122.1):** a player can have counters of any kind: poison (ten or
+  more lose the game, 704.5c), experience (Meren of Clan Nel Toth), rad (728). They show
+  under the player's name. No replacement effect changes counters put on a player.
+- **Proliferate (701.34a):** the player chooses any number of permanents and/or players
+  that have a counter (none included) as it resolves, then each gets one more counter of
+  each kind it has, all at the same time. A bot chooses its own permanents and itself where
+  the counters help it (anything but -1/-1, stun, defense, time, finality, poison, rad), and
+  its opponents' where they hurt.
+- **Blight N (701.68a):** the player puts N -1/-1 counters on a creature they control, of
+  their choice; with none they can't, and nothing happens (701.68b). "Each opponent blights
+  1" is chosen in turn order from the active player (101.4). **Ward—Blight N** (702.21a) is
+  paid by blighting, or not paid by choosing no creature, which counters the spell or
+  ability; a player with no creature can't pay. Blighting for ward is a cost, so "if an
+  effect would put counters" replacements don't change it. A bot pays only with a creature
+  that survives it, or one worth little.
+- **Rad counters (728.1):** at the beginning of each player's precombat main phase, if they
+  have rad counters, a triggered ability with no source, controlled by them, mills that
+  many cards; for each nonland card milled they lose 1 life and remove a rad counter. The
+  "if" is checked again as it resolves (603.4).
+- **Moving a counter (122.5):** removed from one permanent and put on the other, as any
+  counter is put on (so replacement effects and "whenever counters are put on" see it). If
+  either can't happen, neither does: the same permanent twice, no such counter, or one of
+  them gone. Two instances of "target" ("from target creature ... onto a second target
+  creature") may be the same creature (115.3); then nothing moves. With several kinds on the
+  first, its controller chooses which.
+- **Decayed (702.147a):** the creature can't block, and when it attacks, a delayed
+  triggered ability sacrifices it at end of combat (511.2, 603.7), if its controller still
+  controls the same object then. A decayed keyword counter works too (122.1b).
+- **"One or more" events (603.2c):** "whenever one or more cards are milled" triggers once
+  for each event, however many players milled in it ("each opponent mills X" is one event);
+  "whenever one or more [kind] counters are put on a creature" once for each creature and
+  kind, entering with them included (122.6); "whenever one or more creatures you control
+  deal combat damage to a player" once for each player dealt combat damage in a combat
+  damage step.
+- **"Up to X target ..." with X from the event** (The Wise Mothman's "where X is the number
+  of nonland cards milled this way"): at most X targets, chosen as the ability goes on the
+  stack.
+- **"Spend this mana only to cast an Angel spell"** (106.6, Giada): any spell with that
+  subtype, creature or kindred.
+- **"Tap N untapped [permanents] you control" as a cost** (High Perfect Morcant): exactly N
+  untapped ones that fit, chosen as it is activated; the source may be one of them, and
+  summoning sickness doesn't matter (302.6).
+- **The amount of life you gained or lost this turn** (Hope Estheim, Betor), counted as
+  the ability resolves.
 - **Populate (701.36):** you choose which creature token to copy, and a token that is
   itself a copy copies what it copies.
 - **Linked abilities** (607, Chrome Mox), cards exiled face down (406.3), and targets in
@@ -676,7 +722,7 @@ are from the Comprehensive Rules in `docs/rules/`.
 - **Keywords:** flying, reach, first strike, double strike, deathtouch, lifelink,
   trample, vigilance, haste, defender, hexproof, indestructible, menace, fear (702.36),
   flash, storm,
-  cumulative upkeep, mobilize, ward, dash, bargain, gift, afterlife, delve, rebound,
+  cumulative upkeep, mobilize, ward, dash, bargain, gift, afterlife, delve, rebound, decayed,
   aftermath, paradigm, extort (702.101), job select (702.182), convoke, escape,
   overload, evoke, warp, spree, persist, reconfigure, and protection from a colour or from
   everything.
@@ -876,7 +922,8 @@ card, naming the clause: it never guesses. Hand scripts always win.
   (701.14), "deals damage equal to its power"; counter a spell, "unless its controller pays
   {N}", "exile it instead"; copy a spell (707.10); return a card from a graveyard to the hand or
   battlefield, put one on top of a library; sacrifices of the player's choice (701.21a); tokens;
-  populate, investigate, mana that stays until end of turn, an extra turn (with "you lose the
+  populate, investigate, proliferate (701.34), "move a counter from target permanent ... onto a
+  second target permanent" (122.5), mana that stays until end of turn, an extra turn (with "you lose the
   game" at its end), "you may cast spells this turn as though they had flash", "can't cast
   spells this turn", "untap up to N lands"; choices made as it resolves ("return a land you
   control to its owner's hand", "put a land card from your hand onto the battlefield").
@@ -907,7 +954,7 @@ card, naming the clause: it never guesses. Hand scripts always win.
   +N/+N, have [keywords], have 'Ward—Pay N life.'", "Enchant [kind]" with "enchanted creature
   gets / has / can't block" (702.5), "equipped creature gets / has / can't be blocked"; "this
   gets +1/+1 for each ...", base power and toughness from a count (604.3); "can't be blocked",
-  "attacks each combat if able"; ward (702.21); "each land is a Swamp in addition" (305.7);
+  "attacks each combat if able"; ward (702.21), "Ward—Blight N" too; "each land is a Swamp in addition" (305.7);
   enters tapped, unless [a condition], with N counters, paying 2 or 3 life, or revealing a land
   card (614.1c, 614.12a); no maximum hand size, "doesn't untap", "skip your draw step";
   "[kind] spells you cast cost {1} less / more"; "creatures your opponents control enter
