@@ -121,7 +121,10 @@ The full guide to the game's screens and controls. For a quick start, see the
   pill under your portrait. Costs spend that mana first and auto-tap only for the rest.
   A source with a choice (a dual land, a Talisman, Sunken Ruins, Command Tower) asks which
   ability and which mana you want, in the prompt's band in the middle of the table (under
-  the words while you are paying), with **Cancel** to tap nothing. Click a tapped source
+  the words while you are paying), with **Cancel** to tap nothing. A cost that taps other
+  permanents (Urza's artifact, Baylen's two tokens) shows them as chips to pick; Vivi
+  Ornitier lists each combination of {U} and {R}. When a triggered mana ability adds mana of
+  your choice (Kinnan, after a source that made two types), the band asks for it next. Click a tapped source
   again to take its mana back, whatever else using it did: the life a Talisman or a
   painland cost you comes back, a Treasure or Lotus Petal returns, and so does what it
   triggered. That works until you do something other than make mana; after that, a source
@@ -234,7 +237,8 @@ The full guide to the game's screens and controls. For a quick start, see the
 | **Battle** | Its defense is the orange box. When you cast a Siege, the prompt asks which opponent protects it. |
 | **Two faces** (split, adventurer, modal double-faced) | The prompt has a **Face** row: pick the half, the Adventure, or the face to play. A modal card's land face says "(land)"; its button reads **Play** instead of **Cast**. |
 | **Class** | Click yours to see its level bars; pick the next one and pay for it. |
-| **Several abilities** (Deathrite Shaman) | Click the permanent to see every activated ability; the ones you can't use now are dimmed. With only one usable, clicking goes straight to it. |
+| **Several abilities** (Deathrite Shaman) | Click the permanent to see every activated ability; the ones you can't use now are dimmed. With only one usable, clicking goes straight to it. A permanent that can also make mana now (Urza, Baylen) lists **Add mana** first. |
+| **Tapping other permanents for a cost** (Baylen's "Tap three untapped tokens") | After its targets, click the permanents to tap (they glow), then **Tap**. |
 | **An ability with modes** (Breya's "Choose one —") | The prompt lists the modes; pick as many as it says, then **Continue** to its targets and cost. A reflexive ability's modes (Caesar's "When you do, choose two —") are asked in a window as it triggers. |
 | **Tokens that enter attacking** (mobilize, Caesar) | When more than one opponent could be attacked, a window asks which player, then whether to attack a planeswalker or battle of theirs instead. |
 | **"One mana of any color"** | A window with the five colours opens while it resolves. **Lion's Eye Diamond** asks for the colour when you click it. |
