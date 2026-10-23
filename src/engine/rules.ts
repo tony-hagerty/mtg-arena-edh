@@ -2347,8 +2347,9 @@ export function tap(g: Game, c: Card) {
   if (c.tapped) return;
   c.tapped = true;
   trigger(g, c, 'onTapped', {});
-  // "Whenever a Dwarf you control becomes tapped" (Magda): every permanent hears it.
-  broadcast(g, 'onPermanentTapped', { tapped: c });
+  // "Whenever a Dwarf you control becomes tapped" (Magda): every permanent hears it. Lands tap
+  // for mana all the time, so only when something on the battlefield may have such an ability.
+  if (anyGrantFor('onPermanentTapped') || [...battlefield(g), ...emblemsOf(g)].some((x) => mayHaveScript(x, 'onPermanentTapped'))) broadcast(g, 'onPermanentTapped', { tapped: c });
 }
 
 /** Untaps a permanent (701.26b), if it is still there. */

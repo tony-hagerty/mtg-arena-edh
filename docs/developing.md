@@ -416,7 +416,14 @@ fetched card too, since the card is matched to it by name.
   (`onEnter` ones too) and a short `text`, and `when` may be left out for one that
   triggers on every event.
 - Other trigger hooks: `onPostcombatMain`, `onDrawStep`, `onTapped`, `onDiscard`,
-  `onSacrifice`, `onPlaneswalkerDies`, `onBeginCombat`.
+  `onSacrifice`, `onPlaneswalkerDies`, `onBeginCombat`, `onPermanentTapped` ("whenever a Dwarf
+  you control becomes tapped"), `onPermanentsEnter` ("whenever one or more tokens you control
+  enter", once for each event, with every permanent that entered).
+- "If this is the second time this ability has resolved this turn": `timesResolved(g)` in the
+  resolve, this resolution counted (707.10b, 400.7).
+- An emblem (114): register its data and script under a name, and `createEmblem(g, pid, name)`;
+  its abilities trigger from the command zone (`Player.emblems`). "As this transforms into
+  [this face], ..." (712.20) is the face's `asTransforms`.
 
 **Spells and costs**
 
@@ -442,7 +449,7 @@ fetched card too, since the card is matched to it by name.
 | Vehicle | `activated: crew(3)` |
 | Impending | spread `...impending(4, '{1}{U}{U}')` into the script: its alternative cost and end-step trigger; the engine adds the time counters and "isn't a creature" |
 | Several activated abilities | list them in printed order (`activated: [ab1, equip('{1}')]`); an `activate` action and its stack item name one by `activated` (its index) |
-| Activated ability options | `fromHand`, `when`, `reduction`; costs `discard`, `discardSelf`, `counters`, or `sacrificeOne` permanent that fits a spec ("Sacrifice a creature:"), `sacrificeCount` of them ("Sacrifice two ...") |
+| Activated ability options | `fromHand`, `when`, `reduction`; costs `discard`, `discardSelf`, `counters`, or `sacrificeOne` permanent that fits a spec ("Sacrifice a creature:"), `sacrificeCount` of them ("Sacrifice two ...", or `'x'` for "Sacrifice X Squirrels", read as `ctx.x`) |
 | Planeswalker | `loyalty` abilities: `{ cost: -2, text, targets, resolve }`, or `cost: '-X'` |
 | Siege | can add `onDefeat` |
 | Faces (double-faced, split, adventurer) | one script per face, under each face's name ("Delver of Secrets", "Insectile Aberration"); `transform(g, card)` turns one over. A deck may list it by its first face's name. |
@@ -530,7 +537,8 @@ are shorthand for common ones. A card's own way of entering stays `entersTapped`
 **Other static hooks**
 
 `forbids` ("can't cast"/"can't activate"), `grantsFlash`, `uncounterable`,
-`protectsSpell`, `ward`, `grantsEscape`, `delayedIf`.
+`protectsSpell`, `ward`, `grantsEscape`, `delayedIf`, `forbidsAttack` ("can't attack you or
+planeswalkers you control", 508.1c; checked by `attackForbidden`).
 
 **A permanent's abilities**
 
