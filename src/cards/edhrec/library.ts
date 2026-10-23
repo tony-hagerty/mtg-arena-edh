@@ -265,7 +265,8 @@ registerScripts({
     // library until you exile a legendary nonland card with lesser mana value. You may cast
     // that card without paying its mana cost. Put the rest on the bottom of your library in a
     // random order." Lesser than the spell's mana value, X included (202.3e), as it was cast
-    // (608.2h). A card that isn't cast is one of the rest.
+    // (608.2h). Per its rulings, a card not cast stays in exile and can't be cast later, and
+    // with no such card found, the exiled cards become the library again in a random order.
     onCast: {
       when: (g, { self, caster, card }) => caster === self.controller && card.cast?.from === 'hand' && hasType(g, card, 'Legendary'),
       resolve: (g, { you, card }) => {
