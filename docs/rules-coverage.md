@@ -651,7 +651,9 @@ are from the Comprehensive Rules in `docs/rules/`.
 - **Sagas:** "whenever the final chapter ability of a Saga you control resolves" (Tom
   Bombadil; the final chapter is the greatest one, 714.2d-e, and one that did nothing for want
   of targets didn't resolve, 608.2b); lore counters among Sagas you control. "This ability
-  triggers only once each turn" (a trigger's `oncePerTurn`).
+  triggers only once each turn" (a trigger's `oncePerTurn`) is a limit: an effect that makes
+  it trigger an additional time (603.2d, Roaming Throne) adds no second instance, since
+  "can't" beats an effect that would make it happen (101.2).
 - **Draws:** "except the first one they draw in each of their draw steps" (504.1; Xyris,
   Orcish Bowmasters), and "at the beginning of each player's draw step, that player draws an
   additional card" (Nekusar), after the turn's own draw (504.2).

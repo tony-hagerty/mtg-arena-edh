@@ -2443,7 +2443,9 @@ export function trigger<H extends TriggerHook>(g: Game, source: Card, hook: H, e
     if (!times) return;
     if (once) holder.once[once] = g.turn;
     const remembered = Object.fromEntries(Object.entries(event).map(([k, v]) => [k, isCard(v) ? snapshot(v) : v]));
-    for (let k = 0; k < times; k++) {
+    // An effect that makes it trigger an additional time (603.2d) would have it trigger again
+    // this turn, which "only once each turn" forbids: the "can't" wins (101.2), so just one.
+    for (let k = 0; k < (once ? 1 : times); k++) {
       g.triggers.push({ id: `s${g.nextId++}`, kind: 'triggered', controller: source.controller, card: { ...snapshot(source), triggeredBy: remembered }, hook, ...extra, event: remembered, targets: [] });
     }
   }

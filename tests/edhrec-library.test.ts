@@ -308,6 +308,22 @@ describe('Tom Bombadil', () => {
   });
 });
 
+describe('Tom Bombadil with a trigger doubler', () => {
+  it('"triggers only once each turn" beats "triggers an additional time" (101.2, 603.2d)', () => {
+    let g = emptyGame((d) => {
+      put(d, 0, 'Tom Bombadil');
+      // "If a triggered ability of another creature you control of the chosen type triggers, it triggers an additional time."
+      put(d, 0, 'Roaming Throne').chosen = 'Bard';
+      put(d, 0, 'History of Benalia').counters.lore = 2;
+      top(d, 0, ['History of Benalia', 'History of Benalia', 'Plains']);
+    });
+    g = until(produce(g, (d) => addCounters(d, byName(d, 0, 'History of Benalia'), 1, 'lore', { by: 'rule' })), quiet);
+    expect(g.log.filter((l) => l.text.includes('Tom Bombadil triggers'))).toHaveLength(1);
+    expect(g.players[0].battlefield.filter((c) => c.name === 'History of Benalia')).toHaveLength(1);
+    expect(names(g.players[0].library)).toEqual(['History of Benalia', 'Plains']);
+  });
+});
+
 describe('Pantlaza, Sun-Favored', () => {
   const setup = () =>
     emptyGame((d) => {
