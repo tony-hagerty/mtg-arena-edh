@@ -452,13 +452,20 @@ function activations(g: Game, pid: PlayerId, c: Card, ref: AbilityRef): Action[]
   // One of its activated abilities, a loyalty ability, or a Class level bar (which has no targets).
   const ab = ability === undefined ? activatedAt(g, c, activated) : undefined;
   const specs = (ab ? ab.targets : abilitiesOf(g, c).loyalty?.[ability!].targets) ?? [];
-  // "Tap three untapped Elves you control": the ones that have done their work this turn first, then the weakest.
+  // "Tap three untapped Elves / tokens you control": not mana sources if it can help (Baylen's
+  // Treasures), then the ones that have done their work this turn, then the weakest.
   const tapping = ab?.cost.tapUntapped;
+  const makesMana = (x: Card) => Number(manaAbilitiesOf(g, x).length > 0);
   const tapped = tapping
     ? [...tapCostOptions(g, pid, c, activated)]
-        .filter((x) => !ab.cost.tap || x.id !== c.id)
-        .sort((a, b) => Number(!!g.players[pid].attackedWith?.includes(b.id)) - Number(!!g.players[pid].attackedWith?.includes(a.id)) || Number(b.sick) - Number(a.sick) || worth(g, a) - worth(g, b))
-        .slice(0, tapping.n)
+        .sort(
+          (a, b) =>
+            makesMana(a) - makesMana(b) ||
+            Number(!!g.players[pid].attackedWith?.includes(b.id)) - Number(!!g.players[pid].attackedWith?.includes(a.id)) ||
+            Number(b.sick) - Number(a.sick) ||
+            worth(g, a) - worth(g, b),
+        )
+        .slice(0, tapping.count ?? 1)
         .map((x) => x.id)
     : undefined;
   const crew = ab?.cost.crew ? crewChoice(g, pid, c, activated) : tapped;

@@ -5,7 +5,7 @@ import { describe, expect, it } from 'vitest';
 import { cardData, registerCards } from '../src/cards/db';
 import { needsScript, parseCard, scriptCards } from '../src/cards/oracle';
 import { parseResults } from '../src/cards/oracle-report';
-import { activatedAt, activationCost, applyAction, applyBotAction, botAction, castCost, destroy, draw, draw as drawCards, enterBattlefield, hasScript, isCreature, isLand, legalTargets, makeCard, manaAbilities, permanent, scriptOf, spellTargets, stats } from '../src/engine';
+import { activatedAt, activationCost, applyAction, applyBotAction, botAction, castCost, colorsOf, destroy, draw, draw as drawCards, enterBattlefield, hasScript, isCreature, isLand, legalTargets, makeCard, manaAbilities, permanent, scriptOf, spellTargets, stats } from '../src/engine';
 import type { Action, ActivatedAbility, Card, CardData, CardScript, Ctx, Game, TargetRef, TargetSpec } from '../src/engine';
 import { registerScripts } from '../src/engine/registry';
 import fixtureData from './fixtures.generated.json';
@@ -538,7 +538,7 @@ describe('more effects and static lines from Oracle text', () => {
     });
     // Player 0's Angel ({4}{W}) costs {1} less for its own Medallion, not for the opponent's.
     expect(castCost(g, byName(g, 0, 'Angel of Mercy', 'hand')!)).toMatchObject({ generic: 3, pips: ['W'] });
-    expect(refusal('Artifact', 'White spells you cast cost {1} less to cast for each color among permanents you control.')).not.toBeNull();
+    expect(refusal('Artifact', 'White spells you cast cost {1} less to cast for each color of mana spent to cast it.')).not.toBeNull();
     const rollick = parse('Instant', 'If you control a commander, you may cast this spell without paying its mana cost.\nExile target creature.');
     expect(rollick.ok && rollick.script.alternativeCosts).toMatchObject([{ label: 'free: you control a commander', mana: '' }]);
     const maneuver = parse('Instant', 'Creatures you control gain indestructible until end of turn.');
@@ -1315,6 +1315,80 @@ describe('conditions as it resolves, "that land", "that player", granted mana (6
   });
 });
 
+describe('mana group templates: exalted, riot, colours among permanents, triggered mana, Leylines', () => {
+  it('exalted and riot are keyword lines the engine applies, and riot can be given (702.83, 702.136)', () => {
+    expect(parse('Creature — Elf', 'Exalted\n{T}: Add {G}.').ok).toBe(true);
+    teach('Test Riot Lord', 'Enchantment', 'Nontoken creatures you control have riot.');
+    let g = emptyGame((d) => {
+      put(d, 0, 'Test Riot Lord');
+      put(d, 0, 'Llanowar Elves', 'hand');
+      put(d, 0, 'Forest');
+      d.step = 'main2';
+    });
+    g = run(g, { type: 'cast', card: byName(g, 0, 'Llanowar Elves', 'hand')!.id });
+    for (let i = 0; i < 20 && (g.stack.length || g.decision); i++) g = g.decision ? applyBotAction(g, botAction(g, g.priority)) : applyAction(g, { type: 'pass' });
+    expect(byName(g, 0, 'Llanowar Elves')!.counters['+1/+1']).toBe(1);
+    // Near miss: a keyword the engine doesn't give this way.
+    expect(refusal('Enchantment', 'Nontoken creatures you control have riot and cascade.')).not.toBe(null);
+  });
+
+  it('"for each color among permanents you control": +1/+1 each, and one mana of each (105.2)', () => {
+    teach('Test Prism Elder', 'Creature — Treefolk', 'This creature gets +1/+1 for each color among permanents you control.\n{T}: For each color among permanents you control, add one mana of that color.', { colors: ['G', 'W'], power: '0', toughness: '0' });
+    let g = emptyGame((d) => {
+      put(d, 0, 'Test Prism Elder');
+      put(d, 0, 'Lightning Bolt', 'hand');
+      put(d, 0, 'Shivan Dragon');
+    });
+    const elder = byName(g, 0, 'Test Prism Elder')!;
+    expect(stats(g, elder).power).toBe(3);
+    g = run(g, { type: 'tapMana', card: elder.id });
+    expect(g.players[0].pool.map((m) => m.sym).sort().join('')).toBe('GRW');
+    expect(refusal('Creature — Treefolk', '{T}: For each color among permanents you control, add two mana of that color.')).not.toBe(null);
+  });
+
+  it('triggered mana abilities on tapping for mana (605.1b, 106.12): "you tap a Swamp", "enchanted land is tapped"', () => {
+    teach('Test Swamp Ghast', 'Creature — Spirit', 'Whenever you tap a Swamp for mana, add an additional {B}.');
+    teach('Test Wild Growth', 'Enchantment — Aura', 'Enchant land\nWhenever enchanted land is tapped for mana, its controller adds an additional {G}.');
+    let g = emptyGame((d) => {
+      put(d, 0, 'Test Swamp Ghast');
+      put(d, 0, 'Swamp');
+      put(d, 0, 'Plains');
+      const forest = put(d, 0, 'Forest');
+      put(d, 0, 'Test Wild Growth').attachedTo = forest.id;
+      put(d, 1, 'Swamp');
+    });
+    g = run(g, { type: 'tapMana', card: byName(g, 0, 'Swamp')!.id }, { type: 'tapMana', card: byName(g, 0, 'Plains')!.id }, { type: 'tapMana', card: byName(g, 0, 'Forest')!.id });
+    expect(g.players[0].pool.map((m) => m.sym).sort().join('')).toBe('BBGGW');
+    // Near miss: not a mana ability, and no template.
+    expect(refusal('Creature — Spirit', 'Whenever you tap a Swamp for mana, draw a card.')).not.toBe(null);
+  });
+
+  it('mana costs that tap other permanents: "an untapped artifact", "two untapped tokens"', () => {
+    const p = parse('Creature — Human', 'Tap an untapped artifact you control: Add {U}.');
+    expect(p.ok && p.script.mana).toMatchObject({ noTap: true, tapCreature: { type: 'Artifact' } });
+    const q = parse('Creature — Rabbit', 'Tap two untapped tokens you control: Add one mana of any color.');
+    expect(q.ok && q.script.mana).toMatchObject({ noTap: true, tapCreature: { type: '', token: true, count: 2 } });
+    // Without {T} in its cost, the source isn't tapped (Relic of Legends's wording).
+    const r = parse('Artifact', 'Tap an untapped legendary creature you control: Add one mana of any color.');
+    expect(r.ok && r.script.mana).toMatchObject({ noTap: true, tapCreature: { legendary: true } });
+    expect(refusal('Creature — Rabbit', 'Tap two untapped token you control: Add {G}.')).not.toBe(null);
+  });
+
+  it('a Leyline: from the opening hand (103.6a), all colours (layer 5), every basic land type (305.7)', () => {
+    teach('Test Leyline', 'Enchantment', 'If this card is in your opening hand, you may begin the game with it on the battlefield.\nEach nonland permanent you control is all colors.\nLands you control are every basic land type in addition to their other types.');
+    const g = emptyGame((d) => {
+      put(d, 0, 'Test Leyline');
+      put(d, 0, 'Llanowar Elves');
+      put(d, 0, 'Plains');
+    });
+    expect(scriptOf('Test Leyline').openingHand).toBeTypeOf('function');
+    expect(colorsOf(g, byName(g, 0, 'Llanowar Elves')!)).toHaveLength(5);
+    expect(manaAbilities(g, byName(g, 0, 'Plains')!)[0].colors).toHaveLength(5);
+    expect(refusal('Enchantment', 'Each nonland permanent you control is red.')).not.toBe(null);
+    expect(refusal('Enchantment', 'Lands you control are every basic land type.')).not.toBe(null);
+  });
+});
+
 describe('library templates (Nekusar, Xyris, Ureni, Atla Palani, Damn)', () => {
   /** Plays on, bots answering everything, until nothing is waiting. */
   const settle = (g: Game) => {
@@ -1479,7 +1553,8 @@ describe('ward-ring templates: ward costs, amass, the Ring, partner with, types 
     g = settleAll(run(g, { type: 'activate', card: land.id }));
     expect(g.players[0].hand.length).toBe(hand + 1);
     expect(parse('Creature — Human', 'Other creatures are Zombies in addition to their other types.').ok).toBe(true);
-    expect(refusal('Creature — Human', 'Lands you control are every basic land type in addition to their other types.')).not.toBeNull();
+    // Not read as "are [types] ... and have": Leyline of the Guildpact's line is a template of its own (305.7).
+    expect(parse('Creature — Human', 'Lands you control are every basic land type in addition to their other types.')).toMatchObject({ ok: true, script: { static: expect.any(Function) } });
     expect(refusal('Creature — Human', 'Creatures you control are Frobs in addition to their other types.')).not.toBeNull();
     expect(refusal('Creature — Human', 'Artifacts you control are Foods in addition to their other types and have "Whenever this artifact becomes tapped, draw a card."')).not.toBeNull();
   });
