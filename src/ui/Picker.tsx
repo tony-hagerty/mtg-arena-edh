@@ -242,7 +242,9 @@ function ChoicePicker({ g, choice }: { g: Game; choice: CardChoice }) {
         numbered={choice.ordered}
         groupOf={(c) => zoneName(g, c, choice.player)}
         buttons={(picked) => [
-          { label: choice.button, sub: max > 1 ? `${picked.length} of ${max}` : undefined, tone: 'go', disabled: picked.length < min, onClick: () => choose(picked) },
+          // Picking none is declining, with its own button (ward's "Sacrifice a Food": Don't Pay).
+          ...(choice.decline ? [{ label: choice.decline, tone: 'plain' as const, disabled: picked.length > 0, onClick: () => choose([]) }] : []),
+          { label: choice.button, sub: max > 1 ? `${picked.length} of ${max}` : undefined, tone: 'go', disabled: picked.length < (choice.decline ? Math.max(min, 1) : min), onClick: () => choose(picked) },
         ]}
       />
     );

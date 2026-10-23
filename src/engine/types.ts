@@ -815,7 +815,7 @@ export type CardChoice =
   | { kind: 'bottom'; player: PlayerId; count: number }
   /** `ordered`: the order the cards are picked in matters, as when they go on the bottom of a library (401.4). */
   /** `pickable`: the cards that can be picked, when the player sees more than that (Silundi Vision's six). Left out, all of them. */
-  | ({ kind: 'pick'; player: PlayerId; source: string; cards: string[]; min: number; max: number; text: string; button: string; ordered?: boolean; pickable?: string[] } & Then)
+  | ({ kind: 'pick'; player: PlayerId; source: string; cards: string[]; min: number; max: number; text: string; button: string; ordered?: boolean; pickable?: string[]; decline?: string } & Then)
   /** The legend rule (704.5j): the player keeps one of these legendary permanents. `resume` gets priority afterwards. */
   | { kind: 'legend'; player: PlayerId; cards: string[]; resume: PlayerId };
 

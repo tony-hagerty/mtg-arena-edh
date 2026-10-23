@@ -5,7 +5,7 @@ import { describe, expect, it } from 'vitest';
 import { cardData, registerCards } from '../src/cards/db';
 import { needsScript, parseCard, scriptCards } from '../src/cards/oracle';
 import { parseResults } from '../src/cards/oracle-report';
-import { activatedAt, applyAction, applyBotAction, botAction, castCost, hasScript, isCreature, isLand, legalTargets, makeCard, manaAbilities, permanent, scriptOf, spellTargets, stats } from '../src/engine';
+import { activatedAt, activationCost, applyAction, applyBotAction, botAction, castCost, enterBattlefield, hasScript, isCreature, isLand, legalTargets, makeCard, manaAbilities, permanent, scriptOf, spellTargets, stats } from '../src/engine';
 import type { Action, ActivatedAbility, Card, CardData, CardScript, Ctx, Game, TargetRef, TargetSpec } from '../src/engine';
 import { registerScripts } from '../src/engine/registry';
 import fixtureData from './fixtures.generated.json';
@@ -1313,3 +1313,120 @@ describe('conditions as it resolves, "that land", "that player", granted mana (6
     expect(refusal('Artifact', 'Lands you control have "{T}: Add one mana of any color. Activate only as a sorcery."')).not.toBeNull();
   });
 });
+
+describe('ward-ring templates: ward costs, amass, the Ring, partner with, types given with an ability', () => {
+  /** Registers a made-up card and the parser's script for it, for a game test. */
+  const useFake = (name: string, typeLine: string, text: string, extra: Partial<CardData> = {}) => {
+    const d = fake(name, typeLine, text, extra);
+    registerCards({ [name]: d });
+    const p = parseCard(d);
+    if (!p.ok) throw new Error(`${p.clause}: ${p.reason}`);
+    registerScripts({ [name]: p.script });
+    return p.script;
+  };
+  const settleAll = (g: Game) => {
+    for (let i = 0; i < 100 && (g.decision || g.stack.length || g.triggers.length); i++) g = g.decision ? applyBotAction(g, botAction(g, g.priority)) : applyAction(g, { type: 'pass' });
+    return g;
+  };
+
+  it('ward—sacrifice [object]: the object is read, and one with "you control" or no object is refused', () => {
+    expect(parse('Creature — Test', 'Ward—Sacrifice an artifact.')).toMatchObject({ ok: true, script: { ward: { sacrifice: { type: 'permanent', label: 'an artifact' } } } });
+    expect(parse('Creature — Test', 'Flying, ward {4}')).toMatchObject({ ok: true, script: { ward: { mana: '{4}' } } });
+    expect(refusal('Creature — Test', 'Ward—Sacrifice a creature you control.')).not.toBeNull();
+    expect(refusal('Creature — Test', 'Ward—Sacrifice two creatures.')).not.toBeNull();
+    expect(refusal('Creature — Test', 'Flying, ward—Pay 2 life.')).not.toBeNull();
+  });
+
+  it('"[group] are [types] in addition to their other types and have "[ability]"": layer 4 types and a layer 6 ability; near misses refused', () => {
+    useFake('Test Gilder', 'Creature — Human', 'Lands you control are Clue artifacts in addition to their other types and have "{1}, {T}: Draw a card."');
+    let g = emptyGame((d) => {
+      put(d, 0, 'Test Gilder');
+      put(d, 0, 'Plains', 'battlefield', 2);
+      put(d, 1, 'Plains');
+    });
+    const land = byName(g, 0, 'Plains')!;
+    expect(isLand(g, land)).toBe(true);
+    expect(activatedAt(g, land)?.text).toBe('{1}, {T}: Draw a card.');
+    expect(activatedAt(g, byName(g, 1, 'Plains')!)).toBeUndefined();
+    const hand = g.players[0].hand.length;
+    g = settleAll(run(g, { type: 'activate', card: land.id }));
+    expect(g.players[0].hand.length).toBe(hand + 1);
+    expect(parse('Creature — Human', 'Other creatures are Zombies in addition to their other types.').ok).toBe(true);
+    expect(refusal('Creature — Human', 'Lands you control are every basic land type in addition to their other types.')).not.toBeNull();
+    expect(refusal('Creature — Human', 'Creatures you control are Frobs in addition to their other types.')).not.toBeNull();
+    expect(refusal('Creature — Human', 'Artifacts you control are Foods in addition to their other types and have "Whenever this artifact becomes tapped, draw a card."')).not.toBeNull();
+  });
+
+  it('"Activated abilities of [objects] you control cost {N} less to activate" (602.2b); a floor or "each player\'s" is refused', () => {
+    useFake('Test Discount', 'Creature — Human', 'Activated abilities of artifacts you control cost {1} less to activate.');
+    const g = emptyGame((d) => {
+      put(d, 0, 'Test Discount');
+      put(d, 0, 'Food');
+      put(d, 1, 'Food');
+    });
+    // A Food's {2} costs its controller {1}; an opponent's Food is untouched.
+    const mine = byName(g, 0, 'Food')!;
+    const theirs = byName(g, 1, 'Food')!;
+    expect(activationCost(g, 0, mine, activatedAt(g, mine)!).generic).toBe(1);
+    expect(activationCost(g, 1, theirs, activatedAt(g, theirs)!).generic).toBe(2);
+    expect(refusal('Creature — Human', 'Activated abilities of creatures you control cost {2} less to activate. This effect can\'t reduce the mana in that cost to less than one mana.')).not.toBeNull();
+    expect(refusal('Creature — Human', 'Activated abilities of artifacts cost {1} more to activate.')).not.toBeNull();
+  });
+
+  it('partner with [name] (702.124j): an "enters" ability whose target player may search for the named card', () => {
+    const s = useFake('Test Partner A', 'Legendary Creature — Human', 'Partner with Test Partner B');
+    expect(s.targets).toEqual([{ type: 'player', label: 'target player' }]);
+    expect(s.onEnter).toBeDefined();
+    expect(refusal('Creature — Human', 'Partner with Test Partner B')).not.toBeNull();
+  });
+
+  it('protection from colours on the card itself (702.16g), and given ("has protection from black and from green")', () => {
+    useFake('Test Warded Monk', 'Creature — Monk', 'Protection from red and from blue');
+    const g = emptyGame((d) => void put(d, 0, 'Test Warded Monk'));
+    const monk = byName(g, 0, 'Test Warded Monk')!;
+    expect([...stats(g, monk).keywords].filter((k) => k.startsWith('protection'))).toEqual(['protection from red', 'protection from blue']);
+    expect(parse('Artifact — Equipment', 'Equipped creature gets +2/+2 and has protection from black and from green.\nEquip {2}').ok).toBe(true);
+    expect(refusal('Creature — Monk', 'Protection from red and from Goblins')).not.toBeNull();
+    expect(refusal('Creature — Monk', 'Protection from black and green')).not.toBeNull();
+  });
+
+  it('amass, the Ring tempts you, and "whenever the Ring tempts you"; their near misses', () => {
+    useFake('Test Orcish', 'Creature — Orc', 'When this creature enters, amass Orcs 2. Then the Ring tempts you.\nWhenever the Ring tempts you, you gain 1 life.');
+    let g = emptyGame((d) => {
+      put(d, 0, 'Test Orcish', 'hand');
+    });
+    g = settleAll(produce(g, (d) => void enterBattlefieldOf(d, 'Test Orcish')));
+    const army = byName(g, 0, 'Orc Army')!;
+    expect(army.counters['+1/+1']).toBe(2);
+    expect(g.players[0].ring?.tempted).toBe(1);
+    expect(g.players[0].life).toBe(41);
+    expect(refusal('Creature — Orc', 'When this creature enters, amass Frobs 2.')).not.toBeNull();
+    expect(refusal('Creature — Orc', 'When this creature enters, the Ring tempts target opponent.')).not.toBeNull();
+    expect(refusal('Creature — Orc', 'Whenever the Ring tempts an opponent, draw a card.')).not.toBeNull();
+  });
+
+  it('first life lost each turn, "is put into a graveyard from the battlefield", gained life this turn, a copy that isn\'t legendary', () => {
+    expect(parse('Creature — Demon', 'Whenever an opponent loses life for the first time during each of their turns, draw a card.').ok).toBe(true);
+    expect(refusal('Creature — Demon', 'Whenever an opponent loses life for the first time each turn, draw a card.')).not.toBeNull();
+    expect(parse('Creature — Human', 'Whenever another creature or artifact you control is put into a graveyard from the battlefield, each opponent loses 1 life.').ok).toBe(true);
+    expect(refusal('Creature — Human', 'Whenever a creature card is put into a graveyard from anywhere, draw a card.')).not.toBeNull();
+    expect(parse('Creature — Human', 'At the beginning of your end step, if you gained 4 or more life this turn, draw a card.').ok).toBe(true);
+    expect(refusal('Creature — Human', 'At the beginning of your end step, if you gained life last turn, draw a card.')).not.toBeNull();
+    expect(parse('Creature — Dragon', 'Whenever another nontoken Dragon you control enters, create a token that\'s a copy of it, except the token isn\'t legendary.').ok).toBe(true);
+    expect(refusal('Creature — Dragon', 'Whenever another nontoken Dragon you control enters, create a token that\'s a copy of it, except it\'s a 1/1.')).not.toBeNull();
+    expect(parse('Creature — Elf', 'Creature spells you cast cost {1} less to cast for each +1/+1 counter on this creature.').ok).toBe(true);
+    expect(refusal('Creature — Elf', 'Creature spells you cast cost {1} less to cast for each +1/+1 counter on creatures you control.')).not.toBeNull();
+    expect(parse('Creature — Elf', 'Whenever you gain life, you may discard your hand. If you do, draw two cards.').ok).toBe(true);
+    expect(refusal('Creature — Elf', 'Whenever you gain life, you may discard a card. If you do, draw two cards.')).not.toBeNull();
+  });
+
+  it('a flavor word (207.2d) is a label on the line, if the card lists it', () => {
+    expect(parseCard(fake('Test Flavor', 'Creature — Human', 'Big Hit — When this creature enters, draw a card.', { keywords: ['Big Hit'] })).ok).toBe(true);
+    expect(parseCard(fake('Test Flavor', 'Creature — Human', 'Big Hit — When this creature enters, draw a card.')).ok).toBe(false);
+  });
+});
+
+/** Puts player 0's card of that name from their hand onto the battlefield. */
+function enterBattlefieldOf(d: Game, name: string) {
+  enterBattlefield(d, byName(d, 0, name, 'hand')!);
+}

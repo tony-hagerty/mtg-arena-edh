@@ -1893,7 +1893,7 @@ function resolveTop(g: Game) {
           log(g, `${says(g.players[target.controller], "can't")} sacrifice ${cost.sacrifice.label} for ward.`, target.controller);
           counter(g, { kind: 'stack', id });
         } else {
-          pickCards(g, target.controller, options, { min: 0, max: 1, text: `sacrifice ${cost.sacrifice.label}, or ${what0} is countered (ward)`, button: 'Sacrifice', then: '@wardSacrifice', data: { item: id, bot: 'wardSacrifice' } });
+          pickCards(g, target.controller, options, { min: 0, max: 1, text: `sacrifice ${cost.sacrifice.label}, or ${what0} is countered (ward)`, button: 'Sacrifice', decline: "Don't Pay", then: '@wardSacrifice', data: { item: id, bot: 'wardSacrifice' } });
         }
       } else if (target) {
         const what = [cost.mana, cost.life && `${cost.life} life`].filter(Boolean).join(' and ');

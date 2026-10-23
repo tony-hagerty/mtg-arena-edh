@@ -3708,10 +3708,12 @@ export function pickCards(
   g: Game,
   pid: PlayerId,
   cards: Card[],
-  opts: { min?: number; max?: number; text: string; button: string; then: string; data?: Record<string, unknown>; script?: string; pickable?: Card[]; ordered?: boolean },
+  opts: { min?: number; max?: number; text: string; button: string; then: string; data?: Record<string, unknown>; script?: string; pickable?: Card[]; ordered?: boolean; decline?: string },
 ) {
   queue(g, {
     ...(opts.ordered ? { ordered: true } : {}),
+    // A button for picking none, when that means declining ("Don't Pay" for ward's sacrifice).
+    ...(opts.decline ? { decline: opts.decline } : {}),
     ...(opts.pickable ? { pickable: opts.pickable.map((c) => c.id) } : {}),
     kind: 'pick',
     player: pid,
