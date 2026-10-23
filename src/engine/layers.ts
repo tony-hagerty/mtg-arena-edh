@@ -35,7 +35,7 @@
 import { current, isDraft, original } from 'immer';
 import { CREATURE_TYPES, SUBTYPES, cardData } from '../cards/db';
 import { anyRemovingScript, hasRemovingScript, hasStaticScript, scriptHas } from './registry';
-import { CANT_ATTACK, CANT_BLOCK, MUST_ATTACK, SUPPORTED_KEYWORDS, battlefield, counterCount, data, hasReconfigure, isRingBearer, permanent, scriptFor } from './rules';
+import { ASSIGNS_TOUGHNESS, ATTACKS_DESPITE_DEFENDER, CANT_ATTACK, CANT_BLOCK, MUST_ATTACK, SUPPORTED_KEYWORDS, battlefield, counterCount, data, hasReconfigure, isRingBearer, permanent, scriptFor } from './rules';
 import type { Card, CardScript, Characteristics, ContinuousEffect, Game, LayerParts } from './types';
 
 /** The layers that change characteristics this engine has effects for, in order (613.1, 613.4). Layers 1-3 come first: see `LayerParts`. */
@@ -223,7 +223,7 @@ function changeling(typeLine: string, keywords: string[]): string {
 }
 
 /** Can a "keywords" part carry this without it being an ability, so it isn't lost with them: a restriction (113.12)? */
-const notAbility = (k: string) => k === CANT_ATTACK || k === CANT_BLOCK || k === MUST_ATTACK;
+const notAbility = (k: string) => k === CANT_ATTACK || k === CANT_BLOCK || k === MUST_ATTACK || k === ATTACKS_DESPITE_DEFENDER || k === ASSIGNS_TOUGHNESS;
 /** Flags that are designations, not abilities (701.64b). */
 const DESIGNATIONS = ['harnessed'];
 /** Keyword abilities the engine reads from the keyword list alone, so losing one is taking it off the list (`LayerParts.lose`). */
@@ -582,6 +582,24 @@ export function characteristics(g: Game, c: Card, upTo: Layer = '7d', temporary 
   // An answer is kept only if it saw no other object partway: it is the same as a first question's.
   if (clean) store?.set(c, { chars, upTo });
   return chars;
+}
+
+/**
+ * Its base power and toughness (613.4a-b: layers 7a and 7b), before +N/+N effects, counters
+ * and switching, for "power greater than its base power" (Kutzil). Worked out afresh: a kept
+ * answer may be for a later layer. A copy that remembers a permanent as it last was has only
+ * its final values.
+ */
+export function basePT(g: Game, c: Card): { power: number; toughness: number } {
+  const base = untouched(g);
+  if (base) return basePT(base, inBase(c));
+  if (c.lki) return { power: c.lki.power, toughness: c.lki.toughness };
+  if (c.zone !== 'battlefield') {
+    const w = offBattlefield(g, c);
+    return { power: w.power, toughness: w.toughness };
+  }
+  const { chars } = layers(g, c, '7b', true);
+  return { power: chars.power, toughness: chars.toughness };
 }
 
 /** A card off the battlefield: its copiable values, with its characteristic-defining abilities applied (604.3). */

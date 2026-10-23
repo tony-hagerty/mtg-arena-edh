@@ -442,6 +442,16 @@ fetched card too, since the card is matched to it by name.
   each turn" (603.2h) is `didThisTurn` and `markDid`.
 - A target spec with `any` can have `most`: "up to X target creatures" with X worked out from
   the source, a triggered ability's event included (`Card.triggeredBy`).
+- Other hooks: `onAttackersDeclared` ("whenever you attack", once with every attack) and
+  `onPermanentLeaves`, whose event says whether the permanent was `attacking`.
+- Reflexive triggered abilities (603.12): `reflexive(g, self, you, key, data)` queues the
+  script's `reflexive[key]`, which can have `targets` or `modes` ("When you do, choose two —",
+  Caesar); its modes are chosen as it goes on the stack like any modal trigger's.
+- Trigger doubling: `doublesTriggers(g, self, source, hook, event)` says whether `self` makes
+  `source`'s ability on `hook` trigger once more (603.2d). `ENTERING_HOOKS` are the events
+  that are a permanent entering (Elesh Norn), `ATTACKING_HOOKS` a creature attacking
+  (Isshin), and `causedByCreatureDying(g, source, hook, event)` says whether a creature dying
+  caused it (Teysa Karlov). Delayed and reflexive abilities are never doubled (603.2d).
 
 **Spells and costs**
 
@@ -467,8 +477,9 @@ fetched card too, since the card is matched to it by name.
 | Vehicle | `activated: crew(3)` |
 | Impending | spread `...impending(4, '{1}{U}{U}')` into the script: its alternative cost and end-step trigger; the engine adds the time counters and "isn't a creature" |
 | Several activated abilities | list them in printed order (`activated: [ab1, equip('{1}')]`); an `activate` action and its stack item name one by `activated` (its index) |
-| Activated ability options | `fromHand`, `when`, `reduction`; costs `discard`, `discardSelf`, `counters`, or `sacrificeOne` permanent that fits a spec ("Sacrifice a creature:"), `sacrificeCount` of them ("Sacrifice two ...", or `'x'` for "Sacrifice X Squirrels", read as `ctx.x`), `tapUntapped` ("Tap three untapped Elves you control", picked like a crew) |
+| Activated ability options | `fromHand`, `when`, `reduction`; costs `discard`, `discardSelf`, `counters`, or `sacrificeOne` permanent that fits a spec ("Sacrifice a creature:"), `sacrificeCount` of them ("Sacrifice two ...", or `'x'` for "Sacrifice X Squirrels", read as `ctx.x`), `tapUntapped` ("Tap three untapped Elves you control", picked like a crew; with `tap` too, the source isn't one of them, Lathril) |
 | Ward | `ward: { mana }`, `{ life }` or `{ blight }` ("Ward—Blight 2", 701.68a) |
+| Modal activated ability | `modes: { min, max, modes, bot? }` instead of `targets` ("Choose one —", Breya, 700.2a); the action's `modes` are chosen as it is activated and each mode has its own targets |
 | Planeswalker | `loyalty` abilities: `{ cost: -2, text, targets, resolve }`, or `cost: '-X'` |
 | Siege | can add `onDefeat` |
 | Faces (double-faced, split, adventurer) | one script per face, under each face's name ("Delver of Secrets", "Insectile Aberration"); `transform(g, card)` turns one over. A deck may list it by its first face's name. |
@@ -614,7 +625,7 @@ ability already on the stack, which exists apart from its source (113.7a).
 | `discover(g, pid, n)` | discover N (701.57a), the cast-or-hand choice included |
 | `revealUntil(g, pid, fits, what)` | "reveal cards from the top until you reveal a ... card" (701.20a): the cards revealed, still in the library, and the one that fits |
 | `exileUntil(g, pid, fits)` then `castFromExiled(g, pid, hit, rest, opts)` | "exile cards from the top until ...", "you may cast that card without paying its mana cost" (`maxMv`, `toHand` for discover), and the rest on the bottom in a random order |
-| `enterBattlefield(g, c, { attacking: { defender } })` | put onto the battlefield attacking (508.4) |
+| `enterBattlefield(g, c, { attacking: { defender } })` | put onto the battlefield attacking what the effect names (508.4); `putAttacking(g, pid, creatures)` when the effect doesn't say: the controller chooses (mobilize, Caesar) |
 | `leftGraveyards(g, cards)` | cards that left a graveyard other than by `moveCard` (cast from it), for `onLeaveGraveyard` |
 | `Card.arrived` | the zone a card came from into its zone and the turn ("put there from their library this turn") |
 | `exileAll(g, cards, text?, pid?)` | exiles several cards from anywhere as one event and logs once, so "whenever one or more cards are put into exile" triggers once (603.2c). Never `moveCard` cards into exile in a loop |
@@ -629,6 +640,8 @@ ability already on the stack, which exists apart from its source (113.7a).
 | `addPlayerCounters(g, pid, n, kind)`, `playerCounters(p, kind)` | counters on a player (122.1): poison, experience, rad |
 | `moveCounter(g, from, to, kind)` | moves a counter (122.5), or nothing if it can't |
 | `tap(g, card)` | taps a permanent and triggers `onTapped` |
+| `combatDamageOf(g, c)` | the combat damage a creature assigns: its power, or its toughness under `ASSIGNS_TOUGHNESS` (Arcades, Felothar); `ATTACKS_DESPITE_DEFENDER` lets it attack with defender. Both are given through `static`'s `keywords`, like `CANT_ATTACK` |
+| `basePT(g, c)` | base power and toughness (layers 7a-7b), for "power greater than its base power" |
 | `abilitySource` | the source, if it is still the same object |
 | `amass(g, pid, 'Orc', n, then?)` | amass (701.47); returns true if the player must choose an Army |
 | `temptWithRing(g, pid, then?)` | the Ring tempts the player (701.54); returns true if they must choose a Ring-bearer. `isRingBearer`, `ringBearerOf`, `timesTempted` read it |
