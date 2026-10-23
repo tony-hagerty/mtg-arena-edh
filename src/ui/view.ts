@@ -409,6 +409,13 @@ function crewNeeded(t: Targeting): number {
   return (card && activatedOf(t, card)?.cost.crew) || 0;
 }
 
+/** Targets are chosen and a station ability's creature to tap still has to be picked (702.184a). */
+function stationNeeded(t: Targeting): boolean {
+  if (t.station || t.chosen.length < t.specs.length) return false;
+  const card = findCard(S().game!, t.cardId);
+  return !!card && !!activatedOf(t, card)?.cost.station;
+}
+
 /** Everything is chosen and the spell or ability is waiting for its cost to be paid (601.2f-h). */
 const isPaying = (t: Targeting) =>
   t.mode !== 'trigger' &&
@@ -425,7 +432,8 @@ const isPaying = (t: Targeting) =>
   !isEscaping(t) &&
   !isDelving(t) &&
   !isDiscarding(t) &&
-  !crewNeeded(t);
+  !crewNeeded(t) &&
+  !stationNeeded(t);
 
 /** The mana a spell or ability costs, and the same thing written out ("{1}{B}{B}"), with any life to pay. */
 function costOf(g: Game, t: Targeting): { cost: Cost; text: string } {
@@ -812,6 +820,17 @@ export function buildView(): View {
     view.glow.set(card.id, 'picked');
     view.prompt = `Crew ${need}: tap creatures with total power ${need} or more (${power} so far).`;
     view.primary = { label: 'Crew', sub: label(card), tone: 'go', disabled: power < need, onClick: confirmCrew };
+    view.secondary = { label: 'Cancel', tone: 'cancel', onClick: cancel };
+    return view;
+  }
+
+  // --- picking the creature that stations a Spacecraft (702.184a) ---
+  if (t && stationNeeded(t)) {
+    const card = findCard(g, t.cardId)!;
+    for (const c of crewOptions(g, me, card)) view.glow.set(c.id, 'target');
+    view.glow.set(card.id, 'picked');
+    view.prompt = `Station ${label(card)}: tap another untapped creature you control. It gets charge counters equal to that creature's power.`;
+    view.primary = { label: 'Station', sub: label(card), tone: 'go', disabled: true, onClick: () => {} };
     view.secondary = { label: 'Cancel', tone: 'cancel', onClick: cancel };
     return view;
   }
@@ -1281,7 +1300,7 @@ function pay() {
   const action: Action =
     t.mode === 'cast'
       ? { type: 'cast', card: t.cardId, targets: t.chosen, hold, ...t.choices, ...single, ...(t.discard ? { discard: t.discard } : {}) }
-      : { type: 'activate', card: t.cardId, ability: t.ability, activated: t.activated, x: t.x, targets: t.chosen, hold, crew: t.crew, discard: t.discard, sacrifice: t.choices.sacrifice, exile: t.exile, graveyard: t.graveyard };
+      : { type: 'activate', card: t.cardId, ability: t.ability, activated: t.activated, x: t.x, targets: t.chosen, hold, crew: t.crew, discard: t.discard, sacrifice: t.choices.sacrifice, exile: t.exile, graveyard: t.graveyard, station: t.station };
   if (!S().act(action)) cancel();
 }
 
@@ -1319,6 +1338,15 @@ function pickCrew(g: Game, me: PlayerId, t: Targeting, card: Card) {
   if (!crewOptions(g, me, vehicle).some((c) => c.id === card.id)) return;
   const crew = t.crew ?? [];
   useStore.setState({ targeting: stepFrom(t, { crew: crew.includes(card.id) ? crew.filter((id) => id !== card.id) : [...crew, card.id] }) });
+}
+
+/** Picks the other creature to tap for a station cost (702.184a): the one pick is the whole choice, so on to paying, which costs nothing. */
+function pickStation(g: Game, me: PlayerId, t: Targeting, card: Card) {
+  const ship = findCard(g, t.cardId)!;
+  if (!crewOptions(g, me, ship).some((c) => c.id === card.id)) return;
+  const next = stepFrom(t, { station: card.id });
+  useStore.setState({ targeting: next });
+  if (paidUp(g, me, next)) pay();
 }
 
 /** Done picking the crew: on to paying, which for crew alone costs nothing, so it goes straight on the stack. */
@@ -1620,7 +1648,7 @@ function chooseTarget(ref: TargetRef | null) {
   const s = S();
   const { game: g, human: me } = s;
   const t = targetingOf(s);
-  if (!g || me === null || !t || t.announcing || isSacrificing(t) || isExiling(t) || isExilingForAbility(t) || isEscaping(t) || isDelving(t) || isDiscarding(t) || crewNeeded(t)) return;
+  if (!g || me === null || !t || t.announcing || isSacrificing(t) || isExiling(t) || isExilingForAbility(t) || isEscaping(t) || isDelving(t) || isDiscarding(t) || crewNeeded(t) || stationNeeded(t)) return;
   if (ref && !currentTargets(g, me, t).some((x) => x.kind === ref.kind && x.id === ref.id)) return;
   // "Any number of" targets (115.1d): another slot for the next one.
   const spec = t.specs[t.chosen.length];
@@ -1778,6 +1806,7 @@ export function clickPermanent(card: Card) {
   if (t && isExiling(t)) return;
   if (t && isExilingForAbility(t)) return ctx && chooseAbilityExile(ctx.g, ctx.me, t, card);
   if (t && crewNeeded(t)) return ctx && pickCrew(ctx.g, ctx.me, t, card);
+  if (t && stationNeeded(t)) return ctx && pickStation(ctx.g, ctx.me, t, card);
   if (t) return chooseTarget({ kind: 'card', id: card.id });
   if (!ctx) return;
   const { g, me } = ctx;

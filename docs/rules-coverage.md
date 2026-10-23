@@ -181,10 +181,13 @@ are from the Comprehensive Rules in `docs/rules/`.
   choose the same mode more than once" works (700.2d).
 - **Copying spells (707.10):** the copy keeps the original's modes, X and kicker, and its
   controller may choose new targets. A copy ceases to exist when it leaves the stack.
-- **Copying abilities (707.10)** works the same way (Return the Favor), and so does
+- **Copying abilities (707.10)** works the same way (Return the Favor; Ulalek, Fused
+  Atrocity copies every spell you control, then every other activated and triggered
+  ability you control, each copy with new targets if you like), and so does
   copying a card in exile and casting the copy (707.12, Mizzix's Mastery; a copy you
   don't cast ceases to exist). Copies trigger magecraft's "whenever you copy" (Storm-Kiln
-  Artist).
+  Artist). "Whenever you cast a spell while [this] is attacking, copy that spell" (Fire
+  Lord Azula) copies it even if the spell has left the stack by then.
 - **Changing a target (115.7a):** "change the target of target spell or ability with a
   single target" (Redirect Lightning, Return the Favor, Untimely Malfunction). Only a
   spell or ability that targets exactly one thing once can be chosen. As it resolves, you
@@ -344,6 +347,16 @@ are from the Comprehensive Rules in `docs/rules/`.
 - **Vehicles (301.7, 702.122):** crew by tapping other untapped creatures with enough
   total power (summoning-sick ones can crew). The Vehicle is an artifact creature until
   end of turn. Bots crew before combat with their weakest or summoning-sick creatures.
+  A Pilot token "crews Vehicles as though its power were 2 greater" (`crewBonus`,
+  Shorikai, Genesis Engine). A legendary Vehicle, or a legendary Spacecraft with a
+  power/toughness box, can be a commander (903.3).
+- **Spacecraft and station (702.184, 721):** "Station" taps another untapped creature you
+  control, as a sorcery, and puts charge counters on the Spacecraft equal to that
+  creature's power as the ability resolves (its last known power if it has gone, 608.2h).
+  A "N+ |" line is a static ability while it has that many charge counters: abilities, and
+  with a power/toughness box, "is a creature with base power and toughness [P/T]"
+  (721.2a-b; Hearthhull, the Worldseed). Bots station after combat with their strongest
+  idle creature.
 - **Planeswalkers (306, 606):** they enter with their printed loyalty. One loyalty ability
   a turn per planeswalker, at sorcery speed (606.3); a minus ability needs that much
   loyalty (606.6). Damage removes loyalty (120.3c), and one with no loyalty goes to the
@@ -634,9 +647,52 @@ are from the Comprehensive Rules in `docs/rules/`.
 - **"No more than one creature can attack [this planeswalker] each combat"** (508.1c,
   The Eternal Wanderer). "Until your next turn, your opponents can't cast spells from
   anywhere other than their hands" (Avatar's Wrath).
+- **The monarch (725):** "you become the monarch" (Queen Marchesa; the parser reads it),
+  and its two inherent triggered abilities, which have no source: the monarch draws a card
+  at the beginning of their end step, and a creature dealing combat damage to the monarch
+  makes its controller the monarch (725.2), as the ability resolves. Only one player is
+  the monarch (725.3); when the monarch leaves the game the active player takes it, or
+  the next player in turn order (725.4). "If an opponent is the monarch" is an
+  intervening "if" (603.4). A crown on the portrait shows who it is.
+- **Goad (701.15):** a designation (not an ability, so it survives losing abilities) that
+  lasts until the goading player's next turn. A goaded creature attacks each combat if
+  able and attacks a player other than its goaders if able (508.1d): declaring it at a
+  goader while another player could be attacked for free is refused, and one left home is
+  sent at a player who didn't goad it (or any player, if only goaders can be attacked for
+  free). Several players can goad it (701.15c); the same player goading it again changes
+  nothing (701.15d). Alela, Cunning Conqueror; "goad target creature" is read by the
+  parser. Bots attack with goaded creatures as the requirements say.
+- **Rolling dice (706):** "roll a six-sided die", and one more for each mana from
+  Treasures spent on the ability (the mana spent is remembered by its source, Mr. House,
+  President and CEO). Each die is its own roll: "whenever you roll a 4 or higher" triggers
+  once for each (603.2c), with the result it triggered on. No effect here modifies rolls.
+- **The bending keywords:** earthbend (701.66: the land is a 0/0 land creature with haste
+  for as long as it stays, with the counters; when it dies or is exiled it returns tapped
+  under the earthbender's control, a delayed trigger for each player who earthbent it;
+  Toph, the First Metalbender), firebending (702.189: "whenever this creature attacks,
+  add N {R}" that stays in the pool until the combat phase ends, 500.5a; Fire Lord
+  Azula, Avatar Aang; the parser reads "firebending N"), airbend (701.65, see above), and
+  "whenever you waterbend, earthbend, firebend, or airbend" with "if you've done all four
+  this turn" counted over the whole turn (Avatar Aang). Waterbend itself (701.67) waits
+  for a card that needs it: no card here waterbends.
+- **"Nontoken artifacts you control are lands in addition to their other types"** (Toph):
+  a layer 4 effect, on the battlefield only; they gain no mana ability.
+- **Cost reductions by coloured mana (118.7b-c):** "Spells you cast cost {W}{U}{B}{R}{G}
+  less" (Aang, Master of Elements) takes one mana of each colour off, or one generic mana
+  for a colour the cost doesn't have (`reducesCost`). A hybrid symbol in the cost isn't
+  reduced by a coloured reduction.
+- **Additional lands (305.2b):** "you may play an additional land this turn" (a permission,
+  cumulative, no question asked; Hearthhull, Explore) and "you may play an additional
+  land on each of your turns" / "two additional lands" (Exploration, Azusa), both read by
+  the parser.
+- **Transforming at an upkeep with "you may":** Aang, Master of Elements asks at each
+  upkeep; "if you do" follows only if he transformed (701.27f).
+- **"During your turn, each [artifact and enchantment] is a 4/4 Elemental creature ...
+  and has ..."** (Bello, Bard of the Brambles): types in layer 4, the abilities in layer 6,
+  base power and toughness in layer 7b, on its controller's turn only.
 - **Keywords:** flying, reach, first strike, double strike, deathtouch, lifelink,
   trample, vigilance, haste, defender, hexproof, indestructible, menace, fear (702.36),
-  flash, storm,
+  flash, storm, earthbend, goad, firebending, station,
   cumulative upkeep, mobilize, ward, dash, bargain, gift, afterlife, delve, rebound,
   aftermath, paradigm, extort (702.101), job select (702.182), convoke, escape,
   overload, evoke, warp, spree, persist, reconfigure, and protection from a colour or from
@@ -703,7 +759,7 @@ These are deliberate cuts for a prototype. The biggest ones come first.
   when kicked (702.33g) aren't supported.
 - **Modes and copies:** only spells can be modal: modal triggered and activated abilities
   (700.2b) aren't supported. A copy's controller must pick legal new targets or keep all
-  the old ones (707.10c allows keeping some). Copying abilities isn't supported yet.
+  the old ones (707.10c allows keeping some).
 - **Layers (613) not built yet:** effects that set or change colour (layer 5). No card has
   a copy effect with a duration ("until end of turn") yet. In layer 6: "can't have
   [ability]" (113.11); effects that give a permanent an ability other than a keyword, ward,
@@ -740,7 +796,7 @@ These are deliberate cuts for a prototype. The biggest ones come first.
   other ways to cast a back face from a graveyard, and casting a transformed card's back
   face any way but a defeated Siege.
 - Partner variants other than plain partner and "partner with" (Background, Doctor's
-  companion, "partner—[text]") aren't recognised. Vehicles can't be commanders yet. A
+  companion, "partner—[text]") aren't recognised. A
   planeswalker that says it "can be your commander" is accepted as one (903.3a).
 - **Pasted decks use only the card pool:** the cards in `decklists.json`. Anything else
   is listed as missing. Companions, sideboards and maybeboards in a list are ignored. A
@@ -875,10 +931,11 @@ card, naming the clause: it never guesses. Hand scripts always win.
   tapped"; "you may cast spells as though they had flash"; "spells you control can't be
   countered"; "untap [this / all artifacts you control] during each other player's untap step";
   token and counter doubling and Hardened Scales (614.1a); Propaganda's attack tax (508.1g);
-  "during your turn, your opponents can't cast spells or activate abilities".
+  "during your turn, your opponents can't cast spells or activate abilities"; "you may play
+  an additional land on each of your turns"; the keyword line "firebending N".
 - **Refused:** anything else, including "instead" effects it has no template for, conditions it
   can't read, X outside a cost, and cards whose rules the engine doesn't have (playing lands
-  from a graveyard, an extra land each turn, copies). A fetched card it refuses can't be
+  from a graveyard, copies). A fetched card it refuses can't be
   played: it is never played as a stand-in.
 - `npm run parse-report` prints the cards it scripts on its own and every refusal: for the
   pool (324 of 519 cards with rules text, 62%) and for a corpus of the 600 most-played
