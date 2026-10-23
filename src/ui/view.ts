@@ -3,6 +3,7 @@
 import { createContext, useContext } from 'react';
 import {
   activatable,
+  unblockedAttackers,
   canPlot,
   discardsFor,
   abilityHasX,
@@ -285,9 +286,9 @@ function activatedOf(t: Targeting, card: Card) {
   return t.mode === 'activate' && t.ability === undefined && !t.pickingAbility ? activatedAt(S().game!, card, t.activated) : undefined;
 }
 
-/** The ability `card` has that works from the hand (channel), if it could be activated now. */
+/** The ability `card` has that works from the hand (channel), or from the command zone (commander ninjutsu, 702.49d), if it could be activated now. */
 function handAbility(g: Game, me: PlayerId, card: Card): AbilityRef | undefined {
-  if (card.zone !== 'hand') return undefined;
+  if (card.zone !== 'hand' && card.zone !== 'command') return undefined;
   return activatable(g, me, card).find((r) => r.ability === undefined && activatedAt(g, card, r.activated)?.fromHand);
 }
 
@@ -363,6 +364,13 @@ function isExilingForAbility(t: Targeting): boolean {
   return !!card && !!activatedOf(t, card)?.cost.exileOne;
 }
 
+/** Targets are chosen and a ninjutsu ability still needs the unblocked attacking creature to return (702.49a). */
+function isReturning(t: Targeting): boolean {
+  if (t.mode !== 'activate' || t.announcing || t.pickingAbility || t.choosingX || t.chosen.length < t.specs.length || t.returnAttacker) return false;
+  const card = findCard(S().game!, t.cardId);
+  return !!card && !!activatedOf(t, card)?.cost.returnAttacker;
+}
+
 /** Targets are chosen and an ability's "Exile two cards from your graveyard" cost still needs its cards (Matoc). */
 function isExilingGraveyard(t: Targeting): boolean {
   if (t.mode !== 'activate' || t.announcing || t.pickingAbility || t.choosingX || t.chosen.length < t.specs.length || t.graveyard) return false;
@@ -422,6 +430,7 @@ const isPaying = (t: Targeting) =>
   !isExiling(t) &&
   !isExilingForAbility(t) &&
   !isExilingGraveyard(t) &&
+  !isReturning(t) &&
   !isEscaping(t) &&
   !isDelving(t) &&
   !isDiscarding(t) &&
@@ -749,6 +758,16 @@ export function buildView(): View {
     return view;
   }
 
+  // --- choosing the unblocked attacking creature to return for ninjutsu (702.49a) ---
+  if (t && isReturning(t)) {
+    const card = findCard(g, t.cardId)!;
+    for (const c of unblockedAttackers(g, me)) view.glow.set(c.id, 'target');
+    view.glow.set(card.id, 'picked');
+    view.prompt = `${label(card)}: choose an unblocked attacking creature you control to return to its owner's hand.`;
+    view.secondary = { label: 'Cancel', tone: 'cancel', onClick: cancel };
+    return view;
+  }
+
   // --- choosing the cards in the graveyard to exile for an ability's cost (Matoc) ---
   if (t && isExilingGraveyard(t)) {
     const card = findCard(g, t.cardId)!;
@@ -892,7 +911,8 @@ export function buildView(): View {
   for (const c of [...p.hand, ...g.players.flatMap((o) => o.exile)]) if (canPlayLand(g, me, c)) view.glow.set(c.id, 'play');
   // A card that makes mana from the hand (Simian Spirit Guide), or has an ability that works from there (channel).
   if (!deciding) for (const c of p.hand) if (canTapForMana(g, me, c)) view.glow.set(c.id, 'play');
-  for (const c of p.hand) if (activatable(g, me, c).length) view.glow.set(c.id, 'play');
+  // Or from the command zone (commander ninjutsu, 702.49d): the crown on the avatar.
+  for (const c of [...p.hand, ...p.command]) if (activatable(g, me, c).length) view.glow.set(c.id, 'play');
   for (const c of p.battlefield) if (activatable(g, me, c).length) view.glow.set(c.id, 'play');
   if (!deciding) markMana(view, g, me);
 
@@ -1281,7 +1301,7 @@ function pay() {
   const action: Action =
     t.mode === 'cast'
       ? { type: 'cast', card: t.cardId, targets: t.chosen, hold, ...t.choices, ...single, ...(t.discard ? { discard: t.discard } : {}) }
-      : { type: 'activate', card: t.cardId, ability: t.ability, activated: t.activated, x: t.x, targets: t.chosen, hold, crew: t.crew, discard: t.discard, sacrifice: t.choices.sacrifice, exile: t.exile, graveyard: t.graveyard };
+      : { type: 'activate', card: t.cardId, ability: t.ability, activated: t.activated, x: t.x, targets: t.chosen, hold, crew: t.crew, discard: t.discard, sacrifice: t.choices.sacrifice, exile: t.exile, graveyard: t.graveyard, returnAttacker: t.returnAttacker };
   if (!S().act(action)) cancel();
 }
 
@@ -1357,6 +1377,14 @@ function chooseSacrifice(g: Game, me: PlayerId, t: Targeting, card: Card) {
 /** What the next sacrifice cost can take: a spell's (118.8, 118.9) or an ability's. */
 const sacrificeOptionsFor = (g: Game, me: PlayerId, t: Targeting, card: Card, alt: number | undefined) =>
   t.mode === 'activate' ? activationSacrificeOptions(g, me, card, t.activated) : sacrificeOptions(g, me, card, t.choices.face ?? 0, alt);
+
+/** Picks the unblocked attacking creature to return to its owner's hand for a ninjutsu cost (702.49a). Paying comes next. */
+function chooseReturn(g: Game, me: PlayerId, t: Targeting, card: Card) {
+  if (!unblockedAttackers(g, me).some((c) => c.id === card.id)) return;
+  const next = stepFrom(t, { returnAttacker: card.id });
+  useStore.setState({ targeting: next });
+  if (isPaying(next) && paidUp(g, me, next)) pay();
+}
 
 /** Picks the permanent to exile for an ability's "Exile a creature you control" cost. Paying comes next. */
 function chooseAbilityExile(g: Game, me: PlayerId, t: Targeting, card: Card) {
@@ -1777,6 +1805,7 @@ export function clickPermanent(card: Card) {
   if (t && isSacrificing(t)) return ctx && chooseSacrifice(ctx.g, ctx.me, t, card);
   if (t && isExiling(t)) return;
   if (t && isExilingForAbility(t)) return ctx && chooseAbilityExile(ctx.g, ctx.me, t, card);
+  if (t && isReturning(t)) return ctx && chooseReturn(ctx.g, ctx.me, t, card);
   if (t && crewNeeded(t)) return ctx && pickCrew(ctx.g, ctx.me, t, card);
   if (t) return chooseTarget({ kind: 'card', id: card.id });
   if (!ctx) return;
