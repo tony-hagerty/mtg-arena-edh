@@ -35,7 +35,6 @@ import {
   sameCard,
   simultaneously,
   stats,
-  subtypesOf,
   threat,
 } from '../../engine';
 import type { Card, CardData, Game, TargetSpec } from '../../engine';
@@ -148,7 +147,7 @@ registerScripts({
     // "{T}, Tap ten untapped Elves you control: Each opponent loses 10 life and you gain 10 life."
     // Lathril is tapped for {T}, so it can't be one of the ten; a summoning-sick Elf can (302.6).
     activated: {
-      cost: { tap: true, tapUntapped: { n: 10, filter: (g, c) => subtypesOf(g, c).includes('Elf'), label: 'ten untapped Elves you control' } },
+      cost: { tap: true, tapUntapped: { type: '', subtype: 'Elf', count: 10, label: 'ten untapped Elves you control' } },
       text: '{T}, Tap ten untapped Elves you control: Each opponent loses 10 life and you gain 10 life.',
       resolve: (g, { you }) => {
         simultaneously(g, () => opponentsOf(g, you).forEach((o) => loseLife(g, o.id, 10)));

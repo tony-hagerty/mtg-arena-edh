@@ -138,6 +138,20 @@ describe('Isshin, Two Heavens as One', () => {
     expect(g.players[0].hand.length).toBe(hand);
   });
 
+  it('doubles exalted (702.83a), which a creature attacking alone causes to trigger', () => {
+    let g = emptyGame((d) => {
+      put(d, 0, 'Isshin, Two Heavens as One');
+      put(d, 0, 'Noble Hierarch');
+      put(d, 0, 'Walking Corpse');
+      put(d, 1, 'Angelic Wall'); // a possible blocker, so the game waits in the declare blockers step
+      attacking(d);
+    });
+    g = run(g, { type: 'declareAttack', card: byName(g, 0, 'Walking Corpse')!.id, defender: 1 }, pass);
+    g = until(g, (x) => x.step === 'blockers' && !x.stack.length && !x.triggers.length);
+    // Exalted twice: the 2/2 Corpse is 4/4.
+    expect(stats(g, byName(g, 0, 'Walking Corpse')!).power).toBe(4);
+  });
+
   it("doesn't double an opponent's attack triggers or an enters trigger", () => {
     let g = emptyGame((d) => {
       put(d, 1, 'Isshin, Two Heavens as One').tapped = true; // so it can't block
@@ -731,6 +745,7 @@ describe('the triggers-combat group in the UI', () => {
     clickPermanent(byName(game(), 0, 'Lathril, Blade of the Elves')!);
     let v = buildView();
     expect(v.prompt).toContain('Tap ten untapped Elves you control (0 of 10 chosen)');
+    expect(v.glow.get(byName(game(), 0, 'Lathril, Blade of the Elves')!.id)).not.toBe('target'); // {T} taps Lathril: it isn't one of the ten
     expect(v.primary?.disabled).toBe(true);
     const elves = named(game(), 0, 'Elf Warrior');
     expect(v.glow.get(elves[0].id)).toBe('target');
