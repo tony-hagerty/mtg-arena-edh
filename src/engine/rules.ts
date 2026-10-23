@@ -32,6 +32,7 @@ import type {
   PlayerId,
   StackItem,
   StaticBonus,
+  TapUntapped,
   TargetRef,
   TargetSpec,
   Delayed,
@@ -116,6 +117,9 @@ export const SUPPORTED_KEYWORDS = [
   'job select',
   // Prowess (702.108) is read by the Oracle text parser; a hand script uses `prowess` below.
   'prowess',
+  // Exalted (702.83) and riot (702.136) by the engine, from the keyword however the permanent has it.
+  'exalted',
+  'riot',
   // Airbend (701.65), plot (702.170) and warp (702.185) by the engine; escape printed on a card
   // (702.138), spree (702.172), overload (702.96), evoke (702.74) and convoke (702.51) by the
   // engine with the card's script; adapt (701.46), reconfigure (702.151), persist (702.79) and
@@ -767,7 +771,8 @@ export function castCost(g: Game, c: Card, choices: CastChoices = {}, pid = c.ow
   // with its own escape pays its escape cost (702.138a); escape given by Underworld Breach is
   // its mana cost.
   const fromExile = exileCast(c);
-  const free = freeCast(g, c) || fromExile === 'plotted';
+  // "You may play that card without paying its mana cost" (Urza) is a permission to cast it for nothing too.
+  const free = freeCast(g, c) || fromExile === 'plotted' || !!permission(g, pid, c)?.free;
   const escape = choices.escape && c.zone === 'graveyard' ? escapeFor(g, c, choices.escape.length)?.mana : undefined;
   let cost = parseCost(free ? '' : fromExile === 'airbent' ? '{2}' : (flashback ?? escape ?? (alt ? alt.mana : data(spell).manaCost)));
   // "Mana of any type can be spent to cast them" (Mnemonic Betrayal).
@@ -916,10 +921,46 @@ export function landColors(g: Game, c: Card): ManaSym[] {
   return result;
 }
 
+/** Where `Card.once` notes that the mana ability at `index` was activated this turn ("Activate only once each turn"). */
+const onceKey = (index: number) => `@mana${index}`;
+
+/**
+ * Every list of `n` mana made of `colors` in any combination, each list sorted in the order
+ * of `colors`: "Add X mana in any combination of {U} and/or {R}" (Vivi Ornitier, 106.1).
+ */
+export function combinations(colors: ManaSym[], n: number): ManaSym[][] {
+  if (n <= 0) return [];
+  const out: ManaSym[][] = [];
+  const grow = (made: ManaSym[], from: number) => {
+    if (made.length === n) return void out.push(made);
+    for (let i = from; i < colors.length; i++) grow([...made, colors[i]], i);
+  };
+  grow([], 0);
+  return out;
+}
+
+/** The colours among permanents `pid` controls (105.2): each colour at least one of them is, every effect applied (613.1e). */
+export function colorsAmong(g: Game, pid: PlayerId, which: (c: Card) => boolean = () => true): Color[] {
+  const found = new Set<Color>();
+  for (const c of g.players[pid].battlefield) if (which(c)) for (const x of colorsOf(g, c)) found.add(x);
+  return (WUBRG as Color[]).filter((x) => found.has(x));
+}
+
 /** The mana abilities of `c` whose conditions are met now (605.1a), with their colours worked out. */
 export function manaAbilities(g: Game, c: Card): ManaUse[] {
   return allManaAbilities(g, c).flatMap((ab, index) => {
     if (ab.when && !ab.when(g, c)) return [];
+    // "Activate only once each turn" (602.5b): this object has already this turn (400.7).
+    if (ab.oncePerTurn && c.once[onceKey(index)] === g.turn) return [];
+    // How much it adds, and exactly what, worked out now: it resolves as soon as it is activated (605.3b).
+    if (ab.amountOf || ab.producesOf) {
+      const amount = ab.amountOf ? ab.amountOf(g, c) : ab.amount;
+      const produces = ab.producesOf ? ab.producesOf(g, c).filter((o) => o.length) : undefined;
+      // An ability that would add no mana now isn't worth activating: nothing else happens (605.2).
+      if (amount <= 0 || (produces && !produces.length)) return [];
+      const colors = produces ? [...new Set(produces.flat())] : typeof ab.colors === 'function' ? ab.colors(g, c) : ab.colors === 'any' ? WUBRG : ab.colors === 'identity' ? g.players[c.controller].colors : ab.colors;
+      return colors.length ? [{ ...ab, index, amount: produces ? Math.max(...produces.map((o) => o.length)) : amount, colors, ...(produces ? { produces } : {}) }] : [];
+    }
     let colors: ManaSym[];
     if (typeof ab.colors === 'function') colors = ab.colors(g, c);
     else if (ab.colors === 'any') colors = WUBRG;
@@ -971,6 +1012,8 @@ interface Source {
   taps: string[];
   /** The creature tapped for that cost, if it has one. */
   creature?: string;
+  /** Every permanent tapped for that cost, when it taps more than one (Baylen's two tokens). */
+  tapped?: string[];
   amount: number;
   colors: ManaSym[];
   /** Sacrificed to make its mana, like a Treasure: auto-pay uses it last. */
@@ -984,6 +1027,11 @@ interface Source {
   legendary?: boolean;
   /** Its mana can be spent only on spells with one of these card types (106.6, Tablet of Discovery). */
   types?: string[];
+  /** Its mana can be spent only on spells with at least this mana value, or with {X} with `orX` (106.6, Helga). */
+  minMv?: number;
+  orX?: boolean;
+  /** The exact lists of mana it can make, when it doesn't just make `amount` of one of `colors` (Faeburrow Elder, Vivi Ornitier). */
+  produces?: ManaSym[][];
   /** Not a mana ability: a creature tapped to pay for one mana of a spell with convoke (702.51a). */
   convoke?: boolean;
   /** A spell its mana is spent on can't be countered (106.6). */
@@ -1010,25 +1058,59 @@ function usable(g: Game, pid: PlayerId, c: Card, ab: ManaUse): boolean {
   if (ab.instant && (g.priority !== pid || g.decision || g.resolving)) return false;
   // "Spend this mana only to cast a creature spell of the chosen type": no type chosen, no use.
   if (ab.chosenType && !c.chosen) return false;
-  if (ab.tapCreature && !tapCandidates(g, pid, ab).length) return false;
+  if (ab.tapCreature && tapCandidates(g, pid, ab, c).length < (ab.tapCreature.count ?? 1)) return false;
   return !forbidden(g, pid, 'activate', c);
 }
 
-/** The creatures `pid` could tap for a mana ability's "Tap an untapped [legendary] creature you control" cost. */
-export const tapCandidates = (g: Game, pid: PlayerId, ab: Pick<ManaAbility, 'tapCreature'>): Card[] =>
-  ab.tapCreature ? creaturesOf(g, pid).filter((x) => !x.tapped && (!ab.tapCreature!.legendary || hasType(g, x, 'Legendary'))) : [];
+/**
+ * The permanents `pid` could tap for a "Tap an untapped [legendary] creature / artifact / N
+ * tokens you control" cost (`TapUntapped`). Not `source` itself if its own {T} is part of the
+ * same cost: it can't be untapped for both (Springleaf Drum).
+ */
+export function untappedFor(g: Game, pid: PlayerId, t: TapUntapped, source?: Card, ownTap = false): Card[] {
+  const type = t.type ?? 'Creature';
+  return g.players[pid].battlefield.filter(
+    (x) => !x.tapped && !(ownTap && x.id === source?.id) && (!type || hasType(g, x, type)) && (!t.token || x.isToken) && (!t.legendary || hasType(g, x, 'Legendary')),
+  );
+}
+
+/** The permanents `pid` could tap for a mana ability's "Tap an untapped [legendary] creature you control" cost, or the like (`TapUntapped`). */
+export const tapCandidates = (g: Game, pid: PlayerId, ab: Pick<ManaAbility, 'tapCreature' | 'noTap' | 'fromHand'>, source?: Card): Card[] =>
+  ab.tapCreature ? untappedFor(g, pid, ab.tapCreature, source, !ab.noTap && !ab.fromHand) : [];
+
+/**
+ * The `n` of `options` it costs least to tap: tokens and permanents with no mana ability or
+ * {T} ability of their own first, then those that aren't creatures (which could attack or block).
+ */
+export function cheapestToTap(g: Game, options: Card[], n: number): Card[] {
+  const cost = (x: Card) => (manaAbilities(g, x).length || activatedAbilities(g, x).some((a) => a.cost.tap) ? 4 : 0) + (isCreature(g, x) ? 2 : 0) + (x.isToken ? 0 : 1);
+  return [...options].sort((a, b) => cost(a) - cost(b)).slice(0, n);
+}
 
 /**
  * Can mana with these restrictions be spent on `spell` (106.6)? Restricted to creature
  * spells of type `only`, or to legendary spells.
  */
-const spendable = (g: Game, m: { only?: string; legendary?: boolean; types?: string[] }, spell?: Card) =>
+const spendable = (g: Game, m: Restriction, spell?: Card) =>
   (!m.only || (!!spell && isCreature(g, spell) && subtypesOf(g, spell).includes(m.only))) &&
   (!m.legendary || (!!spell && hasType(g, spell, 'Legendary'))) &&
-  (!m.types || (!!spell && m.types.some((t) => hasType(g, spell, t))));
+  (!m.types || (!!spell && m.types.some((t) => hasType(g, spell, t)))) &&
+  // "... with mana value 4 or greater or ... with {X} in their mana costs" (Helga). On the stack its X counts (202.3e).
+  (m.minMv === undefined || (!!spell && (manaValue(spell) >= m.minMv || (!!m.orX && parseCost(data(spell).manaCost).x > 0))));
+
+/** What mana may be spent on (106.6), as `Mana`, `ManaAbility` and `Source` carry it. */
+type Restriction = { only?: string; legendary?: boolean; types?: string[]; minMv?: number; orX?: boolean };
 
 /** Mana that can be spent only on some spells (106.6). */
-const restricted = (m: { only?: string; legendary?: boolean; types?: string[] }) => !!(m.only || m.legendary || m.types);
+const restricted = (m: Restriction) => !!(m.only || m.legendary || m.types || m.minMv !== undefined);
+
+/** The restrictions on mana a mana ability makes (106.6), to put on each mana. */
+const restrictionsOf = (ab: Restriction & { uncounterable?: boolean; chosenType?: boolean }, chosen?: string | null): Partial<Mana> => ({
+  ...(ab.chosenType ? (chosen ? { only: chosen, uncounterable: ab.uncounterable } : {}) : ab.only ? { only: ab.only, uncounterable: ab.uncounterable } : {}),
+  ...(ab.legendary ? { legendary: true } : {}),
+  ...(ab.types ? { types: ab.types } : {}),
+  ...(ab.minMv !== undefined ? { minMv: ab.minMv, ...(ab.orX ? { orX: true } : {}) } : {}),
+});
 
 /**
  * The mana abilities `pid` could use now, one entry per ability. `manual` adds the ones
@@ -1051,17 +1133,22 @@ function findManaSources(g: Game, pid: PlayerId, manual: boolean): Source[] {
       // `planWithCosted`. By hand it can be used when its cost can be paid without it.
       if (ab.cost && (!manual || !planPayment(g, pid, parseCost(ab.cost), undefined, [c.id]))) continue;
       // One that taps a creature as well is a source once for each creature that could pay
-      // (Relic of Legends, Springleaf Drum). The creature can't make mana too once it is tapped.
+      // (Relic of Legends, Springleaf Drum, Urza's artifacts). The creature can't make mana too
+      // once it is tapped. One that taps several (Baylen's two tokens) is a source once, tapping
+      // the ones that cost least to tap.
       const self = ab.noTap && !ab.fromHand ? [] : [c.id];
-      const creatures: (string | undefined)[] = ab.tapCreature ? tapCandidates(g, pid, ab).map((x) => x.id) : [undefined];
+      const candidates = ab.tapCreature ? tapCandidates(g, pid, ab, c) : [];
+      const several = (ab.tapCreature?.count ?? 1) > 1;
+      const creatures: (string[] | undefined)[] = !ab.tapCreature ? [undefined] : several ? [cheapestToTap(g, candidates, ab.tapCreature.count!).map((x) => x.id)] : candidates.map((x) => [x.id]);
       for (const creature of creatures) {
         out.push({
           id: c.id,
           ability: ab.index,
-          taps: creature ? [...self, creature] : [c.id],
-          ...(creature ? { creature } : {}),
+          taps: creature ? [...self, ...creature] : [c.id],
+          ...(creature ? { creature: creature[0], ...(several ? { tapped: creature } : {}) } : {}),
           amount: ab.amount,
           colors: ab.colors,
+          ...(ab.produces ? { produces: ab.produces } : {}),
           sacrifice: ab.sacrifice,
           pain: (ab.life ?? 0) + (ab.damage ?? 0),
           life: ab.life ?? 0,
@@ -1070,6 +1157,7 @@ function findManaSources(g: Game, pid: PlayerId, manual: boolean): Source[] {
           ...(ab.chosenType ? { only: c.chosen ?? undefined, uncounterable: ab.uncounterable } : {}),
           ...(ab.legendary ? { legendary: true } : {}),
           ...(ab.types ? { types: ab.types } : {}),
+          ...(ab.minMv !== undefined ? { minMv: ab.minMv, ...(ab.orX ? { orX: true } : {}) } : {}),
         });
       }
     }
@@ -1123,8 +1211,10 @@ function pickManaAbility(g: Game, pid: PlayerId, c: Card): number | undefined {
  * the mana: tapping, life (119.4), sacrificing or exiling it, the damage it deals, and
  * "whenever this becomes tapped".
  */
-function useManaAbility(g: Game, pid: PlayerId, c: Card, ab: ManaUse, tapId?: string, discardId?: string, sacrificeId?: string) {
+function useManaAbility(g: Game, pid: PlayerId, c: Card, ab: ManaUse, tapId?: string | string[], discardId?: string, sacrificeId?: string) {
   const p = g.players[pid];
+  // "Activate only once each turn" (602.5b).
+  if (ab.oncePerTurn) c.once[onceKey(ab.index)] = g.turn;
   if (ab.sacrificeCreature) {
     // "Sacrifice a creature" (Phyrexian Tower): the one the player chose.
     const creature = creaturesOf(g, pid).find((x) => x.id === sacrificeId);
@@ -1136,9 +1226,7 @@ function useManaAbility(g: Game, pid: PlayerId, c: Card, ab: ManaUse, tapId?: st
     if (card) discard(g, card);
   }
   if (ab.tapCreature) {
-    const options = tapCandidates(g, pid, ab);
-    const creature = options.find((x) => x.id === tapId) ?? options[0];
-    if (creature) {
+    for (const creature of tappedForCost(g, pid, c, ab, tapId)) {
       tap(g, creature);
       log(g, `${says(p, 'taps')} ${label(creature)} (${label(c)}).`, pid, [creature, c]);
     }
@@ -1158,6 +1246,55 @@ function useManaAbility(g: Game, pid: PlayerId, c: Card, ab: ManaUse, tapId?: st
   if (ab.sacrifice) dieMany(g, [c], 'is sacrificed');
 }
 
+/**
+ * The permanents mana ability `ab` of `c` taps for its "Tap an untapped ... you control" cost
+ * (`TapUntapped`): the ones named, as many as it taps, or else the ones it costs least to tap.
+ */
+function tappedForCost(g: Game, pid: PlayerId, c: Card, ab: ManaUse, named?: string | string[]): Card[] {
+  const options = tapCandidates(g, pid, ab, c);
+  const n = ab.tapCreature?.count ?? 1;
+  const ids = typeof named === 'string' ? [named] : (named ?? []);
+  const picked = [...new Set(ids)].map((id) => options.find((x) => x.id === id)).filter((x): x is Card => !!x);
+  return picked.length === n ? picked : n === 1 ? options.slice(0, 1) : cheapestToTap(g, options, n);
+}
+
+/**
+ * The triggered mana abilities (605.1b) of permanents on the battlefield when `pid` has just
+ * tapped `source` for mana with ability `ab`, which made `produced`: only a mana ability with
+ * {T} in its cost taps it for mana (106.12), and only if it made some (106.12a). Each resolves
+ * at once, without the stack (605.4a), and adds its mana to its player's pool; its controller
+ * chooses among the lists it offers (`picks`, in the order they trigger, or else the one their
+ * cards want most). Returns the mana added, so tapping by hand can be taken back with it.
+ */
+function tappedForManaTriggers(g: Game, pid: PlayerId, source: Card, ab: ManaUse, produced: ManaSym[], picks: ManaSym[][] = []): Mana[] {
+  if (ab.noTap || ab.fromHand || !produced.length) return [];
+  const out: Mana[] = [];
+  let k = 0;
+  for (const x of battlefield(g)) {
+    if (!mayHaveScript(x, 'tappedForMana')) continue;
+    const fn = abilitiesOf(g, x).tappedForMana;
+    const r = fn?.(g, x, { source, player: pid, produced });
+    if (!r || g.players[r.player].lost || !r.mana.length) continue;
+    // It triggers once more for each effect like Roaming Throne's (603.2d). It isn't an
+    // "enters" ability, which is all such effects tell apart.
+    for (let n = triggerTimes(g, x, 'onTapped'); n > 0; n--) {
+      const wanted = picks[k++];
+      const pick = (wanted && r.mana.find((o) => o.length === wanted.length && [...o].sort().join() === [...wanted].sort().join())) ?? preferredMana(g, x.controller, r.mana);
+      const added = pick.map((sym): Mana => ({ sym, source: x.id }));
+      // Like the mana ability it rides on, it isn't logged (605.3b): nothing uses the stack.
+      g.players[r.player].pool.push(...added);
+      if (r.player === pid) out.push(...added);
+    }
+  }
+  return out;
+}
+
+/** Which of these lists of mana `pid` would make: the one their cards want most (`colorNeed`), else the first. */
+function preferredMana(g: Game, pid: PlayerId, options: ManaSym[][]): ManaSym[] {
+  const need = (o: ManaSym[]) => o.reduce((n, x) => n + (x === 'C' ? 0 : Math.max(0, colorNeed(g, pid, x))), 0);
+  return options.reduce((best, o) => (need(o) > need(best) ? o : best));
+}
+
 /** Is `mana` one of the lists of mana this ability can add (in any order)? */
 export const canProduce = (ab: ManaUse, mana: ManaSym[]) =>
   produceOptions(ab).some((o) => o.length === mana.length && [...o].sort().join() === [...mana].sort().join());
@@ -1167,7 +1304,18 @@ export const canProduce = (ab: ManaUse, mana: ManaSym[]) =>
  * `mana`: the exact mana to make, one of its choices; else `color`: a choice with that
  * colour; left out, one is picked.
  */
-export function tapForMana(g: Game, pid: PlayerId, c: Card, ability = pickManaAbility(g, pid, c), color?: ManaSym, tapId?: string, discardId?: string, sacrificeId?: string, mana?: ManaSym[]) {
+export function tapForMana(
+  g: Game,
+  pid: PlayerId,
+  c: Card,
+  ability = pickManaAbility(g, pid, c),
+  color?: ManaSym,
+  tapId?: string | string[],
+  discardId?: string,
+  sacrificeId?: string,
+  mana?: ManaSym[],
+  triggered?: ManaSym[][],
+) {
   const ab = manaAbilities(g, c).find((m) => m.index === ability);
   if (!ab) return;
   const p = g.players[pid];
@@ -1178,23 +1326,30 @@ export function tapForMana(g: Game, pid: PlayerId, c: Card, ability = pickManaAb
   if (ab.cost && !(plan = pay(g, pid, parseCost(ab.cost), undefined, [c.id]))) return;
   const sym = color && ab.colors.includes(color) ? color : ab.colors.length === 1 ? ab.colors[0] : pickColor(g, pid, ab.colors);
   const made = mana && canProduce(ab, mana) ? mana : ab.produces ? pickProduce(g, pid, ab, color) : Array.from({ length: ab.amount }, () => sym);
-  const only = ab.chosenType ? (c.chosen ?? undefined) : undefined;
-  const added: Mana[] = made.map((sym) => ({ sym, source: c.id, ability: ab.index, ...(only ? { only, uncounterable: ab.uncounterable } : {}), ...(ab.legendary ? { legendary: true } : {}), ...(ab.types ? { types: ab.types } : {}) }));
-  const options = tapCandidates(g, pid, ab);
-  const creature = ab.tapCreature ? (options.find((x) => x.id === tapId) ?? options[0]) : undefined;
-  useManaAbility(g, pid, c, ab, tapId, discardId, sacrificeId);
+  const added: Mana[] = made.map((sym) => ({ sym, source: c.id, ability: ab.index, ...restrictionsOf(ab, c.chosen) }));
+  const tappedFor = ab.tapCreature ? tappedForCost(g, pid, c, ab, tapId) : [];
+  const creature = tappedFor[0];
+  useManaAbility(g, pid, c, ab, tappedFor.map((x) => x.id), discardId, sacrificeId);
+  // Its triggered mana abilities resolve right after it (605.4a): Kinnan's extra mana.
+  const extra = tappedForManaTriggers(g, pid, c, ab, made, triggered);
   // It can be taken back if it changed nothing else: no life paid, no damage, nothing
   // sacrificed, discarded or exiled, nothing triggered, and the same for the sources that
-  // paid its mana cost.
-  const used = (plan?.uses ?? []).map((u) => manaAbilities(g, permanent(g, u.id)!).find((m) => m.index === u.ability));
-  const clean = (m: ManaUse | undefined) => !!m && !m.life && !m.damage && !m.sacrifice && !m.sacrificeCreature && !m.discardHand && !m.discard && !m.fromHand;
+  // paid its mana cost. Mana its triggered mana abilities added goes back with it.
+  // Every ability it has, used or not: one used once this turn isn't among those usable now.
+  const used = (plan?.uses ?? []).map((u) => {
+    const x = permanent(g, u.id);
+    return x ? allManaAbilities(g, x)[u.ability] : undefined;
+  });
+  const clean = (m: ManaAbility | undefined) => !!m && !m.life && !m.damage && !m.sacrifice && !m.sacrificeCreature && !m.discardHand && !m.discard && !m.fromHand;
   if (clean(ab) && used.every(clean) && !plan?.life && g.triggers.length === triggers) {
     const key = (m: Mana) => JSON.stringify(m);
     const spent = without(before, plan ? plan.pool : before, key);
     const left = without(plan ? plan.pool : before, before, key);
     for (const m of p.pool) if (left.some((x) => key(x) === key(m))) m.along = c.id;
-    const tapped = [...new Set([...(ab.noTap ? [] : [c.id]), ...(creature ? [creature.id] : []), ...(plan?.tap ?? [])])];
-    const undo: ManaUndo = { made: added.length, tapped, spent, left: left.length, ...(creature ? { creature: creature.id } : {}) };
+    const along = [...(plan?.extra ?? []), ...extra];
+    for (const m of along) m.along = c.id;
+    const tapped = [...new Set([...(ab.noTap ? [] : [c.id]), ...tappedFor.map((x) => x.id), ...(plan?.tap ?? [])])];
+    const undo: ManaUndo = { made: added.length, tapped, spent, left: left.length + along.length, ...(creature ? { creature: creature.id } : {}) };
     for (const m of added) m.undo = undo;
   }
   p.pool.push(...added);
@@ -1341,23 +1496,53 @@ interface Plan {
   wants: Map<ManaSym, number>;
 }
 
-/** Mana a source makes beyond the one it is tapped to pay for. It goes to the pool. */
-const extraMana = (s: Source, paying: ManaSym | null): Mana[] =>
-  Array.from({ length: s.amount - 1 }, () => ({
-    sym: s.colors.length === 1 ? s.colors[0] : (paying ?? s.colors[0]),
+/**
+ * The mana source `s` makes when used to pay for one mana of `paying` (null: generic), the
+ * one that pays first: one of its exact lists that has that mana (Faeburrow Elder's), or else
+ * `amount` of one of its colours.
+ */
+function madeBy(s: Source, paying: ManaSym | null, wants?: Map<ManaSym, number>): ManaSym[][] {
+  if (s.produces) {
+    const fits = paying ? s.produces.filter((o) => o.includes(paying)) : s.produces;
+    // For generic mana, the list other cards want least, so the rest is free for them.
+    const want = (o: ManaSym[]) => o.reduce((n, x) => n + (wants?.get(x) ?? 0), 0);
+    const options = paying ? fits : [...fits].sort((a, b) => want(a) - want(b)).slice(0, 1);
+    const seen = new Set<string>();
+    return options
+      .map((o) => (paying ? [paying, ...without(o, [paying], (x) => x)] : o))
+      .filter((o) => {
+        const k = [...o].sort().join();
+        return !seen.has(k) && !!seen.add(k);
+      });
+  }
+  const sym = paying ?? s.colors[0];
+  return [Array.from({ length: s.amount }, (_, i) => (i === 0 || s.colors.length !== 1 ? sym : s.colors[0]))];
+}
+
+/** Mana a source makes beyond the one it is tapped to pay for (the first of `made`). It goes to the pool. */
+const extraMana = (s: Source, made: ManaSym[]): Mana[] =>
+  made.slice(1).map((sym) => ({
+    sym,
     source: s.id,
     ability: s.ability,
     ...(s.only ? { only: s.only, uncounterable: s.uncounterable } : {}),
     ...(s.legendary ? { legendary: true } : {}),
     ...(s.types ? { types: s.types } : {}),
+    ...(s.minMv !== undefined ? { minMv: s.minMv, ...(s.orX ? { orX: true } : {}) } : {}),
   }));
 
-/** Uses source `s` to pay one mana: the permanent's other mana abilities are gone with it (it is tapped, or sacrificed). */
-const useSource = (plan: Plan, s: Source, paying: ManaSym | null): Plan => ({
+/**
+ * Uses source `s` to pay one mana, making `made` (the first pays): the permanent's other mana
+ * abilities are gone with it (it is tapped, or sacrificed).
+ */
+const useSource = (plan: Plan, s: Source, made: ManaSym[]): Plan => ({
   ...plan,
-  pool: [...plan.pool, ...extraMana(s, paying)],
+  pool: [...plan.pool, ...extraMana(s, made)],
   sources: plan.sources.filter((x) => !x.taps.some((t) => s.taps.includes(t))),
-  uses: [...plan.uses, { id: s.id, ability: s.ability, ...(s.creature ? { creature: s.creature } : {}), ...(s.convoke ? { convoke: true } : {}), taps: s.taps }],
+  uses: [
+    ...plan.uses,
+    { id: s.id, ability: s.ability, ...(s.creature ? { creature: s.creature } : {}), ...(s.tapped ? { tapped: s.tapped } : {}), ...(s.convoke ? { convoke: true } : { made }), taps: s.taps },
+  ],
   abilityLife: plan.abilityLife + s.life,
   // A creature that convoked paid for the mana without it being spent (702.51a).
   spent: plan.spent + (s.convoke ? 0 : 1),
@@ -1387,10 +1572,11 @@ function payMana(sym: ManaSym, plan: Plan): Plan[] {
   const tried = new Set<string>(); // sources that make the same mana the same way are interchangeable
   const out: Plan[] = [];
   for (const s of options) {
-    const kind = `${s.amount}:${s.colors.join('')}:${s.pain}:${!!s.sacrifice}:${s.keep ?? 0}`;
+    const kind = `${s.amount}:${s.colors.join('')}:${s.produces?.map((o) => o.join('')).join('|') ?? ''}:${s.pain}:${!!s.sacrifice}:${s.keep ?? 0}`;
     if (tried.has(kind)) continue;
     tried.add(kind);
-    out.push(useSource(plan, s, sym));
+    // A source with exact lists of mana (Vivi Ornitier's any combination) can make each list with `sym` in it.
+    for (const made of madeBy(s, sym)) out.push(useSource(plan, s, made));
   }
   return out;
 }
@@ -1415,7 +1601,7 @@ function payGeneric(plan: Plan): Plan | null {
       (s.amount <= remaining ? 100 + s.amount * 10 : 50 - s.amount * 10) - (s.keep ?? 0) - s.pain * 30 - (s.sacrifice ? 500 : 0);
     const best = plan.sources.reduce((a, b) => (score(b) > score(a) ? b : a));
     // Its first mana pays for this; the rest goes to the pool and is spent next.
-    plan = useSource(plan, best, null);
+    plan = useSource(plan, best, madeBy(best, null, plan.wants)[0]);
     remaining--;
   }
   return { ...plan, generic: 0 };
@@ -1460,9 +1646,13 @@ export interface ManaUseRef {
   id: string;
   ability: number;
   creature?: string;
+  /** Every permanent tapped for its cost, when that taps more than one (Baylen's two tokens). */
+  tapped?: string[];
   /** Not a mana ability: creature `id` is tapped to pay for one mana of a spell with convoke (702.51a). */
   convoke?: boolean;
   taps: string[];
+  /** The mana the ability makes, for the triggered mana abilities it sets off (605.1b). */
+  made?: ManaSym[];
 }
 
 /** How a cost would be paid (see `planPayment`). */
@@ -1476,6 +1666,8 @@ export interface Payment {
   spent: number;
   /** Mana that makes the spell uncounterable is spent (106.6). */
   uncounterable: boolean;
+  /** Once paid: the mana that triggered mana abilities added to the payer's pool on top (605.1b, Kinnan). */
+  extra?: Mana[];
 }
 
 /**
@@ -1614,7 +1806,7 @@ function planWithCosted(
       if (!rest || act.life + rest.life + (ab.life ?? 0) > life) continue;
       return {
         tap: [...act.tap, c.id, ...rest.tap],
-        uses: [...act.uses, { id: c.id, ability: ab.index, taps: [c.id] }, ...rest.uses],
+        uses: [...act.uses, { id: c.id, ability: ab.index, taps: [c.id], made }, ...rest.uses],
         pool: rest.pool,
         life: act.life + rest.life,
         spent: rest.spent,
@@ -1745,8 +1937,16 @@ export function pay(g: Game, pid: PlayerId, cost: Cost, spell?: Card, keep: stri
     log(g, `${says(g.players[pid], 'taps')} ${label(c)} (convoke).`, pid, [c]);
   }
   // Every ability is activated before any of them is sacrificed or deals its damage.
-  const used = settled(g, () => plan.uses.filter((x) => !x.convoke).map((u) => ({ c: permanent(g, u.id)!, ab: manaAbilities(g, permanent(g, u.id)!).find((m) => m.index === u.ability)!, creature: u.creature })));
-  for (const { c, ab, creature } of used) useManaAbility(g, pid, c, { ...ab, sacrifice: false }, creature);
+  const used = settled(g, () =>
+    plan.uses.filter((x) => !x.convoke).map((u) => ({ c: permanent(g, u.id)!, ab: manaAbilities(g, permanent(g, u.id)!).find((m) => m.index === u.ability)!, creature: u.tapped ?? u.creature, made: u.made ?? [] })),
+  );
+  const extra: Mana[] = [];
+  for (const { c, ab, creature, made } of used) {
+    useManaAbility(g, pid, c, { ...ab, sacrifice: false }, creature);
+    // Its triggered mana abilities resolve right after it (605.4a): Kinnan's extra mana goes to the pool.
+    extra.push(...tappedForManaTriggers(g, pid, c, ab, made));
+  }
+  if (extra.length) plan.extra = extra;
   const spent = used.filter((u) => u.ab.sacrifice).map((u) => u.c);
   if (spent.length) dieMany(g, spent, 'is sacrificed');
   if (plan.life) {
@@ -2518,6 +2718,7 @@ export function rememberModes(g: Game, item: StackItem) {
 /** The text of a triggered ability that has one (for a card with several for one event), or undefined. */
 export function triggerText(item: StackItem): string | undefined {
   if (item.kind !== 'triggered' || !item.hook) return undefined;
+  if (item.hook === 'onExalted') return 'Exalted';
   const t = triggerOf(item);
   return t && typeof t !== 'function' ? t.text : undefined;
 }
@@ -2588,8 +2789,10 @@ function setUp(g: Game, c: Card, opts: EnterOpts): Record<string, number> {
   // tapped", Blind Obedience), and with counters (its own "enters with", a planeswalker's
   // loyalty, the effect putting it there, like Ghost Vacuum's flying counter).
   const how = replace(g, { kind: 'enter', card: c, tapped: !!opts.tapped, counters: { ...(opts.counters ?? {}) } });
-  const enters = how.kind === 'enter' ? how : { tapped: !!opts.tapped, counters: {} };
+  const enters = how.kind === 'enter' ? how : { tapped: !!opts.tapped, counters: {}, keywords: undefined };
   c.tapped = enters.tapped;
+  // Abilities it gains as it enters, for as long as it stays: riot's "it gains haste" (702.136a).
+  if (enters.keywords?.length) addLasting(g, c, { keywords: [...new Set(enters.keywords)] });
   // Each kind is then put on it (122.6), which may be replaced in turn (616.1g, 614.16).
   const counters: Record<string, number> = {};
   for (const [kind, n] of Object.entries(enters.counters)) {
@@ -3650,6 +3853,7 @@ export function searchable(g: Game, c: Card, find?: Find): boolean {
   if (find.maxToughness !== undefined && stats(g, c).toughness > find.maxToughness) return false;
   const d = data(c);
   if (find.basic && !hasType(g, c, 'Basic Land')) return false;
+  if (find.legendary && !hasType(g, c, 'Legendary')) return false;
   // "An instant card or a card with flash": a card type or a keyword, either will do.
   const typed = !!find.types?.some((x) => hasType(g, c, x));
   const keyworded = !!find.keywords?.some((k) => d.keywords.some((x) => x.toLowerCase() === k));
