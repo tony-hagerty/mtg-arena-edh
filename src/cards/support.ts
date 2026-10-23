@@ -5,11 +5,11 @@
 import { SUPPORTED_KEYWORDS, hasScript } from '../engine';
 import { cardData, isCardName } from './db';
 import type { DeckDef } from './db';
-import type { CardData } from '../engine';
+import type { CardData } from '../engine/types';
 import { isLabelWord, refusalOf } from './oracle';
 
 /** Ability words and keyword actions: they label a rule that the card's script implements. */
-export const ABILITY_WORDS = ['landfall', 'treasure', 'mill', 'threshold', 'metalcraft', 'recruit', "scions' secretary", 'delirium', 'surveil', 'imprint', 'channel', 'ferocious', 'bloodrush', 'populate', 'food', 'throw wide the gates', 'flare star', 'double', 'magecraft', 'role token', 'sell contraband', 'buy information', 'hire a mercenary', 'connive', 'medicus ministorum', 'monstrosity', 'madness', 'miracle', 'scry'];
+export const ABILITY_WORDS = ['landfall', 'treasure', 'mill', 'threshold', 'metalcraft', 'recruit', "scions' secretary", 'delirium', 'surveil', 'imprint', 'channel', 'ferocious', 'bloodrush', 'populate', 'food', 'throw wide the gates', 'flare star', 'double', 'magecraft', 'role token', 'sell contraband', 'buy information', 'hire a mercenary', 'connive', 'medicus ministorum', 'monstrosity', 'madness', 'miracle', 'amass', 'proliferate', 'blight', 'cheer', 'scry'];
 
 /**
  * Is keyword `k` (lower case) only a label at the front of one of the card's lines: an ability
@@ -25,7 +25,7 @@ const labelOnly = (d: CardData, k: string) =>
  * played without its rules text (`textlessRefusal`). Every other supported keyword is spelt
  * out by the card's script (kicker, equip, crew, cycling ...) or changes how it is cast.
  */
-export const PLAIN_KEYWORDS = ['flying', 'reach', 'deathtouch', 'lifelink', 'trample', 'vigilance', 'haste', 'first strike', 'double strike', 'menace', 'fear', 'defender', 'hexproof', 'indestructible', 'flash', 'shadow', 'landwalk', 'plainswalk', 'islandwalk', 'swampwalk', 'mountainwalk', 'forestwalk', 'changeling', 'devoid', 'partner'];
+export const PLAIN_KEYWORDS = ['flying', 'reach', 'deathtouch', 'lifelink', 'trample', 'vigilance', 'haste', 'first strike', 'double strike', 'menace', 'fear', 'defender', 'hexproof', 'indestructible', 'flash', 'shadow', 'landwalk', 'plainswalk', 'islandwalk', 'swampwalk', 'mountainwalk', 'forestwalk', 'changeling', 'devoid', 'partner', 'decayed'];
 
 /** Oracle text split into abilities, with reminder text removed. */
 export const abilities = (text: string) =>
