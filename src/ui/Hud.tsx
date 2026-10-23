@@ -12,7 +12,7 @@ import { MusicControl, SoundControl } from './SoundControl';
 import { useStore } from './store';
 import type { Hover } from './store';
 import { type Seat, cx, deckColor, faceUp, hoverProps, seatOf } from './util';
-import { STEP_NAMES, activateFromHand, cancel, clickStackItem, stackTucked, pickAbility, pickMana, pickTapCreature, pickManaDiscard, pickManaSacrifice, pickFace, pickMode, playHandCard, setAbilityX, setChoices, shiftDivision, undo, exileForMana, plotCard, useView } from './view';
+import { STEP_NAMES, activateFromHand, cancel, clickStackItem, stackTucked, pickAbility, pickAbilityMode, pickMana, pickTapCreature, pickManaDiscard, pickManaSacrifice, pickFace, pickMode, playHandCard, setAbilityX, setChoices, shiftDivision, undo, exileForMana, plotCard, useView } from './view';
 import type { AbilityOption, Btn } from './view';
 import { leftStack, newGame } from './zone-moves';
 
@@ -303,8 +303,9 @@ export function ActionBar() {
  * times to pay kicker (702.33), and the mana cost or an alternative cost (118.9).
  */
 function CastOptions() {
-  const { announce: a, loyalty, abilityX, divide } = useView();
+  const { announce: a, loyalty, abilityX, abilityModes, divide } = useView();
   if (loyalty) return <LoyaltyOptions options={loyalty.options} />;
+  if (abilityModes) return <AbilityModes modes={abilityModes.modes} min={abilityModes.min} max={abilityModes.max} />;
   if (abilityX) return <AbilityX x={abilityX.x} max={abilityX.max} />;
   if (divide) return <DivideOptions rows={divide.rows} />;
   if (!a) return null;
@@ -488,6 +489,24 @@ function AbilityX({ x, max }: { x: number; max: number }) {
   );
 }
 
+/** The modes of a modal activated ability (700.2a), chosen before its X and targets: click to pick one. */
+function AbilityModes({ modes, min, max }: { modes: { text: string; picked: boolean; ok: boolean }[]; min: number; max: number }) {
+  return (
+    <div className="cast-options">
+      <div className="cast-modes">
+        <span className="cast-label">{min === max ? `Choose ${min}` : `Choose ${min} to ${max}`}</span>
+        {modes.map((m, i) => (
+          <div key={i} className="cast-row">
+            <button className={cx('chip', 'mode', m.picked && 'on')} disabled={!m.ok} onClick={() => pickAbilityMode(i)}>
+              {m.text}
+            </button>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 /** Text with mana symbols like {U/B} and {T} drawn as symbols. */
 function Symbols({ text }: { text: string }) {
   return <>{text.split(/((?:\{[^}]+\})+)/).map((part, i) => (part.startsWith('{') ? <ManaCost key={i} cost={part} /> : part))}</>;
@@ -582,12 +601,12 @@ function LoyaltyOptions({ options }: { options: AbilityOption[] }) {
  */
 export function Prompt() {
   const v = useView();
-  const { prompt, announce: a, loyalty, abilityX, divide } = v;
+  const { prompt, announce: a, loyalty, abilityX, abilityModes, divide } = v;
   const pick = useStore((s) => s.manaPick);
   const picking = !!pick && !!findCard(v.g, pick.cardId);
-  const options = !!(a || loyalty || abilityX || divide);
+  const options = !!(a || loyalty || abilityX || abilityModes || divide);
   // One band for the whole decision: its words change as choices are made, but it stays put.
-  const key = a ? `announce:${a.card.id}` : loyalty ? `ability:${loyalty.card.id}` : abilityX ? `x:${abilityX.card.id}` : divide ? `divide:${divide.card.id}` : (prompt ?? `mana:${pick?.cardId}`);
+  const key = a ? `announce:${a.card.id}` : loyalty ? `ability:${loyalty.card.id}` : abilityModes ? `modes:${abilityModes.card.id}` : abilityX ? `x:${abilityX.card.id}` : divide ? `divide:${divide.card.id}` : (prompt ?? `mana:${pick?.cardId}`);
   return (
     <AnimatePresence>
       {(prompt || picking) && (

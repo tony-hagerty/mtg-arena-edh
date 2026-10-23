@@ -39,6 +39,7 @@ import type {
   ContinuousEffect,
   Trigger,
   TriggerEvents,
+  TriggerModes,
   TurnEffect,
   TriggerHook,
   Zone,
@@ -481,6 +482,13 @@ export const CANT_BLOCK = "can't block";
 export const CANT_BE_BLOCKED = "can't be blocked";
 /** "Attacks each combat if able" (508.1d), given the same way. */
 export const MUST_ATTACK = 'attacks each combat if able';
+/**
+ * "Can attack as though it didn't have defender" (Arcades, Felothar), given the same way: an
+ * effect on the creature, not an ability of its own (so it isn't lost with its abilities).
+ */
+export const ATTACKS_DESPITE_DEFENDER = "can attack as though it didn't have defender";
+/** "Assigns combat damage equal to its toughness rather than its power" (Arcades, Felothar), given the same way. */
+export const ASSIGNS_TOUGHNESS = 'assigns combat damage equal to its toughness';
 
 /** The `Delayed.key` of dash's return to hand (702.109a). Its `data` names the permanent: `id` and `moves`. */
 export const RETURN_TO_HAND = '@return';
@@ -488,7 +496,18 @@ export const RETURN_TO_HAND = '@return';
 export function canAttack(g: Game, c: Card): boolean {
   if (c.zone !== 'battlefield' || !isCreature(g, c) || c.tapped) return false;
   const kw = stats(g, c).keywords;
-  return !kw.has('defender') && !kw.has(CANT_ATTACK) && (!c.sick || kw.has('haste'));
+  // Defender stops it attacking (702.3b) unless an effect lets it attack as though it didn't have defender.
+  return (!kw.has('defender') || kw.has(ATTACKS_DESPITE_DEFENDER)) && !kw.has(CANT_ATTACK) && (!c.sick || kw.has('haste'));
+}
+
+/**
+ * The combat damage creature `c` assigns (510.1a): its power, or its toughness under an effect
+ * like Arcades's "assigns combat damage equal to its toughness rather than its power". A
+ * creature that would assign 0 or less this way assigns none at all.
+ */
+export function combatDamageOf(g: Game, c: Card): number {
+  const s = stats(g, c);
+  return s.keywords.has(ASSIGNS_TOUGHNESS) ? s.toughness : s.power;
 }
 
 export function canBlock(g: Game, blocker: Card, attacker: Card): boolean {
@@ -1874,9 +1893,18 @@ export function spellTargets(c: Card, modes: number[] = [], gift = c.cast?.gift,
 /** The targets a spell or ability on the stack has to choose. */
 export function targetSpecs(_g: Game, item: StackItem): TargetSpec[] {
   const script = scriptFor(item.card);
-  if (item.kind === 'activated') return (item.ability === undefined ? itemActivated(item) : script.loyalty?.[item.ability])?.targets ?? [];
+  if (item.kind === 'activated') {
+    const ab = item.ability === undefined ? itemActivated(item) : script.loyalty?.[item.ability];
+    // A modal one: the targets of the modes chosen as it was activated, in printed order (700.2c).
+    if (ab && 'modes' in ab && ab.modes) return (item.modes ?? []).flatMap((i) => ab.modes!.modes[i]?.targets ?? []);
+    return ab?.targets ?? [];
+  }
   if (item.kind === 'triggered' && item.hook === 'onChapter') return script.chapters?.[(item.event as { chapter: number }).chapter - 1]?.targets ?? [];
-  if (item.kind === 'triggered' && item.hook === 'onReflexive') return itemScript(item).reflexive?.[(item.event as { key: string }).key]?.targets ?? [];
+  if (item.kind === 'triggered' && item.hook === 'onReflexive') {
+    const r = itemScript(item).reflexive?.[(item.event as { key: string }).key];
+    if (r?.modes) return (item.modes ?? []).flatMap((i) => r.modes!.modes[i]?.targets ?? []);
+    return r?.targets ?? [];
+  }
   if (item.kind === 'triggered' && (item.hook === 'onEvoked' || item.hook === 'onOffspring')) return [];
   // A lone "enters" ability uses the card's `targets`; one in a list names its own.
   if (item.kind === 'triggered' && item.hook === 'onEnter' && !item.granted && !Array.isArray(script.onEnter)) return script.targets ?? [];
@@ -2163,6 +2191,9 @@ function shiftCard(g: Game, c: Card, to: Zone) {
   const last = from === 'battlefield' && watchingLeaves(g, batch?.before ?? battlefield(g)) ? lastKnown(g, c) : null;
   if (last && batch && !batch.before) batch.before = battlefield(g).map((x) => rememberPermanent(g, x));
   const before = last && !batch ? battlefield(g).map((x) => rememberPermanent(g, x)) : null;
+  // Was it an attacking creature (for "if it was attacking"), and what was it, as it left the battlefield?
+  const attacking = from === 'battlefield' && !!g.combat?.attacks.some((a) => a.id === c.id);
+  const wasPermanent = from === 'battlefield' ? (last ?? lastKnown(g, c)) : undefined;
   if (c.zone === 'stack') {
     g.stack = g.stack.filter((x) => x.kind !== 'spell' || x.card.id !== c.id);
   } else {
@@ -2216,16 +2247,16 @@ function shiftCard(g: Game, c: Card, to: Zone) {
   c.zone = to;
   c.ts = g.nextId++; // a new timestamp as it enters a zone (613.7d)
   if (c.isToken && to !== 'battlefield') {
-    if (last) leaves(g, { left: [{ card: last, to }], exiled: [], before });
+    if (last) leaves(g, { left: [{ card: last, to, attacking }], exiled: [], before });
     return;
   }
   const zone = g.players[to === 'battlefield' ? c.controller : c.owner][to];
   zone.push(c);
   const stored = zone[zone.length - 1];
-  if (to === 'graveyard') announce(g, 'onCardToGraveyard', { card: stored, player: c.owner });
+  if (to === 'graveyard') announce(g, 'onCardToGraveyard', { card: stored, player: c.owner, ...(wasPermanent ? { from: wasPermanent } : {}) });
   // Cards put into exile from a graveyard or the battlefield (Ketramose), which sees itself go (603.10a). Tokens aren't cards (108.2b).
   const exiled = to === 'exile' && (from === 'graveyard' || from === 'battlefield') && watchingExile(g, before ?? batch?.before ?? battlefield(g)) ? [stored] : [];
-  if (last || exiled.length) leaves(g, { left: last ? [{ card: last, to }] : [], exiled, before });
+  if (last || exiled.length) leaves(g, { left: last ? [{ card: last, to, attacking }] : [], exiled, before });
 }
 
 /** Is anything among `permanents` listening for permanents leaving the battlefield (so `moveCard` needs to remember them)? */
@@ -2240,7 +2271,8 @@ const watchingExile = (g: Game, permanents: Card[]) => permanents.some((x) => ab
 
 /** Permanents that left the battlefield, and cards exiled from graveyards or the battlefield, in one event. */
 interface Leaving {
-  left: { card: Card; to: Zone }[];
+  /** `attacking`: it was an attacking creature as it left (for "if it was attacking", Zurgo Stormrender). */
+  left: { card: Card; to: Zone; attacking?: boolean }[];
   exiled: Card[];
   /** The battlefield just before the event, for abilities that look back in time (603.10a). */
   before: Card[] | null;
@@ -2267,9 +2299,9 @@ function fireLeaves(g: Game, l: Leaving) {
   lookBack = l.before ?? was;
   try {
     const watchers = lookBack ?? battlefield(g);
-    for (const { card, to } of l.left) {
+    for (const { card, to, attacking } of l.left) {
       trigger(g, card, 'onLeave', { to });
-      for (const w of watchers) if (abilitiesOf(g, w).onPermanentLeaves) trigger(g, w, 'onPermanentLeaves', { left: card, to });
+      for (const w of watchers) if (abilitiesOf(g, w).onPermanentLeaves) trigger(g, w, 'onPermanentLeaves', { left: card, to, attacking });
     }
     if (l.exiled.length) for (const w of watchers) if (abilitiesOf(g, w).onExiled) trigger(g, w, 'onExiled', { cards: l.exiled });
   } finally {
@@ -2309,8 +2341,26 @@ export function simultaneously(g: Game, fn: () => void) {
     for (const [hook, event] of done.events) broadcast(g, hook, event as never);
     if (done.losses.length) broadcast(g, 'onLifeLossTogether', { losses: done.losses });
     for (const d of done.damage) broadcast(g, 'onSourceDamage', d);
+    combatDamageToPlayers(g, done.damage);
     if (done.returns.length) release(g, done.returns);
   }
+}
+
+/**
+ * "Whenever one or more creatures deal combat damage to a player": once for each player dealt
+ * combat damage in the event (603.2c), with every source that dealt it to them and how much.
+ */
+function combatDamageToPlayers(g: Game, damage: Dealt[]) {
+  const byPlayer = new Map<PlayerId, { source: Card; amount: number }[]>();
+  for (const d of damage) {
+    if (!d.combat) continue;
+    for (const r of d.dealt) {
+      if (r.player === null) continue;
+      if (!byPlayer.has(r.player)) byPlayer.set(r.player, []);
+      byPlayer.get(r.player)!.push({ source: d.source, amount: r.amount });
+    }
+  }
+  for (const [player, hits] of byPlayer) broadcast(g, 'onCombatDamageToPlayers', { player, hits });
 }
 
 /**
@@ -2401,7 +2451,7 @@ export function trigger<H extends TriggerHook>(g: Game, source: Card, hook: H, e
   let times: number | undefined;
   for (const { t, extra } of [...own, ...given]) {
     if (typeof t !== 'function' && t.when && !t.when(g, { self: source, ...event })) continue;
-    times ??= triggerTimes(g, source, hook);
+    times ??= triggerTimes(g, source, hook, event);
     if (!times) return;
     const remembered = Object.fromEntries(Object.entries(event).map(([k, v]) => [k, isCard(v) ? snapshot(v) : v]));
     for (let k = 0; k < times; k++) {
@@ -2415,10 +2465,10 @@ export function trigger<H extends TriggerHook>(g: Game, source: Card, hook: H, e
  * Roaming Throne's (603.2d), or not at all with an effect like Elesh Norn's "don't cause
  * abilities ... to trigger".
  */
-export function triggerTimes(g: Game, source: Card, hook: TriggerHook): number {
+export function triggerTimes(g: Game, source: Card, hook: TriggerHook, event: object = {}): number {
   const w = watchers?.() ?? watchersNow(g);
   if (w.suppressors.some((x) => abilitiesOf(g, x).suppressesTriggers!(g, x, source, hook))) return 0;
-  return 1 + w.doublers.filter((x) => abilitiesOf(g, x).doublesTriggers!(g, x, source, hook)).length;
+  return 1 + w.doublers.filter((x) => abilitiesOf(g, x).doublesTriggers!(g, x, source, hook, event)).length;
 }
 
 /**
@@ -2428,6 +2478,43 @@ export function triggerTimes(g: Game, source: Card, hook: TriggerHook): number {
  * enters with are another event (122.6).
  */
 export const ENTERING_HOOKS: TriggerHook[] = ['onEnter', 'onCreatureEnters', 'onPermanentEnters', 'onLandfall', 'onEvoked', 'onOffspring'];
+
+/**
+ * The events that are a creature attacking, for "If a creature attacking causes a triggered
+ * ability ... to trigger" (Isshin, Two Heavens as One): "whenever this attacks" (mobilize's
+ * among them, 702.181a), "whenever a creature attacks", and "whenever you attack" or "whenever
+ * one or more creatures attack", which trigger on attackers being declared (508.1m). A creature
+ * becoming tapped as it attacks is another event (508.1f).
+ */
+export const ATTACKING_HOOKS: TriggerHook[] = ['onAttack', 'onCreatureAttacks', 'onAttackersDeclared'];
+
+/**
+ * Is `source`'s ability on `hook` for `event` one that a creature dying caused to trigger, for
+ * "If a creature dying causes a triggered ability ... to trigger" (Teysa Karlov)? Dying is
+ * being put into a graveyard from the battlefield (700.4): the creature's own "when this dies",
+ * "whenever a creature dies", a creature card put into a graveyard from the battlefield, a
+ * creature leaving the battlefield for a graveyard, and a creature being sacrificed (701.21a).
+ */
+export function causedByCreatureDying(g: Game, source: Card, hook: TriggerHook, event: object): boolean {
+  const e = event as Partial<TriggerEvents['onCardToGraveyard'] & TriggerEvents['onPermanentLeaves'] & TriggerEvents['onSacrifice']>;
+  switch (hook) {
+    case 'onDies':
+      return isCreature(g, source);
+    case 'onCreatureDies':
+      return true;
+    case 'onCardToGraveyard':
+      // The card as it was before it moved, if it came from the battlefield (`from`).
+      return !!e.from && e.from.zone === 'battlefield' && isCreature(g, e.from);
+    case 'onLeave':
+      return e.to === 'graveyard' && isCreature(g, source);
+    case 'onPermanentLeaves':
+      return e.to === 'graveyard' && !!e.left && isCreature(g, e.left);
+    case 'onSacrifice':
+      return !!e.card && isCreature(g, e.card);
+    default:
+      return false;
+  }
+}
 
 /**
  * The permanents on the battlefield as they were just before an event that looks back in
@@ -2486,19 +2573,27 @@ export function triggerOf(item: StackItem): Trigger<object> | undefined {
   return Array.isArray(raw) ? raw[item.trigger ?? 0] : raw;
 }
 
+/** The modes of triggered ability `item`, if it is modal (603.3c): its own, or a reflexive ability's (`CardScript.reflexive`). */
+export function triggerModesOf(item: StackItem): TriggerModes | undefined {
+  if (item.kind !== 'triggered') return undefined;
+  if (item.hook === 'onReflexive') return itemScript(item).reflexive?.[(item.event as { key: string }).key]?.modes;
+  const t = triggerOf(item);
+  return t && typeof t !== 'function' ? t.modes : undefined;
+}
+
 /**
  * Which modes of modal triggered ability `item` can be chosen now (603.3c): not one with a
  * target that has no legal choice (700.2a). Null if it isn't modal.
  */
 export function triggerModeOptions(g: Game, item: StackItem): { min: number; max: number; legal: number[] } | null {
-  const t = triggerOf(item);
-  if (!t || typeof t === 'function' || !t.modes) return null;
+  const modes = triggerModesOf(item);
+  if (!modes) return null;
   const source = modeSource(g, item);
-  const legal = t.modes.modes
+  const legal = modes.modes
     .map((_, i) => i)
-    .filter((i) => !(t.modes!.oncePerTurn && source.once[`mode${i}`] === g.turn))
-    .filter((i) => (t.modes!.modes[i].targets ?? []).every((spec) => spec.optional || spec.any || legalTargets(g, item.controller, spec, item.card).length > 0));
-  return { min: t.modes.min, max: t.modes.max, legal };
+    .filter((i) => !(modes.oncePerTurn && source.once[`mode${i}`] === g.turn))
+    .filter((i) => (modes.modes[i].targets ?? []).every((spec) => spec.optional || spec.any || legalTargets(g, item.controller, spec, item.card).length > 0));
+  return { min: modes.min, max: modes.max, legal };
 }
 
 /** The source of modal triggered ability `item`: the permanent, if it is still the same object (400.7), else as it was. */
@@ -2509,8 +2604,7 @@ const modeSource = (g: Game, item: StackItem): Card => {
 
 /** Remembers the modes chosen for `item` as it goes on the stack, for "one that hasn't been chosen this turn". */
 export function rememberModes(g: Game, item: StackItem) {
-  const t = triggerOf(item);
-  if (!t || typeof t === 'function' || !t.modes?.oncePerTurn) return;
+  if (!triggerModesOf(item)?.oncePerTurn) return;
   const source = modeSource(g, item);
   for (const i of item.modes ?? []) source.once[`mode${i}`] = g.turn;
 }
@@ -2542,7 +2636,11 @@ export function broadcast<H extends BroadcastHook>(g: Game, hook: H, event: Trig
 /** Damage `source` dealt: grouped with the rest it deals in the same event (`onSourceDamage`). */
 function dealt(g: Game, source: Card, player: PlayerId | null, card: Card | null, amount: number, combat: boolean) {
   const record = { player, card: card && snapshot(card), amount };
-  if (!batch) return broadcast(g, 'onSourceDamage', { source: snapshot(source), dealt: [record], combat });
+  if (!batch) {
+    const d = { source: snapshot(source), dealt: [record], combat };
+    broadcast(g, 'onSourceDamage', d);
+    return combatDamageToPlayers(g, [d]);
+  }
   const same = batch.damage.find((d) => d.source.id === source.id && d.combat === combat);
   if (same) same.dealt.push(record);
   else batch.damage.push({ source: snapshot(source), dealt: [record], combat });
