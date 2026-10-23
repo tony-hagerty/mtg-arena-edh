@@ -167,7 +167,9 @@ are from the Comprehensive Rules in `docs/rules/`.
   "enters" abilities): each triggers, targets and goes on the stack on its own (603.2),
   and the ordering window and the stack (on hover) say which one it is.
 - **Delayed triggers (603.7), extra turns** (500.7, the newest first), and effects that
-  make a player win (104.2b) or lose (104.3e) the game.
+  make a player win (104.2b) or lose (104.3e) the game. "At the beginning of your next main
+  phase" (Mana Drain) is whichever of your main phases comes first, precombat or
+  postcombat (505.1).
 - **Additional phases (500.8):** Sphinx of the Second Sun's additional beginning phase
   after your postcombat main phase: untap, upkeep and draw steps, then the ending phase.
 - **Choices partway through resolving (608.2d):** any player can be asked yes or no ("you
@@ -339,13 +341,39 @@ are from the Comprehensive Rules in `docs/rules/`.
   creature that just arrived can pay it (302.6). Auto-pay and bots use it like any other
   source, tapping such a creature only after lands and mana rocks.
 - **Special mana:** restricted mana that makes a spell uncounterable (106.6, Cavern of
-  Souls), mana kept until end of turn (Birgi), mana abilities a land gains until end of
+  Souls, Delighted Halfling's legendary spells), if it pays any part of the cost; a copy of
+  that spell can be countered (707.10), mana kept until end of turn (Birgi), mana abilities a land gains until end of
   turn (Rain of Filth), and Lion's Eye Diamond (discard your hand, only with priority).
 - **More mana:** mana that can be spent only on instants and sorceries (106.6, Tablet of
   Discovery), unspent red mana kept between steps and turns (500.5, Electro), "activate
   only if this land entered this turn or if you control a basic land" (Dark Fortress),
   and "{T}, Sacrifice a creature: Add {B}{B}" (Phyrexian Tower: click the Tower, then pick
   the creature).
+- **Costs that tap other permanents (302.6):** "Tap an untapped artifact you control: Add
+  {U}" (Urza) and "Tap two untapped tokens you control: Add one mana of any color" (Baylen),
+  and activated abilities that cost "Tap three untapped tokens you control". Neither the
+  source nor the permanents tapped use their own {T}, so ones that just arrived can be
+  tapped. By hand, pick them in the mana picker or as the ability is activated; auto-pay and
+  bots tap the ones that cost least (tokens and permanents with no mana or {T} ability first).
+- **Mana abilities that work out what they make as they resolve (605.3b):** "Add X mana of
+  any one color, where X is Helga's power", "Add X mana in any combination of {U} and/or {R}"
+  (Vivi Ornitier: by hand, pick the combination), "For each color among permanents you
+  control, add one mana of that color" (Faeburrow Elder, Bloom Tender; 105.2: colourless
+  isn't a colour), and "Activate only once each turn" (602.5b, for as long as it is the same
+  object, 400.7). One that would make no mana now (X is 0) is still a mana ability (605.1a):
+  it can be activated by hand for nothing, using up its turn; auto-pay leaves it alone.
+- **Mana spent only on some creature spells (106.6):** "creature spells with mana value 4 or
+  greater or creature spells with {X} in their mana costs" (Helga).
+- **Triggered mana abilities (605.1b, 605.4a):** "Whenever you tap a nonland permanent for
+  mana, add one mana of any type that permanent produced" (Kinnan), "Whenever you tap a Swamp
+  for mana, add an additional {B}" (Crypt Ghast), "Whenever enchanted land is tapped for mana,
+  its controller adds an additional {G}" (Wild Growth). Tapping for mana is a mana ability
+  with {T} in its cost (106.12), so Urza's and Vivi's abilities don't set them off, and they
+  trigger only once it produced mana (106.12a). They resolve at once, by hand and when
+  auto-pay taps the permanent (the extra mana stays in the pool), and doubling effects like
+  Roaming Throne's apply (603.2d). When one offers a choice (Kinnan after a permanent that
+  made two types), the mana picker asks it after the mana; bots and auto-pay take the type
+  their cards want most. Taking the mana back takes the extra mana too.
 
 ### Permanents
 
@@ -423,7 +451,8 @@ are from the Comprehensive Rules in `docs/rules/`.
 - **Continuous effects in layers (613):** every permanent's types, abilities, power and
   toughness are worked out by `characteristics` (src/engine/layers.ts) from its copiable
   values, applying each effect in its layer: types (4), colours (5: "becomes black"
-  replaces its other colours, 105.3), abilities (6), then power and
+  replaces its other colours, 105.3, and Leyline of the Guildpact's "Each nonland permanent
+  you control is all colors"), abilities (6), then power and
   toughness: characteristic-defining abilities (7a), "base power and toughness" (7b),
   +N/+N and counters (7c), switching (7d). Within a layer, effects apply in timestamp
   order (613.7), and an ability that changes something in several layers does so in all
@@ -517,7 +546,9 @@ are from the Comprehensive Rules in `docs/rules/`.
   "exile five other cards"); you pick the cards to exile while paying.
 - **"You may cast / play that card this turn"** from any exile (Ragavan, Jeska's Will,
   Harnfel, Mnemonic Betrayal, whose spells take mana of any type). A land played this way
-  is the turn's land (305.2a).
+  is the turn's land (305.2a). "Until end of turn, you may play that card without paying its
+  mana cost" (Urza): a spell cast this way pays nothing, an alternative cost, so no other
+  alternative cost can go with it and X is 0 (118.9a, 107.3b).
 - **Casting while a spell resolves**, without paying its mana cost (608.2g, Beseech the
   Mirror), or paying it from a graveyard (Emet-Selch, which also exiles the spell instead
   of putting it into a graveyard).
@@ -820,6 +851,15 @@ are from the Comprehensive Rules in `docs/rules/`.
   overload, evoke, warp, spree, persist, reconfigure, discover (701.57), cascade (702.85),
   affinity (702.41), ninjutsu and commander ninjutsu (702.49), blitz given by a permanent
   (702.152), and protection from a colour or from everything.
+- **Exalted (702.83):** each instance on each permanent its controller controls triggers when
+  a creature attacks alone (506.5), printed or given; "that creature" is the attacker, if it
+  is still the same object (400.7).
+- **Riot (702.136):** "You may have this permanent enter with an additional +1/+1 counter on
+  it. If you don't, it gains haste." A replacement effect as it enters (614.1c), so the
+  choice is asked as the replacement question; each instance is chosen on its own
+  (702.136b), whether printed or given as it enters (Rhythm of the Wild's "Nontoken creatures
+  you control have riot", 614.12). Bots take haste on their own turn before combat, else the
+  counter.
 
 ### Bots
 
@@ -883,7 +923,7 @@ These are deliberate cuts for a prototype. The biggest ones come first.
 - **Modes and copies:** only spells can be modal: modal triggered and activated abilities
   (700.2b) aren't supported. A copy's controller must pick legal new targets or keep all
   the old ones (707.10c allows keeping some). Copying abilities isn't supported yet.
-- **Layers (613) not built yet:** effects that set or change colour (layer 5). No card has
+- **Layers (613) not built yet:** no card has
   a copy effect with a duration ("until end of turn") yet. In layer 6: "can't have
   [ability]" (113.11); effects that give a permanent an ability other than a keyword, ward,
   enchant, or a triggered, activated or mana ability (such as a static ability); losing a keyword ability the card's script carries, other than ward
@@ -997,9 +1037,14 @@ card, naming the clause: it never guesses. Hand scripts always win.
   or {B}", "one mana of any color", "in your commander's color identity", "that a land an
   opponent controls could produce", "three mana of any one color", Signets ("{1}, {T}: Add
   {W}{U}") and filter lands, with costs of "Pay 1 life", "Sacrifice this", "Sacrifice a
-  creature", "Discard a card", "Tap an untapped [legendary] creature you control" or "Exile
-  this card from your hand", and "This deals 1 damage to you", "Activate only if [condition]"
-  or "Activate only as an instant". A mana ability that does anything else is refused.
+  creature", "Discard a card", "Tap an untapped [legendary] creature you control", "Tap an
+  untapped artifact you control", "Tap two untapped tokens you control" (with or without
+  {T}) or "Exile this card from your hand", and "This deals 1 damage to you", "Activate only
+  if [condition]" or "Activate only as an instant"; "For each color among permanents you
+  control, add one mana of that color" (105.2). A mana ability that does anything else is
+  refused. Triggered mana abilities (605.1b): "Whenever you tap [a kind of permanent] for
+  mana, add an additional [mana]" or "add one mana of any type that permanent produced",
+  and "Whenever enchanted land is tapped for mana, its controller adds an additional [mana]".
 - **Spells:** instants and sorceries; modal spells ("Choose one / two / one or both / one or
   more / up to N —", 700.2) and spree (702.172), each mode with its own targets; kicker with
   "if this spell was kicked" (702.33); flashback (702.34), escape (702.138), overload, read
@@ -1060,6 +1105,10 @@ card, naming the clause: it never guesses. Hand scripts always win.
   gets / has / can't block" (702.5), "equipped creature gets / has / can't be blocked"; "this
   gets +1/+1 for each ...", base power and toughness from a count (604.3); "can't be blocked",
   "attacks each combat if able"; ward (702.21), "Ward—Blight N" too; "each land is a Swamp in addition" (305.7);
+  "lands you control are every basic land type in addition to their other types" (305.7);
+  "each [kind] you control is all colors" (105.3); "this gets +1/+1 for each color among
+  [permanents]"; exalted (702.83) and riot (702.136) as keywords, and "have riot"; "If this
+  card is in your opening hand, you may begin the game with it on the battlefield" (103.6a);
   enters tapped, unless [a condition], with N counters, paying 2 or 3 life, or revealing a land
   card (614.1c, 614.12a); no maximum hand size, "doesn't untap", "skip your draw step";
   "[kind] spells you cast cost {1} less / more"; "creatures your opponents control enter
@@ -1083,8 +1132,8 @@ card, naming the clause: it never guesses. Hand scripts always win.
   from a graveyard, an extra land each turn, copies). A fetched card it refuses can't be
   played: it is never played as a stand-in.
 - `npm run parse-report` prints the cards it scripts on its own and every refusal: for the
-  pool (325 of 519 cards with rules text, 63%) and for a corpus of the 600 most-played
-  Commander cards (`tests/parser-corpus.generated.json`: 412 of 590, 70%), whose refusals it
+  pool (327 of 519 cards with rules text, 63%) and for a corpus of the 600 most-played
+  Commander cards (`tests/parser-corpus.generated.json`: 419 of 590, 71%), whose refusals it
   groups by opening words and by shape, biggest first. A test plays about 190 pool cards with
   the parsed script and with the hand script and checks the table ends the same; others play
   each template on a made-up card and check a near miss is refused.

@@ -480,6 +480,23 @@ sacrifice cost (ability or spell) sees `sacrificed` and `sacrificedPower` (as it
   or a function), and optionally `life`, `damage`, `sacrifice`, `when`, `fromHand`,
   `manual`, `discardHand`, `instant`, `chosenType` or `subtype` ("spend this mana only to
   cast an Angel spell").
+- Worked out as it is used: `amountOf` ("X mana, where X is its power"), `producesOf` (the
+  exact lists it may make: `[colorsAmong(g, pid)]` for "one mana of each color among
+  permanents you control", `combinations(['U', 'R'], x)` for "any combination of {U} and/or
+  {R}"). `activateOncePerTurn` for "Activate only once each turn" (602.5b; a trigger's
+  `oncePerTurn` is the different "triggers only once each turn"); `types` with `minMv` and
+  `orX` for "Spend this mana only to cast creature spells with mana value 4 or greater or
+  creature spells with {X} in their mana costs".
+- `tapCreature` is a cost of tapping other untapped permanents (`TapUntapped`): `{ legendary }`
+  for Relic of Legends, `{ type: 'Artifact' }` for "an untapped artifact", `{ type: '', token:
+  true, count: 2 }` for "two untapped tokens". With `noTap` the source's own {T} isn't part
+  of it. An activated ability's `cost.tapUntapped` is the same `TapUntapped` (`{ type: '',
+  subtype: 'Elf', count: 3 }` for "three untapped Elves"); the action names the permanents in
+  `crew`, and `tapCostOptions` lists them: the source among them unless its own {T} is part
+  of the cost.
+- `tappedForMana(g, self, { source, player, produced })` is a triggered mana ability (605.1b)
+  on a permanent being tapped for mana: it returns who adds the mana and the lists to choose
+  among, or null. It resolves at once, by hand and in auto-pay.
 - `addMana(g, pid, ['B', 'B', 'B'], self)` for rituals; `addMana(..., { keep: true })`
   lasts the turn.
 - `noUntap: true` for "doesn't untap".
@@ -552,6 +569,11 @@ partway through the action, which is then applied again with their answer (`Game
 are shorthand for common ones. A card's own way of entering stays `entersTapped`,
 `entersWith` or `replaceEnter`.
 
+Exalted (702.83) and riot (702.136) need no script: the engine reads them from the keyword,
+printed or given by a static ability (`keywords: ['riot']`), and counts each instance. Riot is a
+built-in optional replacement effect whose `otherwise` (what happens if it isn't applied)
+gives haste; any optional `Replacement` can carry one.
+
 **Other static hooks**
 
 `forbids` ("can't cast"/"can't activate"), `grantsFlash`, `uncounterable`,
@@ -588,8 +610,8 @@ ability already on the stack, which exists apart from its source (113.7a).
 | --- | --- |
 | `addCounters(g, card, n, kind)` | adds counters |
 | `createToken(g, pid, 'Treasure')` | makes a predefined token (`'Food'`, `'Clue'` too) |
-| `addEffect` | an effect until end of turn |
-| `delay` with `delayed[key]` | a delayed trigger (603.7) |
+| `addEffect` | an effect until end of turn; `{ kind: 'mayCast', card, moves, play: true, free: true }` is "you may play that card without paying its mana cost" (Urza) |
+| `delay` with `delayed[key]` | a delayed trigger (603.7); `step: 'main'` is "your next main phase", precombat or postcombat |
 | `extraTurn`, `winGame`, `loseGame` | as named |
 | `mill`, `discard`, `discardHand`, `surveil` | as named |
 | `discover(g, pid, n)` | discover N (701.57a), the cast-or-hand choice included |
