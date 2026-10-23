@@ -4,6 +4,7 @@
 // on what other players do next.
 import {
   abilityHasX,
+  sacrificesFor,
   canPlot,
   activatable,
   autoAssignments,
@@ -75,6 +76,7 @@ import {
   opponentsOf,
   itemScript,
   attackCost,
+  attackForbidden,
   canPayAttacks,
   isFree,
   escapes,
@@ -475,7 +477,8 @@ function activations(g: Game, pid: PlayerId, c: Card, ref: AbilityRef): Action[]
   const discard = n ? [...discardOptions(g, pid, c, ab?.cost.discardFilter)].sort((a, b) => cardWant(g, pid, a) - cardWant(g, pid, b)).slice(0, n).map((x) => x.id) : undefined;
   // "Sacrifice a creature": the least valuable ones, and not the source itself if there are others.
   const fodder = ab?.cost.sacrificeOne ? [...activationSacrificeOptions(g, pid, c, activated)].sort((a, b) => Number(a.id === c.id) - Number(b.id === c.id) || sacrificeWorth(g, a) - sacrificeWorth(g, b)) : [];
-  const victims = fodder.slice(0, ab?.cost.sacrificeCount ?? 1);
+  // "Sacrifice X Squirrels" takes as many as X (107.3a), chosen with each X below.
+  const victimsFor = (x: number | undefined) => fodder.slice(0, ab ? sacrificesFor(ab, x ?? 0) : 0);
   // "Exile a creature you control": the least valuable one, not the source if there is another.
   const exilable = ab?.cost.exileOne ? [...activationExileOptions(g, pid, c, activated)].sort((a, b) => sacrificeWorth(g, a) - sacrificeWorth(g, b)) : [];
   const exiled = exilable.find((x) => x.id !== c.id) ?? exilable[0];
@@ -496,7 +499,7 @@ function activations(g: Game, pid: PlayerId, c: Card, ref: AbilityRef): Action[]
         targets,
         crew,
         ...(discard ? { discard } : {}),
-        ...(victims.length ? { sacrifice: victims.map((x) => x.id) } : {}),
+        ...(victimsFor(x).length ? { sacrifice: victimsFor(x).map((v) => v.id) } : {}),
         ...(exiled ? { exile: [exiled.id] } : {}),
         ...(graveyard ? { graveyard } : {}),
         ...(modes ? { modes } : {}),
@@ -717,6 +720,8 @@ function planAttacks(g: Game, pid: PlayerId): Map<string, AttackOption> {
     let best: AttackOption | null = null;
     let bestScore = -Infinity;
     for (const { option, blockers, bias } of opps) {
+      // A restriction may keep it from attacking this one (508.1c).
+      if (attackForbidden(g, c, option.defender, option.target)) continue;
       const unblocked = attackWorth(g, pid, c, option);
       if (unblocked <= 0) continue;
       const able = blockers.filter((b) => canBlock(g, b, c));
@@ -745,7 +750,7 @@ function planAttacks(g: Game, pid: PlayerId): Map<string, AttackOption> {
   if (idle.length) {
     const players = opps.filter((o) => o.option.target === null);
     const victim = players.sort((a, b) => b.bias - a.bias).find(({ blockers }) => idle.length >= blockers.length + 2);
-    if (victim) for (const c of idle) plan.set(c.id, victim.option);
+    if (victim) for (const c of idle) if (!attackForbidden(g, c, victim.option.defender, victim.option.target)) plan.set(c.id, victim.option);
   }
   // "No more than one creature can attack [this planeswalker] each combat" (508.1c): only the best ones.
   for (const { option } of opps) {

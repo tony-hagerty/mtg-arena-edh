@@ -5,7 +5,7 @@ import { describe, expect, it } from 'vitest';
 import { cardData, registerCards } from '../src/cards/db';
 import { needsScript, parseCard, scriptCards } from '../src/cards/oracle';
 import { parseResults } from '../src/cards/oracle-report';
-import { activatedAt, activationCost, applyAction, applyBotAction, botAction, castCost, colorsOf, destroy, draw, draw as drawCards, enterBattlefield, hasScript, isCreature, isLand, legalTargets, makeCard, manaAbilities, permanent, scriptOf, spellTargets, stats } from '../src/engine';
+import { activatedAt, activationCost, applyAction, applyBotAction, botAction, castCost, colorsOf, createToken, destroy, draw, draw as drawCards, enterBattlefield, gainLife, hasScript, isCreature, isLand, legalTargets, makeCard, manaAbilities, permanent, scriptOf, spellTargets, stats, tap } from '../src/engine';
 import type { Action, ActivatedAbility, Card, CardData, CardScript, Ctx, Game, TargetRef, TargetSpec } from '../src/engine';
 import { registerScripts } from '../src/engine/registry';
 import fixtureData from './fixtures.generated.json';
@@ -1242,6 +1242,12 @@ describe('trigger doublers and "one or more creatures" combat damage from the co
     // A land entering isn't an artifact or creature: landfall once.
     g = settle(run(g, { type: 'playLand', card: byName(g, 0, 'Plains', 'hand')!.id }));
     expect(g.players[0].life).toBe(41);
+    // "Whenever one or more creatures you control enter" is caused by their entering too (603.2c, 603.2d): twice for a token entering.
+    teach('Test Herald', 'Enchantment', 'Whenever one or more creatures you control enter, you gain 1 life.');
+    g = produce(g, (d) => void put(d, 0, 'Test Herald'));
+    // The token's entering is one event; the ability waits for a player to get priority (603.3).
+    g = settle(applyAction(produce(g, (d) => void createToken(d, 0, 'Soldier')), { type: 'pass' }));
+    expect(g.players[0].life).toBe(43);
     // An opponent's creature entering: their ability isn't a permanent you control.
     g = produce(g, (d) => {
       d.active = 1;
@@ -1367,6 +1373,118 @@ describe('conditions as it resolves, "that land", "that player", granted mana (6
     expect(manaAbilities(g, byName(g, 0, 'Plains')!).map((m) => m.colors.length)).toEqual([1, 5]);
     expect(manaAbilities(g, byName(g, 1, 'Plains')!).flatMap((m) => m.colors)).toEqual(['W']);
     expect(refusal('Artifact', 'Lands you control have "{T}: Add one mana of any color. Activate only as a sorcery."')).not.toBeNull();
+  });
+});
+
+/** `settle`, and triggered abilities waiting to go on the stack too (603.3). */
+function settleAll(g: Game): Game {
+  for (let i = 0; i < 60 && (g.decision || g.stack.length || g.triggers.length); i++) g = g.decision ? applyBotAction(g, botAction(g, g.priority)) : applyAction(g, { type: 'pass' });
+  return g;
+}
+
+describe("the tokens group's wordings (EDHREC)", () => {
+  it('"if this is the first time this ability has resolved this turn", then "if it\'s the second time" (Omnath): as it resolves (608.2)', () => {
+    teach('Test Tally', 'Creature — Human', "Whenever you gain life, draw a card if this is the first time this ability has resolved this turn. If it's the second time, you lose 3 life.");
+    let g = emptyGame((d) => void put(d, 0, 'Test Tally'));
+    const hand = g.players[0].hand.length;
+    g = settleAll(produce(g, (d) => void gainLife(d, 0, 1)));
+    expect([g.players[0].hand.length, g.players[0].life]).toEqual([hand + 1, 41]);
+    g = settleAll(produce(g, (d) => void gainLife(d, 0, 1)));
+    expect([g.players[0].hand.length, g.players[0].life]).toEqual([hand + 1, 39]);
+    g = settleAll(produce(g, (d) => void gainLife(d, 0, 1)));
+    expect([g.players[0].hand.length, g.players[0].life]).toEqual([hand + 1, 40]);
+    // A spell has no "this ability"; "if it's the second time" needs the first.
+    expect(refusal('Instant', 'Draw a card if this is the first time this ability has resolved this turn.')).toMatchObject({ reason: 'a spell counting how many times "this ability" has resolved' });
+    expect(refusal('Creature — Human', "Whenever you gain life, if it's the second time, draw a card.")).not.toBeNull();
+    expect(parse('Creature — Human', 'Whenever you gain life, you gain 1 life. If this is the second time this ability has resolved this turn, draw a card.').ok).toBe(true);
+  });
+
+  it('"[This] deals damage to any target equal to the number of Elves you control" (Rin and Seri)', () => {
+    teach('Test Pack Leader', 'Creature — Elf', '{T}: This creature deals damage to any target equal to the number of Elves you control.');
+    let g = emptyGame((d) => {
+      put(d, 0, 'Test Pack Leader');
+      put(d, 0, 'Llanowar Elves');
+      put(d, 1, 'Llanowar Elves');
+    });
+    g = settleAll(run(g, { type: 'activate', card: byName(g, 0, 'Test Pack Leader')!.id, targets: [p(1)] }));
+    expect(g.players[1].life).toBe(38);
+    expect(refusal('Creature — Elf', '{T}: This creature deals damage to any target equal to twice the number of Elves you control.')).not.toBeNull();
+  });
+
+  it('"Put target creature card from a graveyard onto the battlefield under its owner\'s control" (Kenrith, 110.2a)', () => {
+    teach('Test Recall', 'Sorcery', "Put target creature card from a graveyard onto the battlefield under its owner's control.");
+    let g = emptyGame((d) => {
+      put(d, 0, 'Test Recall', 'hand');
+      put(d, 0, 'Plains');
+      put(d, 1, 'Serra Angel', 'graveyard');
+    });
+    g = settleAll(run(g, { type: 'cast', card: byName(g, 0, 'Test Recall', 'hand')!.id, targets: [cardRef(byName(g, 1, 'Serra Angel', 'graveyard')!.id)] }));
+    expect(byName(g, 1, 'Serra Angel')).toBeDefined();
+    expect(refusal('Sorcery', "Put target creature card from a graveyard onto the battlefield under target player's control.")).not.toBeNull();
+  });
+
+  it('"Whenever this or another nontoken Shrine you control enters" (Go-Shintai): itself, and others', () => {
+    teach('Test Shrine Keeper', 'Enchantment Creature — Shrine', 'Whenever this creature or another nontoken Shrine you control enters, you gain 1 life.');
+    const enterOne = (g: Game, pid: number) =>
+      settleAll(
+        produce(g, (d) => {
+          d.players[pid].hand.push(makeCard(d, 'Test Shrine Keeper', pid, 'hand'));
+          enterBattlefield(d, d.players[pid].hand[d.players[pid].hand.length - 1]);
+        }),
+      );
+    let g = enterOne(emptyGame(), 0);
+    expect(g.players[0].life).toBe(41);
+    // The second sees itself enter, the first sees another: two triggers.
+    g = enterOne(g, 0);
+    expect(g.players[0].life).toBe(43);
+    // Not another player's.
+    g = enterOne(g, 1);
+    expect(g.players[0].life).toBe(43);
+    expect(refusal('Enchantment Creature — Shrine', 'Whenever this creature or a Shrine you control enters, you gain 1 life.')).not.toBeNull();
+  });
+
+  it('"Whenever one or more tokens you control enter" (Marneus Calgar): once for each event (603.2c)', () => {
+    teach('Test Tactician Muster', 'Creature — Human', 'Whenever one or more tokens you control enter, you gain 1 life.');
+    expect(parse('Creature — Human', 'Whenever one or more other creatures you control enter, you gain 1 life.').ok).toBe(true);
+    let g = emptyGame((d) => void put(d, 0, 'Test Tactician Muster'));
+    g = settleAll(produce(g, (d) => void createToken(d, 0, 'Soldier', 3)));
+    expect(g.players[0].life).toBe(41);
+    g = settleAll(produce(g, (d) => void createToken(d, 1, 'Soldier', 3)));
+    expect(g.players[0].life).toBe(41);
+    expect(refusal('Creature — Human', 'Whenever one or more tokens you control leave the battlefield, you gain 1 life.')).not.toBeNull();
+  });
+
+  it('"Whenever a Dwarf you control becomes tapped" (Magda)', () => {
+    teach('Test Forge Hand', 'Creature — Dwarf', 'Whenever a Dwarf you control becomes tapped, you gain 1 life.');
+    let g = emptyGame((d) => {
+      put(d, 0, 'Test Forge Hand');
+      put(d, 0, 'Llanowar Elves');
+    });
+    g = settleAll(produce(g, (d) => void tap(d, byName(d, 0, 'Test Forge Hand')!)));
+    g = settleAll(produce(g, (d) => void tap(d, byName(d, 0, 'Llanowar Elves')!)));
+    expect(g.players[0].life).toBe(41);
+    expect(refusal('Creature — Dwarf', 'Whenever a Dwarf you control becomes untapped, you gain 1 life.')).not.toBeNull();
+  });
+
+  it('"Sacrifice five Treasures:", and a search for "an artifact or Dragon card" (Magda, 701.23)', () => {
+    teach('Test Hoard', 'Artifact', 'Sacrifice five Treasures: Search your library for an artifact or Dragon card, put that card onto the battlefield, then shuffle.');
+    const ab = scriptOf('Test Hoard').activated as ActivatedAbility;
+    expect(ab.cost).toMatchObject({ sacrificeCount: 5, sacrificeOne: { label: 'five treasures' } });
+    expect(refusal('Artifact', 'Sacrifice five Treasures: Search your library for an artifact or Dragonling card, put that card onto the battlefield, then shuffle.')).not.toBeNull();
+  });
+
+  it('a token with an enchantment type: "a 1/1 colorless Shrine enchantment creature token" (205.3d)', () => {
+    expect(parse('Sorcery', 'Create a 1/1 colorless Shrine enchantment creature token.').ok).toBe(true);
+    expect(cardData('Shrine 1/1 C enchantment')).toMatchObject({ typeLine: 'Token Enchantment Creature — Shrine' });
+    // Shrine is an enchantment type: a token that isn't an enchantment can't be one.
+    expect(refusal('Sorcery', 'Create a 1/1 colorless Shrine creature token.')).toMatchObject({ reason: '"shrine" isn\'t a creature type' });
+  });
+
+  it('a flavor word (207.2d) is a label when the card lists it; a keyword written the same way (boast) isn\'t', () => {
+    const tactician = (keywords: string[], text = 'Master Tactician — Whenever you gain life, draw a card.') => parseCard(fake('Test Tactician', 'Creature — Human', text, { keywords }));
+    expect(tactician(['Master Tactician']).ok).toBe(true);
+    expect(tactician([]).ok).toBe(false);
+    expect(tactician(['Boast'], 'Boast — {1}: Draw a card.').ok).toBe(false);
   });
 });
 

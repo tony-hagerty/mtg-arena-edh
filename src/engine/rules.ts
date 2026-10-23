@@ -8,6 +8,7 @@ import { replace, whileArriving } from './replace';
 export { isArriving } from './replace';
 import type {
   ActivatedAbility,
+  TokenSpec,
   BroadcastHook,
   CastVia,
   AskChoice,
@@ -525,6 +526,15 @@ export function canAttack(g: Game, c: Card): boolean {
 export function combatDamageOf(g: Game, c: Card): number {
   const s = stats(g, c);
   return s.keywords.has(ASSIGNS_TOUGHNESS) ? s.toughness : s.power;
+}
+
+/**
+ * Does a restriction stop creature `c` attacking `defender`, or the planeswalker or battle
+ * `target` (508.1c)? "Each creature that's enchanted by an Aura you control can't attack you or
+ * planeswalkers you control" (Eriette). `canAttack` is whether it can attack at all.
+ */
+export function attackForbidden(g: Game, c: Card, defender: PlayerId, target: string | null): boolean {
+  return battlefield(g).some((src) => mayHaveScript(src, 'forbidsAttack') && !!abilitiesOf(g, src).forbidsAttack?.(g, src, c, defender, target));
 }
 
 export function canBlock(g: Game, blocker: Card, attacker: Card): boolean {
@@ -2555,7 +2565,7 @@ const watchingGraveyard = (g: Game, permanents: Card[]) => permanents.some((x) =
 
 /** Is anything among `permanents` listening for permanents leaving the battlefield (so `moveCard` needs to remember them)? */
 const watchingLeaves = (g: Game, permanents: Card[]) =>
-  permanents.some((x) => {
+  [...permanents, ...emblemsOf(g)].some((x) => {
     const s = abilitiesOf(g, x);
     return s.onLeave || s.onPermanentLeaves || s.onExiled;
   });
@@ -2595,7 +2605,7 @@ function fireLeaves(g: Game, l: Leaving) {
   const was = lookBack;
   lookBack = l.before ?? was;
   try {
-    const watchers = lookBack ?? battlefield(g);
+    const watchers = [...(lookBack ?? battlefield(g)), ...emblemsOf(g)];
     for (const { card, to, attacking } of l.left) {
       trigger(g, card, 'onLeave', { to });
       for (const w of watchers) if (abilitiesOf(g, w).onPermanentLeaves) trigger(g, w, 'onPermanentLeaves', { left: card, to, attacking });
@@ -2676,6 +2686,9 @@ export function tap(g: Game, c: Card) {
   if (c.tapped) return;
   c.tapped = true;
   trigger(g, c, 'onTapped', {});
+  // "Whenever a Dwarf you control becomes tapped" (Magda): every permanent hears it. Lands tap
+  // for mana all the time, so only when something on the battlefield may have such an ability.
+  if (anyGrantFor('onPermanentTapped') || [...battlefield(g), ...emblemsOf(g)].some((x) => mayHaveScript(x, 'onPermanentTapped'))) broadcast(g, 'onPermanentTapped', { tapped: c });
 }
 
 /** Untaps a permanent (701.26b), if it is still there. */
@@ -2779,15 +2792,16 @@ export function triggerTimes(g: Game, source: Card, hook: TriggerHook, event: ob
  * abilities, keyword ones included, and every "whenever [a permanent] enters". Counters it
  * enters with are another event (122.6).
  */
-export const ENTERING_HOOKS: TriggerHook[] = ['onEnter', 'onCreatureEnters', 'onPermanentEnters', 'onLandfall', 'onEvoked', 'onOffspring'];
+export const ENTERING_HOOKS: TriggerHook[] = ['onEnter', 'onCreatureEnters', 'onPermanentEnters', 'onPermanentsEnter', 'onLandfall', 'onEvoked', 'onOffspring'];
 
-/** The permanent whose entering set off `source`'s ability on `hook` (one of `ENTERING_HOOKS`): the source itself, or the one the event names. */
-export function enteringPermanent(hook: TriggerHook, source: Card, event: object): Card | undefined {
-  const e = event as Partial<TriggerEvents['onCreatureEnters'] & TriggerEvents['onLandfall']>;
-  if (hook === 'onEnter' || hook === 'onEvoked' || hook === 'onOffspring') return source;
-  if (hook === 'onCreatureEnters' || hook === 'onPermanentEnters') return e.entered;
-  if (hook === 'onLandfall') return e.land;
-  return undefined;
+/** The permanents whose entering set off `source`'s ability on `hook` (one of `ENTERING_HOOKS`): the source itself, or the ones the event names ("whenever one or more ... enter" names several). */
+export function enteringPermanents(hook: TriggerHook, source: Card, event: object): Card[] {
+  const e = event as Partial<TriggerEvents['onCreatureEnters'] & TriggerEvents['onPermanentsEnter'] & TriggerEvents['onLandfall']>;
+  if (hook === 'onEnter' || hook === 'onEvoked' || hook === 'onOffspring') return [source];
+  if (hook === 'onCreatureEnters' || hook === 'onPermanentEnters') return e.entered ? [e.entered as Card] : [];
+  if (hook === 'onPermanentsEnter') return (e.entered as Card[] | undefined) ?? [];
+  if (hook === 'onLandfall') return e.land ? [e.land] : [];
+  return [];
 }
 
 /**
@@ -2930,7 +2944,24 @@ export function triggerText(item: StackItem): string | undefined {
   return t && typeof t !== 'function' ? t.text : undefined;
 }
 
-/** Offers an event to every permanent on the battlefield, and to cards with abilities that work from a graveyard. */
+/** Every emblem in the command zone (114), of the players still in the game (800.4a). */
+export const emblemsOf = (g: Game): Card[] => g.players.flatMap((p) => (p.lost ? [] : (p.emblems ?? [])));
+
+/**
+ * Player `pid` gets an emblem (114.2): emblem `name` (its data and script are registered
+ * under that name) goes into the command zone, owned and controlled by them. It has no other
+ * characteristics (114.3) and is neither a card nor a permanent (114.5).
+ */
+export function createEmblem(g: Game, pid: PlayerId, name: string): Card | undefined {
+  const p = g.players[pid];
+  if (p.lost) return undefined;
+  (p.emblems ??= []).push(makeCard(g, name, pid, 'command', { emblem: true }));
+  const made = p.emblems[p.emblems.length - 1];
+  log(g, `${says(p, 'gets')} an emblem (${label(made)}).`, pid, [made]);
+  return made;
+}
+
+/** Offers an event to every permanent on the battlefield, to cards with abilities that work from a graveyard, and to emblems. */
 export function broadcast<H extends BroadcastHook>(g: Game, hook: H, event: TriggerEvents[H]) {
   // Triggering only puts abilities in `Game.triggers`, which no characteristic depends on.
   settled(g, () => {
@@ -2941,6 +2972,8 @@ export function broadcast<H extends BroadcastHook>(g: Game, hook: H, event: Trig
     try {
       for (const c of battlefield(g)) trigger(g, c, hook, event);
       for (const p of g.players) for (const c of p.graveyard) if (scriptFor(c).fromGraveyard?.includes(hook)) trigger(g, c, hook, event);
+      // An emblem's abilities work in the command zone (114.4).
+      for (const c of emblemsOf(g)) trigger(g, c, hook, event);
     } finally {
       watchers = outer;
     }
@@ -2976,6 +3009,16 @@ export const canProtect = (g: Game, c: Card, pid: PlayerId) =>
 function arrive(g: Game, c: Card, opts: EnterOpts) {
   const counters = whileArriving([c.id], () => setUp(g, c, opts));
   entered(g, c, opts, counters);
+  enteredTogether(g, [c]);
+}
+
+/**
+ * "Whenever one or more [permanents] enter" (Marneus Calgar): triggers once for the whole
+ * event, after each permanent's own entering abilities, with every permanent that entered in
+ * it as it was then (603.2c, 603.6a, 603.10a).
+ */
+function enteredTogether(g: Game, cards: Card[]) {
+  if (cards.length) broadcast(g, 'onPermanentsEnter', { entered: cards.map(snapshot) });
 }
 
 /** The `Delayed.key` of warp's exile (702.185a). Its `data` names the permanent: `id` and `moves`. */
@@ -3286,6 +3329,7 @@ function putTogether(g: Game, ready: { id: string; moves: number; opts: EnterOpt
     () => now.map(({ c, opts }) => setUp(g, c, opts)),
   );
   now.forEach(({ c, opts }, i) => entered(g, c, opts, counters[i]));
+  enteredTogether(g, now.map((x) => x.c));
 }
 
 /**
@@ -3372,8 +3416,18 @@ export function becomeCopy(g: Game, c: Card, copy: CopyInfo) {
  * copies of (707.2), set before they enter.
  */
 export function createToken(g: Game, pid: PlayerId, key: string, count = 1, opts: { tapped?: boolean; copy?: CopyInfo | null; attachTo?: string } = {}): Card[] {
-  if (g.players[pid].lost || count <= 0) return [];
-  const happens = replace(g, { kind: 'tokens', player: pid, tokens: [{ key, count, copy: opts.copy ?? null }] });
+  return createTokens(g, pid, [{ key, count, copy: opts.copy ?? null }], opts);
+}
+
+/**
+ * Creates several kinds of token at once, as one event (111.2): "create a Treasure token and a
+ * Food token". Replacement effects see them all together (614.1a: Chatterfang's "that many"), and
+ * "whenever one or more tokens enter" triggers once (603.2c).
+ */
+export function createTokens(g: Game, pid: PlayerId, specs: (Omit<TokenSpec, 'copy'> & { copy?: TokenSpec['copy'] })[], opts: { tapped?: boolean; attachTo?: string } = {}): Card[] {
+  const tokens = specs.filter((t) => t.count > 0).map((t) => ({ ...t, copy: t.copy ?? null }));
+  if (g.players[pid].lost || !tokens.length) return [];
+  const happens = replace(g, { kind: 'tokens', player: pid, tokens });
   if (happens.kind !== 'tokens') return [];
   const owner = happens.player;
   if (g.players[owner].lost) return [];
@@ -3397,6 +3451,7 @@ export function createToken(g: Game, pid: PlayerId, key: string, count = 1, opts
     () => out.map((c) => setUp(g, c, enter)),
   );
   out.forEach((c, i) => entered(g, c, enter, counters[i]));
+  enteredTogether(g, out);
   return out;
 }
 
@@ -3439,7 +3494,7 @@ export function hasName(c: Card, name: string): boolean {
 export function dieMany(g: Game, cards: Card[], verb = 'dies') {
   const dying = cards.filter((c) => c.zone === 'battlefield');
   if (!dying.length) return;
-  const listeners = battlefield(g)
+  const listeners = [...battlefield(g), ...emblemsOf(g)]
     .filter((c) => abilitiesOf(g, c).onCreatureDies || abilitiesOf(g, c).onPlaneswalkerDies)
     .map((c) => rememberPermanent(g, c));
   // "Whenever a player sacrifices a permanent" looks back in time too, so a sacrificed Mayhem Devil sees itself.
@@ -3823,6 +3878,8 @@ export function transform(g: Game, c: Card | undefined, since?: Card) {
   c.face = 1 - c.face;
   c.ts = g.nextId++; // a new timestamp as it transforms (613.7g)
   log(g, `${before} transforms into ${label(c)}.`, c.owner, [c]);
+  // "As this creature transforms into [this face], ..." is applied while it transforms, not afterward (712.20).
+  abilitiesOf(g, c).asTransforms?.(g, c);
 }
 
 /** Removes up to `n` counters of `kind` from a permanent. */
@@ -4205,6 +4262,40 @@ export const attachedBonus =
 export const resolvingItem = (g: Game) => g.stack.find((x) => x.id === g.resolving);
 
 /**
+ * Which ability of which object a stack item is, for counting how many times "this ability has
+ * resolved this turn": its source as the object it was (400.7: one that changed zones is a
+ * new object, with new abilities) and the ability among that face's (an activated one by its
+ * index, a triggered one by its hook and place in it, one another card gave it by that card).
+ * A copy of an ability has the same source and counts as that ability (707.10b).
+ */
+export function resolutionKey(item: StackItem): string {
+  const which =
+    item.kind === 'activated'
+      ? `a${item.ability !== undefined ? `l${item.ability}` : (item.scriptIndex ?? item.activated ?? 0)}${item.borrowed ? `@${item.borrowed}` : ''}`
+      : `t${item.hook}:${item.trigger ?? 0}${item.granted ? `@${item.granted.from}#${item.granted.index}` : ''}`;
+  return `${item.card.id}/${item.card.moves}/${scriptName(item.card)}/${which}`;
+}
+
+/** Ability `item` resolves (608.2): one more time this turn for "if this is the second time this ability has resolved this turn". */
+export function countResolution(g: Game, item: StackItem) {
+  // An ability whose targets had all gone did nothing (608.2b): it didn't resolve.
+  if (item.fizzled) return;
+  if (g.resolutions?.turn !== g.turn) g.resolutions = { turn: g.turn, counts: {} };
+  const key = resolutionKey(item);
+  g.resolutions.counts[key] = (g.resolutions.counts[key] ?? 0) + 1;
+}
+
+/**
+ * How many times the ability resolving now has resolved this turn, this time included: 2 is
+ * "the second time this ability has resolved this turn". 0 if no ability is resolving.
+ */
+export function timesResolved(g: Game): number {
+  const item = resolvingItem(g);
+  if (!item || item.kind === 'spell' || g.resolutions?.turn !== g.turn) return 0;
+  return g.resolutions.counts[resolutionKey(item)] ?? 0;
+}
+
+/**
  * The source of the ability resolving now, if it is still the same permanent it was when
  * the ability was activated or triggered (400.7): "this artifact" means only that object.
  */
@@ -4289,6 +4380,7 @@ export function searchable(g: Game, c: Card, find?: Find): boolean {
   if ((find.types || find.keywords) && !typed && !keyworded) return false;
   // Its subtypes as they are in that zone: a changeling card is every creature type there too (702.73a).
   if (find.subtypes && !find.subtypes.some((x) => subtypesOf(g, c).includes(x))) return false;
+  if (find.kinds && !find.kinds.types.some((x) => hasType(g, c, x)) && !find.kinds.subtypes.some((x) => subtypesOf(g, c).includes(x))) return false;
   if (find.costs && !find.costs.includes(d.manaCost)) return false;
   if (find.name && !hasName(c, find.name)) return false;
   return find.maxMv === undefined || d.cmc <= find.maxMv;
@@ -4729,9 +4821,9 @@ export function temptWithRing(g: Game, pid: PlayerId, then?: string, data: Recor
   const p = g.players[pid];
   if (p.lost) return false;
   if (!p.ring) {
-    const emblem = makeCard(g, THE_RING, pid, 'command');
-    p.ring = { tempted: 0, bearer: null, emblem, ts: emblem.ts };
-    log(g, `${says(p, 'gets')} the emblem The Ring.`, pid);
+    // An emblem in the command zone, like any other (114.2).
+    const emblem = createEmblem(g, pid, THE_RING)!;
+    p.ring = { tempted: 0, bearer: null, ts: emblem.ts };
   }
   const creatures = creaturesOf(g, pid);
   if (creatures.length > 1) {
@@ -4764,9 +4856,10 @@ export function finishTempting(g: Game, pid: PlayerId, chosen: Card | undefined)
  */
 export function ringTrigger<H extends 'onAttack' | 'onBecomesBlocked' | 'onCombatDamageToPlayer'>(g: Game, pid: PlayerId, times: number, hook: H, event: TriggerEvents[H]) {
   const ring = g.players[pid].ring;
-  if (!ring || ring.tempted < times || g.players[pid].lost) return;
+  const emblem = g.players[pid].emblems?.find((e) => e.name === THE_RING);
+  if (!ring || !emblem || ring.tempted < times || g.players[pid].lost) return;
   const remembered = Object.fromEntries(Object.entries(event).map(([k, v]) => [k, isCard(v) ? snapshot(v) : v]));
-  g.triggers.push({ id: `s${g.nextId++}`, kind: 'triggered', controller: pid, card: snapshot(ring.emblem), hook, event: remembered, targets: [] });
+  g.triggers.push({ id: `s${g.nextId++}`, kind: 'triggered', controller: pid, card: snapshot(emblem), hook, event: remembered, targets: [] });
 }
 
 registerScripts({
@@ -5081,6 +5174,8 @@ function eliminate(g: Game, p: Player, reason: string) {
   p.graveyard = [];
   p.exile = [];
   p.command = [];
+  // Their emblems leave the game too (800.4a, 114.2).
+  if (p.emblems) p.emblems = [];
   p.pool = [];
   if (held.length) release(g, held);
 }
