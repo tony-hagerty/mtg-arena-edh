@@ -1250,13 +1250,15 @@ export function addMana(g: Game, pid: PlayerId, syms: ManaSym[], source: Card, o
  * don't lose this mana as steps and phases end." An ability that triggers whenever a player
  * firebends triggers as it resolves (702.189b).
  */
-export const firebending = (n: number): Trigger<TriggerEvents['onAttack']> => ({
-  text: `Firebending ${n}`,
-  resolve: (g, { self, you }) => {
-    addMana(g, you, Array<ManaSym>(n).fill('R'), self, { untilEndOfCombat: true });
-    bend(g, you, 'firebend');
-  },
-});
+export function firebending(n: number): Trigger<TriggerEvents['onAttack']> {
+  return {
+    text: `Firebending ${n}`,
+    resolve: (g, { self, you }) => {
+      addMana(g, you, Array<ManaSym>(n).fill('R'), self, { untilEndOfCombat: true });
+      bend(g, you, 'firebend');
+    },
+  };
+}
 
 /**
  * Player `pid` has bent (waterbend 701.67c, earthbend 701.66b, firebend 702.189b, airbend
@@ -1343,19 +1345,21 @@ export function landsAllowed(g: Game, pid: PlayerId): number {
  * on this permanent equal to the tapped creature's power. Activate only as a sorcery." The power
  * is the creature's as the ability resolves, or as it last was (608.2h).
  */
-export const station = (): ActivatedAbility => ({
-  cost: { station: true },
-  sorcery: true,
-  text: 'Station: tap another untapped creature you control to put charge counters equal to its power on this.',
-  resolve: (g, { self, stationed }) => {
-    const it = permanent(g, self.id);
-    if (!it || !stationed) return;
-    const now = permanent(g, stationed.id);
-    const power = stats(g, now && now.moves === stationed.moves ? now : stationed).power;
-    if (power > 0) addCounters(g, it, power, 'charge');
-    log(g, `${label(stationed)} stations ${label(it)}: ${power} charge counter${power === 1 ? '' : 's'}.`, self.controller, [it]);
-  },
-});
+export function station(): ActivatedAbility {
+  return {
+    cost: { station: true },
+    sorcery: true,
+    text: 'Station: tap another untapped creature you control to put charge counters equal to its power on this.',
+    resolve: (g, { self, stationed }) => {
+      const it = permanent(g, self.id);
+      if (!it || !stationed) return;
+      const now = permanent(g, stationed.id);
+      const power = stats(g, now && now.moves === stationed.moves ? now : stationed).power;
+      if (power > 0) addCounters(g, it, power, 'charge');
+      log(g, `${label(stationed)} stations ${label(it)}: ${power} charge counter${power === 1 ? '' : 's'}.`, self.controller, [it]);
+    },
+  };
+}
 
 /** The monarch's inherent triggered abilities have no source (725.2, an exception to 113.8): this stand-in is their card on the stack. */
 export const THE_MONARCH = 'The Monarch';
@@ -3110,8 +3114,18 @@ export function becomeCopy(g: Game, c: Card, copy: CopyInfo) {
  * copies of (707.2), set before they enter.
  */
 export function createToken(g: Game, pid: PlayerId, key: string, count = 1, opts: { tapped?: boolean; copy?: CopyInfo | null; attachTo?: string } = {}): Card[] {
-  if (g.players[pid].lost || count <= 0) return [];
-  const happens = replace(g, { kind: 'tokens', player: pid, tokens: [{ key, count, copy: opts.copy ?? null }] });
+  if (count <= 0) return [];
+  return createTokens(g, pid, [{ key, count }], opts);
+}
+
+/**
+ * Creates tokens of several kinds as one event ("create that token and a Treasure token", Mr.
+ * House): they are created together (614.16) and enter at the same time (603.6a). See `createToken`.
+ */
+export function createTokens(g: Game, pid: PlayerId, tokens: { key: string; count: number }[], opts: { tapped?: boolean; copy?: CopyInfo | null; attachTo?: string } = {}): Card[] {
+  const wanted = tokens.filter((t) => t.count > 0);
+  if (g.players[pid].lost || !wanted.length) return [];
+  const happens = replace(g, { kind: 'tokens', player: pid, tokens: wanted.map((t) => ({ key: t.key, count: t.count, copy: opts.copy ?? null })) });
   if (happens.kind !== 'tokens') return [];
   const owner = happens.player;
   if (g.players[owner].lost) return [];
@@ -3734,13 +3748,16 @@ export const monstrosity = (n: number, mana: string): ActivatedAbility => ({
 });
 
 /** "Crew N": tap other creatures with total power N or more, and this becomes an artifact creature until end of turn (702.122a). */
-export const crew = (n: number): ActivatedAbility => ({
-  cost: { crew: n },
-  text: `Crew ${n}`,
-  resolve: (g, { self }) => {
-    untilEndOfTurn(g, permanent(g, self.id), { types: ['Artifact', 'Creature'] });
-  },
-});
+// A function declaration, so a hand script loading with the engine can call it (hoisted).
+export function crew(n: number): ActivatedAbility {
+  return {
+    cost: { crew: n },
+    text: `Crew ${n}`,
+    resolve: (g, { self }) => {
+      untilEndOfTurn(g, permanent(g, self.id), { types: ['Artifact', 'Creature'] });
+    },
+  };
+}
 
 /** A static bonus for the creature this Aura or Equipment is attached to (303.4b, 301.5a). */
 export const attachedBonus =
