@@ -2501,11 +2501,14 @@ export const ATTACKING_HOOKS: TriggerHook[] = ['onAttack', 'onCreatureAttacks', 
  * Is `source`'s ability on `hook` for `event` one that a creature dying caused to trigger, for
  * "If a creature dying causes a triggered ability ... to trigger" (Teysa Karlov)? Dying is
  * being put into a graveyard from the battlefield (700.4): the creature's own "when this dies",
- * "whenever a creature dies", a creature card put into a graveyard from the battlefield, a
- * creature leaving the battlefield for a graveyard, and a creature being sacrificed (701.21a).
+ * "whenever a creature dies", a creature card put into a graveyard from the battlefield (an
+ * artifact creature for "whenever an artifact is put into a graveyard from the battlefield")
+ * and a creature leaving the battlefield for a graveyard, the creature as it last was on the
+ * battlefield, effects included (603.10a). An ability that triggers on an event that causes a
+ * creature to die, like "whenever you sacrifice a permanent", isn't caused by the dying (Teysa's rulings).
  */
 export function causedByCreatureDying(g: Game, source: Card, hook: TriggerHook, event: object): boolean {
-  const e = event as Partial<TriggerEvents['onCardToGraveyard'] & TriggerEvents['onPermanentLeaves'] & TriggerEvents['onSacrifice']>;
+  const e = event as Partial<TriggerEvents['onCardToGraveyard'] & TriggerEvents['onPermanentLeaves']>;
   switch (hook) {
     case 'onDies':
       return isCreature(g, source);
@@ -2518,8 +2521,6 @@ export function causedByCreatureDying(g: Game, source: Card, hook: TriggerHook, 
       return e.to === 'graveyard' && isCreature(g, source);
     case 'onPermanentLeaves':
       return e.to === 'graveyard' && !!e.left && isCreature(g, e.left);
-    case 'onSacrifice':
-      return !!e.card && isCreature(g, e.card);
     default:
       return false;
   }

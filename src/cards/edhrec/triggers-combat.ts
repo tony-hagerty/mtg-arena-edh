@@ -85,7 +85,8 @@ registerScripts({
   'Teysa Karlov': {
     // "If a creature dying causes a triggered ability of a permanent you control to trigger,
     // that ability triggers an additional time." (603.2d, 700.4) `causedByCreatureDying` says
-    // which events are a creature dying. Teysa dying alongside it still counts (603.10a).
+    // which events are a creature dying (not "whenever you sacrifice", which triggers on what
+    // caused the death). Teysa dying alongside it still counts (603.10a); each Teysa adds one more.
     doublesTriggers: (g, self, source, hook, event) => source.zone === 'battlefield' && source.controller === self.controller && causedByCreatureDying(g, source, hook, event),
     // "Creature tokens you control have vigilance and lifelink." (613.1f)
     static: (g, self, c) => (c.controller === self.controller && c.isToken && isCreature(g, c) ? { keywords: ['vigilance', 'lifelink'] } : null),

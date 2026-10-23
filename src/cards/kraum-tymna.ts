@@ -77,7 +77,7 @@ import {
   subtypesOf,
 } from '../engine/rules';
 import { canPayLater, cardWant, oracleOnStack, threat } from '../engine/ai';
-import { canSayYes } from '../engine/engine';
+import { canSayYes, putAttacking } from '../engine/engine';
 import type { AskChoice, Card, CardScript, Choice, Ctx, Find, Game, ManaSym, PlayerId, TargetSpec } from '../engine/types';
 import { CREATURE_TYPES } from './db';
 
@@ -381,10 +381,11 @@ registerScripts({
   },
   'Voice of Victory': {
     forbids: (g, self, pid, act) => g.active === self.controller && pid !== self.controller && act.kind === 'cast',
-    // Mobilize 2 (702.181a): two tapped and attacking 1/1 red Warriors, sacrificed at the beginning of the next end step.
-    onAttack: (g, { self, you, defender, target }) => {
+    // Mobilize 2 (702.181a): two tapped and attacking 1/1 red Warriors, sacrificed at the beginning of
+    // the next end step. Their controller chooses what they attack (508.4).
+    onAttack: (g, { self, you }) => {
       const tokens = createToken(g, you, 'Warrior', 2, { tapped: true });
-      for (const t of tokens) g.combat?.attacks.push({ id: t.id, defender, target, blockers: [], blocked: false });
+      putAttacking(g, you, tokens);
       if (tokens.length) delay(g, self, you, { key: 'sacrifice', step: 'end', data: { ids: tokens.map((t) => t.id) } });
     },
     delayed: {
