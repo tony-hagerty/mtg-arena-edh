@@ -1111,6 +1111,42 @@ describe('costs: alternative, overload, reductions, keyword costs (118.9, 702.96
   it('a mana ability that also does something else is refused (605.1a)', () => {
     expect(refusal('Artifact', '{T}: Add {G}{G}. You gain 2 life.')).toMatchObject({ reason: 'a mana ability that does more than add mana' });
   });
+
+  it('affinity (702.41a), given affinity, and cascade on a keyword line or given to spells (702.85)', () => {
+    // "Affinity for artifacts": {1} less for each artifact you control, generic mana only (601.2f).
+    teach('Test Frogmite', 'Artifact Creature — Frog', 'Affinity for artifacts', { manaCost: '{4}', cmc: 4 });
+    const g = emptyGame((d) => {
+      put(d, 0, 'Test Frogmite', 'hand');
+      put(d, 0, 'Sol Ring');
+      put(d, 0, 'Arcane Signet');
+      put(d, 1, 'Sol Ring');
+    });
+    expect(castCost(g, byName(g, 0, 'Test Frogmite', 'hand')!)).toMatchObject({ generic: 2 });
+    // Given to other spells, with its own affinity too ("Affinity for creatures" of each instance applying, 702.41b).
+    teach('Test Balancer', 'Creature — Dragon', 'Affinity for creatures\nInstant and sorcery spells you cast have affinity for creatures.', { manaCost: '{6}{B}{G}', cmc: 8 });
+    const h = emptyGame((d) => {
+      put(d, 0, 'Test Balancer');
+      put(d, 0, 'Serra Angel');
+      put(d, 0, 'Murder', 'hand');
+      put(d, 1, 'Murder', 'hand');
+    });
+    expect(castCost(h, byName(h, 0, 'Murder', 'hand')!)).toMatchObject({ generic: 0, pips: ['B', 'B'] });
+    expect(castCost(h, byName(h, 1, 'Murder', 'hand')!)).toMatchObject({ generic: 1 });
+    // Cascade is the engine's, from the keyword line ("Cascade, cascade" is two instances); "Sliver spells you cast have cascade" gives one more.
+    teach('Test Cascader', 'Sorcery', 'Cascade, cascade\nDraw a card.', { keywords: ['Cascade'], manaCost: '{3}{R}', cmc: 4 });
+    teach('Test Sliver Lord', 'Creature — Sliver', 'Sliver spells you cast have cascade.');
+    const k = emptyGame((d) => {
+      put(d, 0, 'Test Sliver Lord');
+      put(d, 0, 'Test Cascader', 'hand');
+      put(d, 0, 'Mountain', 'battlefield', 4);
+    });
+    const cast = applyAction(k, { type: 'cast', card: byName(k, 0, 'Test Cascader', 'hand')!.id }, { autoPass: false });
+    expect([...cast.triggers, ...cast.stack].filter((t) => t.hook === 'onCascade')).toHaveLength(2);
+    // Near misses are refused: what is counted must be permanents you control, and only your own spells gain it.
+    expect(refusal('Creature — Frog', 'Affinity for cards in your graveyard')).not.toBeNull();
+    expect(refusal('Creature — Sliver', 'Sliver spells your opponents cast have cascade.')).not.toBeNull();
+    expect(refusal('Creature — Dragon', 'Instant spells you cast have affinity for creatures that died this turn.')).not.toBeNull();
+  });
 });
 
 describe('static abilities from the corpus (604.3, 613, 614)', () => {
