@@ -321,6 +321,12 @@ export interface CastChoices {
    */
   convoke?: string[];
   /**
+   * How many of the cost's mana symbols that may be paid with 2 life instead (Phyrexian mana,
+   * 107.4f; K'rrik's {B}) are paid with life, the rest with mana (601.2b: announced before
+   * paying). Left out, auto-pay pays mana first and life only for symbols the mana isn't there for.
+   */
+  payLife?: number;
+  /**
    * Which face to cast, by index into `CardData.faces`: a split card's half (709.3), an
    * adventurer's Adventure (1, 715.3), or a modal double-faced card's face (712.11b).
    * Left out, the front face or normal characteristics.
@@ -1179,7 +1185,8 @@ export type Action =
   /** `exile`: the permanent for an "Exile a creature you control" cost (The Soul Stone). */
   /** `graveyard`: the cards in its controller's graveyard exiled for an "Exile two cards from your graveyard" cost (Matoc). */
   /** `returnAttacker`: the unblocked attacking creature returned to its owner's hand for a ninjutsu cost (702.49a). */
-  | { type: 'activate'; card: string; ability?: number; activated?: number; x?: number; targets?: (TargetRef | null)[]; hold?: boolean; crew?: string[]; discard?: string[]; sacrifice?: string[]; exile?: string[]; graveyard?: string[]; returnAttacker?: string }
+  /** `payLife`: how many of the cost's symbols payable with 2 life are paid with life (see `CastChoices.payLife`). */
+  | { type: 'activate'; card: string; ability?: number; activated?: number; x?: number; targets?: (TargetRef | null)[]; hold?: boolean; crew?: string[]; discard?: string[]; sacrifice?: string[]; exile?: string[]; graveyard?: string[]; returnAttacker?: string; payLife?: number }
   /**
    * `ability`: which of its mana abilities (`manaAbilities`). Left out, the one that suits
    * the player best. `color`: the colour to make, for an ability with a choice. `mana`: the
@@ -1221,8 +1228,8 @@ export type Action =
   | { type: 'commanderZone'; toCommand: boolean }
   /** Answers `assignDamage`: one assignment for each attacker it lists (510.1, 510.1e). */
   | { type: 'assignDamage'; assignments: DamageAssignment[] }
-  /** Pass priority, or finish declaring attackers or blockers. */
-  | { type: 'pass' };
+  /** Pass priority, or finish declaring attackers or blockers. `payLife`: finishing attackers, how many symbols of the attacks' cost payable with 2 life are paid with life (see `CastChoices.payLife`). */
+  | { type: 'pass'; payLife?: number };
 
 // ---------- card scripts ----------
 
@@ -1696,6 +1703,12 @@ export interface AlternativeCost {
    * from the battlefield, draw a card", and is sacrificed at the beginning of the next end step.
    */
   blitz?: boolean;
+  /**
+   * It can be paid only with X at least this (announced together with the cost, 601.2b): Henzie's
+   * blitz for a creature spell with {X} in its cost, which has blitz only if its mana value with
+   * that X is 4 or more (202.3e).
+   */
+  minX?: number;
 }
 
 /** Behaviour for one card name. Anything a card does beyond its printed keywords lives here. */

@@ -149,6 +149,7 @@ import {
   bounce,
   exileUntil,
   castFromExiled,
+  lifeChoices,
   amassOnto,
   finishTempting,
   isRingBearer,
@@ -885,6 +886,10 @@ function choicesOk(g: Game, pid: PlayerId, c: Card, ch: CastChoices): boolean {
   const discard = ch.discard ?? [];
   const hand = new Set(discardOptions(g, pid, c).map((x) => x.id));
   if (discard.length !== discardsFor(script, ch.extra) || new Set(discard).size !== discard.length || discard.some((id) => !hand.has(id))) return false;
+  // Paying life for symbols that allow it (107.4f, K'rrik): whole, not negative, no more than there are.
+  if (ch.payLife !== undefined && (!Number.isInteger(ch.payLife) || ch.payLife < 0 || ch.payLife > lifeChoices(castCost(g, c, { ...ch, payLife: undefined }, pid)))) return false;
+  // An alternative cost that needs X at least so much, like Henzie's blitz for a creature with {X} (202.3e).
+  if (alt?.minX && x < alt.minX) return false;
   const sacrifice = ch.sacrifice ?? [];
   const needs = [...(alt?.sacrifice ? [{ alt: ch.alt, optional: false }] : []), ...(script.additionalCost?.sacrifice ? [{ alt: undefined, optional: !!script.additionalCost.optional }] : [])];
   if (sacrifice.length > needs.length || new Set(sacrifice).size !== sacrifice.length) return false;
@@ -936,7 +941,11 @@ export function canCastAs(g: Game, pid: PlayerId, c: Card, face: number, choices
     const ways = graveyardWays(g, c, face);
     const escaping = escapes(g, c).filter((e) => escapeOptions(g, c).length >= e.exile).map((e): CastChoices => ({ face, escape: Array.from({ length: e.exile }, () => '') }));
     routes = [...(ways.flashback || ways.aftermath || ways.permitted ? [{ face }] : []), ...escaping];
-  } else routes = [...(castsForAlt(g, c) ? [] : [undefined]), ...altCostsOf(g, c, face, pid)].map((alt) => ({ alt, face }));
+  } else {
+    // An alternative cost with a least X is tried with that X (Henzie's blitz, 202.3e).
+    const least = (alt: number | undefined) => alternativeCostAt(g, c, face, alt, pid)?.minX;
+    routes = [...(castsForAlt(g, c) ? [] : [undefined]), ...altCostsOf(g, c, face, pid)].map((alt) => ({ alt, face, ...(least(alt) ? { x: least(alt) } : {}) }));
+  }
   // Each of the additional costs it offers a choice of ("pay 5 life or pay {2}").
   const extras: (number | undefined)[] = script.additionalCost?.oneOf ? script.additionalCost.oneOf.map((_, i) => i) : [undefined];
   return routes.some((r) => modeSets.some((modes) => extras.some((extra) => {
@@ -1590,7 +1599,7 @@ function attackedRef(g: Game, id: string): TargetRef {
 }
 
 /** Locks in the chosen attackers: they tap, and "attacks" abilities trigger (508.1f, 508.1m). */
-function attackersDeclared(g: Game) {
+function attackersDeclared(g: Game, payLife?: number) {
   const combat = g.combat!;
   g.decision = null;
   g.priority = firstPriority(g); // 508.2
@@ -1606,6 +1615,7 @@ function attackersDeclared(g: Game) {
   }
   // Then the attacks' costs are paid (508.1g-i), with the attackers already tapped.
   const cost = attackCost(g, combat.attacks);
+  if (payLife !== undefined) cost.lifeSymbols = payLife;
   if (!isFree(cost)) {
     pay(g, g.active, cost);
     log(g, `${says(g.players[g.active], 'pays')} ${costText(cost)} to attack.`, g.active);
@@ -2576,6 +2586,8 @@ function act(g: Game, a: Action): boolean {
       // Ninjutsu: "Return an unblocked attacking creature you control to its owner's hand" (702.49a): exactly one, named.
       const returning = ab.cost.returnAttacker ? unblockedAttackers(g, pid).find((x) => x.id === a.returnAttacker) : undefined;
       if (ab.cost.returnAttacker ? !returning : a.returnAttacker !== undefined) return false;
+      // Paying life for symbols that allow it (107.4f, K'rrik): no more than the cost has.
+      if (a.payLife !== undefined && (!Number.isInteger(a.payLife) || a.payLife < 0 || a.payLife > lifeChoices(activationCost(g, pid, c, ab, x)))) return false;
       // The ability goes on the stack as its own object, apart from its source (602.2a).
       // X is announced as it is activated (107.3a, 602.2b), and kept with the ability on the stack.
       const hasX = abilityHasX(g, c, { activated: a.activated });
@@ -2588,7 +2600,7 @@ function act(g: Game, a: Action): boolean {
       }
       // Nothing tapped or sacrificed for the rest of the cost makes mana for it.
       const busy = [...(ab.cost.tap || ab.cost.sacrifice || ab.cost.exileSelf ? [c.id] : []), ...(a.sacrifice ?? []), ...(a.exile ?? []), ...(returning ? [returning.id] : []), ...(tapping ? (a.crew ?? []) : [])];
-      if ((ab.cost.mana || ab.cost.life) && !pay(g, pid, activationCost(g, pid, c, ab, x), undefined, busy)) return false;
+      if ((ab.cost.mana || ab.cost.life) && !pay(g, pid, activationCost(g, pid, c, ab, x, a.payLife), undefined, busy)) return false;
       if (ab.cost.tap) tap(g, c);
       if (returning) {
         // What it was attacking, for the creature put onto the battlefield attacking (702.49c); then it goes back to its owner's hand.
@@ -2927,9 +2939,9 @@ function act(g: Game, a: Action): boolean {
           passedOn = passPriority(g);
           return true;
         case 'attackers':
-          if (!canPayAttacks(g, pid, g.combat!.attacks)) return false;
+          if (!canPayAttacks(g, pid, g.combat!.attacks, a.payLife)) return false;
           mustAttack(g, pid);
-          attackersDeclared(g);
+          attackersDeclared(g, a.payLife);
           return true;
         case 'blockers': {
           const combat = g.combat!;

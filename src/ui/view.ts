@@ -21,6 +21,7 @@ import {
   canUntapMana,
   altCostsOf,
   alternativeCostAt,
+  lifeChoices,
   castsForAlt,
   canActivate,
   castCost,
@@ -126,6 +127,12 @@ export interface View {
   announce: Announce | null;
   /** An ability whose X the human is announcing (107.3a, 602.2b): the X so far and the highest it can be. */
   abilityX: { card: Card; x: number; max: number } | null;
+  /**
+   * Paying, the cost has symbols that may be paid with 2 life instead of mana (Phyrexian mana,
+   * 107.4f; K'rrik's {B}): how many the human pays with life (`n`, at most `max`, 119.4), and
+   * whether that is auto-pay's choice (`auto`: life only where the mana isn't there) or theirs.
+   */
+  payLife: { n: number; max: number; auto: boolean } | null;
   /** Escape (702.138a): the other cards in the graveyard the human picks `count` of to exile. */
   escape: { card: Card; options: Card[]; count: number } | null;
   /** An ability's "Exile two cards from your graveyard" cost (Matoc): the cards to pick `count` of. */
@@ -147,6 +154,8 @@ export interface Announce {
   choices: CastChoices;
   /** The highest X that can be paid with the other choices, or null if the spell has no X. */
   maxX: number | null;
+  /** The least X the chosen alternative cost allows (Henzie's blitz for a creature with {X}, 202.3e). */
+  minX: number;
   /** X is paid in life ("pay X life", 118.8), not mana. */
   xLife: boolean;
   /** The kicker cost, and how many times it can be paid (more than once only for multikicker). */
@@ -466,7 +475,7 @@ function costOf(g: Game, t: Targeting): { cost: Cost; text: string } {
     t.mode === 'cast'
       ? castCost(g, card, t.choices, me)
       : ab
-        ? activationCost(g, me, card, ab, t.x ?? 0)
+        ? activationCost(g, me, card, ab, t.x ?? 0, t.choices.payLife)
         : parseCost(t.ability === undefined ? '' : (script.levels?.[t.ability].cost ?? ''));
   return { cost, text: costText(cost) + (cost.life ? ` and ${cost.life} life` : '') };
 }
@@ -517,6 +526,7 @@ function announceOf(g: Game, me: PlayerId, card: Card, choices: CastChoices): An
         }
       : null,
     maxX: hasX ? Math.max(0, maxX(g, me, card, { ...choices, x: 0 })) : null,
+    minX: alternativeCostAt(g, card, face, choices.alt, me)?.minX ?? 0,
     xLife: script.additionalCost?.life === 'x',
     protectors: isSiege(g, spell) ? opponentsOf(g, me).map((o) => ({ id: o.id, name: o.name })) : null,
     faces:
@@ -631,6 +641,7 @@ export function buildView(): View {
     paying: null,
     announce: null,
     abilityX: null,
+    payLife: null,
     escape: null,
     delve: null,
     graveCost: null,
@@ -887,8 +898,15 @@ export function buildView(): View {
       for (const c of convokeOptions(g, me, t)) if (!view.glow.has(c.id)) view.glow.set(c.id, 'target');
       for (const id of t.choices.convoke ?? []) view.glow.set(id, 'picked');
     }
-    // Phyrexian mana is paid with life only when the mana isn't there (107.4f).
-    const life = plan?.life ? ` (auto-pay uses ${plan.life} life)` : '';
+    // Symbols that may be paid with 2 life instead of mana (Phyrexian mana, 107.4f; K'rrik's {B}):
+    // the human chooses how many (601.2b); until they do, auto-pay uses life only where the mana isn't there.
+    const { cost } = costOf(g, t);
+    const able = lifeChoices(cost);
+    if (able) {
+      const auto = t.choices.payLife === undefined;
+      view.payLife = { n: auto ? Math.max(0, Math.round(((plan?.life ?? 0) - cost.life) / 2)) : t.choices.payLife!, max: Math.min(able, Math.floor(p.life / 2)), auto };
+    }
+    const life = plan?.life ? ` (${view.payLife?.auto === false ? 'paying' : 'auto-pay uses'} ${plan.life} life)` : '';
     const convoke = convoking ? ` Click creatures to tap them for convoke${t.choices.convoke?.length ? ` (${t.choices.convoke.length} picked)` : ''}.` : '';
     view.prompt = ability
       ? `${label(card)} — ${ability.text}. Pay the cost${life}, or cancel.`
@@ -973,8 +991,14 @@ export function buildView(): View {
       // Attacks that cost mana, like those at a player with Propaganda (508.1g).
       const cost = attackCost(g, attacks);
       if (!isFree(cost)) view.prompt += ` Attacking costs ${costText(cost)}.`;
+      // Symbols of it that may be paid with 2 life (K'rrik's {B}): the human chooses how many.
+      const able = isFree(cost) ? 0 : lifeChoices(cost);
+      if (able) {
+        const plan = planPayment(g, me, { ...cost, lifeSymbols: s.attackPayLife }, undefined, attacks.map((a) => a.id));
+        view.payLife = { n: s.attackPayLife ?? Math.max(0, Math.round(((plan?.life ?? 0) - cost.life) / 2)), max: Math.min(able, Math.floor(p.life / 2)), auto: s.attackPayLife === undefined };
+      }
       if (attacks.length) {
-        view.primary = { label: plural(attacks.length, 'Attacker'), sub: isFree(cost) ? 'Attack' : `Pay ${costText(cost)} and attack`, tone: 'attack', onClick: pass };
+        view.primary = { label: plural(attacks.length, 'Attacker'), sub: isFree(cost) ? 'Attack' : `Pay ${costText(cost)} and attack`, tone: 'attack', onClick: () => S().act({ type: 'pass', payLife: S().attackPayLife }) };
         view.secondary = {
           label: 'Cancel Attacks',
           tone: 'plain',
@@ -1197,7 +1221,7 @@ function defaultChoices(g: Game, me: PlayerId, card: Card, face: number): CastCh
   const hasX = !paysFlashback(g, card, { face, escape }) && parseCost(data(asSpell(card, face)).manaCost).x > 0;
   const choices: CastChoices = {
     alt,
-    x: hasX && alt === undefined ? Math.max(0, maxX(g, me, card, { alt, face, escape, extra })) : 0,
+    x: hasX && alt === undefined ? Math.max(0, maxX(g, me, card, { alt, face, escape, extra })) : (alternativeCostAt(g, card, face, alt, me)?.minX ?? 0),
     kicked: 0,
     ...(escape ? { escape } : {}),
     ...(extra !== undefined ? { extra } : {}),
@@ -1216,6 +1240,22 @@ export function pickFace(face: number) {
   useStore.setState({ targeting: { ...t, choices: defaultChoices(g, me, card, face) } });
 }
 
+/**
+ * Chooses how many of the cost's symbols that may be paid with 2 life instead of mana are paid
+ * with life (601.2b; Phyrexian mana, 107.4f; K'rrik): while paying for a spell or ability, or
+ * while declaring attackers whose cost has such symbols. `null` leaves it to auto-pay.
+ */
+export function setPayLife(n: number | null) {
+  const t = S().targeting;
+  const { game: g, human: me } = S();
+  if (!g || me === null) return;
+  if (t && isPaying(t) && t.mode !== 'trigger') {
+    const payLife = n === null ? undefined : Math.max(0, n);
+    const next = stepFrom(t, { choices: { ...t.choices, payLife } });
+    useStore.setState({ targeting: next });
+  } else if (!t && g.decision?.type === 'attackers' && g.priority === me) useStore.setState({ attackPayLife: n === null ? undefined : Math.max(0, n) });
+}
+
 /** Changes what the human is announcing for the spell: X, kicker, or which cost. X is kept within what can be paid. */
 export function setChoices(change: CastChoices) {
   const t = S().targeting;
@@ -1224,7 +1264,9 @@ export function setChoices(change: CastChoices) {
   const card = findCard(g, t.cardId)!;
   let choices = { ...t.choices, ...change };
   const most = Math.max(0, maxX(g, me, card, { ...choices, x: 0 }));
-  if (choices.x !== undefined) choices = { ...choices, x: Math.max(0, Math.min(choices.x, most)) };
+  // An alternative cost with a least X (Henzie's blitz, 202.3e) starts X there and keeps it there.
+  const least = alternativeCostAt(g, card, choices.face ?? 0, choices.alt, me)?.minX ?? 0;
+  if (choices.x !== undefined || least) choices = { ...choices, x: Math.max(least, Math.min(choices.x ?? 0, most)) };
   useStore.setState({ targeting: { ...t, choices } });
 }
 
@@ -1334,7 +1376,7 @@ function pay() {
   const action: Action =
     t.mode === 'cast'
       ? { type: 'cast', card: t.cardId, targets: t.chosen, hold, ...t.choices, ...single, ...(t.discard ? { discard: t.discard } : {}) }
-      : { type: 'activate', card: t.cardId, ability: t.ability, activated: t.activated, x: t.x, targets: t.chosen, hold, crew: t.crew, discard: t.discard, sacrifice: t.choices.sacrifice, exile: t.exile, graveyard: t.graveyard, returnAttacker: t.returnAttacker };
+      : { type: 'activate', card: t.cardId, ability: t.ability, activated: t.activated, x: t.x, targets: t.chosen, hold, crew: t.crew, discard: t.discard, sacrifice: t.choices.sacrifice, exile: t.exile, graveyard: t.graveyard, returnAttacker: t.returnAttacker, payLife: t.choices.payLife };
   if (!S().act(action)) cancel();
 }
 

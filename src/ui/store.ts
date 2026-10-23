@@ -277,6 +277,8 @@ interface Store {
   targeting: Targeting | null;
   /** Keep priority after the spell or ability being paid for, to respond to it yourself (117.3c). One use. */
   hold: boolean;
+  /** Declaring attackers: how many symbols of the attacks' cost payable with 2 life the human pays with life (`Action.pass.payLife`). Unset, auto-pay decides. */
+  attackPayLife?: number;
   /** What the human's attackers go after: an opponent, or a planeswalker or battle (508.1b). */
   attackTarget: AttackOption | null;
   /** Blockers the human picked that could block more than one attacker: the next attacker they click gets them all. */

@@ -6,7 +6,7 @@ import { describe, expect, it } from 'vitest';
 import { cardData } from '../src/cards/db';
 import { parseCard, scriptCards } from '../src/cards/oracle';
 import { problemsOf } from '../src/cards/support';
-import { altCostsOf, applyAction, applyBotAction, botAction, canActivate, canCast, castCost, enterBattlefield, makeCard, stats, unblockedAttackers } from '../src/engine';
+import { altCostsOf, alternativeCostAt, applyAction, applyBotAction, botAction, canActivate, canCast, castCost, enterBattlefield, makeCard, stats, unblockedAttackers } from '../src/engine';
 import type { Action, Game, TargetRef } from '../src/engine';
 import './fixtures';
 import { byName, emptyGame, put, run, runWith } from './helpers';
@@ -284,6 +284,37 @@ describe('blitz given by Henzie "Toolbox" Torre (702.152)', () => {
     expect(g.players[0].hand).toHaveLength(hand + 1);
   });
 
+  it('a creature with {X} has blitz only with an X that makes its mana value 4 (202.3e): X = 2 is refused, X = 3 allowed', () => {
+    let g = commanderGame('Henzie "Toolbox" Torre', (d) => {
+      onField(d, 'Henzie "Toolbox" Torre');
+      put(d, 0, 'Mockingbird', 'hand');
+      put(d, 0, 'Island', 'battlefield', 6);
+    });
+    // Mockingbird is {X}{U}: X = 3 makes it 4.
+    const bird = () => byName(g, 0, 'Mockingbird', 'hand')!;
+    expect(altCostsOf(g, bird(), 0, 0)).toEqual([0]);
+    expect(alternativeCostAt(g, bird(), 0, 0, 0)).toMatchObject({ blitz: true, minX: 3 });
+    expect(canCast(g, 0, bird(), { alt: 0, x: 2 })).toBe(false);
+    expect(canCast(g, 0, bird(), { alt: 0, x: 3 })).toBe(true);
+    expect(canCast(g, 0, bird(), { alt: 0, x: 5 })).toBe(true);
+    // For its mana cost, any X.
+    expect(canCast(g, 0, bird(), { x: 2 })).toBe(true);
+    // It may enter as a copy of a creature: not this time, so it stays a Mockingbird.
+    g = settle(run(g, { type: 'cast', card: bird().id, alt: 0, x: 3 }), (x) => x.decision?.type === 'chooseCards');
+    g = settle(run(g, { type: 'chooseCards', cards: [] }));
+    const onField2 = byName(g, 0, 'Mockingbird')!;
+    expect(onField2.cast?.blitz).toBe(true);
+    expect(stats(g, onField2).keywords.has('haste')).toBe(true);
+    // With too little mana for X = 3, blitz isn't on offer at all.
+    const poor = commanderGame('Henzie "Toolbox" Torre', (d) => {
+      onField(d, 'Henzie "Toolbox" Torre');
+      put(d, 0, 'Mockingbird', 'hand');
+      put(d, 0, 'Island', 'battlefield', 3);
+    });
+    expect(canCast(poor, 0, byName(poor, 0, 'Mockingbird', 'hand')!, { alt: 0, x: 3 })).toBe(false);
+    expect(canCast(poor, 0, byName(poor, 0, 'Mockingbird', 'hand')!, { x: 2 })).toBe(true);
+  });
+
   it('a blitzed creature dying another way still draws, and the blitz stays once Henzie has left', () => {
     let g = commanderGame('Henzie "Toolbox" Torre', (d) => {
       onField(d, 'Henzie "Toolbox" Torre');
@@ -486,6 +517,75 @@ describe("K'rrik, Son of Yawgmoth: 2 life for each {B} in a cost", () => {
     });
     expect(castCost(h, byName(h, 0, 'Murder', 'hand')!).pips).toEqual(['B', 'B']);
     expect(canCast(h, 0, byName(h, 0, 'Murder', 'hand')!)).toBe(false);
+  });
+
+  it('the payer chooses how many {B} to pay with life (601.2b), for spells and activated abilities, never beyond their life (119.4)', () => {
+    let g = commanderGame("K'rrik, Son of Yawgmoth", (d) => {
+      onField(d, "K'rrik, Son of Yawgmoth");
+      put(d, 0, 'Murder', 'hand');
+      put(d, 0, 'Vito, Thorn of the Dusk Rose');
+      put(d, 0, 'Swamp', 'battlefield', 5);
+    });
+    const murder = () => byName(g, 0, 'Murder', 'hand')!;
+    // Three {B} at most could be paid with life for Murder's {1}{B}{B}: two.
+    expect(canCast(g, 0, murder(), { payLife: 2 })).toBe(true);
+    expect(canCast(g, 0, murder(), { payLife: 3 })).toBe(false);
+    expect(canCast(g, 0, murder(), { payLife: -1 })).toBe(false);
+    // With the Swamps there, both {B} are still paid with life when the caster says so.
+    const target = { kind: 'card' as const, id: byName(g, 1, 'Serra Angel')?.id ?? byName(g, 0, 'Vito, Thorn of the Dusk Rose')!.id };
+    g = settle(run(g, { type: 'cast', card: murder().id, targets: [target], payLife: 2 }));
+    expect(g.players[0].life).toBe(36);
+    expect(g.players[0].battlefield.filter((c) => c.name === 'Swamp' && c.tapped)).toHaveLength(1);
+    // One of them: 2 life and one Swamp.
+    let h = commanderGame("K'rrik, Son of Yawgmoth", (d) => {
+      onField(d, "K'rrik, Son of Yawgmoth");
+      put(d, 0, 'Murder', 'hand');
+      put(d, 0, 'Swamp', 'battlefield', 3);
+    });
+    h = settle(run(h, { type: 'cast', card: byName(h, 0, 'Murder', 'hand')!.id, targets: [{ kind: 'card', id: byName(h, 0, "K'rrik, Son of Yawgmoth")!.id }], payLife: 1 }));
+    expect(h.players[0].life).toBe(38);
+    expect(h.players[0].battlefield.filter((c) => c.name === 'Swamp' && c.tapped)).toHaveLength(2);
+    // An activated ability: Vito's {3}{B}{B} with both {B} paid in life.
+    let k = commanderGame("K'rrik, Son of Yawgmoth", (d) => {
+      onField(d, "K'rrik, Son of Yawgmoth");
+      put(d, 0, 'Vito, Thorn of the Dusk Rose');
+      put(d, 0, 'Plains', 'battlefield', 3);
+    });
+    const vito = byName(k, 0, 'Vito, Thorn of the Dusk Rose')!;
+    expect(applyAction(k, { type: 'activate', card: vito.id, payLife: 3 })).toBe(k);
+    k = settle(run(k, { type: 'activate', card: vito.id, payLife: 2 }));
+    expect(k.players[0].life).toBe(36);
+    expect(stats(k, byName(k, 0, 'Vito, Thorn of the Dusk Rose')!).keywords.has('lifelink')).toBe(true);
+    // Not with too little life for the choice (119.4).
+    const low = commanderGame("K'rrik, Son of Yawgmoth", (d) => {
+      onField(d, "K'rrik, Son of Yawgmoth");
+      d.players[0].life = 3;
+      put(d, 0, 'Murder', 'hand');
+      put(d, 0, 'Swamp', 'battlefield', 3);
+    });
+    expect(canCast(low, 0, byName(low, 0, 'Murder', 'hand')!, { payLife: 1 })).toBe(true);
+    expect(canCast(low, 0, byName(low, 0, 'Murder', 'hand')!, { payLife: 2 })).toBe(false);
+  });
+
+  it('Phyrexian mana takes the same choice (107.4f): Gut Shot paid with life though a Mountain is there', () => {
+    let g = emptyGame((d) => {
+      put(d, 0, 'Mountain');
+      put(d, 0, 'Gut Shot', 'hand');
+    });
+    g = settle(run(g, { type: 'cast', card: byName(g, 0, 'Gut Shot', 'hand')!.id, targets: [player(1)], payLife: 1 }));
+    expect(g.players[0].life).toBe(38);
+    expect(byName(g, 0, 'Mountain')!.tapped).toBe(false);
+    // Or with mana, said so: no life.
+    let h = emptyGame((d) => {
+      put(d, 0, 'Mountain');
+      put(d, 0, 'Gut Shot', 'hand');
+    });
+    h = settle(run(h, { type: 'cast', card: byName(h, 0, 'Gut Shot', 'hand')!.id, targets: [player(1)], payLife: 0 }));
+    expect(h.players[0].life).toBe(40);
+    // Saying mana with no Mountain can't be done.
+    const k = emptyGame((d) => put(d, 0, 'Gut Shot', 'hand'));
+    expect(canCast(k, 0, byName(k, 0, 'Gut Shot', 'hand')!, { payLife: 0 })).toBe(false);
+    expect(canCast(k, 0, byName(k, 0, 'Gut Shot', 'hand')!)).toBe(true);
   });
 
   it("casting a black spell puts a +1/+1 counter on K'rrik, which the cast's own trigger (not the spell) does", () => {

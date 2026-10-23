@@ -442,7 +442,8 @@ fetched card too, since the card is matched to it by name.
 | --- | --- |
 | Costs printed in rules text | `kicker`, `additionalCost` (a sacrifice), `alternativeCosts`, `costModifier` ("spells cost {1} more/less") |
 | X or kicked spell | reads `self.cast.x` and `self.cast.kicked` |
-| Alternative cost | can `exile` a card from the hand or `sacrifice` a permanent, or be `dash` |
+| Alternative cost | can `exile` a card from the hand or `sacrifice` a permanent, or be `dash`; `minX` needs X at least that (Henzie's blitz, 202.3e) |
+| Paying life for mana | a cost's symbols with a `'life'` option (Phyrexian, `lifeForMana`) are paid with life as `CastChoices.payLife` / `Action.activate.payLife` / `Action.pass.payLife` says (`Cost.lifeSymbols`); left out, mana first |
 | Bargain / gift | `additionalCost.optional` is bargain; `gift` promises a token |
 | Modal spell | `modal` instead of `targets`/`onResolve` |
 | Counterspell | targets `{ type: 'spell' }` and calls `counter` |

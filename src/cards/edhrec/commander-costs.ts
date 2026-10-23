@@ -209,11 +209,18 @@ registerScripts({
   'Henzie "Toolbox" Torre': {
     // "Each creature spell you cast with mana value 4 or greater has blitz. The blitz cost is
     // equal to its mana cost." An alternative cost the spell gains as it is cast (118.9,
-    // 702.152a). The spell's mana value is its card's, with X as 0 (202.3b) since X is announced
-    // only once the cost is chosen (601.2b); a modal double-faced card's back face counts by its
-    // own cost (its rulings).
-    grantsAlternativeCosts: (g, self, spell, caster) =>
-      caster === self.controller && isCreature(g, spell) && manaValue(spell) >= 4 ? [{ label: `Blitz ${data(spell).manaCost}`, mana: data(spell).manaCost, blitz: true }] : [],
+    // 702.152a). The spell's mana value on the stack counts the X announced with it (202.3e),
+    // and the blitz cost is announced together with X (601.2b): a creature with {X} in its cost
+    // has blitz only with an X that brings its mana value to 4 (`minX`). A modal double-faced
+    // card's back face counts by its own cost (its rulings).
+    grantsAlternativeCosts: (g, self, spell, caster) => {
+      if (caster !== self.controller || !isCreature(g, spell)) return [];
+      const mv = manaValue(spell);
+      const xs = parseCost(data(spell).manaCost).x;
+      if (mv < 4 && !xs) return [];
+      const minX = mv >= 4 ? 0 : Math.ceil((4 - mv) / xs);
+      return [{ label: `Blitz ${data(spell).manaCost}`, mana: data(spell).manaCost, blitz: true, ...(minX ? { minX } : {}) }];
+    },
     // "Blitz costs you pay cost {1} less for each time you've cast your commander from the
     // command zone this game." Generic mana only (601.2f). With two commanders, casts of either
     // count ("your commander" names each, 903.3d).

@@ -567,11 +567,15 @@ export const isFree = (cost: Cost) => cost.generic + cost.pips.length + cost.hyb
  * Can `pid` pay for these attacks (508.1h-i)? The attackers are tapped first (508.1f), so
  * one without vigilance can't tap for mana to pay.
  */
-export function canPayAttacks(g: Game, pid: PlayerId, attacks: { id: string; defender: PlayerId; target: string | null }[]): boolean {
+export function canPayAttacks(g: Game, pid: PlayerId, attacks: { id: string; defender: PlayerId; target: string | null }[], payLife?: number): boolean {
   // Asked of a draft nothing has changed in yet: the finished game it came from (`untouched`).
   const base = untouched(g);
-  if (base) return canPayAttacks(base, pid, attacks);
+  if (base) return canPayAttacks(base, pid, attacks, payLife);
   const cost = attackCost(g, attacks);
+  if (payLife !== undefined) {
+    if (!Number.isInteger(payLife) || payLife < 0 || payLife > lifeChoices(cost)) return false;
+    cost.lifeSymbols = payLife;
+  }
   if (isFree(cost)) return true;
   const tapped = attacks.map((a) => permanent(g, a.id)).filter((c): c is Card => !!c && !has(g, c, 'vigilance')).map((c) => c.id);
   return !!planPayment(g, pid, cost, undefined, tapped);
@@ -602,6 +606,12 @@ export function fight(g: Game, a: Card, b: Card): { aDies: boolean; bDies: boole
 export type HybridOption = ManaSym | '2' | 'life' | 'any';
 
 export interface Cost {
+  /**
+   * Exactly this many of the symbols that may be paid with 2 life (`hybrid` entries with
+   * `'life'`: Phyrexian mana, 107.4f, or K'rrik's {B}) are paid with life, the rest with mana,
+   * as the payer chose (601.2b). Left out, as few as the mana calls for.
+   */
+  lifeSymbols?: number;
   generic: number;
   /** Mana symbols that need one mana of exactly that type. */
   pips: ManaSym[];
@@ -855,7 +865,10 @@ export function castCost(g: Game, c: Card, choices: CastChoices = {}, pid = c.ow
   cost.generic = Math.max(0, cost.generic + change);
   // Delve applies after the total cost is worked out: each card exiled pays for {1} (702.66a-b).
   cost.generic = Math.max(0, cost.generic - (choices.delve?.length ?? 0));
-  return lifeInsteadOfMana(g, pid, cost);
+  const out = lifeInsteadOfMana(g, pid, cost);
+  // How many symbols the caster pays with life rather than mana (601.2b, 107.4f).
+  if (choices.payLife !== undefined) out.lifeSymbols = choices.payLife;
+  return out;
 }
 
 /**
@@ -944,8 +957,10 @@ export function anyColor(cost: Cost): Cost {
 }
 
 /** What `pid` pays to activate ability `ab` of `c`: its cost, paid with mana of any colour if something lets them (Agatha's Soul Cauldron). */
-export function activationCost(g: Game, pid: PlayerId, c: Card, ab: ActivatedAbility, x = 0): Cost {
+export function activationCost(g: Game, pid: PlayerId, c: Card, ab: ActivatedAbility, x = 0, payLife?: number): Cost {
   const cost = abilityCost(ab, g, c, x);
+  // How many symbols the player pays with life rather than mana (601.2b via 602.2b, 107.4f).
+  if (payLife !== undefined) cost.lifeSymbols = payLife;
   const change = abilityCostChange(g, c, pid);
   // A reduction takes off generic mana only, never below {0} (601.2f, 602.2b).
   if (change) cost.generic = Math.max(0, cost.generic + change);
@@ -1572,10 +1587,15 @@ function payGeneric(plan: Plan): Plan | null {
  * generic may leave too little for the rest. Hybrid symbols try mana first, then {2},
  * then 2 life.
  */
-function payShards(shards: HybridOption[][], plan: Plan, life: number): Plan | null {
-  if (!shards.length) return payGeneric(plan);
+function payShards(shards: HybridOption[][], plan: Plan, life: number, lifeLeft?: number): Plan | null {
+  if (!shards.length) return lifeLeft ? null : payGeneric(plan);
   const [shard, ...rest] = shards;
+  // The payer chose how many symbols to pay with life (`Cost.lifeSymbols`): no more than that,
+  // and every one of the last `lifeLeft` symbols that allow it.
+  const lifeAble = shards.filter((h) => h.includes('life')).length;
   for (const option of shard) {
+    if (lifeLeft !== undefined && shard.includes('life') && (option === 'life' ? lifeLeft === 0 : lifeLeft >= lifeAble)) continue;
+    const left = lifeLeft === undefined ? undefined : option === 'life' ? lifeLeft - 1 : lifeLeft;
     const nexts =
       option === '2' || option === 'any'
         ? [{ ...plan, generic: plan.generic + (option === '2' ? 2 : 1) }]
@@ -1585,12 +1605,15 @@ function payShards(shards: HybridOption[][], plan: Plan, life: number): Plan | n
             : []
           : payMana(option, plan);
     for (const next of nexts) {
-      const done = payShards(rest, next, life);
+      const done = payShards(rest, next, life, left);
       if (done) return done;
     }
   }
   return null;
 }
+
+/** How many symbols of `cost` may be paid with 2 life instead of mana (Phyrexian mana, 107.4f; K'rrik's {B}). */
+export const lifeChoices = (cost: Cost) => cost.hybrid.filter((h) => h.includes('life')).length;
 
 /**
  * Works out how to pay `cost`, or null if it can't be paid. Mana already in the pool is
@@ -1796,7 +1819,7 @@ function planPlain(g: Game, pid: PlayerId, cost: Cost, spell: Card | undefined, 
   // Restricted mana goes first: it can pay for nothing else.
   const ordered = [...pool.filter(restricted), ...pool.filter((m) => !restricted(m))];
   const start: Plan = { pool: ordered, sources: all, uses: [], abilityLife: 0, generic: cost.generic, life: cost.life, spent: 0, uncounterable: false, wants };
-  const paid = payShards([...pips, ...hybrid], start, locked ? 0 : p.life);
+  const paid = payShards([...pips, ...hybrid], start, locked ? 0 : p.life, cost.lifeSymbols);
   if (!paid || paid.life + paid.abilityLife > p.life) return null;
   return { tap: [...new Set(paid.uses.flatMap((u) => u.taps))], uses: paid.uses, pool: [...paid.pool, ...kept], life: paid.life, spent: paid.spent, uncounterable: paid.uncounterable };
 }

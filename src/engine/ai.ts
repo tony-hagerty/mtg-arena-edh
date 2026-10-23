@@ -81,6 +81,7 @@ import {
   triggerModeOptions,
   triggerOf,
   unblockedAttackers,
+  alternativeCostAt,
 } from './rules';
 import type { ApplyOptions, AttackOption } from './engine';
 import { produce } from 'immer';
@@ -346,7 +347,9 @@ function castChoices(g: Game, pid: PlayerId, c: Card): CastChoices[] {
               for (const offspring of offsprings) {
                 const most = maxX(g, pid, c, { ...base, gift, kicked, offspring });
                 // X damage divided among targets: X follows from the targets (`divisions`).
-                const xs = script.divide === 'x' ? [0] : lifeX ? lifeXChoices(g, pid, most) : [most, Math.floor(most / 2)];
+                // An alternative cost with a least X (Henzie's blitz, 202.3e): that X too, and none below it.
+                const minX = alternativeCostAt(g, c, face, base.alt, pid)?.minX ?? 0;
+                const xs = script.divide === 'x' ? [0] : lifeX ? lifeXChoices(g, pid, most) : [most, Math.floor(most / 2), minX].filter((k) => k >= minX);
                 for (const x of new Set(xs)) {
                   const choices: CastChoices = { ...base, x, kicked, ...(gift !== undefined ? { gift } : {}), ...(offspring ? { offspring } : {}) };
                   if (x >= 0 && canCast(g, pid, c, choices)) out.push(choices);
