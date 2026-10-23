@@ -416,7 +416,9 @@ fetched card too, since the card is matched to it by name.
   (`onEnter` ones too) and a short `text`, and `when` may be left out for one that
   triggers on every event.
 - Other trigger hooks: `onPostcombatMain`, `onDrawStep`, `onTapped`, `onDiscard`,
-  `onSacrifice`, `onPlaneswalkerDies`, `onBeginCombat`.
+  `onSacrifice`, `onPlaneswalkerDies`, `onBeginCombat`, `onRingTempts` ("whenever the Ring
+  tempts you", 701.54d) and `onBecomesBlocked` (once for each creature blocking it, 509.3d).
+  `onLifeLoss` tells `firstThisTurn` for the first life a player loses in a turn.
 
 **Spells and costs**
 
@@ -469,7 +471,11 @@ sacrifice cost (ability or spell) sees `sacrificed` and `sacrificedPower` (as it
 `pickCards(...)` and `nameCard(...)` (a card, or `of: 'creature type'` or `'color'`,
 answered as W, U, B, R or G) queue a question. The answer runs the script's `then[key]`
 with `picked`, `yes` or `name`. Also `chooseToSacrifice`, `chooseToDiscard`,
-`choosePlayer`, `offerCast` and `offerRetarget`.
+`choosePlayer`, `offerCast` and `offerRetarget`. `pickCards(..., { min: 0, decline: "Don't
+Pay" })` shows a button for picking none. A helper that asks through an engine continuation
+(`@amass`, `@ringBearer`) takes the script's own `then` key and runs it once the engine's is
+done (`data.next`), so the rest of the effect follows: "the Ring tempts you. Then if ...".
+A search can be for `{ name }`, a card with that name.
 
 **Static abilities and continuous effects**
 
@@ -530,7 +536,14 @@ are shorthand for common ones. A card's own way of entering stays `entersTapped`
 **Other static hooks**
 
 `forbids` ("can't cast"/"can't activate"), `grantsFlash`, `uncounterable`,
-`protectsSpell`, `ward`, `grantsEscape`, `delayedIf`.
+`protectsSpell`, `ward`, `grantsEscape`, `delayedIf`, and `abilityCostModifier` ("activated
+abilities of Foods you control cost {1} less", generic mana only, mana abilities included).
+`ward` is mana, life, or `sacrifice` (a `TargetSpec` the payer's permanent must fit:
+"Ward—Sacrifice a Food").
+
+A static ability that gives other permanents an activated ability ("have '{2}, {T},
+Sacrifice this permanent: You gain 3 life'") names a script registered for that ability alone
+in `activatedOf`; the parser registers it under "[card] (ability N)".
 
 **A permanent's abilities**
 
@@ -558,6 +571,10 @@ ability already on the stack, which exists apart from its source (113.7a).
 | `populate(g, pid)` | copies a creature token the player chooses |
 | `tap(g, card)` | taps a permanent and triggers `onTapped` |
 | `abilitySource` | the source, if it is still the same object |
+| `amass(g, pid, 'Orc', n, then?)` | amass (701.47); returns true if the player must choose an Army |
+| `temptWithRing(g, pid, then?)` | the Ring tempts the player (701.54); returns true if they must choose a Ring-bearer. `isRingBearer`, `ringBearerOf`, `timesTempted` read it |
+| `partnerWith(name)` | partner with's "enters" ability (702.124j), spread into the script |
+| `tokenCopy(g, pid, c, { nonlegendary: true })` | "except the token isn't legendary" (707.9b) |
 
 **Bot hints**
 

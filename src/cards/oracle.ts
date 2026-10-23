@@ -2901,6 +2901,22 @@ const TRIGGERS: [RegExp, (m: RegExpExecArray) => TrigEvent[] | null][] = [
   [/^whenever you draw a card$/, () => [{ hook: 'onDraw', when: yours((e) => e.player) }]],
   [/^whenever an opponent draws a card$/, () => [{ hook: 'onDraw', when: (g, e) => isOpp(g, e.self.controller, e.player), ev: playerEv('player'), env: { player: true } }]],
   [/^whenever a player draws a card$/, () => [{ hook: 'onDraw', ev: playerEv('player'), env: { player: true } }]],
+  // "When this creature enters and whenever an opponent draws a card except the first one they draw in each of their draw steps" (Orcish Bowmasters):
+  // one ability on two events. The card just drawn was the first in their draw step if it is their draw step and it is the only one they drew in it (504.1).
+  [
+    /^when ~ enters and whenever an opponent draws a card except the first one they draw in each of their draw steps$/,
+    () => [
+      { hook: 'onEnter' },
+      {
+        hook: 'onDraw',
+        when: (g, e) => {
+          const p = e.player as PlayerId;
+          const first = g.step === 'draw' && g.active === p && g.players[p].drawn === (g.players[p].drawnBeforeDrawStep ?? -1) + 1;
+          return isOpp(g, e.self.controller, p) && !first;
+        },
+      },
+    ],
+  ],
   [/^whenever you discard a card$/, () => [{ hook: 'onDiscard', when: yours((e) => e.player) }]],
   [/^whenever a player sacrifices a permanent$/, () => [{ hook: 'onSacrifice', ev: playerEv('player'), env: { player: true } }]],
   [/^whenever you sacrifice a permanent$/, () => [{ hook: 'onSacrifice', when: yours((e) => e.player) }]],

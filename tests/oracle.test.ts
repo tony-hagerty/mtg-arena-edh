@@ -5,10 +5,11 @@ import { describe, expect, it } from 'vitest';
 import { cardData, registerCards } from '../src/cards/db';
 import { needsScript, parseCard, scriptCards } from '../src/cards/oracle';
 import { parseResults } from '../src/cards/oracle-report';
-import { activatedAt, activationCost, applyAction, applyBotAction, botAction, castCost, enterBattlefield, hasScript, isCreature, isLand, legalTargets, makeCard, manaAbilities, permanent, scriptOf, spellTargets, stats } from '../src/engine';
+import { activatedAt, activationCost, applyAction, applyBotAction, botAction, castCost, draw as drawCards, enterBattlefield, hasScript, isCreature, isLand, legalTargets, makeCard, manaAbilities, permanent, scriptOf, spellTargets, stats } from '../src/engine';
 import type { Action, ActivatedAbility, Card, CardData, CardScript, Ctx, Game, TargetRef, TargetSpec } from '../src/engine';
 import { registerScripts } from '../src/engine/registry';
 import fixtureData from './fixtures.generated.json';
+import corpus from './parser-corpus.generated.json';
 import { byName, emptyGame, put, run } from './helpers';
 
 /** A made-up card with this text, for trying the parser on wording the pool doesn't have. */
@@ -1418,6 +1419,42 @@ describe('ward-ring templates: ward costs, amass, the Ring, partner with, types 
     expect(refusal('Creature — Elf', 'Creature spells you cast cost {1} less to cast for each +1/+1 counter on creatures you control.')).not.toBeNull();
     expect(parse('Creature — Elf', 'Whenever you gain life, you may discard your hand. If you do, draw two cards.').ok).toBe(true);
     expect(refusal('Creature — Elf', 'Whenever you gain life, you may discard a card. If you do, draw two cards.')).not.toBeNull();
+  });
+
+  it('corpus staples these read: Orcish Bowmasters (an opponent drawing, but not the first card of their draw step) and Sword of Feast and Famine', () => {
+    const corpusCard = (n: string) => ({ ...(corpus.cards as unknown as CardData[]).find((c) => c.name === n)!, image: '', art: '' });
+    for (const n of ['Orcish Bowmasters', 'Sword of Feast and Famine']) {
+      const d = corpusCard(n);
+      registerCards({ [n]: d });
+      const p = parseCard(d);
+      expect(p.ok, n).toBe(true);
+      if (p.ok) registerScripts({ [n]: p.script });
+    }
+    let g = emptyGame((d) => {
+      put(d, 0, 'Orcish Bowmasters');
+      d.players[1].library = [makeCard(d, 'Island', 1, 'library'), makeCard(d, 'Island', 1, 'library'), makeCard(d, 'Island', 1, 'library')];
+      d.active = 1;
+      d.priority = 1;
+    });
+    // An opponent's card drawn outside their draw step: 1 damage to any target, then amass Orcs 1.
+    g = settleAll(produce(g, (d) => void drawCards(d, 1, 1)));
+    expect(byName(g, 0, 'Orc Army')?.counters['+1/+1']).toBe(1);
+    // The first card of their draw step doesn't trigger it; a second one that step does.
+    g = produce(g, (d) => {
+      d.step = 'draw';
+      d.players[1].drawnBeforeDrawStep = d.players[1].drawn;
+    });
+    g = settleAll(produce(g, (d) => void drawCards(d, 1, 1)));
+    expect(byName(g, 0, 'Orc Army')?.counters['+1/+1']).toBe(1);
+    g = settleAll(produce(g, (d) => void drawCards(d, 1, 1)));
+    expect(byName(g, 0, 'Orc Army')?.counters['+1/+1']).toBe(2);
+    // The Sword: protection from black and from green.
+    const s = emptyGame((d) => {
+      put(d, 0, 'Elite Vanguard');
+      put(d, 0, 'Sword of Feast and Famine').attachedTo = d.players[0].battlefield[0].id;
+    });
+    const kw = stats(s, byName(s, 0, 'Elite Vanguard')!).keywords;
+    expect([kw.has('protection from black'), kw.has('protection from green'), kw.has('protection from red')]).toEqual([true, true, false]);
   });
 
   it('a flavor word (207.2d) is a label on the line, if the card lists it', () => {
