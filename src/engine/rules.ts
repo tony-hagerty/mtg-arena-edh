@@ -677,7 +677,7 @@ export function alternativeCostsOf(g: Game, c: Card, face = 0, pid = c.owner): A
   const own = scriptFor(c, 'stack', face).alternativeCosts ?? [];
   if (!anyScriptHas('grantsAlternativeCosts')) return own;
   const spell = asSpell(c, face, pid);
-  const given = battlefield(g).flatMap((p) => abilitiesOf(g, p).grantsAlternativeCosts?.(g, p, spell, pid, c.zone) ?? []);
+  const given = battlefield(g).flatMap((p) => (mayHaveScript(p, 'grantsAlternativeCosts') ? (abilitiesOf(g, p).grantsAlternativeCosts?.(g, p, spell, pid, c.zone) ?? []) : []));
   return given.length ? [...own, ...given] : own;
 }
 
@@ -830,9 +830,11 @@ export function castCost(g: Game, c: Card, choices: CastChoices = {}, pid = c.ow
   // Cost changes of abilities that function from the command zone (113.6b): The Ur-Dragon's eminence.
   for (const p of commandZoneCards(g, 'costModifier')) change += scriptFor(p).costModifier?.(g, p, spell, pid, c.zone, alt) ?? 0;
   // Reductions of coloured mana (118.7b-f): Morophon's "cost {W}{U}{B}{R}{G} less".
-  for (const p of battlefield(g)) {
-    const less = abilitiesOf(g, p).reducesColoredCost?.(g, p, spell, pid, c.zone);
-    if (less) change -= reduceColored(cost, less.colors, !!less.coloredOnly);
+  if (anyScriptHas('reducesColoredCost')) {
+    for (const p of battlefield(g)) {
+      const less = mayHaveScript(p, 'reducesColoredCost') ? abilitiesOf(g, p).reducesColoredCost?.(g, p, spell, pid, c.zone) : null;
+      if (less) change -= reduceColored(cost, less.colors, !!less.coloredOnly);
+    }
   }
   cost.generic = Math.max(0, cost.generic + change);
   // Delve applies after the total cost is worked out: each card exiled pays for {1} (702.66a-b).
@@ -893,7 +895,7 @@ function reduceColored(cost: Cost, colors: Color[], coloredOnly: boolean): numbe
  */
 export function lifeInsteadOfMana(g: Game, pid: PlayerId, cost: Cost): Cost {
   if (!anyScriptHas('lifeForMana')) return cost;
-  const colors = new Set(battlefield(g).flatMap((p) => abilitiesOf(g, p).lifeForMana?.(g, p, pid) ?? []));
+  const colors = new Set(battlefield(g).flatMap((p) => (mayHaveScript(p, 'lifeForMana') ? (abilitiesOf(g, p).lifeForMana?.(g, p, pid) ?? []) : [])));
   if (!colors.size) return cost;
   const hybrid = cost.hybrid.map((h): HybridOption[] => (h.includes('life') || !h.some((x) => colors.has(x as Color)) ? h : [...h, 'life']));
   const pips = cost.pips.filter((x) => !colors.has(x as Color));
@@ -3675,7 +3677,7 @@ export function cascadeCount(g: Game, spell: Card, caster: PlayerId, from: Zone 
     }
     n = Math.max(n, 1);
   }
-  if (anyScriptHas('grantsCascade')) for (const p of battlefield(g)) n += abilitiesOf(g, p).grantsCascade?.(g, p, spell, caster, from) ?? 0;
+  if (anyScriptHas('grantsCascade')) for (const p of battlefield(g)) if (mayHaveScript(p, 'grantsCascade')) n += abilitiesOf(g, p).grantsCascade?.(g, p, spell, caster, from) ?? 0;
   return n;
 }
 
