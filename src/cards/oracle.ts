@@ -2621,7 +2621,7 @@ function cardLine(text: string, original: string, d: CardData, script: CardScrip
   if ((m = /^ward—sacrifice (a|an) (.+?)\.$/.exec(text))) {
     const o = object(m[2], 'one', null);
     if (!o || o.zone !== 'battlefield' || o.who || o.type === 'creature or planeswalker') return refuse(original, `the ward cost "sacrifice ${m[1]} ${m[2]}"`);
-    script.ward = { sacrifice: { type: o.type, label: `${m[1]} ${m[2]}`, filter: o.test } };
+    script.ward = { sacrifice: { type: o.type, label: original.slice('Ward—Sacrifice '.length).replace(/\.$/, ''), filter: o.test } };
     return true;
   }
   // "Partner with [name]" (702.124j): the deck rule pairs the two; the card also gets the ability "When this permanent enters, target player may search their library for a card named [name] ...".
