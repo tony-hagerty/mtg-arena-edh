@@ -289,11 +289,11 @@ describe('Baylen, the Haymaker: costs that tap untapped tokens', () => {
     const b = id(g, 'Baylen, the Haymaker');
     const tokens = g.players[0].battlefield.filter((c) => c.isToken).map((c) => c.id);
     // The wrong number of tokens is refused.
-    expect(applyAction(g, { type: 'activate', card: b, activated: 0, tapped: tokens.slice(0, 2) })).toBe(g);
+    expect(applyAction(g, { type: 'activate', card: b, activated: 0, crew: tokens.slice(0, 2) })).toBe(g);
     const hand = g.players[0].hand.length;
-    g = settle(run(g, { type: 'activate', card: b, activated: 0, tapped: tokens.slice(0, 3) }));
+    g = settle(run(g, { type: 'activate', card: b, activated: 0, crew: tokens.slice(0, 3) }));
     expect(g.players[0].hand.length).toBe(hand + 1);
-    g = settle(run(g, { type: 'activate', card: b, activated: 1, tapped: tokens.slice(3, 7) }));
+    g = settle(run(g, { type: 'activate', card: b, activated: 1, crew: tokens.slice(3, 7) }));
     const it = permanent(g, b)!;
     expect(it.counters['+1/+1']).toBe(3);
     expect(stats(g, it).keywords.has('trample')).toBe(true);
@@ -655,7 +655,7 @@ describe('in the UI', () => {
       ['Tap four untapped toke', false],
     ]);
     pickAbility(options[1].ref);
-    expect(buildView().prompt).toContain('tap three untapped tokens you control (0 picked)');
+    expect(buildView().prompt).toContain('Tap three untapped tokens you control (0 of 3 chosen)');
     for (const t of tokens) clickPermanent(t);
     expect(buildView().primary?.disabled).toBe(false);
     buildView().primary!.onClick();

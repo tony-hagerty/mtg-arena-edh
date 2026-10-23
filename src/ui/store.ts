@@ -51,9 +51,6 @@ export interface Targeting {
   /** Creatures picked to crew a Vehicle (702.122a), and whether the human is done picking. */
   crew?: string[];
   crewDone?: boolean;
-  /** Permanents picked for a "Tap three untapped tokens you control" cost (Baylen), and whether the human is done picking. */
-  taps?: string[];
-  tapsDone?: boolean;
   /** The loyalty ability (606) or Class level bar being activated, by index, or undefined for one of the card's `activated` abilities. */
   ability?: number;
   /** Which of the card's `activated` abilities, by index (left out, the first). */
