@@ -557,9 +557,12 @@ are from the Comprehensive Rules in `docs/rules/`.
   "whenever a creature attacks", "whenever you attack"; a creature becoming tapped as it
   attacks is another event), and Teysa Karlov for abilities a creature dying causes to
   trigger ("when this dies", "whenever a creature dies", a creature leaving the
-  battlefield for a graveyard, a creature card put into a graveyard from the battlefield,
-  and a creature being sacrificed, 700.4, 701.21a; a noncreature permanent dying doesn't
-  count). Delayed and reflexive triggered abilities are never doubled (603.2d).
+  battlefield for a graveyard, and a creature card, an artifact creature's included, put
+  into a graveyard from the battlefield, 700.4, the creature as it last was, so a land made
+  a creature counts; "whenever you sacrifice a permanent" triggers on the sacrifice, not
+  the dying, so it doesn't double, as Teysa's rulings say). A creature dying together with
+  Teysa still counts, and each further Teysa adds one more. Delayed and reflexive triggered
+  abilities are never doubled (603.2d).
 - **Protection for a player (702.16):** Serra's Emissary's "You ... have protection from
   the chosen card type": damage from such sources is prevented and spells and abilities
   from them can't target you.
@@ -646,7 +649,7 @@ are from the Comprehensive Rules in `docs/rules/`.
   (702.3b). Both are effects on the creature, not abilities of its own (113.12), so losing
   all abilities doesn't take them.
 - **Tapped and attacking (508.4):** creatures put onto the battlefield tapped and attacking
-  (mobilize, 702.181a, Zurgo Stormrender; Caesar's Soldiers): their controller chooses
+  (mobilize, 702.181a, Zurgo Stormrender and Voice of Victory; Caesar's Soldiers): their controller chooses
   which defending player, planeswalker or battle each attacks, every opponent being a
   defending player (802.2); with one thing to attack, no question. They never "attacked",
   so nothing triggers on them attacking. Bots attack the opponent with the least life.

@@ -2,8 +2,10 @@
 // wrong, with the card data from tests/fixtures.generated.json.
 import { describe, expect, it } from 'vitest';
 import { produce } from 'immer';
-import { applyAction, applyBotAction, attach, botAction, canCast, createToken, destroy, has, label, makeCard, stats } from '../src/engine';
+import { applyAction, applyBotAction, attach, botAction, canCast, createToken, destroy, destroyMany, draw, has, hasType, label, makeCard, stats, untilEndOfTurn } from '../src/engine';
 import type { Action, Game, PlayerId, TargetRef } from '../src/engine';
+import { registerCards } from '../src/cards/db';
+import { registerScripts } from '../src/engine/registry';
 import { problemsOf } from '../src/cards/support';
 import { useStore } from '../src/ui/store';
 import { buildView, clickPermanent, pickAbilityMode } from '../src/ui/view';
@@ -177,10 +179,12 @@ describe('Teysa Karlov', () => {
     // Judith's ability twice: each asks for a target (player 1).
     g = settle(g, (x) => (x.decision?.type === 'targets' ? { type: 'chooseTargets', targets: [player(1)] } : null));
     const korvold = byName(g, 0, 'Korvold, Fae-Cursed King')!;
-    // Kokusho twice (each opponent loses 10, you gain 30), Judith twice (2 to player 1), Korvold twice (two counters, two cards).
+    // Kokusho twice (each opponent loses 10, you gain 30), Judith twice (2 to player 1). Korvold's
+    // "whenever you sacrifice a permanent" triggers on the sacrifice, which caused the death, not
+    // on the dying: once (one counter, one card), as Teysa's rulings say.
     expect(lifeOf(g)).toEqual([70, 28, 30, 30]);
-    expect(korvold.counters['+1/+1']).toBe(2);
-    expect(g.players[0].hand.length).toBe(hand + 2);
+    expect(korvold.counters['+1/+1']).toBe(1);
+    expect(g.players[0].hand.length).toBe(hand + 1);
     // Korvold attacks and sacrifices the Plains: a land dying isn't a creature dying, so once.
     g = produce(g, (d) => {
       byName(d, 0, 'Korvold, Fae-Cursed King')!.sick = false;
@@ -189,8 +193,59 @@ describe('Teysa Karlov', () => {
     g = untilAsked(run(g, { type: 'declareAttack', card: korvold.id, defender: 1 }, pass));
     expect(g.decision?.type).toBe('chooseCards');
     g = settle(run(g, { type: 'chooseCards', cards: [byName(g, 0, 'Plains')!.id] }));
-    expect(byName(g, 0, 'Korvold, Fae-Cursed King')!.counters['+1/+1']).toBe(3);
-    expect(g.players[0].hand.length).toBe(hand + 3);
+    expect(byName(g, 0, 'Korvold, Fae-Cursed King')!.counters['+1/+1']).toBe(2);
+    expect(g.players[0].hand.length).toBe(hand + 2);
+  });
+
+  it('an artifact creature dying doubles "whenever an artifact is put into a graveyard from the battlefield"; a noncreature artifact does not', () => {
+    // A made-up card with that ability, which reads the permanent as it last was (603.10a).
+    registerCards({ 'Test Scrapyard': { name: 'Test Scrapyard', manaCost: '{1}', cmc: 1, colors: [], colorIdentity: [], typeLine: 'Artifact', oracleText: 'Whenever an artifact is put into a graveyard from the battlefield, draw a card.', keywords: [], image: '', art: '' } });
+    registerScripts({ 'Test Scrapyard': { onCardToGraveyard: { when: (g, { from }) => !!from && hasType(g, from, 'Artifact'), resolve: (g, { you }) => draw(g, you) } } });
+    let g = emptyGame((d) => {
+      put(d, 0, 'Teysa Karlov');
+      put(d, 0, 'Test Scrapyard');
+      put(d, 0, 'Solemn Simulacrum');
+      put(d, 0, 'Sol Ring');
+      top(d, 0, plenty);
+    });
+    const hand = g.players[0].hand.length;
+    // Solemn Simulacrum: the Scrapyard twice and its own "may draw" twice (the bot says yes).
+    g = settle(produce(g, (d) => void destroy(d, byName(d, 0, 'Solemn Simulacrum'))));
+    expect(g.players[0].hand.length).toBe(hand + 4);
+    // Sol Ring isn't a creature: once.
+    g = settle(produce(g, (d) => void destroy(d, byName(d, 0, 'Sol Ring'))));
+    expect(g.players[0].hand.length).toBe(hand + 5);
+  });
+
+  it('a creature leaving the battlefield by dying doubles "leaves the battlefield" abilities, and a land made a creature counts (603.10a)', () => {
+    let g = emptyGame((d) => {
+      put(d, 0, 'Teysa Karlov');
+      put(d, 0, 'Zurgo Stormrender');
+      put(d, 0, 'Judith, the Scourge Diva');
+      createToken(d, 0, 'Soldier');
+      untilEndOfTurn(d, put(d, 0, 'Plains'), { types: ['Creature'], setPower: 1, setToughness: 1 });
+    });
+    // The Soldier token dies: Zurgo's "whenever a creature token you control leaves the battlefield" twice.
+    g = settle(produce(g, (d) => void destroy(d, named(d, 0, 'Soldier')[0])));
+    expect(lifeOf(g)).toEqual([40, 38, 38, 38]);
+    // The animated Plains dies: Judith's "whenever a nontoken creature you control dies" twice (2 damage in all).
+    g = settle(produce(g, (d) => void destroy(d, byName(d, 0, 'Plains'))));
+    expect(g.players.slice(1).reduce((n, p) => n + 38 - p.life, 0)).toBe(2);
+  });
+
+  it('two Teysas make a creature dying trigger three times, and Teysa dying alongside still counts (603.10a)', () => {
+    let g = emptyGame((d) => {
+      put(d, 0, 'Teysa Karlov', 'battlefield', 2);
+      put(d, 0, 'Kokusho, the Evening Star');
+    });
+    g = settle(produce(g, (d) => void destroy(d, byName(d, 0, 'Kokusho, the Evening Star'))));
+    expect(lifeOf(g)).toEqual([85, 25, 25, 25]);
+    let h = emptyGame((d) => {
+      put(d, 0, 'Teysa Karlov');
+      put(d, 0, 'Kokusho, the Evening Star');
+    });
+    h = settle(produce(h, (d) => destroyMany(d, [byName(d, 0, 'Teysa Karlov')!, byName(d, 0, 'Kokusho, the Evening Star')!])));
+    expect(lifeOf(h)).toEqual([70, 30, 30, 30]);
   });
 
   it('creature tokens you control have vigilance and lifelink; other creatures do not', () => {
@@ -587,6 +642,22 @@ describe('Zurgo Stormrender', () => {
     // A nontoken creature leaving does nothing.
     g = settle(produce(g, (d) => void destroy(d, byName(d, 0, 'Zurgo Stormrender'))));
     expect(g.players[0].hand.length).toBe(hand + 1);
+  });
+});
+
+describe('Voice of Victory', () => {
+  it("mobilize's Warriors attack whom their controller chooses (508.4)", () => {
+    let g = emptyGame((d) => {
+      human(d);
+      put(d, 0, 'Voice of Victory');
+      attacking(d);
+    });
+    g = untilAsked(run(g, { type: 'declareAttack', card: byName(g, 0, 'Voice of Victory')!.id, defender: 1 }, pass));
+    expect(g.decision?.type).toBe('player');
+    expect(named(g, 0, 'Warrior')).toHaveLength(2);
+    g = throughCombat(run(g, { type: 'choosePlayer', player: 3 }));
+    // Voice's 1 to player 1, the Warriors' 1 each to player 3.
+    expect(lifeOf(g)).toEqual([40, 39, 40, 38]);
   });
 });
 
