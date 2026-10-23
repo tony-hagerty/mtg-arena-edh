@@ -145,6 +145,32 @@ export const GAMES: Record<string, GameSet> = {
       { seeds: [74, 75], name: (seed) => `seed ${seed}: two copies of it play to a finish`, decks: () => [deck('kuja'), DECKS[3], { ...deck('kuja'), id: 'kuja2' }, deck('yshtola')] },
     ],
   },
+  'counters-proliferate': {
+    title: 'decks with proliferate, blight, rad and experience counters, decayed and moving counters',
+    groups: [
+      {
+        // Seeds where they come up: 103 proliferates and blights, 106 proliferates with rad counters out, 107 mills to radiation.
+        seeds: [103, 106, 107],
+        name: toFinish,
+        decks: () => {
+          // EDHREC's counters cards (tests/fixtures.ts) in two cut-down starter decks with the basics to cast them, so they come up often.
+          const green = {
+            ...DECKS[3],
+            id: 'counters-green',
+            cards: [...DECKS[3].cards.slice(36), "Atraxa, Praetors' Voice", "Tidus, Yuna's Guardian", 'High Perfect Morcant', 'Meren of Clan Nel Toth', 'The Wise Mothman', "Betor, Ancestor's Voice"],
+            basics: { Forest: 7, Plains: 5, Swamp: 5, Island: 5 },
+          };
+          const white = {
+            ...DECKS[0],
+            id: 'counters-white',
+            cards: [...DECKS[0].cards.slice(36), 'Kilo, Apogee Mind', 'Auntie Ool, Cursewretch', 'Hope Estheim', 'Giada, Font of Hope', 'Wilhelt, the Rotcleaver'],
+            basics: { Plains: 6, Swamp: 6, Island: 4, Mountain: 3, Forest: 3 },
+          };
+          return [green, DECKS[1], white, DECKS[2]];
+        },
+      },
+    ],
+  },
   hashaton: {
     title: 'the Hashaton deck',
     groups: [{ seeds: [91, 92, 93], name: (seed) => `seed ${seed}: bots play it to a finish`, decks: () => [deck('hashaton'), deck('kuja'), deck('yshtola'), deck('ketramose')] }],

@@ -71,6 +71,10 @@ import {
   permanent,
   pickCards,
   populate,
+  proliferate,
+  proliferated,
+  counterKinds,
+  moveCounter,
   protectionFrom,
   prowess,
   pump,
@@ -1741,6 +1745,34 @@ function youEffect(rest: string, env: Env, st: State, clause: string): Read {
     const n = count(m[2], env.x, clause);
     return { targets: [], choose: (g, ctx, _i, memo, q) => amass(g, ctx.you, subtype, n(g, ctx, memo), q.then, q.data), after: () => {} };
   }
+  // "Move a counter from target permanent you control onto a second target permanent" (122.5): two
+  // instances of "target", so the same one may be chosen twice (115.3), and then nothing moves.
+  // Its controller chooses the kind as it resolves when the first has several.
+  if ((m = /^move a counter from (target .+?) onto a second (target .+)$/.exec(rest))) {
+    const [from, to] = [targetPhrase(m[1], env.x), targetPhrase(m[2], env.x)];
+    const permanentSpec = (s: TargetSpec[] | null) => s?.length === 1 && !s[0].optional && (s[0].type === 'creature' || s[0].type === 'permanent');
+    if (!permanentSpec(from) || !permanentSpec(to)) return refuse(clause, 'moving a counter between anything but two target permanents');
+    return {
+      targets: [from![0], to![0]],
+      choose: (g, ctx, i, _m, q) => {
+        const [a, b] = [refCard(g, ctx.targets[i]), refCard(g, ctx.targets[i + 1])];
+        const kinds = a && b && a.id !== b.id ? counterKinds(a.counters) : [];
+        if (kinds.length === 1) moveCounter(g, a, b, kinds[0]);
+        if (kinds.length <= 1) return false;
+        nameCard(g, ctx.you, { text: `Choose the kind of counter to move from ${cardData(a!.name).name} onto ${cardData(b!.name).name}.`, of: 'counter', options: kinds, then: q.then, data: { ...q.data, from: a!.id, to: b!.id } });
+        return true;
+      },
+      after: (g, c) => void moveCounter(g, permanent(g, c.data.from as string), permanent(g, c.data.to as string), c.name),
+    };
+  }
+  // Proliferate (701.34a): the player chooses any number of permanents and/or players with counters as it resolves.
+  if (rest === 'proliferate') {
+    return {
+      targets: [],
+      choose: (g, ctx, _i, _m, q) => proliferate(g, ctx.you, { then: q.then, data: q.data }),
+      after: (g, c) => proliferated(g, c.chooser, c.picked, c.pickedPlayers ?? []),
+    };
+  }
   if (rest === 'investigate') return { targets: [], run: (g, ctx) => void createToken(g, ctx.you, 'Clue') };
   if (/^take an extra turn after this one$/.test(rest)) return { targets: [], run: (g, ctx) => extraTurn(g, ctx.you) };
   // "You may cast spells this turn as though they had flash."
@@ -2647,6 +2679,11 @@ function cardLine(text: string, original: string, d: CardData, script: CardScrip
     if (!o || o.zone !== 'battlefield' || o.who) return refuse(original, `"activated abilities of ${m[1]}"`);
     const n = parseInt(m[2], 10) * (m[3] === 'less' ? -1 : 1);
     script.abilityCostModifier = (g, self, src, pid) => (src.controller === self.controller && pid === self.controller && (o.type !== 'creature' || isCreature(g, src)) && o.test(g, src, self, 0) ? n : 0);
+    return true;
+  }
+  // "Ward—Blight N." (702.21a, 701.68a): paid by putting N -1/-1 counters on a creature the player controls.
+  if ((m = /^ward—blight (\d+)\.?$/.exec(text))) {
+    script.ward = { blight: parseInt(m[1], 10) };
     return true;
   }
   // Equip [cost] (702.6a), crew N (702.122a).
