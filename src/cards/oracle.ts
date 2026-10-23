@@ -89,6 +89,13 @@ import {
   turnOrder,
   typecycling,
   untap,
+  amass,
+  partnerWith,
+  temptWithRing,
+  timesTempted,
+  isRingBearer,
+  tokenCopy,
+  SUPPORTED_KEYWORDS,
 } from '../engine/rules';
 import type {
   Action,
@@ -101,6 +108,7 @@ import type {
   Ctx,
   Find,
   Game,
+  LayerParts,
   ManaAbility,
   ManaSym,
   Mode,
@@ -158,8 +166,11 @@ const GRANTABLE = [...BARE_KEYWORDS.filter((k) => !['partner', 'flash', 'changel
 /** "Flying", "haste and shroud", "protection from black", "can't be blocked": keywords and restrictions to give. */
 function keywordList(text: string): string[] | null {
   const out: string[] = [];
+  let afterProtection = false;
   for (const k of text.replace(/,? and (?=protection|[a-z])/g, ', ').split(', ')) {
-    const prot = /^protection from (white|blue|black|red|green)$/.exec(k);
+    // "Protection from white and from black" is two protection abilities (702.16g).
+    const prot: RegExpExecArray | null = /^protection from (white|blue|black|red|green)$/.exec(k) ?? (afterProtection ? /^from (white|blue|black|red|green)$/.exec(k) : null);
+    afterProtection = !!prot;
     if (prot) out.push(protectionFrom(COLOR_WORDS[prot[1]]));
     else if (k === "can't be blocked") out.push(CANT_BE_BLOCKED);
     else if (GRANTABLE.includes(k)) out.push(k);
@@ -189,6 +200,14 @@ const ABILITY_WORDS = [
 const stripAbilityWord = (line: string) => {
   const m = /^([a-z' 0-9]+) — (.+)$/.exec(line);
   return m && ABILITY_WORDS.includes(m[1]) ? m[2] : line;
+};
+/**
+ * A flavor word (207.2d), tailored to one card so no list has it: "Three Autostubs — Whenever
+ * ...". Scryfall lists it among the card's keywords; the line goes on after the dash.
+ */
+const stripFlavorWord = (line: string, d: CardData) => {
+  const m = /^([a-z' ,0-9-]+) — (.+)$/.exec(line);
+  return m && d.keywords.some((k) => k.toLowerCase() === m[1]) && !SUPPORTED_KEYWORDS.includes(m[1]) ? m[2] : line;
 };
 
 /** Every subtype by its lower-case name, singular and plural ("dragon", "dragons", "elves"). */
@@ -643,6 +662,14 @@ function count(word: string, x: Num | null, clause: string): Num {
 /** What a "for each" or "the number of" counts: permanents ("creature you control"), cards in a zone, or opponents. */
 function counted(phrase: string, x: Num | null): Num | null {
   if (/^opponents? you have$/.test(phrase)) return (g, ctx) => opponentsOf(g, ctx.you).length;
+  // "For each +1/+1 counter on this creature" (Animar): on the permanent while it is on the battlefield (122.1).
+  const kind = /^([+-]1\/[+-]1|[a-z]+) counter on ~$/.exec(phrase);
+  if (kind) {
+    return (g, ctx) => {
+      const c = permanent(g, ctx.self.id);
+      return c && c.moves === ctx.self.moves ? counterCount(c, kind[1]) : 0;
+    };
+  }
   let m = /^cards? in your (hand|graveyard)$/.exec(phrase);
   if (m) {
     const zone = m[1] as 'hand' | 'graveyard';
@@ -772,12 +799,24 @@ const CONDITIONS: [RegExp, (m: RegExpExecArray) => Cond | null][] = [
   [/^~ is tapped$/, () => (g, self) => !!permanent(g, self.id)?.tapped],
   [/^~ is untapped$/, () => (g, self) => permanent(g, self.id)?.tapped === false],
   [/^an opponent controls more lands than you$/, () => (g, _s, you) => opponentsOf(g, you).some((o) => o.battlefield.filter((c) => isLand(g, c)).length > g.players[you].battlefield.filter((c) => isLand(g, c)).length)],
+  // Life gained this turn (119.3): "if you gained life this turn", "if you gained 3 or more life this turn".
+  [/^you gained life this turn$/, () => (g, _s, you) => (g.players[you].lifeGained ?? 0) > 0],
+  [new RegExp(`^you gained ${NUM} or more life this turn$`), (m) => (g, _s, you) => (g.players[you].lifeGained ?? 0) >= (NUMBERS[m[1]] ?? parseInt(m[1], 10))],
+  // The Ring (701.54c, 701.54e): "if this creature is your Ring-bearer", "the Ring has tempted you two or more times this game".
+  [/^~ is your ring-bearer$/, () => (g, self, you) => isRingBearer(g, permanent(g, self.id) ?? self, you)],
+  [new RegExp(`^the ring has tempted you ${NUM} or more times this game$`), (m) => (g, _s, you) => timesTempted(g, you) >= (NUMBERS[m[1]] ?? parseInt(m[1], 10))],
 ];
 
 function condition(text: string): Cond | null {
   for (const [re, make] of CONDITIONS) {
     const m = re.exec(text);
     if (m) return make(m);
+  }
+  // "A and B": both, each read on its own ("if Frodo is your Ring-bearer and the Ring has tempted you two or more times this game").
+  for (let at = text.indexOf(' and '); at >= 0; at = text.indexOf(' and ', at + 1)) {
+    const a = condition(text.slice(0, at));
+    const b = a && condition(text.slice(at + ' and '.length));
+    if (a && b) return (g, self, you) => a(g, self, you) && b(g, self, you);
   }
   return null;
 }
@@ -1065,6 +1104,17 @@ function playerEffect(rest: string, who: Subject, env: Env, st: State, clause: s
       ),
     };
   }
+  // "Create a token that's a copy of it[, except the token isn't legendary]" (707.2, 707.9b): "it" is the trigger's object,
+  // with its copiable values as it is now, or as it last was on the battlefield if it has left (608.2h).
+  if ((m = /^creates? a token that's a copy of it(, except the token isn't legendary)?$/.exec(rest)) && env.ev?.object && !st.last) {
+    const nonlegendary = !!m[1];
+    return each((g, _ctx, p, memo) => {
+      const was = memo.ev.card;
+      if (!was) return;
+      const now = permanent(g, was.id);
+      tokenCopy(g, p, now && now.moves === was.moves ? now : was, nonlegendary ? { nonlegendary } : {});
+    });
+  }
   if ((m = /^creates? (.+)$/.exec(rest)) && !/ for each /.test(rest)) {
     const made = tokenList(m[1], env.x, clause);
     return each((g, ctx, p, memo) => made.forEach((t) => createToken(g, p, t.key, t.n(g, ctx, memo))));
@@ -1203,6 +1253,8 @@ function lookEffect(n: Num, k: Num, random: boolean, filter: Test | null, label:
  * carried from an earlier clause of the sentence (`st.who`).
  */
 function effect(clause0: string, env: Env, st: State): Read {
+  // "The Ring tempts you" (701.54a): choosing a Ring-bearer among two or more creatures waits, and the rest of the ability with it.
+  if (clause0 === 'the ring tempts you') return { targets: [], choose: (g, ctx, _i, _m, q) => temptWithRing(g, ctx.you, q.then, q.data), after: () => {} };
   // "That creature's controller" and "that permanent's controller" are "its controller".
   // "That player" after a permanent an opponent controls, with no player before it, is that permanent's controller (Boseiju).
   const clause = clause0
@@ -1676,6 +1728,12 @@ function youEffect(rest: string, env: Env, st: State, clause: string): Read {
   }
   // Populate (701.36).
   if (rest === 'populate') return { targets: [], run: (g, ctx) => void populate(g, ctx.you) };
+  // Amass [subtype] N (701.47a): with several Armies the player chooses one, and the rest of the ability waits.
+  if ((m = new RegExp(`^amass ([a-z]+) ${NUM}$`).exec(rest)) && subtypeOf(m[1]) && CREATURE_TYPES.includes(subtypeOf(m[1])!)) {
+    const subtype = subtypeOf(m[1])!;
+    const n = count(m[2], env.x, clause);
+    return { targets: [], choose: (g, ctx, _i, memo, q) => amass(g, ctx.you, subtype, n(g, ctx, memo), q.then, q.data), after: () => {} };
+  }
   if (rest === 'investigate') return { targets: [], run: (g, ctx) => void createToken(g, ctx.you, 'Clue') };
   if (/^take an extra turn after this one$/.test(rest)) return { targets: [], run: (g, ctx) => extraTurn(g, ctx.you) };
   // "You may cast spells this turn as though they had flash."
@@ -1788,6 +1846,8 @@ function effects(text: string, env: Env): Effect[] {
     else if (/^create .+ token$/.test(sentences[k]) && /^it has "[^"]+"$/.test(next ?? '')) sentences.splice(k, 2, `${sentences[k]} with ${next.slice('it has '.length)}`);
     else if (next === "until end of turn, you don't lose this mana as steps and phases end" && /(?:^| and )add (?:\{[wubrgc]\})+$/.test(sentences[k])) sentences.splice(k, 2, `${sentences[k]}. ${next}`);
     else if (/^you may pay (?:(?:\{[^}]+\})+|\d+ life)$/.test(sentences[k]) && /^if you do, /.test(next ?? '')) sentences.splice(k, 2, `${sentences[k]}. ${next}`);
+    // "You may discard your hand. If you do, draw four cards" (Sauron): discarding a hand can always be done once chosen, even an empty one, so "if you do" is the same "you may".
+    else if (sentences[k] === 'you may discard your hand' && /^if you do, /.test(next ?? '')) sentences.splice(k, 2, `you may discard your hand and ${next.slice('if you do, '.length)}`);
     else if (/^counter target .+ spell$/.test(sentences[k]) && next === "if that spell is countered this way, exile it instead of putting it into its owner's graveyard") sentences.splice(k, 2, `${sentences[k]}. ${next}`);
     else if (/^(?:that player|its controller) may pay (?:\{[^}]+\})+$/.test(sentences[k]) && /^if (?:the player|they|that player) (?:doesn't|don't), /.test(next ?? '')) {
       // "That player may pay {2}. If the player doesn't, you create a Treasure token" is "... unless that player pays {2}" (118.12a).
@@ -2195,6 +2255,11 @@ function staticLine(line: string, d: CardData): StaticFn | null {
       if (who) return (g, self, c) => (who(g, self, c) ? bonus : null);
     }
   }
+  // "Protection from white and from black" (702.16a, 702.16g): the permanent's own protection abilities.
+  if (/^protection from /.test(line) && !d.typeLine.includes('Instant') && !d.typeLine.includes('Sorcery')) {
+    const keywords = keywordList(line);
+    if (keywords?.length && keywords.every((k) => k.startsWith('protection from '))) return (_g, self, c) => (c.id === self.id ? { keywords } : null);
+  }
   // "This creature can't be blocked", "... attacks each combat if able" (509.1b, 508.1d).
   if ((line === "~ can't be blocked." || line === '~ attacks each combat if able.') && d.typeLine.includes('Creature')) {
     const kw = line === "~ can't be blocked." ? CANT_BE_BLOCKED : MUST_ATTACK;
@@ -2217,6 +2282,99 @@ function staticLine(line: string, d: CardData): StaticFn | null {
     return (g, _self, c) => (isLand(g, c) ? { subtypes: [type] } : null);
   }
   return null;
+}
+
+/** "Other creatures", "artifacts you control", "creatures": who a type-changing line is about, every player's unless it says whose. */
+function typesGroup(text: string): ((g: Game, self: Card, c: Card) => boolean) | null {
+  const lord = lordGroup(text);
+  if (lord) return lord;
+  const m = /^(other )?(.+)$/.exec(text)!;
+  const o = object(m[2], 'many', null);
+  if (!o || o.zone !== 'battlefield' || o.who) return null;
+  const other = !!m[1];
+  return (g, self, c) => (!other || c.id !== self.id) && (o.type !== 'creature' || isCreature(g, c)) && o.test(g, c, self, 0);
+}
+
+/** "Food artifacts", "Foods", "an artifact": the card types and subtypes a type-changing line adds (205.1b). */
+function addedTypes(phrase: string, plural: boolean): { types: string[]; subtypes: string[] } | null {
+  const words = phrase.split(' ');
+  const last = words.pop()!;
+  const noun = NOUNS[last];
+  const types: string[] = [];
+  const subtypes: string[] = [];
+  if (noun) {
+    if (!noun.type || noun.plural !== plural) return null;
+    types.push(noun.type);
+  } else {
+    const sub = subtypeOf(last);
+    if (!sub || (last === sub.toLowerCase()) === plural) return null;
+    subtypes.push(sub);
+  }
+  // Words in front: subtypes ("Food artifacts") or card types ("artifact creatures"), singular.
+  for (const w of words) {
+    const sub = subtypeOf(w);
+    if (NOUNS[w] && NOUNS[w].type && !NOUNS[w].plural) types.unshift(NOUNS[w].type);
+    else if (sub && w === sub.toLowerCase()) subtypes.unshift(sub);
+    else return null;
+  }
+  return { types, subtypes };
+}
+
+/** The lines of a card's Oracle text as printed, reminder text gone: the words a granted ability shows. */
+const printedLines = (d: CardData) =>
+  d.oracleText
+    .replace(/\([^)]*\)/g, '')
+    .split('\n')
+    .map((l) => l.trim())
+    .filter(Boolean);
+
+/**
+ * An activated ability a static ability gives other permanents, in quotes (113.1a, 613.1f):
+ * "have '{2}, {T}, Sacrifice this permanent: You gain 3 life.'" Its script is registered under
+ * a name of its own, which the static ability's `activatedOf` names; "this permanent" in it is
+ * the permanent that has it. Returns that name.
+ */
+function grantedActivated(quote: string, original: string, d: CardData, n: number): string {
+  const act = /^([^:"]+): (.+)$/.exec(quote);
+  if (!act || /^(when|whenever|at) /.test(quote)) return refuse(original, `the ability "${quote}"`);
+  const r = restrictions(act[2], original);
+  if (manaEffect(r.body)) return refuse(original, 'a mana ability given this way');
+  const paid = cost(act[1], original);
+  if (paid.fromHand) return refuse(original, `the cost "${act[1]}"`);
+  const name = `${d.name} (ability ${n + 1})`;
+  const then: Then = {};
+  const bots: Bots = {};
+  const { targets, run } = build(effects(r.body, { permanent: true, x: paid.x ? (_g, ctx) => ctx.x ?? 0 : null, typeLine: '' }), `g${n}`, d.name, then, bots);
+  const text = /"([^"]+)"/.exec(printedLines(d)[n] ?? '')?.[1] ?? quote;
+  registerScripts({
+    [name]: {
+      activated: { cost: paid.cost, ...(r.sorcery ? { sorcery: true } : {}), ...(r.when ? { when: r.when } : {}), ...(targets.length ? { targets } : {}), text, resolve: run },
+      ...(Object.keys(then).length ? { then } : {}),
+      ...(Object.keys(bots).length ? { botChoice: bots } : {}),
+    },
+  });
+  return name;
+}
+
+/**
+ * "Other creatures are Food artifacts in addition to their other types and have '{2}, {T},
+ * Sacrifice this permanent: You gain 3 life.'", "Artifacts you control are Foods in addition to
+ * their other types ...": card types and subtypes added in layer 4 (205.1b, 613.1d), and an
+ * activated ability in layer 6 (613.1f), to the same set of objects (613.6).
+ */
+function typesLine(text: string, original: string, d: CardData, n: number): StaticFn | null {
+  const m = /^(.+?) (is|are) (?:an? )?(.+?) in addition to (?:its|their) other types(?:\.| and (?:has|have) "([^"]+)")$/.exec(text);
+  if (!m) return null;
+  const who = typesGroup(m[1]);
+  const added = addedTypes(m[3], m[2] === 'are');
+  if (!who || !added) return null;
+  const lent = m[4] ? grantedActivated(m[4], original, d, n) : undefined;
+  const parts: LayerParts = {
+    ...(added.types.length ? { types: added.types } : {}),
+    ...(added.subtypes.length ? { subtypes: added.subtypes } : {}),
+    ...(lent ? { activatedOf: [lent] } : {}),
+  };
+  return (g, self, c) => (who(g, self, c) ? parts : null);
 }
 
 const landsOf = (g: Game, pid: PlayerId) => g.players[pid].battlefield.filter((x) => isLand(g, x));
@@ -2383,13 +2541,17 @@ function cardLine(text: string, original: string, d: CardData, script: CardScrip
     return true;
   }
   // "Red spells you cast cost {1} less to cast", "Artifact spells you cast cost {1} less", "Noncreature spells cost {1} more" (601.2f): generic mana only.
-  if ((m = /^(?:(.+?) )?spells (you cast|your opponents cast|) ?cost \{(\d+)\} (less|more) to cast\.$/.exec(text))) {
+  // "... cost {1} less to cast for each +1/+1 counter on this creature" (Animar): counted as the cost is worked out.
+  if ((m = /^(?:(.+?) )?spells (you cast|your opponents cast|) ?cost \{(\d+)\} (less|more) to cast(?: for each (.+))?\.$/.exec(text))) {
     const kind = spellKind(m[1] ?? '');
     if (!kind) return refuse(original, `no template for "${m[1]} spells"`);
     const whose = m[2];
     const n = parseInt(m[3], 10) * (m[4] === 'less' ? -1 : 1);
+    const per = m[5] ? (counted(m[5], null) ?? refuse(original, `"for each ${m[5]}"`)) : null;
     script.costModifier = (g, self, spell, caster) =>
-      (whose === 'you cast' ? caster === self.controller : whose === 'your opponents cast' ? caster !== self.controller : true) && kind(g, spell) ? n : 0;
+      (whose === 'you cast' ? caster === self.controller : whose === 'your opponents cast' ? caster !== self.controller : true) && kind(g, spell)
+        ? n * (per ? per(g, { self, you: self.controller, targets: [] }, blankMemo()) : 1)
+        : 0;
     return true;
   }
   // "If you control a commander, you may cast this spell without paying its mana cost." An alternative cost (118.9).
@@ -2453,6 +2615,31 @@ function cardLine(text: string, original: string, d: CardData, script: CardScrip
   // Ward {N}, "Ward—Pay N life." (702.21a)
   if ((m = /^ward (\{\d+\})$/.exec(text)) || (m = /^ward—pay (\d+) life\.$/.exec(text))) {
     script.ward = m[1].startsWith('{') ? { mana: m[1] } : { life: parseInt(m[1], 10) };
+    return true;
+  }
+  // "Ward—Sacrifice a Food.", "Ward—Sacrifice a legendary artifact or legendary creature." (702.21a): a permanent of the payer's.
+  if ((m = /^ward—sacrifice (a|an) (.+?)\.$/.exec(text))) {
+    const o = object(m[2], 'one', null);
+    if (!o || o.zone !== 'battlefield' || o.who || o.type === 'creature or planeswalker') return refuse(original, `the ward cost "sacrifice ${m[1]} ${m[2]}"`);
+    script.ward = { sacrifice: { type: o.type, label: `${m[1]} ${m[2]}`, filter: o.test } };
+    return true;
+  }
+  // "Partner with [name]" (702.124j): the deck rule pairs the two; the card also gets the ability "When this permanent enters, target player may search their library for a card named [name] ...".
+  if ((m = /^partner with (.+)$/.exec(text)) && d.typeLine.includes('Legendary')) {
+    const name = original.slice('Partner with '.length);
+    if (name.toLowerCase() !== m[1]) return refuse(original, 'partner with a name the parser can\'t read');
+    const p = partnerWith(name);
+    addTrigger(script, 'onEnter', { ...(p.onEnter as AnyTrigger), targets: p.targets });
+    Object.assign(then, p.then);
+    script.botChoice = { ...script.botChoice, ...p.botChoice };
+    return true;
+  }
+  // "Activated abilities of Foods you control cost {1} less to activate." (602.2b, 601.2f): generic mana only, never below {0}.
+  if ((m = /^activated abilities of (.+?) you control cost \{(\d+)\} (less|more) to activate\.$/.exec(text))) {
+    const o = object(m[1], 'many', null);
+    if (!o || o.zone !== 'battlefield' || o.who) return refuse(original, `"activated abilities of ${m[1]}"`);
+    const n = parseInt(m[2], 10) * (m[3] === 'less' ? -1 : 1);
+    script.abilityCostModifier = (g, self, src, pid) => (src.controller === self.controller && pid === self.controller && (o.type !== 'creature' || isCreature(g, src)) && o.test(g, src, self, 0) ? n : 0);
     return true;
   }
   // Equip [cost] (702.6a), crew N (702.122a).
@@ -2693,9 +2880,24 @@ const TRIGGERS: [RegExp, (m: RegExpExecArray) => TrigEvent[] | null][] = [
     },
   ],
   [/^whenever a land you control enters$/, () => [{ hook: 'onLandfall', when: (_g, e) => (e.land as Card).controller === e.self.controller, ev: objectEv('land'), env: { object: true } }]],
+  // "Whenever a Food is put into a graveyard from the battlefield": a leaves-the-battlefield ability, so it looks back in time (603.6c, 603.10a). Tokens go there too before they cease to exist (111.7).
+  [
+    /^whenever (a|an|another) (.+?) is put into a graveyard from the battlefield$/,
+    (m) => {
+      const about = aboutObject(`${m[1]} ${m[2]}`);
+      return about && [{ hook: 'onPermanentLeaves', when: (g, e) => e.to === 'graveyard' && about(g, e.left as Card, e.self), ev: objectEv('left'), env: { object: true, player: true } }];
+    },
+  ],
   // Players (119.9, 121, 601.2i).
   [/^whenever you gain life$/, () => [{ hook: 'onLifeGain', when: yours((e) => e.player), ev: playerEv('player', 'amount'), env: { amount: true } }]],
   [/^whenever an opponent loses life$/, () => [{ hook: 'onLifeLoss', when: (g, e) => isOpp(g, e.self.controller, e.player), ev: playerEv('player', 'amount'), env: { player: true, amount: true } }]],
+  // Only the first life they lose in their own turn (Valgavoth): later losses that turn, or losses on other turns, don't count.
+  [
+    /^whenever an opponent loses life for the first time during each of their turns$/,
+    () => [{ hook: 'onLifeLoss', when: (g, e) => isOpp(g, e.self.controller, e.player) && !!e.firstThisTurn && g.active === e.player, ev: playerEv('player', 'amount'), env: { player: true, amount: true } }],
+  ],
+  // "Whenever the Ring tempts you" (701.54d).
+  [/^whenever the ring tempts you$/, () => [{ hook: 'onRingTempts', when: yours((e) => e.player) }]],
   [/^whenever you draw a card$/, () => [{ hook: 'onDraw', when: yours((e) => e.player) }]],
   [/^whenever an opponent draws a card$/, () => [{ hook: 'onDraw', when: (g, e) => isOpp(g, e.self.controller, e.player), ev: playerEv('player'), env: { player: true } }]],
   [/^whenever a player draws a card$/, () => [{ hook: 'onDraw', ev: playerEv('player'), env: { player: true } }]],
@@ -2914,7 +3116,7 @@ function readCard(d: CardData): CardScript {
   const all = lines(d);
   for (let n = 0; n < all.length; n++) {
     const { original } = all[n];
-    const text = stripAbilityWord(all[n].text);
+    const text = stripFlavorWord(stripAbilityWord(all[n].text), d);
     // A modal line takes the bullet lines after it (700.2).
     const bullets: string[] = [];
     while (n + 1 < all.length && /^(•|\+ \{)/.test(all[n + 1].text)) bullets.push(all[++n].text.replace(/\.$/, ''));
@@ -2923,6 +3125,13 @@ function readCard(d: CardData): CardScript {
     const parts = text.split(',').map((p) => p.trim());
     if (parts.includes('prowess') && parts.every((p) => p === 'prowess' || BARE_KEYWORDS.includes(p))) {
       addTrigger(script, 'onCast', { ...prowess, text: 'Prowess' } as AnyTrigger);
+      continue;
+    }
+    // Ward {N} among other keywords: "Flying, ward {2}", "Vigilance, trample, ward {3}" (702.21a).
+    const wardAt = parts.findIndex((p) => /^ward \{\d+\}$/.test(p));
+    if (wardAt >= 0 && parts.length > 1 && parts.every((p, i) => i === wardAt || BARE_KEYWORDS.includes(p))) {
+      if (script.ward) return refuse(original, 'two ward abilities');
+      script.ward = { mana: parts[wardAt].slice('ward '.length) };
       continue;
     }
     // Casting rules the engine applies itself: delve (702.66), rebound (702.88), paradigm (702.192).
@@ -3038,6 +3247,11 @@ function readCard(d: CardData): CardScript {
         text: original,
         resolve: run,
       });
+      continue;
+    }
+    const typed = typesLine(text, original, d, n);
+    if (typed) {
+      statics.push(typed);
       continue;
     }
     const st = staticLine(text, d);

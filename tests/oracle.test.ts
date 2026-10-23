@@ -537,7 +537,7 @@ describe('more effects and static lines from Oracle text', () => {
     });
     // Player 0's Angel ({4}{W}) costs {1} less for its own Medallion, not for the opponent's.
     expect(castCost(g, byName(g, 0, 'Angel of Mercy', 'hand')!)).toMatchObject({ generic: 3, pips: ['W'] });
-    expect(refusal('Artifact', 'White spells you cast cost {1} less to cast for each artifact you control.')).not.toBeNull();
+    expect(refusal('Artifact', 'White spells you cast cost {1} less to cast for each color among permanents you control.')).not.toBeNull();
     const rollick = parse('Instant', 'If you control a commander, you may cast this spell without paying its mana cost.\nExile target creature.');
     expect(rollick.ok && rollick.script.alternativeCosts).toMatchObject([{ label: 'free: you control a commander', mana: '' }]);
     const maneuver = parse('Instant', 'Creatures you control gain indestructible until end of turn.');
