@@ -416,7 +416,13 @@ fetched card too, since the card is matched to it by name.
   (`onEnter` ones too) and a short `text`, and `when` may be left out for one that
   triggers on every event.
 - Other trigger hooks: `onPostcombatMain`, `onDrawStep`, `onTapped`, `onDiscard`,
-  `onSacrifice`, `onPlaneswalkerDies`, `onBeginCombat`.
+  `onSacrifice`, `onPlaneswalkerDies`, `onBeginCombat`, `onLeaveGraveyard` ("whenever one or
+  more cards leave your graveyard": once for each event and graveyard, looking back in time,
+  603.10a), `onChapterResolved` (a Saga's chapter ability resolved; `final` for its final
+  chapter, 714.2e). `onDraw` says `firstInDrawStep` for the first card a player draws in
+  their own draw step (504.1).
+- `oncePerTurn: true` on a `{ when, resolve }` trigger is "This ability triggers only once
+  each turn". "Do this only once each turn" (603.2h) is `didThisTurn` and `markDid`.
 
 **Spells and costs**
 
@@ -549,6 +555,12 @@ ability already on the stack, which exists apart from its source (113.7a).
 | `delay` with `delayed[key]` | a delayed trigger (603.7) |
 | `extraTurn`, `winGame`, `loseGame` | as named |
 | `mill`, `discard`, `discardHand`, `surveil` | as named |
+| `discover(g, pid, n)` | discover N (701.57a), the cast-or-hand choice included |
+| `revealUntil(g, pid, fits, what)` | "reveal cards from the top until you reveal a ... card" (701.20a): the cards revealed, still in the library, and the one that fits |
+| `exileUntil(g, pid, fits)` then `castFromExiled(g, pid, hit, rest, opts)` | "exile cards from the top until ...", "you may cast that card without paying its mana cost" (`maxMv`, `toHand` for discover), and the rest on the bottom in a random order |
+| `enterBattlefield(g, c, { attacking: { defender } })` | put onto the battlefield attacking (508.4) |
+| `leftGraveyards(g, cards)` | cards that left a graveyard other than by `moveCard` (cast from it), for `onLeaveGraveyard` |
+| `Card.arrived` | the zone a card came from into its zone and the turn ("put there from their library this turn") |
 | `exileAll(g, cards, text?, pid?)` | exiles several cards from anywhere as one event and logs once, so "whenever one or more cards are put into exile" triggers once (603.2c). Never `moveCard` cards into exile in a loop |
 | `toGraveyards(g, cards)`, `destroyMany`, `dieMany` | several cards to graveyards as one event |
 | `simultaneously(g, fn)` | runs `fn` as one event: "each opponent loses 1 life" in it triggers "whenever one or more players lose life" once |
