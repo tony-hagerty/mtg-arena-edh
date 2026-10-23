@@ -1591,6 +1591,8 @@ export function manaOptions(g: Game, me: PlayerId, card: Card): ManaOption[] {
 function plainOption(g: Game, me: PlayerId, card: Card, options: ManaOption[]): ManaOption | undefined {
   const only = options.length === 1 && options[0].mana.length === 1 ? options[0] : undefined;
   if (!only || (only.creatures?.length ?? 0) > (only.tapCount ?? 1) || only.discards || only.sacrifices) return undefined;
+  // One that would make no mana now (Vivi Ornitier with power 0) is used only when the human picks it.
+  if (!only.mana[0].length) return undefined;
   return triggeredAsks(g, me, card, only.ability, only.mana[0]).some((t) => t.mana.length > 1) ? undefined : only;
 }
 
