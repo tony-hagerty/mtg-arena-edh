@@ -185,6 +185,8 @@ const ABILITY_WORDS = [
   'heroic', 'imprint', 'infusion', 'inspired', 'join forces', 'kinship', 'landfall', 'lieutenant', 'magecraft', 'metalcraft', 'morbid', 'opus', 'pack tactics', 'paradox', 'parley',
   'radiance', 'raid', 'rally', 'renew', 'repartee', 'revolt', 'secret council', 'spell mastery', 'strive', 'survival', 'sweep', 'tempting offer', 'threshold', 'undergrowth', 'valiant',
   'vivid', 'void', 'will of the council',
+  // Newer ability words and flavor words (207.2c, 207.2d): Final Fantasy's trance, Spider-Man's Goblin Formula.
+  'trance', 'goblin formula',
 ];
 const stripAbilityWord = (line: string) => {
   const m = /^([a-z' 0-9]+) — (.+)$/.exec(line);
@@ -731,6 +733,8 @@ const CONDITIONS: [RegExp, (m: RegExpExecArray) => Cond | null][] = [
       return (g, _self, you) => g.players[you].battlefield.some((c) => types.some((t) => hasType(g, c, t!)));
     },
   ],
+  // "If you control seven or more lands with different names" (Field of the Dead, The Necrobloom): names as the lands are now.
+  [new RegExp(`^you control ${NUM} or more lands with different names$`), (m) => (g, _s, you) => new Set(g.players[you].battlefield.filter((c) => isLand(g, c)).map((c) => cardData(c.name).name)).size >= (NUMBERS[m[1]] ?? parseInt(m[1], 10))],
   [
     new RegExp(`^you control ${NUM} or more (.+)$`),
     (m) => {
@@ -1795,9 +1799,18 @@ function effects(text: string, env: Env): Effect[] {
       sentences.splice(k, 2, `${next.replace(/^if (?:the player|they|that player) (?:doesn't|don't), /, '')} unless ${pay[1]} pays ${pay[2]}`);
     }
   }
+  /** Where the effects of the sentence before began in `out`, for "If [condition], [effect] instead". */
+  let previous = 0;
   for (const raw of sentences) {
+    const start = out.length;
     const read = whereX(raw, env, raw);
     let sentence = read.sentence;
+    // "You may play an additional land this turn" (305.2, Explore): a permission, not a choice to make now.
+    if (sentence === 'you may play an additional land this turn') {
+      out.push({ targets: [], text: raw, run: (g, ctx) => addEffect(g, { kind: 'extraLand', player: ctx.you, n: 1 }) });
+      previous = start;
+      continue;
+    }
     // "If you control four or more lands, untap that land": checked as it resolves (608.2c). Only a condition the parser reads.
     let onlyIf: Cond | undefined;
     const iff = /^if (.+?), (.+)$/.exec(sentence);
@@ -1805,6 +1818,21 @@ function effects(text: string, env: Env): Effect[] {
       onlyIf = condition(iff[1])!;
       sentence = iff[2];
     }
+    // "Create a 0/1 Plant token. If you control seven or more lands with different names, create a
+    // 2/2 Zombie token instead" (The Necrobloom): the sentence before happens only if the condition
+    // doesn't hold as it resolves, and this one only if it does (608.2c). Not a replacement effect (614.1a).
+    let instead: Cond | undefined;
+    if (iff && condition(iff[1]) && / instead$/.test(iff[2])) {
+      if (start === 0 || previous === start) refuse(raw, '"instead" with no effect before it');
+      const cond = condition(iff[1])!;
+      for (const e of out.slice(previous, start)) {
+        const was = e.onlyIf;
+        e.onlyIf = (g, self, you) => !cond(g, self, you) && (!was || was(g, self, you));
+      }
+      instead = cond;
+      sentence = iff[2].replace(/ instead$/, '');
+    }
+    previous = start;
     let may = false;
     let asker: Effect['asker'];
     let mayPay: { cost?: string; life?: number } | undefined;
@@ -1874,7 +1902,7 @@ function effects(text: string, env: Env): Effect[] {
         return;
       }
       const e = effect(c, read.env, st);
-      out.push({ ...e, text: clause, ...mayPart, ...(onlyIf ? { onlyIf } : {}) });
+      out.push({ ...e, text: clause, ...mayPart, ...(onlyIf ? { onlyIf } : {}), ...(instead ? { onlyIf: instead } : {}) });
     });
   }
   return out;
@@ -2367,6 +2395,58 @@ function cardLine(text: string, original: string, d: CardData, script: CardScrip
     script.noMaxHandSize = true;
     return true;
   }
+  // "You may look at the top card of your library any time." (Glarb, Mystic Forge, Bolas's Citadel)
+  if (text === 'you may look at the top card of your library any time.') {
+    script.looksAtTop = (_g, self, pid) => pid === self.controller;
+    return true;
+  }
+  // "Play with the top card of your library revealed." (Oracle of Mul Daya): everyone sees it.
+  if (text === 'play with the top card of your library revealed.') {
+    script.revealsTop = (_g, self, pid) => pid === self.controller;
+    return true;
+  }
+  // "You may play lands and cast spells [with mana value N or greater] from the top of your library",
+  // "You may play lands from the top of your library" (Oracle of Mul Daya), "You may cast artifact spells
+  // and colorless spells from the top of your library" (Mystic Forge): a permission (601.3, 305.1).
+  // Glarb's rulings: a spell with {X} may be cast with an X that makes its mana value 4 or greater.
+  if ((m = /^you may (play lands and cast spells|play lands|cast (.+?) spells)(?: with mana value (\d+) or greater)? from the top of your library\.$/.exec(text))) {
+    const land = m[1].startsWith('play lands');
+    const kinds = m[1] === 'play lands' ? null : (m[2] ?? '').split(' spells and ').map((k) => spellKind(k));
+    if (kinds?.some((k) => !k)) return refuse(original, `no template for "${m[2]} spells"`);
+    const minMv = m[3] ? parseInt(m[3], 10) : undefined;
+    script.playPermission = (g, self, pid, c) => {
+      if (pid !== self.controller || c.zone !== 'library' || c.owner !== pid || g.players[pid].library[0]?.id !== c.id) return null;
+      const cast = !!kinds && !isLand(g, c) && kinds.some((k) => k!(g, c));
+      return cast || (land && isLand(g, c)) ? { ...(cast ? { cast: true } : {}), ...(land ? { land: true } : {}), ...(minMv !== undefined ? { minMv } : {}) } : null;
+    };
+    return true;
+  }
+  // "You may play an additional land on each of your turns" (Exploration), "two additional lands" (Azusa) (305.2).
+  if ((m = /^you may play (an additional land|two additional lands) on each of your turns\.$/.exec(text))) {
+    const n = m[1] === 'two additional lands' ? 2 : 1;
+    script.extraLands = (g, self, pid) => (pid === self.controller && g.active === pid ? n : 0);
+    return true;
+  }
+  // "Land cards in your graveyard have dredge 2." (The Necrobloom, 702.52)
+  if ((m = /^([a-z]+) cards in your graveyard have dredge (\d+)\.$/.exec(text))) {
+    const kind = modifier(m[1]);
+    if (!kind) return refuse(original, `no template for "${m[1]} cards"`);
+    const n = parseInt(m[2], 10);
+    script.grantsDredge = (g, self, c) => (c.zone === 'graveyard' && c.owner === self.controller && kind(g, c, self, 0) ? n : null);
+    return true;
+  }
+  // "Each nonland card in your graveyard has mayhem. The mayhem cost is equal to its mana cost." (Green Goblin, 702.187b)
+  if (text === 'each nonland card in your graveyard has mayhem. the mayhem cost is equal to its mana cost.') {
+    script.playPermission = (g, self, pid, c) =>
+      pid === self.controller && c.zone === 'graveyard' && c.owner === pid && !isLand(g, c) && c.discarded === g.turn ? { cast: true, cost: cardData(c.name).manaCost } : null;
+    return true;
+  }
+  // "Spells you cast from your graveyard cost {2} less to cast." (Green Goblin, 601.2f): generic mana only.
+  if ((m = /^spells you cast from your graveyard cost \{(\d+)\} less to cast\.$/.exec(text))) {
+    const n = -parseInt(m[1], 10);
+    script.costModifier = (_g, self, _spell, caster, from) => (caster === self.controller && from === 'graveyard' ? n : 0);
+    return true;
+  }
   // "This spell can't be countered." (101.2)
   if (text === "~ can't be countered.") {
     script.uncounterable = true;
@@ -2693,6 +2773,20 @@ const TRIGGERS: [RegExp, (m: RegExpExecArray) => TrigEvent[] | null][] = [
     },
   ],
   [/^whenever a land you control enters$/, () => [{ hook: 'onLandfall', when: (_g, e) => (e.land as Card).controller === e.self.controller, ev: objectEv('land'), env: { object: true } }]],
+  // "Whenever this land or another land you control enters" (Field of the Dead): itself included; others only when it is on the battlefield to see them (603.6a).
+  [
+    /^whenever ~ or another (.+?) enters$/,
+    (m) => {
+      const about = aboutObject(`another ${m[1]}`);
+      if (!about) return null;
+      const when = (g: Game, e: Record<string, unknown> & { self: Card }, entered: Card) => entered.id === e.self.id || about(g, entered, e.self);
+      if (/^land(?: you control)?$/.test(m[1])) return [{ hook: 'onLandfall', when: (g, e) => when(g, e, e.land as Card), ev: objectEv('land'), env: { object: true } }];
+      if (/creature/.test(m[1])) return [{ hook: 'onCreatureEnters', when: (g, e) => when(g, e, e.entered as Card), ev: objectEv('entered'), env: { object: true, player: true } }];
+      return [{ hook: 'onPermanentEnters', when: (g, e) => when(g, e, e.entered as Card), ev: objectEv('entered'), env: { object: true, player: true } }];
+    },
+  ],
+  // "Whenever you play a land" (305.1): not a land an effect puts onto the battlefield (305.4).
+  [/^whenever you play a land$/, () => [{ hook: 'onLandPlayed', when: yours((e) => e.player), ev: objectEv('land'), env: { object: true } }]],
   // Players (119.9, 121, 601.2i).
   [/^whenever you gain life$/, () => [{ hook: 'onLifeGain', when: yours((e) => e.player), ev: playerEv('player', 'amount'), env: { amount: true } }]],
   [/^whenever an opponent loses life$/, () => [{ hook: 'onLifeLoss', when: (g, e) => isOpp(g, e.self.controller, e.player), ev: playerEv('player', 'amount'), env: { player: true, amount: true } }]],
@@ -2925,8 +3019,9 @@ function readCard(d: CardData): CardScript {
       addTrigger(script, 'onCast', { ...prowess, text: 'Prowess' } as AnyTrigger);
       continue;
     }
-    // Casting rules the engine applies itself: delve (702.66), rebound (702.88), paradigm (702.192).
-    if (CAST_KEYWORDS.includes(text)) continue;
+    // Casting rules the engine applies itself: delve (702.66), rebound (702.88), paradigm (702.192),
+    // dredge N (702.52) and mayhem [cost] (702.187).
+    if (CAST_KEYWORDS.includes(text) || /^dredge \d+$/.test(text) || /^mayhem (?:\{[^}]+\})+$/.test(text)) continue;
     // Extort (702.101a) and job select (702.182a) are triggered abilities.
     if (text === 'extort') {
       addTrigger(script, 'onCast', { ...(extort.onCast as AnyTrigger), text: 'Extort' });

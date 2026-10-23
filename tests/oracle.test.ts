@@ -1282,7 +1282,9 @@ describe('conditions as it resolves, "that land", "that player", granted mana (6
     expect(crack(2)).toBe(true);
     expect(crack(3)).toBe(false);
     teach('Test If', 'Sorcery', 'Draw a card. If you control an artifact, draw a card.');
-    expect(refusal('Sorcery', 'Draw a card. If you control an artifact, draw two cards instead.')).not.toBeNull();
+    // "If [condition], [effect] instead" after an effect: the first happens only without the condition, the second only with it (608.2c).
+    expect(parse('Sorcery', 'Draw a card. If you control an artifact, draw two cards instead.').ok).toBe(true);
+    expect(refusal('Sorcery', 'If you control an artifact, draw two cards instead.')).not.toBeNull();
   });
 
   it('"That player may search" after destroying an opponent\'s permanent asks its controller (Boseiju)', () => {

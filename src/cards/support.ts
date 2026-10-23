@@ -8,7 +8,7 @@ import type { DeckDef } from './db';
 import { refusalOf } from './oracle';
 
 /** Ability words and keyword actions: they label a rule that the card's script implements. */
-export const ABILITY_WORDS = ['landfall', 'treasure', 'mill', 'threshold', 'metalcraft', 'recruit', "scions' secretary", 'delirium', 'surveil', 'imprint', 'channel', 'ferocious', 'bloodrush', 'populate', 'food', 'throw wide the gates', 'flare star', 'double', 'magecraft', 'role token', 'sell contraband', 'buy information', 'hire a mercenary', 'connive', 'medicus ministorum', 'monstrosity', 'madness', 'miracle'];
+export const ABILITY_WORDS = ['landfall', 'treasure', 'mill', 'threshold', 'metalcraft', 'recruit', "scions' secretary", 'delirium', 'surveil', 'imprint', 'channel', 'ferocious', 'bloodrush', 'populate', 'food', 'throw wide the gates', 'flare star', 'double', 'magecraft', 'role token', 'sell contraband', 'buy information', 'hire a mercenary', 'connive', 'medicus ministorum', 'monstrosity', 'madness', 'miracle', 'trance', 'goblin formula'];
 
 /**
  * Keywords the engine applies from a card's keyword list alone, with no script, and that
