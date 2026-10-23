@@ -12,7 +12,7 @@ import { MusicControl, SoundControl } from './SoundControl';
 import { useStore } from './store';
 import type { Hover } from './store';
 import { type Seat, cx, deckColor, faceUp, hoverProps, seatOf } from './util';
-import { STEP_NAMES, activateFromHand, cancel, clickStackItem, stackTucked, pickAbility, pickMana, pickTapCreature, pickManaDiscard, pickManaSacrifice, pickFace, pickMode, playHandCard, setAbilityX, setChoices, shiftDivision, undo, exileForMana, plotCard, useView } from './view';
+import { STEP_NAMES, activateFromHand, cancel, clickStackItem, stackTucked, pickAbility, pickMana, pickTapCreature, pickTriggeredMana, useForMana, pickManaDiscard, pickManaSacrifice, pickFace, pickMode, playHandCard, setAbilityX, setChoices, shiftDivision, undo, exileForMana, plotCard, useView } from './view';
 import type { AbilityOption, Btn } from './view';
 import { leftStack, newGame } from './zone-moves';
 
@@ -504,14 +504,14 @@ function ManaPicker() {
   const g = useView().g;
   const card = pick && findCard(g, pick.cardId);
   if (!pick || !card) return null;
-  const picker = (title: string, ids: string[], on: string | undefined, choose: (id: string) => void) => (
+  const picker = (title: string, ids: string[], on: string | string[] | undefined, choose: (id: string) => void) => (
     <div className="cast-row">
       <span className="cast-label">{title}</span>
       {ids.map((id) => {
         const c = findCard(g, id);
         return (
           c && (
-            <button key={id} className={`chip${on === id ? ' on' : ''}`} onClick={() => choose(id)}>
+            <button key={id} className={`chip${(Array.isArray(on) ? on.includes(id) : on === id) ? ' on' : ''}`} onClick={() => choose(id)}>
               {label(c)}
             </button>
           )
@@ -519,6 +519,27 @@ function ManaPicker() {
       })}
     </div>
   );
+  // A triggered mana ability asking which mana it adds (Kinnan's, 605.1b), once the mana is picked.
+  const asking = pick.triggered && pick.triggered.asks[pick.triggered.answers.length];
+  if (asking) {
+    const from = findCard(g, asking.from);
+    return (
+      <div className="cast-options">
+        <div className="cast-row">
+          <span className="cast-label">{from ? label(from) : 'Triggered mana ability'}: choose the mana it adds</span>
+          {asking.mana.map((m) => (
+            <button key={m.join('')} className="chip" onClick={() => pickTriggeredMana(m)} aria-label={m.join('')}>
+              <ManaCost cost={m.map((x) => `{${x}}`).join('')} />
+            </button>
+          ))}
+          <button className="chip" onClick={() => pickTriggeredMana(null)}>
+            Cancel
+          </button>
+        </div>
+      </div>
+    );
+  }
+  const tapCount = pick.options.find((o) => o.tapCount)?.tapCount;
   return (
     <div className="cast-options">
       <div className="cast-row">
@@ -539,8 +560,8 @@ function ManaPicker() {
           ))}
         </div>
       ))}
-      {pick.options.flatMap((o) => o.creatures ?? []).length > 1 &&
-        picker('Tap', [...new Set(pick.options.flatMap((o) => o.creatures ?? []))], pick.creature, pickTapCreature)}
+      {pick.options.flatMap((o) => o.creatures ?? []).length > (tapCount ?? 1) &&
+        picker(tapCount ? `Tap ${tapCount}` : 'Tap', [...new Set(pick.options.flatMap((o) => o.creatures ?? []))], tapCount ? pick.taps : pick.creature, pickTapCreature)}
       {pick.options.some((o) => o.discards) && picker('Discard', [...new Set(pick.options.flatMap((o) => o.discards ?? []))], pick.discard, pickManaDiscard)}
       {pick.options.some((o) => o.sacrifices) && picker('Sacrifice', [...new Set(pick.options.flatMap((o) => o.sacrifices ?? []))], pick.sacrifice, pickManaSacrifice)}
       <div className="cast-row">
@@ -561,8 +582,8 @@ function LoyaltyOptions({ options }: { options: AbilityOption[] }) {
     <div className="cast-options">
       <div className="cast-modes">
         {options.map((o) => (
-          <div key={`${o.ref.ability ?? 'a'}-${o.ref.activated ?? 0}`} className="cast-row">
-            <button className="chip mode" disabled={!o.ok} onClick={() => pickAbility(o.ref)}>
+          <div key={o.mana ? 'mana' : `${o.ref.ability ?? 'a'}-${o.ref.activated ?? 0}`} className="cast-row">
+            <button className="chip mode" disabled={!o.ok} onClick={() => (o.mana ? useForMana() : pickAbility(o.ref))}>
               {o.cost && <b className="loyalty-cost">{o.cost.startsWith('{') ? <ManaCost cost={o.cost} /> : o.cost}</b>} {o.text}
             </button>
           </div>

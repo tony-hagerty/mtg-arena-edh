@@ -1267,24 +1267,37 @@ function tappedForCost(g: Game, pid: PlayerId, c: Card, ab: ManaUse, named?: str
  * cards want most). Returns the mana added, so tapping by hand can be taken back with it.
  */
 function tappedForManaTriggers(g: Game, pid: PlayerId, source: Card, ab: ManaUse, produced: ManaSym[], picks: ManaSym[][] = []): Mana[] {
-  if (ab.noTap || ab.fromHand || !produced.length) return [];
   const out: Mana[] = [];
-  let k = 0;
+  tappedForManaOptions(g, pid, source, ab, produced).forEach((t, k) => {
+    const wanted = picks[k];
+    const pick = (wanted && t.mana.find((o) => sameMana(o, wanted))) ?? preferredMana(g, t.from.controller, t.mana);
+    const added = pick.map((sym): Mana => ({ sym, source: t.from.id }));
+    // Like the mana ability it rides on, it isn't logged (605.3b): nothing uses the stack.
+    g.players[t.player].pool.push(...added);
+    if (t.player === pid) out.push(...added);
+  });
+  return out;
+}
+
+const sameMana = (a: ManaSym[], b: ManaSym[]) => a.length === b.length && [...a].sort().join() === [...b].sort().join();
+
+/**
+ * The triggered mana abilities (605.1b) that would trigger if `pid` tapped `source` for mana
+ * with ability `ab`, making `produced` (see `tappedForManaTriggers`), in the order they resolve:
+ * the permanent each is of, who adds the mana, and the lists of mana to choose among. For the
+ * mana picker, which asks the player's choices first (`Action.triggered`).
+ */
+export function tappedForManaOptions(g: Game, pid: PlayerId, source: Card, ab: ManaUse, produced: ManaSym[]): { from: Card; player: PlayerId; mana: ManaSym[][] }[] {
+  // Only a mana ability with {T} in its cost taps its permanent for mana (106.12), and only one that made mana counts (106.12a).
+  if (ab.noTap || ab.fromHand || !produced.length) return [];
+  const out: { from: Card; player: PlayerId; mana: ManaSym[][] }[] = [];
   for (const x of battlefield(g)) {
     if (!mayHaveScript(x, 'tappedForMana')) continue;
-    const fn = abilitiesOf(g, x).tappedForMana;
-    const r = fn?.(g, x, { source, player: pid, produced });
+    const r = abilitiesOf(g, x).tappedForMana?.(g, x, { source, player: pid, produced });
     if (!r || g.players[r.player].lost || !r.mana.length) continue;
     // It triggers once more for each effect like Roaming Throne's (603.2d). It isn't an
     // "enters" ability, which is all such effects tell apart.
-    for (let n = triggerTimes(g, x, 'onTapped'); n > 0; n--) {
-      const wanted = picks[k++];
-      const pick = (wanted && r.mana.find((o) => o.length === wanted.length && [...o].sort().join() === [...wanted].sort().join())) ?? preferredMana(g, x.controller, r.mana);
-      const added = pick.map((sym): Mana => ({ sym, source: x.id }));
-      // Like the mana ability it rides on, it isn't logged (605.3b): nothing uses the stack.
-      g.players[r.player].pool.push(...added);
-      if (r.player === pid) out.push(...added);
-    }
+    for (let n = triggerTimes(g, x, 'onTapped'); n > 0; n--) out.push({ from: x, player: r.player, mana: r.mana });
   }
   return out;
 }
@@ -1329,9 +1342,11 @@ export function tapForMana(
   const added: Mana[] = made.map((sym) => ({ sym, source: c.id, ability: ab.index, ...restrictionsOf(ab, c.chosen) }));
   const tappedFor = ab.tapCreature ? tappedForCost(g, pid, c, ab, tapId) : [];
   const creature = tappedFor[0];
+  // A source sacrificed for its mana (a Treasure) is seen by its triggered mana abilities as it last was (603.10a).
+  const was = ab.sacrifice ? lastKnown(g, c) : c;
   useManaAbility(g, pid, c, ab, tappedFor.map((x) => x.id), discardId, sacrificeId);
   // Its triggered mana abilities resolve right after it (605.4a): Kinnan's extra mana.
-  const extra = tappedForManaTriggers(g, pid, c, ab, made, triggered);
+  const extra = tappedForManaTriggers(g, pid, was, ab, made, triggered);
   // It can be taken back if it changed nothing else: no life paid, no damage, nothing
   // sacrificed, discarded or exiled, nothing triggered, and the same for the sources that
   // paid its mana cost. Mana its triggered mana abilities added goes back with it.
