@@ -416,7 +416,19 @@ fetched card too, since the card is matched to it by name.
   (`onEnter` ones too) and a short `text`, and `when` may be left out for one that
   triggers on every event.
 - Other trigger hooks: `onPostcombatMain`, `onDrawStep`, `onTapped`, `onDiscard`,
-  `onSacrifice`, `onPlaneswalkerDies`, `onBeginCombat`.
+  `onSacrifice`, `onPlaneswalkerDies`, `onBeginCombat`, `onAttackersDeclared` ("whenever
+  you attack", once with every attack), `onCombatDamageToPlayers` ("whenever one or more
+  creatures [you control] deal combat damage to a player": once for each player hit, with
+  every creature that hit them), `onPermanentLeaves` (whose event says whether the
+  permanent was `attacking`).
+- Reflexive triggered abilities (603.12): `reflexive(g, self, you, key, data)` queues the
+  script's `reflexive[key]`, which can have `targets` or `modes` ("When you do, choose two —",
+  Caesar); its modes are chosen as it goes on the stack like any modal trigger's.
+- Trigger doubling: `doublesTriggers(g, self, source, hook, event)` says whether `self` makes
+  `source`'s ability on `hook` trigger once more (603.2d). `ENTERING_HOOKS` are the events
+  that are a permanent entering (Elesh Norn), `ATTACKING_HOOKS` a creature attacking
+  (Isshin), and `causedByCreatureDying(g, source, hook, event)` says whether a creature dying
+  caused it (Teysa Karlov). Delayed and reflexive abilities are never doubled (603.2d).
 
 **Spells and costs**
 
@@ -442,7 +454,8 @@ fetched card too, since the card is matched to it by name.
 | Vehicle | `activated: crew(3)` |
 | Impending | spread `...impending(4, '{1}{U}{U}')` into the script: its alternative cost and end-step trigger; the engine adds the time counters and "isn't a creature" |
 | Several activated abilities | list them in printed order (`activated: [ab1, equip('{1}')]`); an `activate` action and its stack item name one by `activated` (its index) |
-| Activated ability options | `fromHand`, `when`, `reduction`; costs `discard`, `discardSelf`, `counters`, or `sacrificeOne` permanent that fits a spec ("Sacrifice a creature:"), `sacrificeCount` of them ("Sacrifice two ...") |
+| Activated ability options | `fromHand`, `when`, `reduction`; costs `discard`, `discardSelf`, `counters`, or `sacrificeOne` permanent that fits a spec ("Sacrifice a creature:"), `sacrificeCount` of them ("Sacrifice two ..."), `tapCreatures: { n, spec }` ("Tap ten untapped Elves you control", Lathril; the action's `tap` names them) |
+| Modal activated ability | `modes: { min, max, modes, bot? }` instead of `targets` ("Choose one —", Breya, 700.2a); the action's `modes` are chosen as it is activated and each mode has its own targets |
 | Planeswalker | `loyalty` abilities: `{ cost: -2, text, targets, resolve }`, or `cost: '-X'` |
 | Siege | can add `onDefeat` |
 | Faces (double-faced, split, adventurer) | one script per face, under each face's name ("Delver of Secrets", "Insectile Aberration"); `transform(g, card)` turns one over. A deck may list it by its first face's name. |
@@ -557,6 +570,9 @@ ability already on the stack, which exists apart from its source (113.7a).
 | `becomeCopy(g, card, copyOf(x))` | a permanent becomes a copy while it stays (707.4) |
 | `populate(g, pid)` | copies a creature token the player chooses |
 | `tap(g, card)` | taps a permanent and triggers `onTapped` |
+| `putAttacking(g, pid, creatures)` | creatures created "tapped and attacking" (508.4): their controller chooses what they attack when there is a choice (mobilize, Caesar) |
+| `combatDamageOf(g, c)` | the combat damage a creature assigns: its power, or its toughness under `ASSIGNS_TOUGHNESS` (Arcades, Felothar); `ATTACKS_DESPITE_DEFENDER` lets it attack with defender. Both are given through `static`'s `keywords`, like `CANT_ATTACK` |
+| `basePT(g, c)` | base power and toughness (layers 7a-7b), for "power greater than its base power" |
 | `abilitySource` | the source, if it is still the same object |
 
 **Bot hints**
