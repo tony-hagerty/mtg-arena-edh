@@ -4,6 +4,7 @@
 import { produce } from 'immer';
 import { describe, expect, it } from 'vitest';
 import './fixtures';
+import { registerCards } from '../src/cards/db';
 import { scriptCards } from '../src/cards/oracle';
 import { unsupported } from '../src/cards/support';
 import { applyAction, applyBotAction, botAction, colorsOf, createToken, hasType, makeCard, manaAbilities, newGame, permanent, stats } from '../src/engine';
@@ -488,6 +489,74 @@ describe('Mana Drain', () => {
     expect(pool(g, 0)).toBe('C');
   });
 });
+
+describe('edge cases', () => {
+  it("Helga's mana can be spent on a creature spell with {X} in its mana cost, whatever its mana value", () => {
+    registerCards({ 'Test X Hydra': { name: 'Test X Hydra', manaCost: '{X}{G}', cmc: 1, colors: ['G'], colorIdentity: ['G'], typeLine: 'Creature — Hydra', oracleText: '', power: '2', toughness: '2', keywords: [], image: '', art: '' } });
+    scriptCards(['Test X Hydra']);
+    let g = emptyGame((d) => {
+      put(d, 0, 'Helga, Skittish Seer').counters['+1/+1'] = 1;
+      put(d, 0, 'Test X Hydra', 'hand');
+    });
+    g = run(g, { type: 'tapMana', card: id(g, 'Helga, Skittish Seer'), color: 'G' });
+    g = settle(run(g, { type: 'cast', card: id(g, 'Test X Hydra', 'hand'), x: 1 }));
+    expect(byName(g, 0, 'Test X Hydra')).toBeDefined();
+    expect(pool(g)).toBe('');
+  });
+
+  it('Kinnan and a Treasure: the Treasure is sacrificed, and its one colour comes again', () => {
+    let g = emptyGame((d) => {
+      put(d, 0, 'Kinnan, Bonder Prodigy');
+      createToken(d, 0, 'Treasure');
+    });
+    g = run(g, { type: 'tapMana', card: id(g, 'Treasure'), color: 'U' });
+    expect(pool(g)).toBe('UU');
+    expect(byName(g, 0, 'Treasure')).toBeUndefined();
+  });
+
+  it("Mana Drain on a spell that can't be countered still gives the mana; with its target gone, nothing", () => {
+    let g = emptyGame((d) => {
+      put(d, 0, 'Rhythm of the Wild');
+      put(d, 0, 'Serra Angel', 'hand');
+      put(d, 0, 'Plains', 'battlefield', 5);
+      put(d, 1, 'Mana Drain', 'hand');
+      put(d, 1, 'Island', 'battlefield', 2);
+    });
+    g = run(g, { type: 'cast', card: id(g, 'Serra Angel', 'hand'), hold: true }, { type: 'pass' });
+    g = settle(run(g, { type: 'cast', card: id(g, 'Mana Drain', 'hand', 1), targets: [{ kind: 'stack', id: g.stack[0].id }] }));
+    expect(byName(g, 0, 'Serra Angel')).toBeDefined();
+    expect(g.delayed.some((d) => d.key === 'drain' && (d.data?.mv as number) === 5)).toBe(true);
+  });
+
+  it('the Bridge with no creature or planeswalker reveals the whole library and puts it all on the bottom', () => {
+    let g = emptyGame((d) => {
+      put(d, 0, 'Esika, God of the Tree // The Prismatic Bridge').face = 1;
+      d.players[0].library = ['Island', 'Plains', 'Forest'].map((n) => makeCard(d, n, 0, 'library'));
+      d.step = 'untap';
+    });
+    g = produce(g, (d) => {
+      d.step = 'main1';
+    });
+    g = passTo(passTo(g, 1, 'main1'), 0, 'main1');
+    expect(g.players[0].battlefield.filter((c) => c.name !== 'Esika, God of the Tree // The Prismatic Bridge')).toHaveLength(0);
+    expect(g.players[0].library.length + g.players[0].hand.length).toBe(3);
+  });
+
+  it('Zaxara: an effect that doubles tokens makes two Hydras, each with X counters', () => {
+    registerCards({ 'Test Doubler': { name: 'Test Doubler', manaCost: '{4}', cmc: 4, colors: [], colorIdentity: [], typeLine: 'Artifact', oracleText: 'If one or more tokens would be created under your control, twice that many of those tokens are created instead.', keywords: [], image: '', art: '' } });
+    scriptCards(['Test Doubler']);
+    let g = emptyGame((d) => {
+      put(d, 0, 'Zaxara, the Exemplary');
+      put(d, 0, 'Test Doubler');
+      put(d, 0, 'Blaze', 'hand');
+      put(d, 0, 'Mountain', 'battlefield', 3);
+    });
+    g = settle(run(g, { type: 'cast', card: id(g, 'Blaze', 'hand'), x: 2, targets: [{ kind: 'player', id: 1 }] }));
+    const hydras = g.players[0].battlefield.filter((c) => c.name === 'Hydra 0/0 G');
+    expect(hydras.map((h) => h.counters['+1/+1'])).toEqual([2, 2]);
+  });
+});
+
 
 describe('in the UI', () => {
   const play = (setup: (g: Game) => void) => useStore.setState({ game: human(setup), human: 0, humans: [0], handoff: null, targeting: null, pickedBlockers: [], undoSteps: [], manaPick: null });

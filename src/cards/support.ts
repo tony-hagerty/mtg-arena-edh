@@ -16,7 +16,7 @@ export const ABILITY_WORDS = ['landfall', 'treasure', 'mill', 'threshold', 'meta
  * played without its rules text (`textlessRefusal`). Every other supported keyword is spelt
  * out by the card's script (kicker, equip, crew, cycling ...) or changes how it is cast.
  */
-export const PLAIN_KEYWORDS = ['flying', 'reach', 'deathtouch', 'lifelink', 'trample', 'vigilance', 'haste', 'first strike', 'double strike', 'menace', 'fear', 'defender', 'hexproof', 'indestructible', 'flash', 'shadow', 'landwalk', 'plainswalk', 'islandwalk', 'swampwalk', 'mountainwalk', 'forestwalk', 'changeling', 'devoid', 'partner'];
+export const PLAIN_KEYWORDS = ['flying', 'reach', 'deathtouch', 'lifelink', 'trample', 'vigilance', 'haste', 'first strike', 'double strike', 'menace', 'fear', 'defender', 'hexproof', 'indestructible', 'flash', 'shadow', 'landwalk', 'plainswalk', 'islandwalk', 'swampwalk', 'mountainwalk', 'forestwalk', 'changeling', 'devoid', 'partner', 'exalted'];
 
 /** Oracle text split into abilities, with reminder text removed. */
 export const abilities = (text: string) =>
