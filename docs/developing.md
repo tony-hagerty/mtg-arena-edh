@@ -422,7 +422,7 @@ fetched card too, since the card is matched to it by name.
   chapter, 714.2e). `onDraw` says `firstInDrawStep` for the first card a player draws in
   their own draw step (504.1).
 - `oncePerTurn: true` on a `{ when, resolve }` trigger is "This ability triggers only once
-  each turn". "Do this only once each turn" (603.2h) is `didThisTurn` and `markDid`.
+  each turn": one instance a turn, even with `doublesTriggers` (101.2). "Do this only once each turn" (603.2h) is `didThisTurn` and `markDid`.
 
 **Spells and costs**
 
