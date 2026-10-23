@@ -851,6 +851,20 @@ button {
 }
 
 /* Summoning sick (302.6): a moon in a dark disc on the left, below the name. */
+/* The Ring-bearer's mark (701.54a): a gold ring on the card's left edge, under the summoning-sick mark. */
+.tile-ring {
+  position: absolute;
+  left: -0.35em;
+  top: 52%;
+  width: 1.3em;
+  height: 1.3em;
+  min-width: 1.1rem;
+  min-height: 1.1rem;
+  border: 0.22em solid var(--gold);
+  border-radius: 50%;
+  box-shadow: 0 0 0.35em rgba(255, 200, 90, 0.8), inset 0 0 0.2em rgba(0, 0, 0, 0.6);
+}
+
 .tile-sick {
   position: absolute;
   left: -0.35em;

@@ -3,7 +3,6 @@
 // the Ring tempts you, partner with, types and an ability given by a static ability, activated
 // abilities costing less, protection from colours, and the clauses that could go wrong.
 import { describe, expect, it } from 'vitest';
-import { cardData } from '../src/cards/db';
 import type { DeckDef } from '../src/cards/db';
 import { deckProblems } from '../src/cards/db';
 import { parseCard, scriptCards } from '../src/cards/oracle';
@@ -21,6 +20,11 @@ import {
   counterCount,
   createToken,
   gainControl,
+  dealDamage,
+  enterBattlefield,
+  legalTargets,
+  loseLife,
+  simultaneously,
   has,
   hasType,
   isRingBearer,
@@ -445,5 +449,267 @@ describe('Frodo, Adventurous Hobbit and Sam, Loyal Attendant', () => {
     const food = byName(g, 0, 'Food')!;
     // Ragost gives it a second {2} ability; with Sam both cost {1}.
     expect(activatedAbilities(g, food).map((a) => activationCost(g, 0, food, a).generic)).toEqual([1, 1]);
+  });
+});
+
+describe('Sauron, the Dark Lord', () => {
+  it('an Army dealing combat damage tempts you; then "you may discard your hand. If you do, draw four cards."', () => {
+    const play = (yes: boolean) => {
+      let g = emptyGame((d) => {
+        d.players[0].isBot = false;
+        put(d, 0, 'Sauron, the Dark Lord');
+        amass(d, 0, 'Orc', 2);
+        byName(d, 0, 'Orc Army')!.sick = false;
+        put(d, 0, 'Island', 'hand', 2);
+        top(d, 0, Array.from({ length: 6 }, () => 'Swamp'));
+      });
+      g = run(g, pass, { type: 'declareAttack', card: byName(g, 0, 'Orc Army')!.id, defender: 1 }, pass);
+      g = settle(g, (x) => asked(x)?.then === '@ringBearer');
+      g = run(g, pick(byName(g, 0, 'Sauron, the Dark Lord')!.id));
+      g = settle(g, (x) => asked(x)?.kind === 'ask');
+      expect(asked(g)!.text).toMatch(/discard your hand and draw four cards/i);
+      return settle(run(g, { type: 'answer', yes }), (x) => x.step === 'main2');
+    };
+    const yes = play(true);
+    expect(timesTempted(yes, 0)).toBe(1);
+    expect(isRingBearer(yes, byName(yes, 0, 'Sauron, the Dark Lord')!)).toBe(true);
+    expect(yes.players[0].graveyard.map((c) => c.name)).toEqual(['Island', 'Island']);
+    expect(yes.players[0].hand.map((c) => c.name)).toEqual(['Swamp', 'Swamp', 'Swamp', 'Swamp']);
+    const no = play(false);
+    expect(no.players[0].hand.map((c) => c.name)).toEqual(['Island', 'Island']);
+  });
+
+  it('a creature that is not an Army dealing combat damage does nothing', () => {
+    let g = emptyGame((d) => {
+      put(d, 0, 'Sauron, the Dark Lord');
+      put(d, 0, 'Elite Vanguard');
+    });
+    g = until(run(g, pass, { type: 'declareAttack', card: byName(g, 0, 'Elite Vanguard')!.id, defender: 1 }, pass), (x) => x.step === 'main2');
+    expect(timesTempted(g, 0)).toBe(0);
+  });
+});
+
+describe('Ygra, Eater of All', () => {
+  it('other creatures, every player\'s, are Food artifacts with "{2}, {T}, Sacrifice this permanent: You gain 3 life."; Ygra is not', () => {
+    let g = emptyGame((d) => {
+      put(d, 0, 'Ygra, Eater of All');
+      put(d, 0, 'Elite Vanguard');
+      put(d, 1, 'Serra Angel');
+      put(d, 0, 'Plains', 'battlefield', 2);
+    });
+    const ygra = byName(g, 0, 'Ygra, Eater of All')!;
+    const vanguard = byName(g, 0, 'Elite Vanguard')!;
+    const angel = byName(g, 1, 'Serra Angel')!;
+    for (const c of [vanguard, angel]) {
+      expect(hasType(g, c, 'Artifact')).toBe(true);
+      expect(subtypesOf(g, c)).toContain('Food');
+      expect(hasType(g, c, 'Creature')).toBe(true);
+    }
+    expect(hasType(g, ygra, 'Food')).toBe(false);
+    expect(activatedAbilities(g, ygra)).toEqual([]);
+    expect(activatedAbilities(g, vanguard).map((a) => a.text)).toEqual(['{2}, {T}, Sacrifice this permanent: You gain 3 life.']);
+    // Activating it: the Vanguard is sacrificed, its controller gains 3 life, and a Food went to a graveyard: two counters on Ygra.
+    g = settle(run(g, { type: 'activate', card: vanguard.id }));
+    expect(byName(g, 0, 'Elite Vanguard')).toBeUndefined();
+    expect(g.players[0].life).toBe(43);
+    expect(counterCount(byName(g, 0, 'Ygra, Eater of All')!)).toBe(2);
+  });
+
+  it('counts a creature dying as a Food put into a graveyard, and stops making Foods when it leaves', () => {
+    let g = emptyGame((d) => {
+      put(d, 0, 'Ygra, Eater of All');
+      put(d, 1, 'Elite Vanguard');
+      put(d, 0, 'Lightning Bolt', 'hand');
+      put(d, 0, 'Mountain');
+    });
+    g = settle(run(g, { type: 'cast', card: byName(g, 0, 'Lightning Bolt', 'hand')!.id, targets: [card(byName(g, 1, 'Elite Vanguard')!)] }));
+    expect(counterCount(byName(g, 0, 'Ygra, Eater of All')!)).toBe(2);
+    g = produce(g, (d) => {
+      put(d, 1, 'Serra Angel');
+      const y = byName(d, 0, 'Ygra, Eater of All')!;
+      y.zone = 'graveyard';
+      d.players[0].battlefield = d.players[0].battlefield.filter((c) => c.id !== y.id);
+    });
+    expect(hasType(g, byName(g, 1, 'Serra Angel')!, 'Food')).toBe(false);
+  });
+});
+
+describe('Ragost, Deft Gastronaut', () => {
+  it('your artifacts are Foods with the Food ability; sacrifice a Food: 3 damage to each opponent', () => {
+    let g = emptyGame((d) => {
+      put(d, 0, 'Ragost, Deft Gastronaut');
+      put(d, 0, 'Sol Ring');
+      put(d, 1, 'Arcane Signet');
+      put(d, 0, 'Plains', 'battlefield', 1);
+    });
+    const ring = byName(g, 0, 'Sol Ring')!;
+    expect(subtypesOf(g, ring)).toEqual(['Food']);
+    expect(activatedAbilities(g, ring).map((a) => a.text)).toEqual(['{2}, {T}, Sacrifice this artifact: You gain 3 life.']);
+    // Only its controller's artifacts.
+    expect(hasType(g, byName(g, 1, 'Arcane Signet')!, 'Food')).toBe(false);
+    const ragost = byName(g, 0, 'Ragost, Deft Gastronaut')!;
+    g = settle(run(g, { type: 'activate', card: ragost.id, sacrifice: [ring.id] }));
+    expect(byName(g, 0, 'Sol Ring', 'graveyard')).toBeDefined();
+    expect(g.players.map((p) => p.life)).toEqual([40, 37, 37, 37]);
+    expect(byName(g, 0, 'Ragost, Deft Gastronaut')!.tapped).toBe(true);
+  });
+
+  it('"At the beginning of each end step, if you gained life this turn, untap Ragost."', () => {
+    const endStep = (gained: number) => {
+      let g = emptyGame((d) => {
+        put(d, 0, 'Ragost, Deft Gastronaut').tapped = true;
+        d.players[0].lifeGained = gained;
+        turnOf(d, 1);
+      });
+      // On through this turn's end step, which nobody stops in: the next turn is another player's, so Ragost doesn't untap in it.
+      const turn = g.turn;
+      return until(g, (x) => x.turn !== turn);
+    };
+    expect(byName(endStep(3), 0, 'Ragost, Deft Gastronaut')!.tapped).toBe(false);
+    expect(byName(endStep(0), 0, 'Ragost, Deft Gastronaut')!.tapped).toBe(true);
+  });
+});
+
+describe('Valgavoth, Harrower of Souls', () => {
+  it('"Whenever an opponent loses life for the first time during each of their turns": once, and only on their turn', () => {
+    let g = emptyGame((d) => {
+      put(d, 0, 'Valgavoth, Harrower of Souls');
+      top(d, 0, ['Island', 'Island', 'Island']);
+      turnOf(d, 1);
+    });
+    g = settle(produce(g, (d) => void loseLife(d, 1, 2)));
+    expect(counterCount(byName(g, 0, 'Valgavoth, Harrower of Souls')!)).toBe(1);
+    expect(g.players[0].hand.length).toBe(1);
+    // The second loss that turn, and another opponent losing life on that turn, don't trigger it.
+    g = settle(produce(g, (d) => {
+      loseLife(d, 1, 1);
+      loseLife(d, 2, 1);
+    }));
+    expect(counterCount(byName(g, 0, 'Valgavoth, Harrower of Souls')!)).toBe(1);
+    expect(g.players[0].hand.length).toBe(1);
+  });
+
+  it('several losses at once, like combat damage from two creatures, are one first time', () => {
+    let g = emptyGame((d) => {
+      put(d, 0, 'Valgavoth, Harrower of Souls');
+      turnOf(d, 1);
+    });
+    g = settle(produce(g, (d) => simultaneously(d, () => {
+      loseLife(d, 1, 1);
+      loseLife(d, 1, 1);
+    })));
+    expect(counterCount(byName(g, 0, 'Valgavoth, Harrower of Souls')!)).toBe(1);
+  });
+});
+
+describe('Miirym, Sentinel Wyrm', () => {
+  it('copies another nontoken Dragon entering, except the token isn\'t legendary', () => {
+    let g = emptyGame((d) => {
+      put(d, 0, 'Miirym, Sentinel Wyrm');
+      put(d, 0, 'Kokusho, the Evening Star', 'hand');
+    });
+    g = settle(produce(g, (d) => void enterBattlefield(d, byName(d, 0, 'Kokusho, the Evening Star', 'hand')!)));
+    const both = g.players[0].battlefield.filter((c) => c.name === 'Kokusho, the Evening Star');
+    expect(both).toHaveLength(2);
+    const token = both.find((c) => c.isToken)!;
+    expect(hasType(g, token, 'Legendary')).toBe(false);
+    expect(hasType(g, both.find((c) => !c.isToken)!, 'Legendary')).toBe(true);
+    // The token Dragon entering didn't trigger it again, and a second Miirym... is legendary: no copies of Miirym itself.
+    expect(g.players[0].battlefield.filter((c) => c.isToken)).toHaveLength(1);
+  });
+
+  it("doesn't copy a creature that isn't a Dragon, or an opponent's Dragon", () => {
+    let g = emptyGame((d) => {
+      put(d, 0, 'Miirym, Sentinel Wyrm');
+      put(d, 0, 'Elite Vanguard', 'hand');
+      put(d, 1, 'Shivan Dragon', 'hand');
+    });
+    g = settle(produce(g, (d) => {
+      enterBattlefield(d, byName(d, 0, 'Elite Vanguard', 'hand')!);
+      enterBattlefield(d, byName(d, 1, 'Shivan Dragon', 'hand')!);
+    }));
+    expect(g.players.flatMap((p) => p.battlefield).filter((c) => c.isToken)).toEqual([]);
+  });
+});
+
+describe('Voja, Jaws of the Conclave', () => {
+  it('attacking: X +1/+1 counters on each creature you control, X the Elves you control; a card for each Wolf', () => {
+    let g = emptyGame((d) => {
+      put(d, 0, 'Voja, Jaws of the Conclave');
+      put(d, 0, 'Llanowar Elves');
+      put(d, 0, 'Elvish Mystic');
+      put(d, 1, 'Elite Vanguard');
+      top(d, 0, ['Island', 'Island']);
+    });
+    g = settle(run(g, pass, { type: 'declareAttack', card: byName(g, 0, 'Voja, Jaws of the Conclave')!.id, defender: 1 }, pass), (x) => x.decision?.type === 'blockers');
+    for (const n of ['Voja, Jaws of the Conclave', 'Llanowar Elves', 'Elvish Mystic']) expect(counterCount(byName(g, 0, n)!), n).toBe(2);
+    expect(counterCount(byName(g, 1, 'Elite Vanguard')!)).toBe(0);
+    expect(g.players[0].hand.length).toBe(1);
+  });
+});
+
+describe('Ghyrson Starn, Kelermorph', () => {
+  const ping = (amount: number, from: (d: Game) => Card, to: (d: Game) => TargetRef) =>
+    settle(
+      produce(
+        emptyGame((d) => {
+          put(d, 0, 'Ghyrson Starn, Kelermorph');
+          put(d, 0, 'Elite Vanguard');
+          put(d, 1, 'Elite Vanguard');
+          put(d, 1, 'Serra Angel');
+        }),
+        (d) => void dealDamage(d, from(d), to(d), amount),
+      ),
+    );
+  const mine = (d: Game) => byName(d, 0, 'Elite Vanguard')!;
+
+  it('another source you control dealing exactly 1 damage: Ghyrson deals 2 more to that player or permanent', () => {
+    expect(ping(1, mine, () => player(1)).players[1].life).toBe(37);
+    const g = ping(1, mine, (d) => card(byName(d, 1, 'Serra Angel')!));
+    expect(byName(g, 1, 'Serra Angel')!.damage).toBe(3);
+  });
+
+  it('not for 2 damage, nor for its own damage or an opponent\'s source', () => {
+    expect(ping(2, mine, () => player(1)).players[1].life).toBe(38);
+    expect(ping(1, (d) => byName(d, 0, 'Ghyrson Starn, Kelermorph')!, () => player(1)).players[1].life).toBe(39);
+    expect(ping(1, (d) => byName(d, 1, 'Elite Vanguard')!, () => player(2)).players[2].life).toBe(39);
+  });
+});
+
+describe('Animar, Soul of Elements', () => {
+  it('protection from white and from black (702.16g): not a target of white or black spells; damage from them is prevented', () => {
+    const g = emptyGame((d) => {
+      put(d, 0, 'Animar, Soul of Elements');
+      for (const n of ['Swords to Plowshares', 'Doom Blade', 'Lightning Bolt']) put(d, 1, n, 'hand');
+    });
+    const animar = byName(g, 0, 'Animar, Soul of Elements')!;
+    expect(has(g, animar, 'protection from white')).toBe(true);
+    expect(has(g, animar, 'protection from black')).toBe(true);
+    expect(has(g, animar, 'protection from red')).toBe(false);
+    const target = (name: string) => {
+      const spell = byName(g, 1, name, 'hand')!;
+      return legalTargets(g, 1, scriptFor(spell).targets![0], spell).some((t) => t.kind === 'card' && t.id === animar.id);
+    };
+    expect(target('Swords to Plowshares')).toBe(false);
+    expect(target('Doom Blade')).toBe(false);
+    expect(target('Lightning Bolt')).toBe(true);
+  });
+
+  it('a +1/+1 counter for each creature spell you cast, and creature spells cost {1} less for each counter', () => {
+    let g = emptyGame((d) => {
+      put(d, 0, 'Animar, Soul of Elements');
+      put(d, 0, 'Elite Vanguard', 'hand');
+      put(d, 0, 'Serra Angel', 'hand');
+      put(d, 0, 'Lightning Bolt', 'hand');
+      put(d, 0, 'Plains', 'battlefield', 5);
+    });
+    expect(castCost(g, byName(g, 0, 'Serra Angel', 'hand')!)).toMatchObject({ generic: 3 });
+    g = settle(run(g, { type: 'cast', card: byName(g, 0, 'Elite Vanguard', 'hand')!.id }));
+    expect(counterCount(byName(g, 0, 'Animar, Soul of Elements')!)).toBe(1);
+    expect(castCost(g, byName(g, 0, 'Serra Angel', 'hand')!)).toMatchObject({ generic: 2 });
+    // Not for other spells, and the reduction is generic mana only.
+    g = produce(g, (d) => void addCounters(d, byName(d, 0, 'Animar, Soul of Elements')!, 4));
+    expect(castCost(g, byName(g, 0, 'Serra Angel', 'hand')!)).toMatchObject({ generic: 0, pips: ['W', 'W'] });
+    expect(castCost(g, byName(g, 0, 'Lightning Bolt', 'hand')!)).toMatchObject({ generic: 0, pips: ['R'] });
   });
 });
