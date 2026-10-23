@@ -24,6 +24,7 @@ import {
   choiceOptions,
   crewOptions,
   crewPower,
+  goadAllows,
   exileOptions,
   maxAbilityX,
   maxX,
@@ -49,6 +50,7 @@ import {
   fight,
   isBattle,
   isCreature,
+  isGoaded,
   isLand,
   isPlaneswalker,
   asSpell,
@@ -428,6 +430,9 @@ function activations(g: Game, pid: PlayerId, c: Card, ref: AbilityRef): Action[]
   const specs = (ab ? ab.targets : abilitiesOf(g, c).loyalty?.[ability!].targets) ?? [];
   const crew = ab?.cost.crew ? crewChoice(g, pid, c, activated) : undefined;
   if (crew === null) return [];
+  // Station (702.184a): tap the creature that gives the most charge counters, a summoning-sick one first (it can't attack anyway).
+  const stationing = ab?.cost.station ? [...crewOptions(g, pid, c)].sort((a, b) => Number(b.sick) - Number(a.sick) || stats(g, b).power - stats(g, a).power)[0] : undefined;
+  if (ab?.cost.station && !stationing) return [];
   const n = ab?.cost.discard ?? 0;
   const discard = n ? [...discardOptions(g, pid, c, ab?.cost.discardFilter)].sort((a, b) => cardWant(g, pid, a) - cardWant(g, pid, b)).slice(0, n).map((x) => x.id) : undefined;
   // "Sacrifice a creature": the least valuable ones, and not the source itself if there are others.
@@ -448,6 +453,7 @@ function activations(g: Game, pid: PlayerId, c: Card, ref: AbilityRef): Action[]
       ...(x !== undefined ? { x } : {}),
       targets,
       crew,
+      ...(stationing ? { station: stationing.id } : {}),
       ...(discard ? { discard } : {}),
       ...(victims.length ? { sacrifice: victims.map((x) => x.id) } : {}),
       ...(exiled ? { exile: [exiled.id] } : {}),
@@ -647,9 +653,13 @@ function planAttacks(g: Game, pid: PlayerId): Map<string, AttackOption> {
     const cs = stats(g, c);
     let best: AttackOption | null = null;
     let bestScore = -Infinity;
-    for (const { option, blockers, bias } of opps) {
+    // A goaded creature must attack, and a player other than its goaders if it can (701.15b):
+    // only those attacks are weighed, and the least bad of them is taken whatever it is worth.
+    const goaded = isGoaded(c);
+    const allowed = goaded ? opps.filter((o) => goadAllows(g, c, o.option)) : opps;
+    for (const { option, blockers, bias } of allowed) {
       const unblocked = attackWorth(g, pid, c, option);
-      if (unblocked <= 0) continue;
+      if (unblocked <= 0 && !goaded) continue;
       const able = blockers.filter((b) => canBlock(g, b, c));
       let value = unblocked + 0.5;
       if (able.length >= (cs.keywords.has('menace') ? 2 : 1)) {
@@ -660,7 +670,7 @@ function planAttacks(g: Game, pid: PlayerId): Map<string, AttackOption> {
           value = Math.min(value, (r.bDies ? threat(g, b) : 0) - (r.aDies ? threat(g, c) : 0));
         }
       }
-      if (value > 0.25 && value + bias > bestScore) {
+      if ((value > 0.25 || goaded) && value + bias > bestScore) {
         bestScore = value + bias;
         best = option;
       }
