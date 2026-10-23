@@ -18,6 +18,7 @@ import {
   escapeOptions,
   activationSacrificeOptions,
   activationExileOptions,
+  activatedModeOptions,
   canMulligan,
   canSayYes,
   canPlayLand,
@@ -81,7 +82,7 @@ import {
   escapes,
   changeOptions,
   triggerModeOptions,
-  triggerOf,
+  triggerModesOf,
 } from './rules';
 import type { ApplyOptions, AttackOption } from './engine';
 import { produce } from 'immer';
@@ -484,21 +485,48 @@ function activations(g: Game, pid: PlayerId, c: Card, ref: AbilityRef): Action[]
   // "Exile two cards from your graveyard": the ones the bot wants least.
   const k = ab?.cost.exileGraveyard ?? 0;
   const graveyard = k ? [...g.players[pid].graveyard].sort((a, b) => cardWant(g, pid, a) - cardWant(g, pid, b)).slice(0, k).map((x) => x.id) : undefined;
-  return xChoices(g, pid, c, ref, specs).flatMap((x) =>
-    targetChoices(g, pid, specs, c, x).map((targets): Action => ({
-      type: 'activate',
-      card: c.id,
-      ability,
-      ...(activated ? { activated } : {}),
-      ...(x !== undefined ? { x } : {}),
-      targets,
-      crew,
-      ...(discard ? { discard } : {}),
-      ...(victimsFor(x).length ? { sacrifice: victimsFor(x).map((v) => v.id) } : {}),
-      ...(exiled ? { exile: [exiled.id] } : {}),
-      ...(graveyard ? { graveyard } : {}),
-    })),
-  );
+  // A modal ability (700.2a): the card's preferred modes, else every legal choice of modes.
+  const modeSets: (number[] | undefined)[] = ab?.modes ? abilityModeSets(g, pid, c, activated) : [undefined];
+  return modeSets.flatMap((modes) => {
+    const modeSpecs = modes ? modes.flatMap((i) => ab!.modes!.modes[i].targets ?? []) : specs;
+    return xChoices(g, pid, c, ref, modeSpecs).flatMap((x) =>
+      targetChoices(g, pid, modeSpecs, c, x).map((targets): Action => ({
+        type: 'activate',
+        card: c.id,
+        ability,
+        ...(activated ? { activated } : {}),
+        ...(x !== undefined ? { x } : {}),
+        targets,
+        crew,
+        ...(discard ? { discard } : {}),
+        ...(victimsFor(x).length ? { sacrifice: victimsFor(x).map((v) => v.id) } : {}),
+        ...(exiled ? { exile: [exiled.id] } : {}),
+        ...(graveyard ? { graveyard } : {}),
+        ...(modes ? { modes } : {}),
+      })),
+    );
+  });
+}
+
+/**
+ * The sets of modes a bot tries for `c`'s modal activated ability (700.2a): the ones its
+ * card prefers (`modes.bot`) if they can be chosen, else every legal set of `min` to `max`
+ * modes, in printed order; the look-ahead keeps the best.
+ */
+function abilityModeSets(g: Game, pid: PlayerId, c: Card, activated = 0): number[][] {
+  const modal = activatedAt(g, c, activated)?.modes;
+  const legal = activatedModeOptions(g, pid, c, activated);
+  if (!modal || legal.length < modal.min) return [];
+  const wanted = (modal.bot?.(g, pid, c) ?? []).filter((i) => legal.includes(i)).slice(0, modal.max);
+  if (wanted.length >= modal.min) return [[...wanted].sort((a, b) => a - b)];
+  const sets: number[][] = [];
+  const pick = (from: number, chosen: number[]) => {
+    if (chosen.length >= modal.min) sets.push(chosen);
+    if (chosen.length === modal.max) return;
+    for (let i = from; i < legal.length; i++) pick(i + 1, [...chosen, legal[i]]);
+  };
+  pick(0, []);
+  return sets;
 }
 
 // Look-ahead turns auto-pass off, so that passing only ever resolves the stack or ends one
@@ -514,8 +542,7 @@ const STEP_BY_STEP = { autoPass: false, simulate: true } as const;
 function modesFor(g: Game, item: StackItem): Action {
   const modal = triggerModeOptions(g, item);
   if (!modal) return PASS;
-  const t = triggerOf(item);
-  const wanted = (t && typeof t !== 'function' && t.modes?.bot?.(g, item.controller, item.card)) || [];
+  const wanted = triggerModesOf(item)?.bot?.(g, item.controller, item.card) ?? [];
   const modes = wanted.filter((i) => modal.legal.includes(i)).slice(0, modal.max);
   return { type: 'chooseModes', modes: modes.length >= modal.min ? modes : modal.legal.slice(0, modal.min) };
 }
@@ -1074,6 +1101,8 @@ function choiceAnswer(g: Game, pid: PlayerId): Action {
   if (scripted) return scripted;
   // A number: none if that is allowed, else the least.
   if (d.type === 'number') return { type: 'chooseNumber', n: d.choice.decline ? null : d.choice.min };
+  // A player to attack with creatures put onto the battlefield attacking (508.4): the one with the least life.
+  if (d.type === 'player' && d.choice.then === '@attackPlayer') return { type: 'choosePlayer', player: [...d.choice.options].sort((a, b) => g.players[a].life - g.players[b].life)[0] };
   // A player: the first one offered.
   if (d.type === 'player') return { type: 'choosePlayer', player: d.choice.options[0] };
   // A kind of counter: a good one before a harmful one.

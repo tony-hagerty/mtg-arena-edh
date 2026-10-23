@@ -25,7 +25,7 @@ import {
   resolvingItem,
   triggerText,
   triggerModeOptions,
-  triggerOf,
+  triggerModesOf,
 } from '../engine';
 import type { Action, AskChoice, Card, CardChoice, CastChoice, DamageAssignment, DamageRoom, Game, NameChoice, NumberChoice, PlayerChoice, ReplacementChoice, PlayerId, StackItem, Zone } from '../engine';
 import { CardImage, ManaCost } from './TextCard';
@@ -462,9 +462,9 @@ function PlayerPanel({ g, choice }: { g: Game; choice: PlayerChoice }) {
 function TriggerModesPanel({ g, item }: { g: Game; item: StackItem }) {
   const [picked, setPicked] = useState<number[]>([]);
   const modal = triggerModeOptions(g, item);
-  const t = triggerOf(item);
-  if (!modal || !t || typeof t === 'function' || !t.modes) return null;
-  const modes = t.modes.modes;
+  const t = triggerModesOf(item);
+  if (!modal || !t) return null;
+  const modes = t.modes;
   const toggle = (i: number) => setPicked(picked.includes(i) ? picked.filter((x) => x !== i) : [...picked, i].sort((a, b) => a - b));
   const many = modal.max > 1 ? (modal.min === modal.max ? `${modal.min}` : modal.min === 1 ? 'one or more' : `${modal.min} to ${modal.max}`) : 'one';
   return (

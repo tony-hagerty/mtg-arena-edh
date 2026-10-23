@@ -2780,6 +2780,9 @@ describe('combo turns: searches, choices, mana, storm, taxes and extra turns (se
       let g = emptyGame((d) => put(d, 0, 'Voice of Victory'));
       g = run(g, pass);
       g = run(g, { type: 'declareAttack', card: byName(g, 0, 'Voice of Victory')!.id, defender: 1 }, pass);
+      // The Warriors enter tapped and attacking; their controller chooses which defending player (508.4).
+      g = passUntil(g, (x) => x.decision?.type === 'player');
+      g = run(g, { type: 'choosePlayer', player: 1 });
       g = passUntil(g, (x) => x.step === 'blockers' || x.step === 'damage' || x.step === 'main2');
       g = passUntil(g, (x) => x.step === 'main2');
       expect(g.players[1].life).toBe(40 - 1 - 1 - 1);

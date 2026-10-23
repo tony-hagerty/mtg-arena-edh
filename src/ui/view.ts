@@ -79,6 +79,7 @@ import {
   produceOptions,
   maxModes,
   activationSacrificeOptions,
+  activatedModeOptions,
   divisionOk,
   divisionTotal,
   changeOptions,
@@ -129,6 +130,8 @@ export interface View {
   announce: Announce | null;
   /** An ability whose X the human is announcing (107.3a, 602.2b): the X so far and the highest it can be. */
   abilityX: { card: Card; x: number; max: number } | null;
+  /** A modal activated ability whose modes the human is choosing (700.2a): how many, and each mode's text, whether picked and whether it can be. */
+  abilityModes: { card: Card; min: number; max: number; modes: { text: string; picked: boolean; ok: boolean }[] } | null;
   /** Escape (702.138a): the other cards in the graveyard the human picks `count` of to exile. */
   escape: { card: Card; options: Card[]; count: number } | null;
   /** An ability's "Exile two cards from your graveyard" cost (Matoc): the cards to pick `count` of. */
@@ -441,6 +444,7 @@ const isPaying = (t: Targeting) =>
   !t.announcing &&
   !t.pickingAbility &&
   !t.choosingX &&
+  !t.choosingModes &&
   t.chosen.length === t.specs.length &&
   !isDividing(t) &&
   !isSacrificing(t) &&
@@ -629,6 +633,7 @@ export function buildView(): View {
     paying: null,
     announce: null,
     abilityX: null,
+    abilityModes: null,
     escape: null,
     delve: null,
     graveCost: null,
@@ -717,6 +722,21 @@ export function buildView(): View {
       : script.loyalty
         ? `${label(card)} (loyalty ${loyaltyOf(card)}): choose an ability. Only one loyalty ability a turn.`
         : `${label(card)}: choose an ability.`;
+    view.secondary = { label: 'Cancel', tone: 'cancel', onClick: cancel };
+    return view;
+  }
+
+  // --- choosing a modal ability's modes, before its X and targets (700.2a, 601.2b via 602.2b) ---
+  if (t && t.choosingModes) {
+    const card = findCard(g, t.cardId)!;
+    const modal = activatedAt(g, card, t.activated)!.modes!;
+    const legal = activatedModeOptions(g, me, card, t.activated);
+    const picked = t.modes ?? [];
+    view.glow.set(card.id, 'picked');
+    view.abilityModes = { card, min: modal.min, max: modal.max, modes: modal.modes.map((m, i) => ({ text: m.text, picked: picked.includes(i), ok: legal.includes(i) })) };
+    const many = modal.min === modal.max ? `${modal.min}` : `${modal.min} to ${modal.max}`;
+    view.prompt = `${label(card)}: choose ${many} ${modal.max === 1 ? 'mode' : 'modes'}.`;
+    view.primary = { label: 'Continue', tone: 'go', disabled: picked.length < modal.min || picked.length > modal.max, onClick: confirmAbilityModes };
     view.secondary = { label: 'Cancel', tone: 'cancel', onClick: cancel };
     return view;
   }
@@ -1140,8 +1160,44 @@ function propose(mode: 'cast' | 'activate', card: Card, mana = false) {
       escapes(g, card).filter((e) => escapeOptions(g, card).length >= e.exile).length > 1 ||
       (siege && opponentsOf(g, me).length > 1));
   const start: Targeting = { mode, cardId: card.id, specs, chosen: [], tapped: [], choices, announcing, ...(only ? { activated: only } : {}) };
-  if (mode === 'activate' && refs[0] && abilityHasX(g, card, refs[0])) chooseX(start);
+  if (mode === 'activate' && refs[0] && activatedAt(g, card, only)?.modes) chooseAbilityModes(start);
+  else if (mode === 'activate' && refs[0] && abilityHasX(g, card, refs[0])) chooseX(start);
   else advance(start);
+}
+
+/** A modal ability: its modes are chosen first (700.2a), before X and the targets (601.2b-c via 602.2b). */
+function chooseAbilityModes(t: Targeting) {
+  useStore.setState({ targeting: { ...t, modes: [], choosingModes: true }, hover: null });
+}
+
+/** Picks a mode of the ability being activated, or takes it back out; with "choose one", the new pick replaces the old. */
+export function pickAbilityMode(i: number) {
+  const t = S().targeting;
+  const { game: g, human: me } = S();
+  if (!t || !t.choosingModes || !g || me === null) return;
+  const card = findCard(g, t.cardId)!;
+  const modal = activatedAt(g, card, t.activated)?.modes;
+  if (!modal || !activatedModeOptions(g, me, card, t.activated).includes(i)) return;
+  let modes = [...(t.modes ?? [])];
+  if (modes.includes(i)) modes = modes.filter((x) => x !== i);
+  else {
+    if (modes.length >= modal.max) modes.shift();
+    modes.push(i);
+  }
+  useStore.setState({ targeting: { ...t, modes: modes.sort((a, b) => a - b) } });
+}
+
+/** Done choosing the modes: on to X, then the targets of the modes chosen (700.2c). */
+function confirmAbilityModes() {
+  const t = S().targeting;
+  const { game: g, human: me } = S();
+  if (!t || !t.choosingModes || !g || me === null) return;
+  const card = findCard(g, t.cardId)!;
+  const modal = activatedAt(g, card, t.activated)!.modes!;
+  const specs = (t.modes ?? []).flatMap((i) => modal.modes[i].targets ?? []);
+  const next = stepFrom(t, { choosingModes: false, specs });
+  if (abilityHasX(g, card, { ability: t.ability, activated: t.activated })) chooseX(next);
+  else advance(next);
 }
 
 /** An ability with X in its cost: X is announced first, starting as high as it can be (107.3a). */
@@ -1249,7 +1305,8 @@ export function pickAbility(ref: AbilityRef) {
   if (!activatable(g, me, card).some((r) => r.ability === ref.ability && (r.activated ?? 0) === (ref.activated ?? 0))) return;
   const specs = ref.ability === undefined ? (activatedAt(g, card, ref.activated)?.targets ?? []) : (abilitiesOf(g, card).loyalty?.[ref.ability].targets ?? []);
   const next = stepFrom(t, { pickingAbility: false, ability: ref.ability, activated: ref.activated, specs });
-  if (abilityHasX(g, card, ref)) chooseX(next);
+  if (ref.ability === undefined && activatedAt(g, card, ref.activated)?.modes) chooseAbilityModes(next);
+  else if (abilityHasX(g, card, ref)) chooseX(next);
   else advance(next);
 }
 
@@ -1326,7 +1383,7 @@ function pay() {
   const action: Action =
     t.mode === 'cast'
       ? { type: 'cast', card: t.cardId, targets: t.chosen, hold, ...t.choices, ...single, ...(t.discard ? { discard: t.discard } : {}) }
-      : { type: 'activate', card: t.cardId, ability: t.ability, activated: t.activated, x: t.x, targets: t.chosen, hold, crew: t.crew, discard: t.discard, sacrifice: t.choices.sacrifice, exile: t.exile, graveyard: t.graveyard };
+      : { type: 'activate', card: t.cardId, ability: t.ability, activated: t.activated, x: t.x, targets: t.chosen, hold, crew: t.crew, discard: t.discard, sacrifice: t.choices.sacrifice, exile: t.exile, graveyard: t.graveyard, ...(t.modes ? { modes: t.modes } : {}) };
   if (!S().act(action)) cancel();
 }
 
@@ -1730,7 +1787,7 @@ function chooseTarget(ref: TargetRef | null) {
   const s = S();
   const { game: g, human: me } = s;
   const t = targetingOf(s);
-  if (!g || me === null || !t || t.announcing || isSacrificing(t) || isExiling(t) || isExilingForAbility(t) || isEscaping(t) || isDelving(t) || isDiscarding(t) || crewNeeded(t)) return;
+  if (!g || me === null || !t || t.announcing || t.choosingModes || isSacrificing(t) || isExiling(t) || isExilingForAbility(t) || isEscaping(t) || isDelving(t) || isDiscarding(t) || crewNeeded(t)) return;
   if (ref && !currentTargets(g, me, t).some((x) => x.kind === ref.kind && x.id === ref.id)) return;
   // "Any number of" targets (115.1d): another slot for the next one, unless that is the most it may have ("up to X").
   const spec = t.specs[t.chosen.length];
