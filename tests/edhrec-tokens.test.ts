@@ -4,7 +4,7 @@
 // tapped", attack restrictions, "Sacrifice X"): the clauses that could go wrong.
 import { produce } from 'immer';
 import { describe, expect, it } from 'vitest';
-import { cardData } from '../src/cards/db';
+import { cardData, registerCards } from '../src/cards/db';
 import { scriptCards } from '../src/cards/oracle';
 import { problemsOf } from '../src/cards/support';
 import { applyAction, applyBotAction, botAction, createToken, destroy, enterBattlefield, has, makeCard, permanent, stats, tap } from '../src/engine';
@@ -473,6 +473,23 @@ describe('Marneus Calgar', () => {
     hand = g.players[0].hand.length;
     g = settle(produce(g, (d) => void createToken(d, 1, 'Treasure')));
     expect(g.players[0].hand.length).toBe(hand);
+  });
+});
+
+describe('tokens of several kinds created at once', () => {
+  it('"Create a Treasure token and a Food token" is one event: Marneus draws once, Chatterfang adds two Squirrels (111.2, 603.2c)', () => {
+    registerCards({ 'Test Provisions': { name: 'Test Provisions', manaCost: '{1}', cmc: 1, colors: [], colorIdentity: [], typeLine: 'Sorcery', oracleText: 'Create a Treasure token and a Food token.', keywords: [], image: '', art: '' } });
+    expect(scriptCards(['Test Provisions'])).toEqual([]);
+    let g = emptyGame((d) => {
+      put(d, 0, 'Marneus Calgar');
+      put(d, 0, 'Chatterfang, Squirrel General');
+      put(d, 0, 'Plains');
+      put(d, 0, 'Test Provisions', 'hand');
+    });
+    const hand = g.players[0].hand.length;
+    g = settle(run(g, cast(g, 'Test Provisions')));
+    expect(g.players[0].hand.length).toBe(hand - 1 + 1);
+    expect(g.players[0].battlefield.filter((c) => c.isToken).map((c) => cardData(c.name).name).sort()).toEqual(['Food', 'Squirrel', 'Squirrel', 'Treasure']);
   });
 });
 

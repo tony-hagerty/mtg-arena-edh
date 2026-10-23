@@ -553,6 +553,7 @@ ability already on the stack, which exists apart from its source (113.7a).
 | --- | --- |
 | `addCounters(g, card, n, kind)` | adds counters |
 | `createToken(g, pid, 'Treasure')` | makes a predefined token (`'Food'`, `'Clue'` too) |
+| `createTokens(g, pid, [{ key, count }, ...])` | several kinds of token at once, as one event (111.2) |
 | `addEffect` | an effect until end of turn |
 | `delay` with `delayed[key]` | a delayed trigger (603.7) |
 | `extraTurn`, `winGame`, `loseGame` | as named |
