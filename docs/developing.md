@@ -141,7 +141,7 @@ decision:
 | Decision | Examples |
 | --- | --- |
 | Built-in | a mulligan, declaring attackers or blockers, discarding, choosing targets for a trigger, ordering their triggers |
-| `CardChoice` | picking cards from a list (the legend rule too) |
+| `CardChoice` | picking cards from a list (the legend rule too), and players with them for proliferate (`players`) |
 | `AskChoice` | answering yes or no |
 | `NameChoice` | naming a card or creature type |
 | `PlayerChoice` | choosing a player |
@@ -417,6 +417,12 @@ fetched card too, since the card is matched to it by name.
   triggers on every event.
 - Other trigger hooks: `onPostcombatMain`, `onDrawStep`, `onTapped`, `onDiscard`,
   `onSacrifice`, `onPlaneswalkerDies`, `onBeginCombat`.
+- "One or more" hooks, once for each event (603.2c): `onMilled` (the cards milled, every
+  player's in one event), `onCountersPut` (a permanent and a kind of counter put on it, as it
+  enters too) and `onPlayerDealtCombatDamage` (a player and the creatures that dealt them
+  combat damage in that step).
+- A target spec with `any` can have `most`: "up to X target creatures" with X worked out from
+  the source, a triggered ability's event included (`Card.triggeredBy`).
 
 **Spells and costs**
 
@@ -442,7 +448,8 @@ fetched card too, since the card is matched to it by name.
 | Vehicle | `activated: crew(3)` |
 | Impending | spread `...impending(4, '{1}{U}{U}')` into the script: its alternative cost and end-step trigger; the engine adds the time counters and "isn't a creature" |
 | Several activated abilities | list them in printed order (`activated: [ab1, equip('{1}')]`); an `activate` action and its stack item name one by `activated` (its index) |
-| Activated ability options | `fromHand`, `when`, `reduction`; costs `discard`, `discardSelf`, `counters`, or `sacrificeOne` permanent that fits a spec ("Sacrifice a creature:"), `sacrificeCount` of them ("Sacrifice two ...") |
+| Activated ability options | `fromHand`, `when`, `reduction`; costs `discard`, `discardSelf`, `counters`, or `sacrificeOne` permanent that fits a spec ("Sacrifice a creature:"), `sacrificeCount` of them ("Sacrifice two ..."), `tapUntapped` ("Tap three untapped Elves you control", picked like a crew) |
+| Ward | `ward: { mana }`, `{ life }` or `{ blight }` ("Ward—Blight 2", 701.68a) |
 | Planeswalker | `loyalty` abilities: `{ cost: -2, text, targets, resolve }`, or `cost: '-X'` |
 | Siege | can add `onDefeat` |
 | Faces (double-faced, split, adventurer) | one script per face, under each face's name ("Delver of Secrets", "Insectile Aberration"); `transform(g, card)` turns one over. A deck may list it by its first face's name. |
@@ -458,7 +465,8 @@ sacrifice cost (ability or spell) sees `sacrificed` and `sacrificedPower` (as it
 
 - `mana` can be a list of abilities, each with `colors` (a list, `'any'`, `'identity'`
   or a function), and optionally `life`, `damage`, `sacrifice`, `when`, `fromHand`,
-  `manual`, `discardHand`, `instant` or `chosenType`.
+  `manual`, `discardHand`, `instant`, `chosenType` or `subtype` ("spend this mana only to
+  cast an Angel spell").
 - `addMana(g, pid, ['B', 'B', 'B'], self)` for rituals; `addMana(..., { keep: true })`
   lasts the turn.
 - `noUntap: true` for "doesn't untap".
@@ -467,7 +475,7 @@ sacrifice cost (ability or spell) sees `sacrificed` and `sacrificedPower` (as it
 
 `search(g, pid, to, find, { then })`, `ask(g, pid, { text, cost, yes, no, then })`,
 `pickCards(...)` and `nameCard(...)` (a card, or `of: 'creature type'` or `'color'`,
-answered as W, U, B, R or G) queue a question. The answer runs the script's `then[key]`
+answered as W, U, B, R or G, or `of: 'counter'` with `options`, a kind of counter) queue a question. The answer runs the script's `then[key]`
 with `picked`, `yes` or `name`. Also `chooseToSacrifice`, `chooseToDiscard`,
 `choosePlayer`, `offerCast` and `offerRetarget`.
 
@@ -556,6 +564,10 @@ ability already on the stack, which exists apart from its source (113.7a).
 | `copyOf` | copies a permanent |
 | `becomeCopy(g, card, copyOf(x))` | a permanent becomes a copy while it stays (707.4) |
 | `populate(g, pid)` | copies a creature token the player chooses |
+| `proliferate(g, pid)` | the player chooses permanents and/or players with counters, each gets another of each kind (701.34a); `proliferated` gives them out for a script's own continuation |
+| `blight(g, pid, n)`, `eachBlights(g, pids, n)` | the player puts n -1/-1 counters on a creature they control of their choice (701.68a); `blighted` puts them on |
+| `addPlayerCounters(g, pid, n, kind)`, `playerCounters(p, kind)` | counters on a player (122.1): poison, experience, rad |
+| `moveCounter(g, from, to, kind)` | moves a counter (122.5), or nothing if it can't |
 | `tap(g, card)` | taps a permanent and triggers `onTapped` |
 | `abilitySource` | the source, if it is still the same object |
 
