@@ -58,6 +58,9 @@ import {
   parseCost,
   pay,
   tapCandidates,
+  untappedFor,
+  pump,
+  triggerTimes,
   manaAbilities,
   attackCost,
   canPayAttacks,
@@ -141,7 +144,7 @@ import {
   CARD_TYPES,
 } from './rules';
 import type { EnterOpts } from './rules';
-import { inBase, settled, untouched } from './layers';
+import { characteristics, inBase, settled, untouched } from './layers';
 import { NeedsChoice, replace, withReplacementAnswers } from './replace';
 import type {
   AbilityRef,
@@ -790,6 +793,8 @@ function choicesOk(g: Game, pid: PlayerId, c: Card, ch: CastChoices): boolean {
   const oneOf = script.additionalCost?.oneOf;
   if (oneOf ? ch.extra === undefined || !Number.isInteger(ch.extra) || ch.extra < 0 || ch.extra >= oneOf.length : ch.extra !== undefined) return false;
   if (ch.alt !== undefined && !altCostsOf(g, c, face, pid).includes(ch.alt)) return false;
+  // Cast "without paying its mana cost" (Urza's permission), it can't be cast for another alternative cost too (118.9a).
+  if (ch.alt !== undefined && permission(g, pid, c)?.free) return false;
   // Cast with madness or miracle, it is cast for that cost (702.35a, 702.94a).
   if (ch.alt === undefined && castsForAlt(g, c)) return false;
   if (ch.protector !== undefined && !(isBattle(g, spell) && canProtect(g, spell, ch.protector))) return false;
@@ -890,7 +895,7 @@ export function maxX(g: Game, pid: PlayerId, c: Card, choices: CastChoices = {})
   // An alternative cost without X, like flashback or "without paying its mana cost", makes X 0 (107.3b).
   // "Pay X life" (118.8) has its X whatever is paid instead of the mana cost.
   const lifeX = scriptFor(asSpell(c, choices.face ?? 0)).additionalCost?.life === 'x';
-  if (!lifeX && (!parseCost(data(asSpell(c, choices.face ?? 0)).manaCost).x || choices.alt !== undefined || paysFlashback(g, c, choices) || freeCast(g, c))) return 0;
+  if (!lifeX && (!parseCost(data(asSpell(c, choices.face ?? 0)).manaCost).x || choices.alt !== undefined || paysFlashback(g, c, choices) || freeCast(g, c) || permission(g, pid, c)?.free)) return 0;
   let x = -1;
   const spell = asSpell(c, choices.face ?? 0, pid);
   while (x < 99 && planPayment(g, pid, castCost(g, c, { ...choices, x: x + 1 }, pid), spell)) x++;
@@ -930,8 +935,18 @@ function canPayActivation(g: Game, pid: PlayerId, c: Card, activated: number, x:
   if (ab.cost.sacrificeOne && activationSacrificeOptions(g, pid, c, activated).length < (ab.cost.sacrificeCount ?? 1)) return false;
   if (ab.cost.exileOne && !activationExileOptions(g, pid, c, activated).length) return false;
   if (ab.cost.exileGraveyard && g.players[pid].graveyard.length < ab.cost.exileGraveyard) return false;
+  if (ab.cost.tapUntapped && activationTapOptions(g, pid, c, activated).length < (ab.cost.tapUntapped.count ?? 1)) return false;
   // The source can't also make the mana if tapping, sacrificing or exiling it is part of the cost.
   return !(ab.cost.mana || ab.cost.life) || !!planPayment(g, pid, activationCost(g, pid, c, ab, x), undefined, ab.cost.tap || ab.cost.sacrifice || ab.cost.exileSelf ? [c.id] : []);
+}
+
+/**
+ * Permanents `pid` could tap for a "Tap three untapped tokens you control" cost of `c`'s
+ * activated ability `activated` (Baylen, `TapUntapped`). Not `c` if its own {T} is part of the cost.
+ */
+export function activationTapOptions(g: Game, pid: PlayerId, c: Card, activated = 0): Card[] {
+  const ab = activatedAt(g, c, activated);
+  return ab?.cost.tapUntapped ? untappedFor(g, pid, ab.cost.tapUntapped, c, !!ab.cost.tap) : [];
 }
 
 /** Permanents `pid` could exile to pay an "Exile a creature you control" cost of `c`'s activated ability `activated` (The Soul Stone). */
@@ -1311,7 +1326,7 @@ function paradigm(g: Game, item: StackItem) {
 
 
 /** Delayed triggered abilities whose moment has come trigger, once each (603.7b). */
-function fireDelayed(g: Game, step: 'upkeep' | 'main1' | 'end') {
+function fireDelayed(g: Game, step: 'upkeep' | 'main1' | 'main' | 'end') {
   const due = g.delayed.filter((d) => d.step === step && (d.turn === undefined || d.turn === g.turn) && (d.player === undefined || d.player === g.active));
   g.delayed = g.delayed.filter((d) => !due.includes(d) || d.repeat);
   for (const d of due) {
@@ -1369,6 +1384,8 @@ function beginStep(g: Game, step: Step) {
       for (const c of p.battlefield) if (isSaga(g, c) && scriptFor(c).chapters?.length) addCounters(g, c, 1, 'lore', { by: 'rule' });
       broadcast(g, 'onPrecombatMain', { player: pid }); // 505.1a
       fireDelayed(g, 'main1');
+      // "At the beginning of your next main phase" (505.1): this one, or the postcombat one.
+      fireDelayed(g, 'main');
       break;
     case 'beginCombat':
       g.combat = { attacks: [], toBlock: [], struckFirst: null, moreDamage: false };
@@ -1394,6 +1411,7 @@ function beginStep(g: Game, step: Step) {
       break;
     case 'main2':
       broadcast(g, 'onPostcombatMain', { player: pid }); // 505.1a
+      fireDelayed(g, 'main');
       break;
     case 'end':
       broadcast(g, 'onEndStep', { player: pid }); // 513.1
@@ -1531,6 +1549,23 @@ function attackersDeclared(g: Game) {
   // "Whenever [two or more creatures] attack": once, with every attack (508.1m).
   const attacks = combat.attacks.map((a) => ({ attacker: snapshot(permanent(g, a.id)!), defender: a.defender, target: a.target }));
   broadcast(g, 'onAttackersDeclared', { player: g.active, attacks });
+  if (combat.attacks.length === 1) exalted(g, permanent(g, combat.attacks[0].id)!);
+}
+
+/**
+ * Exalted (702.83a): "Whenever a creature you control attacks alone, that creature gets +1/+1
+ * until end of turn." A creature attacks alone if it's the only one declared as an attacker
+ * (506.5, 702.83b). Each instance on each permanent its controller controls triggers on its own
+ * (702.83b), as many times as an effect like Roaming Throne's says (603.2d).
+ */
+function exalted(g: Game, attacker: Card) {
+  for (const c of g.players[attacker.controller].battlefield) {
+    const n = characteristics(g, c, '6').keywords.filter((k) => k === 'exalted').length;
+    if (!n) continue;
+    for (let k = n * triggerTimes(g, c, 'onExalted'); k > 0; k--) {
+      g.triggers.push({ id: `s${g.nextId++}`, kind: 'triggered', controller: c.controller, card: snapshot(c), hook: 'onExalted', event: { attacker: snapshot(attacker) }, targets: [] });
+    }
+  }
 }
 
 /**
@@ -1894,6 +1929,11 @@ function resolveTop(g: Game) {
       // Evoke (702.74a): its controller sacrifices it, if it is still the same object.
       const c = permanent(g, card.id);
       if (c && c.moves === card.moves) dieMany(g, [c], 'is sacrificed');
+    } else if (item.hook === 'onExalted') {
+      // Exalted (702.83a): "that creature gets +1/+1 until end of turn", if it is still the same object (400.7).
+      const { attacker } = item.event as TriggerEvents['onExalted'];
+      const c = permanent(g, attacker.id);
+      if (c && c.moves === attacker.moves) pump(g, c, 1, 1);
     } else if (item.hook === 'onOffspring') {
       // Offspring (702.175a): a token copy of it, except it's 1/1. If it has left the
       // battlefield, its last known copiable values are used (707.4, 608.2h).
@@ -2224,7 +2264,8 @@ function act(g: Game, a: Action): boolean {
       const from = c.zone as Zone;
       // Cast while a spell resolves (608.2g): the choice that allowed it is answered.
       const during = g.decision?.type === 'cast' ? g.decision.choice : null;
-      const free = freeCast(g, c);
+      // Or with an effect's "you may play that card without paying its mana cost" (Urza).
+      const free = freeCast(g, c) || !!permission(g, pid, c)?.free;
       // Cast from exile for {2} after being airbent (701.65a), or free as a plotted card (702.170d).
       const fromExile = exileCast(c);
       const escaped = from === 'graveyard' && !!choices.escape;
@@ -2384,6 +2425,9 @@ function act(g: Game, a: Action): boolean {
       // "Exile two cards from your graveyard": exactly that many different ones (Matoc).
       const fromGrave = (a.graveyard ?? []).map((id) => p.graveyard.find((x) => x.id === id));
       if (fromGrave.length !== (ab.cost.exileGraveyard ?? 0) || fromGrave.some((x) => !x) || new Set(a.graveyard).size !== fromGrave.length) return false;
+      // "Tap three untapped tokens you control": exactly that many different ones that fit (Baylen).
+      const tapping = (a.tapped ?? []).map((id) => activationTapOptions(g, pid, c, a.activated).find((x) => x.id === id));
+      if (tapping.length !== (ab.cost.tapUntapped ? (ab.cost.tapUntapped.count ?? 1) : 0) || tapping.some((x) => !x) || new Set(a.tapped).size !== tapping.length) return false;
       // The ability goes on the stack as its own object, apart from its source (602.2a).
       // X is announced as it is activated (107.3a, 602.2b), and kept with the ability on the stack.
       const hasX = abilityHasX(g, c, { activated: a.activated });
@@ -2395,9 +2439,11 @@ function act(g: Game, a: Action): boolean {
         item.sacrificedPower = sacrificing.map((x) => stats(g, x!).power);
       }
       // Nothing tapped or sacrificed for the rest of the cost makes mana for it.
-      const busy = [...(ab.cost.tap || ab.cost.sacrifice || ab.cost.exileSelf ? [c.id] : []), ...(a.sacrifice ?? []), ...(a.exile ?? [])];
+      const busy = [...(ab.cost.tap || ab.cost.sacrifice || ab.cost.exileSelf ? [c.id] : []), ...(a.sacrifice ?? []), ...(a.exile ?? []), ...(a.tapped ?? [])];
       if ((ab.cost.mana || ab.cost.life) && !pay(g, pid, activationCost(g, pid, c, ab, x), undefined, busy)) return false;
       if (ab.cost.tap) tap(g, c);
+      for (const x of tapping) tap(g, x!);
+      if (tapping.length) log(g, `${says(p, 'taps')} ${tapping.map((x) => label(x!)).join(', ')} (${label(c)}).`, pid, [...(tapping as Card[]), c]);
       if (ab.cost.counters) removeCounters(c, ab.cost.counters.n, ab.cost.counters.kind);
       for (const x of crewing) tap(g, x!);
       if (crewing.length) log(g, `${crewing.map((x) => label(x!)).join(' and ')} crew${crewing.length === 1 ? 's' : ''} ${label(c)}.`, pid, [...(crewing as Card[]), c]);
@@ -2440,9 +2486,12 @@ function act(g: Game, a: Action): boolean {
       // A mana ability from a hand, like Simian Spirit Guide's, is used from there.
       const c = [...p.battlefield, ...p.hand].find((x) => x.id === a.card);
       if (!c || (deciding && deciding !== 'cast') || !canTapForMana(g, pid, c, a.ability)) return false;
-      if (a.tap !== undefined) {
+      if (a.tap !== undefined || a.taps !== undefined) {
+        // The permanents named for its "Tap an untapped ... you control" cost: as many as it taps, each one that can be (`TapUntapped`).
         const ab = manaAbilities(g, c).find((m) => m.index === (a.ability ?? 0));
-        if (!ab || !tapCandidates(g, pid, ab).some((x) => x.id === a.tap)) return false;
+        const named = a.taps ?? [a.tap!];
+        if (!ab?.tapCreature || named.length !== (ab.tapCreature.count ?? 1) || new Set(named).size !== named.length) return false;
+        if (!named.every((id) => tapCandidates(g, pid, ab, c).some((x) => x.id === id))) return false;
       }
       // "Discard a card: Add {B}" (Skirge Familiar): the card named must be in their hand.
       if (a.discard !== undefined && !p.hand.some((x) => x.id === a.discard && x.id !== c.id)) return false;
@@ -2451,7 +2500,7 @@ function act(g: Game, a: Action): boolean {
       if (used?.sacrificeCreature ? !p.battlefield.some((x) => x.id === a.sacrifice && isCreature(g, x)) : a.sacrifice !== undefined) return false;
       // The exact mana asked for must be one of the ability's choices.
       if (a.mana && (!used || !canProduce(used, a.mana))) return false;
-      tapForMana(g, pid, c, a.ability, a.color, a.tap, a.discard, a.sacrifice, a.mana);
+      tapForMana(g, pid, c, a.ability, a.color, a.taps ?? a.tap, a.discard, a.sacrifice, a.mana, a.triggered);
       return true;
     }
 
@@ -2868,7 +2917,7 @@ function rememberMana(g: Game, a: Action, next: Game): Game {
     // What clicking takes it back: the source, if using it tapped it or took it off the battlefield
     // (a Lotus Petal), and a creature tapped for its cost (Relic of Legends, whose own {T} isn't used).
     const source = permanent(next, a.card);
-    const tapped = [...(!source || (source.tapped && !permanent(g, a.card)?.tapped) ? [a.card] : []), ...(a.tap ? [a.tap] : [])];
+    const tapped = [...(!source || (source.tapped && !permanent(g, a.card)?.tapped) ? [a.card] : []), ...(a.tap ? [a.tap] : []), ...(a.taps ?? [])];
     const entry: ManaRewind = { pid, card: a.card, tapped, action: a, before: g };
     return produce(next, (d) => {
       d.manaRewind = [...kept, entry] as Game['manaRewind'];
