@@ -16,6 +16,8 @@ export interface Mana {
   types?: string[];
   /** "... and that spell can't be countered" (106.6): the spell it is spent on can't be countered. */
   uncounterable?: boolean;
+  /** "Spend this mana only to cast an Angel spell" (106.6, Giada): spells with this subtype, of any card type. */
+  subtype?: string;
   /** Made by a mana ability used by hand that can be taken back: what taking it back undoes (`canUntapMana`). */
   undo?: ManaUndo;
   /** Left over from paying the mana cost of this permanent's mana ability by hand: taking that back takes this too. */
@@ -474,6 +476,8 @@ export interface CopyInfo {
   creatureTypes?: string[];
   /** Colours the copy effect sets, replacing the copied ones (707.9b, 105.3): Hashaton's "black". */
   colors?: Color[];
+  /** "Except the token isn't legendary" (707.9b): the copy lacks the legendary supertype (Miirym, Helm of the Host). */
+  nonlegendary?: boolean;
 }
 
 export interface Player {
@@ -524,6 +528,11 @@ export interface Player {
   lifeLost: number;
   /** Life this player has gained this turn (119.3). */
   lifeGained?: number;
+  /**
+   * Counters this player has, by kind (122.1): poison (122.1f, ten lose the game, 704.5c),
+   * experience, rad (122.1i, 728). Left out, none.
+   */
+  counters?: Record<string, number>;
   /** The creatures this player has attacked with this turn, in any combat (Temple of Civilization). */
   attackedWith?: string[];
   /**
@@ -537,6 +546,15 @@ export interface Player {
    * there is a choice (510.1c, 702.19b). Off, it is split automatically.
    */
   manualDamage?: boolean;
+  /**
+   * The Ring (701.54): set once the Ring has tempted this player, when they get the emblem
+   * named The Ring (701.54c). `tempted`: how many times it has tempted them this game.
+   * `bearer`: their Ring-bearer (701.54a, a designation, 701.54b), while it is the same
+   * object; another player gaining control of it ends it. `emblem`: the emblem, the source of
+   * its triggered abilities (114.4); it is in the command zone but listed only here. `ts`: the
+   * emblem's timestamp (613.7), for its "is legendary".
+   */
+  ring?: { tempted: number; bearer: { id: string; moves: number } | null; emblem: Card; ts: number };
 }
 
 /** An effect that lasts until end of turn (514.2) and isn't attached to a permanent. */
@@ -601,8 +619,8 @@ export interface Delayed {
   /** The spell or ability that made it, as it was then. */
   card: Card;
   key: string;
-  /** `main1`: "at the beginning of [your] precombat main phase" (505.1). */
-  step: 'upkeep' | 'main1' | 'end';
+  /** `main1`: "at the beginning of [your] precombat main phase" (505.1). `endCombat`: "at end of combat" (511.2). */
+  step: 'upkeep' | 'main1' | 'endCombat' | 'end';
   /** It triggers each time, not once: "at the beginning of each of your precombat main phases for the rest of the game" (paradigm, 702.192a). */
   repeat?: boolean;
   /** Only in this turn. Left out: the next such step of `player`'s turn, or of anyone's turn without `player`. */
@@ -768,6 +786,8 @@ export interface Find {
   costs?: string[];
   /** Toughness at most this, as the card has it in the library (208.2a). */
   maxToughness?: number;
+  /** "A card named [name]" (201.2): partner with's search (702.124j). */
+  name?: string;
   /** "a Mountain or Plains card", for the prompt. */
   label: string;
 }
@@ -810,7 +830,8 @@ export type CardChoice =
   | { kind: 'bottom'; player: PlayerId; count: number }
   /** `ordered`: the order the cards are picked in matters, as when they go on the bottom of a library (401.4). */
   /** `pickable`: the cards that can be picked, when the player sees more than that (Silundi Vision's six). Left out, all of them. */
-  | ({ kind: 'pick'; player: PlayerId; source: string; cards: string[]; min: number; max: number; text: string; button: string; ordered?: boolean; pickable?: string[] } & Then)
+  /** `players`: players who may be chosen too, any number of them, as proliferate chooses permanents and/or players (701.34a). */
+  | ({ kind: 'pick'; player: PlayerId; source: string; cards: string[]; min: number; max: number; text: string; button: string; ordered?: boolean; pickable?: string[]; players?: PlayerId[]; decline?: string } & Then)
   /** The legend rule (704.5j): the player keeps one of these legendary permanents. `resume` gets priority afterwards. */
   | { kind: 'legend'; player: PlayerId; cards: string[]; resume: PlayerId };
 
@@ -836,7 +857,9 @@ export interface NameChoice extends Then {
   source: string;
   text: string;
   /** What is named. Left out, a card. A colour is named by its mana symbol: W, U, B, R or G. A card type by its name (`CARD_TYPES`). */
-  of?: 'creature type' | 'color' | 'card type';
+  of?: 'creature type' | 'color' | 'card type' | 'counter';
+  /** For `of: 'counter'`: the kinds of counter to choose from ("+1/+1", "charge"), one of which is named. */
+  options?: string[];
 }
 
 /** A player chooses a player, such as "an opponent" (Wishclaw Talisman). */
@@ -1135,7 +1158,7 @@ export type Action =
   | { type: 'plot'; card: string }
   /** `hold`: keep priority afterwards instead of letting auto-pass pass it (117.3c). */
   | ({ type: 'cast'; card: string; targets?: (TargetRef | null)[]; hold?: boolean } & CastChoices)
-  /** `crew`: the creatures tapped to pay a crew cost (702.122a). */
+  /** `crew`: the creatures tapped to pay a crew cost (702.122a), or the permanents tapped for a "Tap three untapped Elves you control" cost (`tapUntapped`). */
   /**
    * `ability`: which loyalty ability (606) or Class level bar, by index. Left out, one of
    * the `activated` abilities: `activated` is its index in the list (left out, the first).
@@ -1166,8 +1189,8 @@ export type Action =
   /** Answers a `mulligan` decision. */
   | { type: 'keep' }
   | { type: 'mulligan' }
-  /** Answers a `chooseCards` decision. For `bottom`, they go down in this order, so the last is the very bottom card. */
-  | { type: 'chooseCards'; cards: string[] }
+  /** Answers a `chooseCards` decision. For `bottom`, they go down in this order, so the last is the very bottom card. `players`: the players chosen too, for a `pick` that offers them. */
+  | { type: 'chooseCards'; cards: string[]; players?: PlayerId[] }
   /** Answers `orderTriggers`: every waiting trigger of yours, in the order they go on the stack (the last resolves first). */
   | { type: 'orderTriggers'; order: string[] }
   /** Answers an `ask` decision, or declines a `cast` decision with `yes: false`. */
@@ -1227,6 +1250,13 @@ export interface TargetSpec {
    * each target chosen, none at all included, and each is a different object (115.3).
    */
   any?: boolean;
+  /**
+   * With `any`: "up to X target ...", at most this many. `source` is the spell or ability's
+   * source as it is on the stack, a triggered ability's with the event it triggered on
+   * (`Card.triggeredBy`): The Wise Mothman's "up to X target creatures, where X is the number
+   * of nonland cards milled this way".
+   */
+  most?: (g: Game, source: Card) => number;
   label: string;
 }
 
@@ -1279,7 +1309,7 @@ export interface TriggerEvents {
   onDraw: { player: PlayerId; firstInDrawStep: boolean };
   onLifeGain: { player: PlayerId; amount: number };
   /** A player loses life: from damage (119.2), paying it (119.4), or an effect (119.3). */
-  onLifeLoss: { player: PlayerId; amount: number };
+  onLifeLoss: { player: PlayerId; amount: number; firstThisTurn?: boolean };
   /**
    * A source deals damage (120): to a player, or to a permanent (`card`, as it was then).
    * `source` is as it was as it dealt the damage. Prevented damage isn't dealt (615).
@@ -1371,18 +1401,54 @@ export interface TriggerEvents {
   onBecomesTarget: { target: Card; item: string };
   /** "Whenever one or more [kind] counters are put on this" (122.6): `n` of them at once. */
   onCounters: { kind: string; n: number };
+  /**
+   * "Whenever one or more [kind] counters are put on [a permanent]" (122.6), Auntie Ool's: once
+   * for each permanent and kind in each event, entering with them included. `card` is the
+   * permanent as it was then.
+   */
+  onCountersPut: { card: Card; kind: string; n: number };
+  /**
+   * "Whenever one or more cards are milled" (701.17): once for each event, however many players
+   * milled in it ("each opponent mills"), with the cards milled, where they went (701.17c).
+   */
+  onMilled: { cards: Card[] };
+  /**
+   * "Whenever one or more creatures [you control] deal combat damage to a player": once for each
+   * player dealt combat damage in a combat damage step (510.2, 603.2c), with the creatures that
+   * dealt it as they were then.
+   */
+  onPlayerDealtCombatDamage: { player: PlayerId; sources: Card[] };
+  /**
+   * The rad counters' triggered ability (728.1): "At the beginning of each player's precombat
+   * main phase, if that player has one or more rad counters, that player mills ...". It has no
+   * source; the engine resolves it.
+   */
+  onRad: { player: PlayerId };
+  /** Decayed's "When this creature attacks, sacrifice it at end of combat" (702.147a). The engine resolves it. */
+  onDecayed: object;
   /** A reflexive triggered ability (603.12): the script's `reflexive[key]` runs. */
   onReflexive: { key: string; data: Record<string, unknown> };
   /** Evoke's "When this permanent enters, if its evoke cost was paid, its controller sacrifices it" (702.74a). */
   onEvoked: object;
   /** Offspring's "When this permanent enters, if its offspring cost was paid, create a 1/1 token copy of it" (702.175a). */
   onOffspring: object;
+  /** "Whenever the Ring tempts you" (701.54d): once the player has finished being tempted. */
+  onRingTempts: { player: PlayerId };
+  /**
+   * "Whenever [this creature] becomes blocked by a creature" (509.3d): once for each creature
+   * blocking it, as blockers are declared. `blocker` is as it was then.
+   */
+  onBecomesBlocked: { blocker: Card };
 }
 
 /** What ward costs (702.21a): mana, life, or both. */
 export interface WardCost {
   mana?: string;
   life?: number;
+  /** "Ward—Sacrifice a Food": one permanent its controller chooses that fits, sacrificed to pay (701.21a). `who` is ignored: it is theirs. */
+  sacrifice?: TargetSpec;
+  /** "Ward—Blight 2" (Auntie Ool): the player blights that many, putting N -1/-1 counters on a creature they control (701.68a). */
+  blight?: number;
 }
 
 export type TriggerHook = keyof TriggerEvents;
@@ -1473,6 +1539,8 @@ export interface ManaAbility {
   legendary?: boolean;
   /** "Spend this mana only to cast instant and sorcery spells" (Tablet of Discovery): spells with one of these card types. */
   types?: string[];
+  /** "Spend this mana only to cast an Angel spell" (Giada): spells with this subtype (106.6). */
+  subtype?: string;
   /** "Discard a card" is its cost (Skirge Familiar). Auto-pay never uses it: it costs a card. */
   discard?: number;
   /** "Sacrifice a creature" is part of its cost (Phyrexian Tower). Auto-pay never uses it: it costs a creature. */
@@ -1501,6 +1569,8 @@ export interface ThenCtx extends Ctx {
   /** The number chosen, for a `number` choice (0 if none). */
   n: number;
   data: Record<string, unknown>;
+  /** The players chosen besides the cards, for a `pick` choice that offers them (proliferate, 701.34a). */
+  pickedPlayers?: PlayerId[];
 }
 
 /**
@@ -1550,6 +1620,12 @@ export interface ActivatedAbility {
     exileOne?: TargetSpec;
     /** "Exile two cards from your graveyard" (Matoc): that many cards from its controller's graveyard, chosen as it is activated. */
     exileGraveyard?: number;
+    /**
+     * "Tap three untapped Elves you control" (High Perfect Morcant): `n` untapped permanents its
+     * controller controls that fit, chosen as it is activated (the action's `crew`). Not {T}, so
+     * summoning sickness doesn't matter (302.6), and the source may be one of them.
+     */
+    tapUntapped?: { n: number; filter: (g: Game, c: Card) => boolean; label: string };
   };
   sorcery?: boolean;
   /** Activated from its owner's hand rather than the battlefield, like channel. */
@@ -1604,6 +1680,13 @@ export interface CardScript extends Triggers {
    * (positive) or less (negative), e.g. "noncreature spells cost {1} more" (601.2f).
    */
   costModifier?: (g: Game, self: Card, spell: Card, caster: PlayerId, from: Zone | 'stack') => number;
+  /**
+   * While this permanent is on the battlefield: generic mana that the activated abilities of
+   * permanent `source` cost `pid` more (positive) or less (negative) to activate, mana
+   * abilities included (602.2b, 601.2f): "Activated abilities of Foods you control cost {1}
+   * less to activate." A reduction takes off generic mana only, never below {0}.
+   */
+  abilityCostModifier?: (g: Game, self: Card, source: Card, pid: PlayerId) => number;
   /** Kicker (702.33): an optional additional cost. `multi` is multikicker, paid any number of times (702.33c). */
   kicker?: { mana: string; multi?: boolean };
   /**
@@ -1843,5 +1926,5 @@ export interface CardScript extends Triggers {
 /** Hooks that every permanent on the battlefield hears, not only the card the event is about. */
 export type BroadcastHook = Exclude<
   TriggerHook,
-  'onEnter' | 'onDies' | 'onAttack' | 'onBlock' | 'onCombatDamageToPlayer' | 'onDefeat' | 'onChapter' | 'onLevel' | 'onStorm' | 'onDelayed' | 'onTapped' | 'onWard' | 'onMadness' | 'onMiracle' | 'onSuspendUpkeep' | 'onSuspendCast' | 'onLeave' | 'onCounters' | 'onReflexive' | 'onEvoked' | 'onOffspring'
+  'onEnter' | 'onDies' | 'onAttack' | 'onBlock' | 'onCombatDamageToPlayer' | 'onDefeat' | 'onChapter' | 'onLevel' | 'onStorm' | 'onDelayed' | 'onTapped' | 'onWard' | 'onMadness' | 'onMiracle' | 'onSuspendUpkeep' | 'onSuspendCast' | 'onLeave' | 'onCounters' | 'onReflexive' | 'onEvoked' | 'onOffspring' | 'onRad' | 'onDecayed'
 >;

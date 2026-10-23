@@ -244,7 +244,15 @@ The full guide to the game's screens and controls. For a quick start, see the
 | **New targets** (Deflecting Swat) | Click the new target for each slot, or press **Keep Target**. A card in a graveyard (Sevinne's Reclamation) is targeted from a window. |
 | **Cast as it resolves** (Beseech the Mirror) | A window offers **Cast** or **Don't Cast**; casting goes through the usual targets and costs. |
 | **A choice from several places** (Highway Robbery: discard a card or sacrifice a land) | The window groups the cards by where they are, **Your hand** and **Your battlefield**, so a Mountain in your hand isn't taken for one on the table. |
+| **Proliferate** (Atraxa, Karn's Bastion) | A window shows every permanent with a counter, under whose battlefield it is, and a button for each player with counters (their counters in brackets). Click the ones that get another counter of each kind they have, any number or none, and press **Proliferate**. |
+| **Blight** (High Perfect Morcant, Auntie Ool's ward) | A window asks which creature of yours gets the -1/-1 counters. Paying Auntie Ool's **Ward—Blight 2** is optional: choose none and your spell or ability is countered. |
+| **Tap untapped creatures as a cost** (High Perfect Morcant's "Tap three untapped Elves") | After clicking the permanent, the ones you could tap glow yellow, the permanent itself included; click exactly that many and press **Tap**. Summoning sickness doesn't matter. |
+| **Moving a counter** (Tidus, Nesting Grounds) | When the first creature has more than one kind of counter, a window asks which kind moves. |
+| **Counters on players** (poison, experience, rad) | They show as small pills under the player's name on their portrait. Ten poison counters lose the game. |
 | **Library search** (Rampant Growth, Cultivate, Path to Exile, ...) | Your whole library opens. Cards you could find glow; click one and press **Choose**, or **Find Nothing**. |
+| **Ward that asks for a sacrifice** (Ygra's "Ward—Sacrifice a Food") | When your spell or ability targets it, a window shows what of yours you could sacrifice: pick one and press **Sacrifice**, or **Don't Pay** to have it countered. |
+| **The Ring tempts you** (Frodo, Sauron) | With two or more creatures, a window asks which is your **Ring-bearer**. It carries a gold ring on the table, and the log counts the times the Ring has tempted you. |
+| **Amass** (Sauron) | With two or more Armies, a window asks which gets the counters. |
 
 ## Triggers and pop-up windows
 
