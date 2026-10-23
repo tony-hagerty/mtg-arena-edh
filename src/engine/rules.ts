@@ -152,6 +152,8 @@ export const SUPPORTED_KEYWORDS = [
   'shadow',
   'landwalk',
   ...Object.keys(LANDWALKS),
+  // Discover (701.57) by the engine with the card's script (`discover`).
+  'discover',
   // Protection (702.16) is enforced by the engine from "protection from [quality]" keywords, which the card's script gives it.
   'protection',
 ];
@@ -2115,6 +2117,7 @@ const SECOND_PERSON: Record<string, string> = {
   has: 'have',
   looks: 'look',
   shuffles: 'shuffle',
+  discovers: 'discover',
   gets: 'get',
   taps: 'tap',
   proliferates: 'proliferate',
@@ -2237,8 +2240,10 @@ function shiftCard(g: Game, c: Card, to: Zone) {
   // As it last was on the battlefield, for leaves-the-battlefield abilities (603.10a).
   // Who is watching looks back in time too (603.10a): a permanent that left earlier in the same event still sees this one go.
   const last = from === 'battlefield' && watchingLeaves(g, batch?.before ?? battlefield(g)) ? lastKnown(g, c) : null;
-  if (last && batch && !batch.before) batch.before = battlefield(g).map((x) => rememberPermanent(g, x));
-  const before = last && !batch ? battlefield(g).map((x) => rememberPermanent(g, x)) : null;
+  // A card leaving a graveyard, for "whenever one or more cards leave your graveyard", which looks back in time too (603.10a).
+  const leftGraveyard = from === 'graveyard' && watchingGraveyard(g, batch?.before ?? battlefield(g));
+  if ((last || leftGraveyard) && batch && !batch.before) batch.before = battlefield(g).map((x) => rememberPermanent(g, x));
+  const before = (last || leftGraveyard) && !batch ? battlefield(g).map((x) => rememberPermanent(g, x)) : null;
   // Was it an attacking creature (for "if it was attacking"), and what was it, as it left the battlefield?
   const attacking = from === 'battlefield' && !!g.combat?.attacks.some((a) => a.id === c.id);
   const wasPermanent = from === 'battlefield' ? (last ?? lastKnown(g, c)) : undefined;
@@ -2292,6 +2297,7 @@ function shiftCard(g: Game, c: Card, to: Zone) {
   // A spell keeps what it was cast with as it becomes a permanent (107.3m), and loses it after.
   if (c.zone !== 'stack' || to !== 'battlefield') c.cast = null;
   c.mayReturn = c.isCommander && (to === 'graveyard' || to === 'exile');
+  c.arrived = { from, turn: g.turn };
   c.zone = to;
   c.ts = g.nextId++; // a new timestamp as it enters a zone (613.7d)
   if (c.isToken && to !== 'battlefield') {
@@ -2304,8 +2310,20 @@ function shiftCard(g: Game, c: Card, to: Zone) {
   if (to === 'graveyard') announce(g, 'onCardToGraveyard', { card: stored, player: c.owner, ...(wasPermanent ? { from: wasPermanent } : {}) });
   // Cards put into exile from a graveyard or the battlefield (Ketramose), which sees itself go (603.10a). Tokens aren't cards (108.2b).
   const exiled = to === 'exile' && (from === 'graveyard' || from === 'battlefield') && watchingExile(g, before ?? batch?.before ?? battlefield(g)) ? [stored] : [];
-  if (last || exiled.length) leaves(g, { left: last ? [{ card: last, to, attacking }] : [], exiled, before });
+  if (last || exiled.length || leftGraveyard) leaves(g, { left: last ? [{ card: last, to, attacking }] : [], exiled, fromGraveyard: leftGraveyard ? [stored] : [], before });
 }
+
+/**
+ * Cards that left a graveyard other than by moving to another zone of a player's, as a spell
+ * being cast from it does (601.2a): one event, for "whenever one or more cards leave your
+ * graveyard" (603.10a). `cards` are as they are now.
+ */
+export function leftGraveyards(g: Game, cards: Card[]) {
+  if (cards.length && watchingGraveyard(g, batch?.before ?? battlefield(g))) leaves(g, { left: [], exiled: [], fromGraveyard: cards, before: null });
+}
+
+/** Is anything among `permanents` listening for cards leaving a graveyard? */
+const watchingGraveyard = (g: Game, permanents: Card[]) => permanents.some((x) => mayHaveScript(x, 'onLeaveGraveyard') && abilitiesOf(g, x).onLeaveGraveyard);
 
 /** Is anything among `permanents` listening for permanents leaving the battlefield (so `moveCard` needs to remember them)? */
 const watchingLeaves = (g: Game, permanents: Card[]) =>
@@ -2322,6 +2340,8 @@ interface Leaving {
   /** `attacking`: it was an attacking creature as it left (for "if it was attacking", Zurgo Stormrender). */
   left: { card: Card; to: Zone; attacking?: boolean }[];
   exiled: Card[];
+  /** Cards that left graveyards, as they are now (`onLeaveGraveyard`). */
+  fromGraveyard?: Card[];
   /** The battlefield just before the event, for abilities that look back in time (603.10a). */
   before: Card[] | null;
 }
@@ -2331,6 +2351,7 @@ function leaves(g: Game, l: Leaving) {
   if (batch) {
     batch.left.push(...l.left);
     batch.exiled.push(...l.exiled);
+    (batch.fromGraveyard ??= []).push(...(l.fromGraveyard ?? []));
     return;
   }
   fireLeaves(g, l);
@@ -2342,7 +2363,7 @@ function leaves(g: Game, l: Leaving) {
  * more cards are put into exile" once for the whole event.
  */
 function fireLeaves(g: Game, l: Leaving) {
-  if (!l.left.length && !l.exiled.length) return;
+  if (!l.left.length && !l.exiled.length && !l.fromGraveyard?.length) return;
   const was = lookBack;
   lookBack = l.before ?? was;
   try {
@@ -2352,6 +2373,12 @@ function fireLeaves(g: Game, l: Leaving) {
       for (const w of watchers) if (abilitiesOf(g, w).onPermanentLeaves) trigger(g, w, 'onPermanentLeaves', { left: card, to, attacking });
     }
     if (l.exiled.length) for (const w of watchers) if (abilitiesOf(g, w).onExiled) trigger(g, w, 'onExiled', { cards: l.exiled });
+    // "Whenever one or more cards leave your graveyard": once for the event, for each graveyard (603.2c).
+    const owners = [...new Set((l.fromGraveyard ?? []).map((c) => c.owner))];
+    for (const player of owners) {
+      const cards = l.fromGraveyard!.filter((c) => c.owner === player);
+      for (const w of watchers) if (abilitiesOf(g, w).onLeaveGraveyard) trigger(g, w, 'onLeaveGraveyard', { player, cards });
+    }
   } finally {
     lookBack = was;
   }
@@ -2446,9 +2473,15 @@ export const snapshot = (draft: Card): Card => {
  */
 function leaveAbilitiesBehind(g: Game, c: Card) {
   const mine = [...g.triggers, ...g.stack].filter((x) => x.kind !== 'spell' && x.card.id === c.id && x.card.moves === c.moves);
-  if (!mine.length) return;
+  // An ability about this permanent ("that creature's toughness", Pantlaza) uses it as it last was too (608.2h).
+  const about = [...g.triggers, ...g.stack].filter((x) => x.kind === 'triggered' && x.event && Object.values(x.event).some((v) => isCard(v) && v.id === c.id && v.moves === c.moves && !v.lki));
+  if (!mine.length && !about.length) return;
   const last = lastKnown(g, c);
   for (const x of mine) x.card = { ...last, ...(x.card.triggeredBy ? { triggeredBy: x.card.triggeredBy } : {}) };
+  for (const x of about) {
+    const event = x.event as Record<string, unknown>;
+    for (const [k, v] of Object.entries(event)) if (isCard(v) && v.id === c.id && v.moves === c.moves) event[k] = last;
+  }
 }
 
 /**
@@ -2484,10 +2517,18 @@ export function trigger<H extends TriggerHook>(g: Game, source: Card, hook: H, e
   let times: number | undefined;
   for (const { t, extra } of [...own, ...given]) {
     if (typeof t !== 'function' && t.when && !t.when(g, { self: source, ...event })) continue;
+    // "This ability triggers only once each turn": not again this turn for this object.
+    const once = typeof t !== 'function' && t.oncePerTurn ? `${hook}:${'trigger' in extra ? extra.trigger : 'granted' in extra ? `${extra.granted.from}/${extra.granted.index}` : 0}` : null;
+    // Kept on the permanent itself, even when it is asked as it was before the event (603.10a).
+    const holder = once ? ((x) => (x && x.moves === source.moves ? x : source))(permanent(g, source.id)) : source;
+    if (once && holder.once[once] === g.turn) continue;
     times ??= triggerTimes(g, source, hook, event);
     if (!times) return;
+    if (once) holder.once[once] = g.turn;
     const remembered = Object.fromEntries(Object.entries(event).map(([k, v]) => [k, isCard(v) ? snapshot(v) : v]));
-    for (let k = 0; k < times; k++) {
+    // An effect that makes it trigger an additional time (603.2d) would have it trigger again
+    // this turn, which "only once each turn" forbids: the "can't" wins (101.2), so just one.
+    for (let k = 0; k < (once ? 1 : times); k++) {
       g.triggers.push({ id: `s${g.nextId++}`, kind: 'triggered', controller: source.controller, card: { ...snapshot(source), triggeredBy: remembered }, hook, ...extra, event: remembered, targets: [] });
     }
   }
@@ -2747,7 +2788,29 @@ function setUp(g: Game, c: Card, opts: EnterOpts): Record<string, number> {
     c.protector = opts.protector !== undefined && canProtect(g, c, opts.protector) ? opts.protector : defaultProtector(g, c);
     if (c.protector !== null) log(g, `${g.players[c.protector].name} protects ${label(c)}.`, c.controller, [c]);
   }
+  if (opts.attacking) joinAttack(g, c, opts.attacking);
   return counters;
+}
+
+/**
+ * A creature put onto the battlefield attacking (508.4) is attacking as it enters, but it
+ * never "attacked", so nothing triggers on it attacking. It isn't attacking at all if it isn't
+ * a creature or is a battle (506.3a, 506.3f), if its controller isn't the attacking player
+ * (506.3b), or if the player it would attack has left the game or the planeswalker or battle
+ * is gone or no longer one a defending player controls or protects (506.3c, 508.4a). After
+ * blockers are declared it enters unblocked (508.4d).
+ */
+export function joinAttack(g: Game, c: Card, at: NonNullable<EnterOpts['attacking']>) {
+  const combat = g.combat;
+  if (!combat || c.controller !== g.active || !isCreature(g, c) || isBattle(g, c)) return;
+  const defender = g.players[at.defender];
+  if (!defender || defender.lost || at.defender === c.controller) return;
+  const target = at.target ?? null;
+  if (target) {
+    const t = permanent(g, target);
+    if (!t || !((isPlaneswalker(g, t) && t.controller === at.defender) || (isBattle(g, t) && t.protector === at.defender))) return;
+  }
+  combat.attacks.push({ id: c.id, defender: at.defender, target, blockers: [], blocked: false });
 }
 
 /** Triggers on a permanent having entered (603.6a): its own "enters" abilities, then everything watching. `counters`: what it entered with. */
@@ -2801,6 +2864,11 @@ export interface EnterOpts {
   group?: string;
   /** Its caller logs it already ("plays X" for a land played from a graveyard), so `logReturns` doesn't. */
   quiet?: boolean;
+  /**
+   * It is put onto the battlefield attacking (508.4): this player, or with `target` this
+   * planeswalker or battle, as the effect specifies. It never "attacked" (508.4).
+   */
+  attacking?: { defender: PlayerId; target?: string | null };
 }
 
 /**
@@ -3281,6 +3349,7 @@ function drawOne(g: Game, pid: PlayerId) {
     return;
   }
   const first = p.drawn === 0;
+  const firstInDrawStep = firstDrawInDrawStep(g, pid);
   moveCard(g, top, 'hand');
   p.drawn++;
   // Miracle (702.94a): the first card drawn this turn may be revealed as it is drawn.
@@ -3289,7 +3358,7 @@ function drawOne(g: Game, pid: PlayerId) {
     const cost = [miracle.mana, miracle.life && `${miracle.life} life`].filter(Boolean).join(' and ');
     ask(g, pid, { text: `Reveal ${label(top)}? Then you may cast it for its miracle cost, ${cost}.`, yes: 'Reveal', no: "Don't Reveal", then: '@miracle', script: top.id, data: { id: top.id, moves: top.moves } });
   }
-  broadcast(g, 'onDraw', { player: pid });
+  broadcast(g, 'onDraw', { player: pid, firstInDrawStep });
 }
 
 /** The colours protection keywords name, like "protection from white" (702.16a). */
@@ -4135,6 +4204,77 @@ export function mill(g: Game, pid: PlayerId, n: number): Card[] {
   });
   if (milled.length) log(g, `${says(p, 'mills')} ${milled.map(label).join(', ')}.`, pid, milled);
   return milled;
+}
+
+/**
+ * "Reveal cards from the top of your library until you reveal a [quality] card" (701.20a):
+ * the cards revealed, top first, which stay in the library for the effect to move. `hit` is
+ * the last of them, the one that fits; with none, the whole library was revealed. Everyone
+ * sees them (701.20a). `what` names the quality for the log ("a creature card").
+ */
+export function revealUntil(g: Game, pid: PlayerId, fits: (c: Card) => boolean, what: string): { hit: Card | undefined; revealed: Card[] } {
+  const p = g.players[pid];
+  const i = p.library.findIndex(fits);
+  const revealed = i >= 0 ? p.library.slice(0, i + 1) : [...p.library];
+  if (revealed.length) log(g, `${says(p, 'reveals')} ${revealed.map(label).join(', ')}${i >= 0 ? '' : ` (no ${what.replace(/^an? /, '')})`}.`, pid, revealed);
+  return { hit: i >= 0 ? p.library[i] : undefined, revealed };
+}
+
+/**
+ * "Exile cards from the top of your library until you exile a [quality] card" (discover,
+ * 701.57a; Jodah): one at a time from the top, face up, until one fits or the library runs
+ * out. Returns the cards in exile: `hit`, the one that fits, and `rest`, the others.
+ */
+export function exileUntil(g: Game, pid: PlayerId, fits: (c: Card) => boolean): { hit: Card | undefined; rest: Card[] } {
+  const p = g.players[pid];
+  const i = p.library.findIndex(fits);
+  const taking = i >= 0 ? p.library.slice(0, i + 1) : [...p.library];
+  const exiled = exileAll(g, taking, `${says(p, 'exiles')} ${taking.map(label).join(', ')} from the top of ${their(p)} library.`, pid);
+  const hit = i >= 0 ? exiled.find((c) => c.id === taking[i].id) : undefined;
+  return { hit, rest: exiled.filter((c) => c !== hit) };
+}
+
+/** The `then` key of `castFromExiled`'s choice (engine.ts runs it). */
+export const EXILED_CAST = '@exiledCast';
+
+/**
+ * After `exileUntil`: "You may cast that card without paying its mana cost" (608.2g), and
+ * then "put the rest on the bottom of your library in a random order". `maxMv`: only if the
+ * resulting spell's mana value is that or less (discover, 701.57a). `toHand`: if it isn't
+ * cast it goes into its owner's hand (discover); otherwise it stays in exile, and can't be
+ * cast later (Jodah's rulings). With no card found, every exiled card goes back to the
+ * library in a random order.
+ */
+export function castFromExiled(g: Game, pid: PlayerId, hit: Card | undefined, rest: Card[], opts: { maxMv?: number; toHand?: boolean; text: string }) {
+  const keep = (c: Card) => ({ id: c.id, moves: c.moves });
+  if (!hit) return putOnBottomRandomly(g, rest);
+  if (g.players[pid].lost) return;
+  offerCast(g, pid, hit, { free: true, ...(opts.maxMv !== undefined ? { maxMv: opts.maxMv } : {}), text: opts.text, then: EXILED_CAST, data: { hit: keep(hit), rest: rest.map(keep), toHand: !!opts.toHand } });
+}
+
+/** `castFromExiled`'s continuation: the card not cast goes into its owner's hand or stays in exile, and the rest go on the bottom in a random order. */
+export function finishExiledCast(g: Game, yes: boolean, data: Record<string, unknown>) {
+  const inExile = (ref: { id: string; moves: number }) => g.players.flatMap((p) => p.exile).find((c) => sameCard(c, ref));
+  const hit = yes ? undefined : inExile(data.hit as { id: string; moves: number });
+  const rest = (data.rest as { id: string; moves: number }[]).map(inExile).filter((c): c is Card => !!c);
+  if (hit && data.toHand) {
+    log(g, `${says(g.players[hit.owner], 'puts')} ${label(hit)} into ${their(g.players[hit.owner])} hand.`, hit.owner, [hit]);
+    moveCard(g, hit, 'hand');
+  }
+  if (rest.length) log(g, `${rest.length === 1 ? 'The other card goes' : `The other ${rest.length} cards go`} on the bottom of ${their(g.players[rest[0].owner])} library in a random order.`, rest[0].owner);
+  putOnBottomRandomly(g, rest);
+}
+
+/**
+ * Discover N (701.57a): "Exile cards from the top of your library until you exile a nonland
+ * card with mana value N or less. You may cast that card without paying its mana cost if the
+ * resulting spell's mana value is less than or equal to N. If you don't cast it, put that card
+ * into your hand. Put the remaining exiled cards on the bottom of your library in a random order."
+ */
+export function discover(g: Game, pid: PlayerId, n: number) {
+  log(g, `${says(g.players[pid], 'discovers')} ${n}.`, pid);
+  const { hit, rest } = exileUntil(g, pid, (c) => !isLand(g, c) && manaValue(c) <= n);
+  castFromExiled(g, pid, hit, rest, { maxMv: n, toHand: true, text: hit ? `Discover ${n}: cast ${label(hit)} without paying its mana cost, or put it into your hand.` : '' });
 }
 
 /** The player discards a card from their hand (701.9a). "Whenever you discard" abilities trigger. */

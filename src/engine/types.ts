@@ -445,6 +445,12 @@ export interface Card {
   warped?: number;
   /** Phased out indirectly with the permanent it is attached to (702.26g): it phases in with that one. */
   phasedWith?: string;
+  /**
+   * The zone it was put into its current zone from, and the turn that happened (400.7: as this
+   * object): "a card in an opponent's graveyard that was put there from their library this
+   * turn" (Captain N'ghathrod). Left out for a card that hasn't moved since the game began.
+   */
+  arrived?: { from: Card['zone']; turn: number };
 }
 
 /**
@@ -759,6 +765,8 @@ export interface StackItem {
   /** Permanents sacrificed to pay its costs, as they last were on the battlefield, and their power then. */
   sacrificed?: Card[];
   sacrificedPower?: number[];
+  /** Every target had become illegal as it began to resolve, so it does nothing: it doesn't resolve (608.2b). */
+  fizzled?: boolean;
 }
 
 /**
@@ -1298,7 +1306,8 @@ export interface TriggerEvents {
   onCast: { card: Card; caster: PlayerId; item: StackItem };
   /** A spell is copied (707.10): magecraft's "whenever you cast or copy an instant or sorcery spell" (207.2c). `controller` controls the copy. */
   onCopy: { card: Card; controller: PlayerId };
-  onDraw: { player: PlayerId };
+  /** `firstInDrawStep`: it was the first card `player` drew in their own draw step (504.1), as Orcish Bowmasters's "except the first one" asks. */
+  onDraw: { player: PlayerId; firstInDrawStep: boolean };
   onLifeGain: { player: PlayerId; amount: number };
   /** A player loses life: from damage (119.2), paying it (119.4), or an effect (119.3). */
   onLifeLoss: { player: PlayerId; amount: number; firstThisTurn?: boolean };
@@ -1375,6 +1384,19 @@ export interface TriggerEvents {
   onPermanentLeaves: { left: Card; to: Zone; attacking?: boolean };
   /** "Whenever a player searches their library" (701.23): once for each search, however many cards it finds. */
   onSearch: { player: PlayerId };
+  /**
+   * "Whenever one or more cards leave your graveyard" (Teval): once for each event, for each
+   * player whose graveyard cards left in it, with those cards as they are now (cast, exiled,
+   * returned). It looks back in time (603.10a).
+   */
+  onLeaveGraveyard: { player: PlayerId; cards: Card[] };
+  /**
+   * "Whenever the final chapter ability of a Saga you control resolves" (Tom Bombadil): a
+   * Saga's chapter ability has resolved (608.2b: not one that did nothing for want of targets).
+   * `saga` is the Saga as it is now, or as it last was; `final`: it was its final chapter
+   * ability (714.2d-e); `controller`: who controls the Saga, or controlled it last.
+   */
+  onChapterResolved: { saga: Card; chapter: number; final: boolean; controller: PlayerId };
   /** "Whenever [creatures] attack": once, after attackers are declared (508.1m), with every attack. */
   onAttackersDeclared: { player: PlayerId; attacks: { attacker: Card; defender: PlayerId; target: string | null }[] };
   /** "Whenever [a permanent] becomes the target of a spell or ability" (Monk Gyatso). `item` is that spell or ability. */
@@ -1448,6 +1470,11 @@ export type Trigger<E> =
       resolve: (g: Game, e: Ctx & E) => void;
       targets?: TargetSpec[];
       text?: string;
+      /**
+       * "This ability triggers only once each turn": once it has triggered this turn, this
+       * object's ability doesn't trigger again until the next turn (a new object, 400.7, may).
+       */
+      oncePerTurn?: boolean;
       /**
        * A modal triggered ability, "choose one or more —" (700.2): `min` to `max` modes,
        * chosen as it goes on the stack (603.3c), each with its own targets. `resolve` reads
