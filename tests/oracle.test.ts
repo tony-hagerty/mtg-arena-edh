@@ -5,7 +5,7 @@ import { describe, expect, it } from 'vitest';
 import { cardData, registerCards } from '../src/cards/db';
 import { needsScript, parseCard, scriptCards } from '../src/cards/oracle';
 import { parseResults } from '../src/cards/oracle-report';
-import { activatedAt, activationCost, applyAction, applyBotAction, botAction, castCost, colorsOf, draw as drawCards, enterBattlefield, hasScript, isCreature, isLand, legalTargets, makeCard, manaAbilities, permanent, scriptOf, spellTargets, stats } from '../src/engine';
+import { activatedAt, activationCost, applyAction, applyBotAction, botAction, castCost, colorsOf, destroy, draw, draw as drawCards, enterBattlefield, hasScript, isCreature, isLand, legalTargets, makeCard, manaAbilities, permanent, scriptOf, spellTargets, stats } from '../src/engine';
 import type { Action, ActivatedAbility, Card, CardData, CardScript, Ctx, Game, TargetRef, TargetSpec } from '../src/engine';
 import { registerScripts } from '../src/engine/registry';
 import fixtureData from './fixtures.generated.json';
@@ -1386,6 +1386,132 @@ describe('mana group templates: exalted, riot, colours among permanents, trigger
     expect(manaAbilities(g, byName(g, 0, 'Plains')!)[0].colors).toHaveLength(5);
     expect(refusal('Enchantment', 'Each nonland permanent you control is red.')).not.toBe(null);
     expect(refusal('Enchantment', 'Lands you control are every basic land type.')).not.toBe(null);
+  });
+});
+
+describe('library templates (Nekusar, Xyris, Ureni, Atla Palani, Damn)', () => {
+  /** Plays on, bots answering everything, until nothing is waiting. */
+  const settle = (g: Game) => {
+    for (let i = 0; i < 200 && (g.decision || g.stack.length || g.triggers.length); i++) g = g.decision ? applyBotAction(g, botAction(g, g.priority)) : applyAction(g, { type: 'pass' });
+    return g;
+  };
+  const deck = (g: Game, pid: number, names: string[]) => (g.players[pid].library = names.map((n) => makeCard(g, n, pid, 'library')));
+
+  it('"At the beginning of each player\'s draw step, that player draws an additional card" (504.2)', () => {
+    teach('Test Mine', 'Artifact', "At the beginning of each player's draw step, that player draws an additional card.");
+    let g = emptyGame((d) => {
+      put(d, 0, 'Test Mine');
+      d.active = 1;
+      d.priority = 1;
+      d.step = 'upkeep';
+    });
+    for (let i = 0; i < 100 && !(g.step === 'main1' && !g.stack.length && !g.triggers.length && !g.decision); i++) g = g.decision ? applyBotAction(g, botAction(g, g.priority)) : applyAction(g, { type: 'pass' });
+    expect(g.players[1].hand).toHaveLength(2);
+    // Near misses: a draw step that isn't each player's, and a card that isn't "additional".
+    expect(refusal('Artifact', "At the beginning of each player's draw step, that player draws an extra card.")).not.toBeNull();
+    expect(refusal('Artifact', "At the beginning of each opponent's draw step, that player draws an additional card.")).not.toBeNull();
+  });
+
+  it('"Whenever an opponent draws a card except the first one they draw in each of their draw steps" (504.1)', () => {
+    teach('Test Watcher', 'Creature — Human', 'Whenever an opponent draws a card except the first one they draw in each of their draw steps, you gain 1 life.');
+    let g = emptyGame((d) => {
+      put(d, 0, 'Test Watcher');
+      d.active = 1;
+      d.priority = 1;
+      d.step = 'upkeep';
+    });
+    for (let i = 0; i < 100 && !(g.step === 'main1' && !g.stack.length && !g.triggers.length && !g.decision); i++) g = g.decision ? applyBotAction(g, botAction(g, g.priority)) : applyAction(g, { type: 'pass' });
+    expect(g.players[0].life).toBe(40);
+    g = settle(produce(g, (d) => draw(d, 1, 2)));
+    expect(g.players[0].life).toBe(42);
+    expect(refusal('Creature — Human', 'Whenever an opponent draws a card except the first one they draw each turn, you gain 1 life.')).not.toBeNull();
+  });
+
+  it('"You and that player each draw that many cards", "you and target opponent each draw a card" (121.2c)', () => {
+    teach('Test Storm', 'Creature — Snake', 'Whenever this creature deals combat damage to a player, you and that player each draw that many cards.', { power: '3' });
+    teach('Test Loran', 'Artifact', '{T}: You and target opponent each draw a card.');
+    let g = emptyGame((d) => {
+      put(d, 0, 'Test Storm');
+    });
+    g = run(g, { type: 'pass' }, { type: 'declareAttack', card: byName(g, 0, 'Test Storm')!.id, defender: 1 }, { type: 'pass' });
+    g = settle(g);
+    expect([g.players[0].hand.length, g.players[1].hand.length, g.players[2].hand.length]).toEqual([3, 3, 0]);
+    g = emptyGame((d) => void put(d, 0, 'Test Loran'));
+    g = settle(run(g, { type: 'activate', card: byName(g, 0, 'Test Loran')!.id, targets: [{ kind: 'player', id: 2 }] }));
+    expect([g.players[0].hand.length, g.players[1].hand.length, g.players[2].hand.length]).toEqual([1, 0, 1]);
+    // "That player" needs a player from the trigger; "and" another effect isn't one clause.
+    expect(refusal('Artifact', '{T}: You and that player each draw a card.')).toMatchObject({ reason: '"that player" without a player to refer to' });
+    expect(refusal('Creature — Snake', 'Whenever this creature deals combat damage to a player, you and that player each draw that many cards and lose that much life.')).not.toBeNull();
+  });
+
+  it('"That player mills that many cards" and "deals 1 damage to that player": the trigger\'s player and amount', () => {
+    teach('Test Horror', 'Creature — Horror', 'Whenever this creature deals combat damage to a player, that player mills that many cards.', { power: '2' });
+    teach('Test Razer', 'Creature — Zombie', 'Whenever an opponent draws a card, this creature deals 1 damage to that player.');
+    let g = emptyGame((d) => void put(d, 0, 'Test Horror'));
+    const lib = g.players[1].library.length;
+    g = settle(run(g, { type: 'pass' }, { type: 'declareAttack', card: byName(g, 0, 'Test Horror')!.id, defender: 1 }, { type: 'pass' }));
+    expect(g.players[1].library).toHaveLength(lib - 2);
+    expect(g.players[1].graveyard).toHaveLength(2);
+    g = emptyGame((d) => void put(d, 0, 'Test Razer'));
+    g = settle(produce(g, (d) => draw(d, 2, 2)));
+    expect(g.players[2].life).toBe(38);
+    // Without a player or an amount from the event, "that player" and "that many" mean nothing.
+    expect(refusal('Instant', 'Target player mills that many cards.')).not.toBeNull();
+    expect(refusal('Instant', 'Draw a card. Test Card deals 1 damage to that player.')).not.toBeNull();
+  });
+
+  it('"Look at the top N cards of your library. You may put a [quality] card from among them onto the battlefield. Put the rest ..."', () => {
+    teach('Test Ureni', 'Creature — Dragon', 'When this creature enters, look at the top three cards of your library. You may put a Dragon creature card from among them onto the battlefield. Put the rest on the bottom of your library in a random order.');
+    let g = emptyGame((d) => {
+      put(d, 0, 'Test Ureni', 'hand');
+      deck(d, 0, ['Plains', 'Shivan Dragon', 'Serra Angel', 'Island']);
+    });
+    g = settle(produce(g, (d) => enterBattlefield(d, byName(d, 0, 'Test Ureni', 'hand')!)));
+    expect(byName(g, 0, 'Shivan Dragon')).toBeDefined();
+    expect(g.players[0].library[0].name).toBe('Island');
+    // "Into your hand" is another template; "any number" isn't this one.
+    expect(refusal('Creature — Dragon', 'When this creature enters, look at the top three cards of your library. You may put any number of Dragon creature cards from among them onto the battlefield. Put the rest on the bottom of your library in a random order.')).not.toBeNull();
+  });
+
+  it('"Reveal cards from the top of your library until you reveal a creature card. Put that card onto the battlefield and the rest ..." (701.20a)', () => {
+    teach('Test Nest', 'Creature — Human', 'Whenever an Egg you control dies, reveal cards from the top of your library until you reveal a creature card. Put that card onto the battlefield and the rest on the bottom of your library in a random order.');
+    teach('Test Egg', 'Creature — Egg', 'Defender', { power: '0' });
+    teach('Test Seek', 'Sorcery', 'Reveal cards from the top of your library until you reveal an artifact card. Put that card into your hand and the rest on the bottom of your library in a random order.');
+    let g = emptyGame((d) => {
+      put(d, 0, 'Test Nest');
+      put(d, 0, 'Test Egg');
+      put(d, 0, 'Elite Vanguard');
+      deck(d, 0, ['Plains', 'Serra Angel', 'Sol Ring', 'Island']);
+    });
+    // Not an Egg: nothing.
+    g = settle(produce(g, (d) => destroy(d, byName(d, 0, 'Elite Vanguard'))));
+    expect(g.players[0].library).toHaveLength(4);
+    g = settle(produce(g, (d) => destroy(d, byName(d, 0, 'Test Egg'))));
+    expect(byName(g, 0, 'Serra Angel')).toBeDefined();
+    expect(g.players[0].library.map((c) => c.name)).toEqual(['Sol Ring', 'Island', 'Plains']);
+    g = produce(g, (d) => {
+      put(d, 0, 'Test Seek', 'hand');
+      put(d, 0, 'Plains', 'battlefield', 2);
+    });
+    g = settle(run(g, { type: 'cast', card: byName(g, 0, 'Test Seek', 'hand')!.id }));
+    expect(byName(g, 0, 'Sol Ring', 'hand')).toBeDefined();
+    // The order the rest go in is part of the template.
+    expect(refusal('Sorcery', 'Reveal cards from the top of your library until you reveal a creature card. Put that card onto the battlefield and the rest on the bottom of your library in any order.')).not.toBeNull();
+    // A word that isn't a creature type doesn't make a "dies" event.
+    expect(refusal('Creature — Human', 'Whenever a Gizmo you control dies, draw a card.')).not.toBeNull();
+  });
+
+  it('"A creature destroyed this way can\'t be regenerated" (701.19c), with overload (702.96b)', () => {
+    expect(refusal('Sorcery', "Destroy target creature. A creature destroyed this way can't be regenerated.\nOverload {2}{W}{W}")).toBeNull();
+    // Only after a destroy.
+    expect(refusal('Sorcery', "Exile target creature. A creature destroyed this way can't be regenerated.")).not.toBeNull();
+  });
+
+  it("reads a legendary card's shortened name (201.5c): \"Ureni\" for \"Ureni of the Unwritten\"", () => {
+    const p = parseCard(fake('Test of the Shortened', 'Legendary Creature — Human', 'When Test enters, draw a card.'));
+    expect(p.ok).toBe(true);
+    // Not for a card that isn't legendary.
+    expect(parseCard(fake('Gift of the Shortened', 'Creature — Human', 'When Gift enters, draw a card.')).ok).toBe(false);
   });
 });
 
