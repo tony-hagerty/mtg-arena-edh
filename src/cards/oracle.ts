@@ -43,6 +43,7 @@ import {
   discardHand,
   draw,
   enterBattlefield,
+  enterTogether,
   equip,
   exileAll,
   extort,
@@ -79,6 +80,8 @@ import {
   refGraveyard,
   refPlayer,
   refStack,
+  putOnBottomRandomly,
+  revealUntil,
   says,
   search,
   shuffle,
@@ -824,11 +827,28 @@ interface Effect {
 }
 type Read = Omit<Effect, 'text'>;
 
-type Subject = 'you' | 'target player' | 'target opponent' | 'each opponent' | 'each player' | 'each other player' | 'its controller' | 'its owner' | 'that player';
+type Subject =
+  | 'you'
+  | 'target player'
+  | 'target opponent'
+  | 'each opponent'
+  | 'each player'
+  | 'each other player'
+  | 'its controller'
+  | 'its owner'
+  | 'that player'
+  | 'you and that player'
+  | 'you and target player'
+  | 'you and target opponent';
 
 /** The players a subject means as the effect happens, in APNAP order where there are several (101.4). */
 function players(g: Game, ctx: Ctx, i: number, who: Subject, m: Memo): PlayerId[] {
   if (who === 'you') return [ctx.you];
+  // "You and that player each draw ...": the two of them in APNAP order (101.4, 121.2c).
+  if (who === 'you and that player' || who === 'you and target player' || who === 'you and target opponent') {
+    const other = who === 'you and that player' ? (i < 0 ? m.ev.player : null) : (refPlayer(g, ctx.targets[i])?.id ?? null);
+    return turnOrder(g, g.active).filter((p) => p === ctx.you || p === other);
+  }
   if (who === 'each opponent') return turnOrder(g, g.active).filter((p) => p !== ctx.you);
   if (who === 'each player') return turnOrder(g, g.active);
   if (who === 'each other player') return turnOrder(g, g.active).filter((p) => p !== ctx.you);
@@ -1008,6 +1028,14 @@ function playerEffect(rest: string, who: Subject, env: Env, st: State, clause: s
     // Each player draws in turn order (121.2c), one at a time.
     return { ...sub, run: (g, ctx, i, memo) => players(g, ctx, sub.i ?? i, who, memo).forEach((p) => draw(g, p, n(g, ctx, memo))) };
   }
+  // "That player draws an additional card" (Howling Mine, Nekusar): one more card, at the beginning of their draw step.
+  if (/^draws? an additional card$/.test(rest)) return { ...sub, run: (g, ctx, i, memo) => players(g, ctx, sub.i ?? i, who, memo).forEach((p) => draw(g, p, 1)) };
+  // "That player mills that many cards", "you and that player each draw that many cards": the triggering event's amount.
+  if ((m = /^(draw|mill)s? that many cards$/.exec(rest)) && env.ev?.amount) {
+    const n: Num = (_g, _c, memo) => memo.ev.amount;
+    if (m[1] === 'mill') return each((g, ctx, p, memo) => void mill(g, p, n(g, ctx, memo)));
+    return { ...sub, run: (g, ctx, i, memo) => players(g, ctx, sub.i ?? i, who, memo).forEach((p) => draw(g, p, n(g, ctx, memo))) };
+  }
   if ((m = /^draws? cards equal to (.+)$/.exec(rest))) {
     const n = amountPhrase(m[1], env, st, clause);
     return { ...sub, run: (g, ctx, i, memo) => players(g, ctx, sub.i ?? i, who, memo).forEach((p) => draw(g, p, n(g, ctx, memo))) };
@@ -1164,25 +1192,34 @@ function orderTop(g: Game, pid: PlayerId, rest: Card[], q: Resume): boolean {
  * bottom of your library in any order / in a random order." The rest go on the bottom (401.4)
  * before anything after it happens.
  */
-function lookEffect(n: Num, k: Num, random: boolean, filter: Test | null, label: string): Pick<Effect, 'choose' | 'after'> {
+function lookEffect(n: Num, k: Num, random: boolean, filter: Test | null, label: string, to: 'hand' | 'battlefield' = 'hand'): Pick<Effect, 'choose' | 'after'> {
   return {
     choose: (g, ctx, _i, m, q) => {
       const top = g.players[ctx.you].library.slice(0, n(g, ctx, m));
       if (!top.length) return false;
       const pickable = filter ? top.filter((c) => filter(g, c, ctx.self, 0)) : top;
       const want = Math.min(k(g, ctx, m), pickable.length);
-      pickCards(g, ctx.you, top, { min: filter ? 0 : want, max: want, pickable, text: label, button: 'Put in Hand', then: q.then, data: { ...q.data, phase: 'hand', top: top.map((c) => c.id) } });
+      pickCards(g, ctx.you, top, { min: filter ? 0 : want, max: want, pickable, text: label, button: to === 'hand' ? 'Put in Hand' : 'Put onto Battlefield', then: q.then, data: { ...q.data, phase: 'hand', top: top.map((c) => c.id) } });
       return true;
     },
     after: (g, c, _i, _m, q) => {
       const p = g.players[c.chooser];
-      if (c.data.phase === 'hand') {
+      if (c.data.phase === 'hand' && to === 'battlefield') {
+        // "You may put a Dragon creature card from among them onto the battlefield": everyone sees it (it enters).
+        const cards = c.picked.map((x) => p.library.find((y) => y.id === x.id)).filter((x): x is Card => !!x);
+        if (cards.length) log(g, `${says(p, 'puts')} ${cards.map((x) => cardData(x.name).name).join(', ')} onto the battlefield.`, p.id, cards);
+        if (cards.length === 1) enterBattlefield(g, cards[0]);
+        else if (cards.length) enterTogether(g, cards.map((card) => ({ card })));
+      } else if (c.data.phase === 'hand') {
         for (const x of c.picked) {
           const card = p.library.find((y) => y.id === x.id);
           if (card) moveCard(g, card, 'hand');
         }
         if (c.picked.length) log(g, `${says(p, 'puts')} ${c.picked.length === 1 ? 'a card' : `${c.picked.length} cards`} into ${their(p)} hand.`, p.id, filter ? c.picked : []);
-        const rest = (c.data.top as string[]).map((id) => p.library.find((y) => y.id === id)).filter((x): x is Card => !!x);
+      }
+      if (c.data.phase === 'hand') {
+        // Not the one picked, even while it waits in the library for a choice of how it enters (614.12a).
+        const rest = (c.data.top as string[]).filter((id) => !c.picked.some((x) => x.id === id)).map((id) => p.library.find((y) => y.id === id)).filter((x): x is Card => !!x);
         if (random || rest.length < 2) {
           const order = [...rest];
           if (random) shuffle(g, order);
@@ -1208,6 +1245,15 @@ function effect(clause0: string, env: Env, st: State): Read {
   const clause = clause0
     .replace(/^(?:that creature's|that permanent's|that spell's|that land's) (controller|owner) /, 'its $1 ')
     .replace(/^that player /, !env.ev?.player && st.last === 'card' && st.who !== 'target player' && st.who !== 'target opponent' ? 'its controller ' : 'that player ');
+  // "You and that player each draw that many cards" (Xyris), "you and target opponent each draw a card" (Loran): both of them, in APNAP order.
+  const both = /^you and (that player|target player|target opponent) each (.+)$/.exec(clause);
+  if (both) {
+    const who = `you and ${both[1]}` as Subject;
+    if (both[1] === 'that player' && !env.ev?.player) return refuse(clause, '"that player" without a player to refer to');
+    const sub = both[1] === 'that player' ? { targets: [], i: -1 } : { targets: targetPhrase(both[1], null)! };
+    st.who = null;
+    return playerEffect(both[2], who, env, st, clause, sub) ?? refuse(clause, `no template for what ${both[1]} and you do`);
+  }
   const subj = /^(you|target player|target opponent|each opponent|each player|each other player|its controller|its owner|that player|they) (.+)$/.exec(clause);
   let subject = (subj?.[1] as Subject | 'they' | undefined) ?? st.who;
   const rest = subj ? subj[2] : clause;
@@ -1323,6 +1369,28 @@ function youEffect(rest: string, env: Env, st: State, clause: string): Read {
     const n = count(m[1], env.x, clause);
     const o = object(`${m[2]} card in your graveyard`, 'one', null) ?? refuse(clause, `"${m[2]} card"`);
     return { targets: [], ...lookEffect(n, () => 1, m[3] === 'a random', o.test, `you may reveal ${/^[aeiou]/.test(m[2]) ? 'an' : 'a'} ${m[2]} card and put it into your hand`) };
+  }
+  // "Look at the top eight cards of your library. You may put a Dragon creature card from among them onto the battlefield. Put the rest ..." (Ureni).
+  if ((m = new RegExp(`^look at the top ${NUM} cards of your library\\. you may put an? (.+?) card from among them onto the battlefield\\. put the rest on the bottom of your library in (any|a random) order$`).exec(rest))) {
+    const n = count(m[1], env.x, clause);
+    const o = object(`${m[2]} card in your graveyard`, 'one', null) ?? refuse(clause, `"${m[2]} card"`);
+    return { targets: [], ...lookEffect(n, () => 1, m[3] === 'a random', o.test, `you may put ${/^[aeiou]/.test(m[2]) ? 'an' : 'a'} ${m[2]} card onto the battlefield`, 'battlefield') };
+  }
+  // "Reveal cards from the top of your library until you reveal a creature card. Put that card onto the battlefield
+  // (into your hand) and the rest on the bottom of your library in a random order" (701.20a; Atla Palani).
+  if ((m = /^reveal cards from the top of your library until you reveal an? (.+?) card\. put that card (onto the battlefield|into your hand) and the rest on the bottom of your library in a random order$/.exec(rest))) {
+    const o = object(`${m[1]} card in your graveyard`, 'one', null) ?? refuse(clause, `"${m[1]} card"`);
+    const what = `${/^[aeiou]/.test(m[1]) ? 'an' : 'a'} ${m[1]} card`;
+    const toHand = m[2] === 'into your hand';
+    return {
+      targets: [],
+      run: (g, ctx) => {
+        const { hit, revealed } = revealUntil(g, ctx.you, (c) => o.test(g, c, ctx.self, 0), what);
+        if (hit && toHand) moveCard(g, hit, 'hand');
+        else if (hit) enterBattlefield(g, hit);
+        putOnBottomRandomly(g, revealed.filter((c) => c.id !== hit?.id && c.zone === 'library'));
+      },
+    };
   }
   // "[This] deals N damage to [targets / groups / players]" (120), several at once as one event.
   if ((m = /^~ deals (\S+) damage to (.+)$/.exec(rest)) || (m = /^~ deals damage equal to (.+?) to (.+)$/.exec(rest))) {
@@ -1683,7 +1751,8 @@ function youEffect(rest: string, env: Env, st: State, clause: string): Read {
   // "Your opponents can't cast spells this turn."
   if (rest === "your opponents can't cast spells this turn") return { targets: [], run: (g, ctx) => opponentsOf(g, ctx.you).forEach((p) => addEffect(g, { kind: 'cantCast', player: p.id })) };
   // "It can't be regenerated" (701.19c): nothing in the game regenerates, so there is nothing to stop.
-  if (/^(?:it|they|that creature|those creatures) can't be regenerated$/.test(rest) && st.destroyed) return { targets: [], run: () => {} };
+  // "A creature destroyed this way can't be regenerated" (Damn) says the same of what it destroyed.
+  if (/^(?:it|they|that creature|those creatures|a creature destroyed this way|creatures destroyed this way) can't be regenerated$/.test(rest) && st.destroyed) return { targets: [], run: () => {} };
   return refuse(clause, 'no template matches');
 }
 
@@ -1707,7 +1776,7 @@ function pumpEffect(phrase: string, p: Num, t: Num, keywords: string[], env: Env
 function damageTo(phrase: string, n: Num, source: (g: Game, ctx: Ctx, i: number) => Card | undefined, env: Env, st: State, clause: string): Read {
   // "each opponent", "each player", "each creature and each player", "each creature you don't control and each opponent".
   const parts = phrase.split(/ and (?=each )/);
-  const groups: ((g: Game, ctx: Ctx) => { players: PlayerId[]; cards: Card[] })[] = [];
+  const groups: ((g: Game, ctx: Ctx, m: Memo) => { players: PlayerId[]; cards: Card[] })[] = [];
   let targets: TargetSpec[] = [];
   let single = false;
   for (const part of parts) {
@@ -1715,6 +1784,8 @@ function damageTo(phrase: string, n: Num, source: (g: Game, ctx: Ctx, i: number)
     else if (part === 'you' && parts.length === 1) groups.push((_g, ctx) => ({ players: [ctx.you], cards: [] }));
     else if (part === 'each player') groups.push((g) => ({ players: living(g).map((p) => p.id), cards: [] }));
     else if (part === 'each other player') groups.push((g, ctx) => ({ players: living(g).map((p) => p.id).filter((p) => p !== ctx.you), cards: [] }));
+    // "Deals 1 damage to that player" (Nekusar): the player the trigger names.
+    else if (part === 'that player' && parts.length === 1 && env.ev?.player) groups.push((g, _ctx, m) => ({ players: m.ev.player !== null && !g.players[m.ev.player].lost ? [m.ev.player] : [], cards: [] }));
     else if (parts.length === 1 && targetPhrase(part, env.x)) {
       targets = targetPhrase(part, env.x)!;
       single = targets.length === 1;
@@ -1738,7 +1809,7 @@ function damageTo(phrase: string, n: Num, source: (g: Game, ctx: Ctx, i: number)
         simultaneously(g, () => chosen(ctx, i, targets).forEach((r) => void (memo.dealt += dealDamage(g, src, r, amount))));
         return;
       }
-      const all = groups.map((f) => f(g, ctx));
+      const all = groups.map((f) => f(g, ctx, memo));
       memo.group = all.flatMap((x) => x.cards.map((c) => c.id));
       simultaneously(g, () => {
         for (const x of all) {
@@ -1777,10 +1848,12 @@ function effects(text: string, env: Env): Effect[] {
     .map((x) => x.replace(/^then /, ''));
   // "Look at the top N cards ... . Put ..." is one template across two sentences.
   for (let k = 0; k < sentences.length - 1; k++) {
-    if (/^look at the top \S+ cards of your library$/.test(sentences[k]) && /^(put|you may reveal)/.test(sentences[k + 1])) {
-      const more = /^you may reveal/.test(sentences[k + 1]) && /^put the rest/.test(sentences[k + 2] ?? '') ? 2 : 1;
+    if (/^look at the top \S+ cards of your library$/.test(sentences[k]) && /^(put|you may reveal|you may put)/.test(sentences[k + 1])) {
+      const more = /^you may (reveal|put)/.test(sentences[k + 1]) && /^put the rest/.test(sentences[k + 2] ?? '') ? 2 : 1;
       sentences.splice(k, more + 1, sentences.slice(k, k + more + 1).join('. '));
     }
+    // "Reveal cards from the top of your library until you reveal a creature card. Put that card ..." is one template.
+    if (/^reveal cards from the top of your library until you reveal an? .+ card$/.test(sentences[k]) && /^put that card /.test(sentences[k + 1])) sentences.splice(k, 2, `${sentences[k]}. ${sentences[k + 1]}`);
     if (/^copy target .+ spell$/.test(sentences[k]) && sentences[k + 1] === 'you may choose new targets for the copy') sentences.splice(k, 2, `${sentences[k]}. ${sentences[k + 1]}`);
     // Sentences that finish the one before: the extra turn's end, a token's ability, mana that stays.
     const next = sentences[k + 1];
@@ -1840,7 +1913,9 @@ function effects(text: string, env: Env): Effect[] {
     if (eot) sentence = sentence.slice('until end of turn, '.length);
     // Clauses join with "and", or with ", then" (one after the other); the subject carries on.
     // "Draw N cards, then discard N cards", searches ("..., then shuffle") and looks at the top of a library are one template each.
-    const whole = /^look at the top|^search (?:your|their) library|mana as steps and phases end$|^take an extra turn/.test(sentence);
+    // "You and that player each draw that many cards" is one clause with two players (121.2c).
+    const both = /^you and (?:that player|target player|target opponent) each (?!.* and )[^,]+$/.test(sentence);
+    const whole = both || /^look at the top|^reveal cards from the top|^search (?:your|their) library|mana as steps and phases end$|^take an extra turn/.test(sentence);
     const clauses = whole ? [sentence] : sentence.split(CLAUSE_START).flatMap((c) => (/^draw \S+ cards?, then discard/.test(c) || /then shuffle/.test(c) ? [c] : c.split(/, then /)));
     clauses.forEach((written, k) => {
       const clause = eot && !/until end of turn/.test(written) ? `${written} until end of turn` : written;
@@ -2664,6 +2739,8 @@ const TRIGGERS: [RegExp, (m: RegExpExecArray) => TrigEvent[] | null][] = [
   [/^at the beginning of your (?:precombat|first) main phase$/, () => [{ hook: 'onPrecombatMain', when: yours((e) => e.player) }]],
   [/^at the beginning of each of your postcombat main phases$/, () => [{ hook: 'onPostcombatMain', when: yours((e) => e.player) }]],
   [/^at the beginning of your draw step$/, () => [{ hook: 'onDrawStep', when: yours((e) => e.player) }]],
+  // After the draw (504.1-504.2): "that player" is the active player.
+  [/^at the beginning of each player's draw step$/, () => [{ hook: 'onDrawStep', ev: playerEv('player'), env: { player: true } }]],
   // Objects entering and dying (603.6a, 603.6c, 603.10a).
   [
     /^whenever (a|an|another) (.+?) enters$/,
@@ -2680,13 +2757,17 @@ const TRIGGERS: [RegExp, (m: RegExpExecArray) => TrigEvent[] | null][] = [
     /^whenever (~ or )?(a|an|another) (.+?) dies$/,
     (m) => {
       const about = aboutObject(`${m[2]} ${m[3]}`);
-      if (!about || !/^(?:\S+ )*?(?:creature|planeswalker|creature or planeswalker)(?: you control| an opponent controls| you don't control)?$/.test(m[3].replace(/^(?:non)?token /, ''))) return null;
+      // "An Egg you control dies" (Atla Palani): a creature type means a creature (205.3d), as "dies" is said only of one (700.4).
+      const kind = m[3].replace(/^(?:non)?token /, '');
+      const typed = /^(\S+)(?: you control| an opponent controls| you don't control)?$/.exec(kind);
+      const ofType = !!typed && CREATURE_TYPES.includes(subtypeOf(typed[1]) ?? '');
+      if (!about || (!ofType && !/^(?:\S+ )*?(?:creature|planeswalker|creature or planeswalker)(?: you control| an opponent controls| you don't control)?$/.test(kind))) return null;
       const self = !!m[1];
       // "This or another creature" includes it dying itself (603.10a: it looks back in time).
       const when = (g: Game, e: Record<string, unknown> & { self: Card }) => (self && (e.dead as Card).id === e.self.id) || about(g, e.dead as Card, e.self);
       const env = { object: true, player: true };
       return [
-        ...(/creature/.test(m[3]) ? [{ hook: 'onCreatureDies' as const, when, ev: objectEv('dead'), env }] : []),
+        ...(/creature/.test(m[3]) || ofType ? [{ hook: 'onCreatureDies' as const, when, ev: objectEv('dead'), env }] : []),
         // A planeswalker that isn't also a creature dying is its own event (Cruel Celebrant).
         ...(/planeswalker/.test(m[3]) ? [{ hook: 'onPlaneswalkerDies' as const, when, ev: objectEv('dead'), env }] : []),
       ];
@@ -2698,6 +2779,11 @@ const TRIGGERS: [RegExp, (m: RegExpExecArray) => TrigEvent[] | null][] = [
   [/^whenever an opponent loses life$/, () => [{ hook: 'onLifeLoss', when: (g, e) => isOpp(g, e.self.controller, e.player), ev: playerEv('player', 'amount'), env: { player: true, amount: true } }]],
   [/^whenever you draw a card$/, () => [{ hook: 'onDraw', when: yours((e) => e.player) }]],
   [/^whenever an opponent draws a card$/, () => [{ hook: 'onDraw', when: (g, e) => isOpp(g, e.self.controller, e.player), ev: playerEv('player'), env: { player: true } }]],
+  // "Except the first one they draw in each of their draw steps" (Orcish Bowmasters, Xyris): not the draw-step draw (504.1).
+  [
+    /^whenever an opponent draws a card except the first one they draw in each of their draw steps$/,
+    () => [{ hook: 'onDraw', when: (g, e) => isOpp(g, e.self.controller, e.player) && !e.firstInDrawStep, ev: playerEv('player'), env: { player: true } }],
+  ],
   [/^whenever a player draws a card$/, () => [{ hook: 'onDraw', ev: playerEv('player'), env: { player: true } }]],
   [/^whenever you discard a card$/, () => [{ hook: 'onDiscard', when: yours((e) => e.player) }]],
   [/^whenever a player sacrifices a permanent$/, () => [{ hook: 'onSacrifice', ev: playerEv('player'), env: { player: true } }]],
@@ -2827,7 +2913,10 @@ const modeBase = (modes: { mode: Omit<Mode, 'resolve'> }[], chosen: number[], k:
 /** The card's text, one ability per line, lower case, with reminder text gone and "~" for the card itself. */
 function lines(d: CardData): { text: string; original: string }[] {
   let t = d.oracleText.replace(/\([^)]*\)/g, '').replace(/−/g, '-');
-  const short = d.name.split(',')[0];
+  // A shortened name means the card (201.5c): "Gishath" for "Gishath, Sun's Avatar", and a
+  // legendary card's "Ureni" for "Ureni of the Unwritten".
+  const comma = d.name.split(',')[0];
+  const short = comma === d.name && d.typeLine.startsWith('Legendary') ? (/^([A-Z][\w'-]*) of the [A-Z]/.exec(d.name)?.[1] ?? comma) : comma;
   for (const n of short !== d.name ? [d.name, short] : [d.name]) t = t.split(n).join('~');
   t = t.replace(/\bthis (creature|artifact|enchantment|land|permanent|spell|aura|equipment|vehicle|card|saga)\b/gi, '~');
   return t
