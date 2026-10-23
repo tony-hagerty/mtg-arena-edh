@@ -199,6 +199,11 @@ The full guide to the game's screens and controls. For a quick start, see the
   partner commanders has a portrait split in two.
 - To cast yours, click the **crown** on the top left of your portrait. It glows when you
   can cast it and is dimmed while that commander is anywhere but the command zone.
+- A commander with **commander ninjutsu** (Yuriko) can also be put onto the battlefield from
+  the command zone during combat: once blockers are declared, the crown glows if one of
+  your attackers is unblocked; click it, click the attacker to return to your hand, and pay.
+  The commander enters tapped and attacking whoever that creature attacked, with no
+  commander tax.
 - The badge on the top right of a portrait is that commander's tax: each recast costs 2
   more (`+2`, `+4`, …).
 - With partners, each commander's badges sit on its own half of the portrait: the left

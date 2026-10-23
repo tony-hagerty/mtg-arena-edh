@@ -26,6 +26,9 @@ src/cards/      decklists.json        the decks and tokens
                 pairs.ts              what the two-colour starter decks' new cards do
                 kraum-tymna.ts, yshtola.ts, ketramose.ts, kuja.ts, hashaton.ts
                                       what each Commander deck's own cards do
+                edhrec/               EDHREC's most-played cards and commanders the parser
+                                      can't read, one file per group (commander-costs.ts:
+                                      eminence, ninjutsu, blitz, cascade, K'rrik, Morophon)
 src/engine/     types.ts              game state, actions, card-script types
                 rules.ts              queries (stats, mana, targets) + effect primitives
                 layers.ts             continuous effects in layers and timestamp order (613)
@@ -531,6 +534,17 @@ are shorthand for common ones. A card's own way of entering stays `entersTapped`
 
 `forbids` ("can't cast"/"can't activate"), `grantsFlash`, `uncounterable`,
 `protectsSpell`, `ward`, `grantsEscape`, `delayedIf`.
+
+**Costs from other permanents, and abilities from the command zone**
+
+| Card | Script |
+| --- | --- |
+| Eminence, "if [this] is in the command zone" | `fromCommandZone: ['onCast']` (or `'onUpkeep'`, `'costModifier'`, ...): those abilities work while the card is in its owner's command zone (113.6b); the trigger's `when` checks the zone it names |
+| Gives spells an alternative cost (Henzie's blitz, Ashling's evoke) | `grantsAlternativeCosts: (g, self, spell, caster, from) => [{ label, mana, blitz: true }]`; `alternativeCostsOf` lists a spell's own and the given ones, and `CastChoices.alt` indexes that list. `costModifier` is told the alternative cost being paid (its sixth argument) |
+| Gives spells cascade | `grantsCascade: (g, self, spell, caster, from) => n` instances (702.85c); printed cascade needs no script |
+| "Costs {W}{U}{B}{R}{G} less" | `reducesColoredCost: (g, self, spell, caster, from) => ({ colors, coloredOnly })` (118.7b-f) |
+| "Pay 2 life rather than pay that mana" for a colour | `lifeForMana: (g, self, pid) => ['B']`: each such symbol in a cost `pid` pays is paid like a Phyrexian one |
+| Ninjutsu, commander ninjutsu | `activated: ninjutsu('{U}{B}', true)`: an ability with `fromHand` (and `fromCommand`) and `cost.returnAttacker`, answered with `Action.returnAttacker`; `unblockedAttackers(g, pid)` are its choices, and the card enters with `EnterOpts.attacking` (508.4) |
 
 **A permanent's abilities**
 

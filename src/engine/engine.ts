@@ -1143,7 +1143,7 @@ function canActNow(g: Game, pid: PlayerId): boolean {
   return (
     castableCards(g, pid).some((c) => canCast(g, pid, c)) ||
     [...p.hand, ...g.players.flatMap((o) => o.exile)].some((c) => canPlayLand(g, pid, c)) ||
-    [...p.battlefield, ...p.hand].some((c) => activatable(g, pid, c).length > 0)
+    [...p.battlefield, ...p.hand, ...p.command].some((c) => activatable(g, pid, c).length > 0)
   );
 }
 
