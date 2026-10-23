@@ -1460,6 +1460,8 @@ describe('ward-ring templates: ward costs, amass, the Ring, partner with, types 
   it('a flavor word (207.2d) is a label on the line, if the card lists it', () => {
     expect(parseCard(fake('Test Flavor', 'Creature — Human', 'Big Hit — When this creature enters, draw a card.', { keywords: ['Big Hit'] })).ok).toBe(true);
     expect(parseCard(fake('Test Flavor', 'Creature — Human', 'Big Hit — When this creature enters, draw a card.')).ok).toBe(false);
+    // Boast is a keyword written the same way (702.142a): taking it off would drop "activate only if this creature attacked this turn".
+    expect(parseCard(fake('Test Boast', 'Creature — Human', 'Boast — {1}: Draw a card.', { keywords: ['Boast'] })).ok).toBe(false);
   });
 });
 

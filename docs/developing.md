@@ -26,6 +26,9 @@ src/cards/      decklists.json        the decks and tokens
                 pairs.ts              what the two-colour starter decks' new cards do
                 kraum-tymna.ts, yshtola.ts, ketramose.ts, kuja.ts, hashaton.ts
                                       what each Commander deck's own cards do
+                edhrec/               hand scripts for EDHREC's most-played cards and
+                                      commanders the parser can't read, one file per group
+                                      of mechanics (counters, ward-ring, mana, ...)
 src/engine/     types.ts              game state, actions, card-script types
                 rules.ts              queries (stats, mana, targets) + effect primitives
                 layers.ts             continuous effects in layers and timestamp order (613)
