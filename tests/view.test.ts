@@ -7,7 +7,7 @@ import './fixtures';
 import { hoverHandCard, leaveHandCard, useStore } from '../src/ui/store';
 import { hoverProps } from '../src/ui/util';
 import { activateFromHand, buildView, clickGroup, chooseEscape, chooseGraveyardTarget, clickPermanent, clickPlayer, clickStackItem, exileForMana, manaOptions, pickAbility, pickMana, pickManaSacrifice, pickFace, pickMode, playHandCard, setAbilityX, setChoices, stackTucked, undo } from '../src/ui/view';
-import { applyAction, canCast, data, isCreature, scriptOf } from '../src/engine';
+import { applyAction, canCast, createToken, data, isCreature, scriptOf } from '../src/engine';
 import { registerScripts } from '../src/engine/registry';
 import { parseCard } from '../src/cards/oracle';
 import { cardData } from '../src/cards/db';
@@ -690,6 +690,32 @@ describe('X in ability costs in the UI (107.3a)', () => {
     expect(useStore.getState().targeting).toBe(null);
     expect(byName(game(), 0, 'Chandra Nalaar')!.counters.loyalty).toBe(4);
     expect(byName(game(), 1, 'Shivan Dragon')!.damage).toBe(2);
+  });
+});
+
+describe('"Sacrifice X" in the UI (107.3a)', () => {
+  it('Chatterfang: announce X, then the target, then X Squirrels to sacrifice', () => {
+    play((d) => {
+      put(d, 0, 'Chatterfang, Squirrel General');
+      put(d, 0, 'Swamp');
+      put(d, 1, 'Shivan Dragon');
+    });
+    // Two Squirrels come with a Treasure: Chatterfang's replacement effect (614.1a).
+    useStore.setState({ game: produce(game(), (d) => void createToken(d, 0, 'Treasure', 2)) });
+    clickPermanent(byName(game(), 0, 'Chatterfang, Squirrel General')!);
+    // Chatterfang is a Squirrel too: three in all.
+    expect(buildView().abilityX).toMatchObject({ x: 3, max: 3 });
+    setAbilityX(2);
+    press(); // Continue
+    clickPermanent(byName(game(), 1, 'Shivan Dragon')!);
+    const squirrels = game().players[0].battlefield.filter((c) => c.name === 'Squirrel 1/1 G');
+    expect(buildView().glow.get(squirrels[0].id)).toBe('target');
+    clickPermanent(squirrels[0]);
+    clickPermanent(squirrels[1]);
+    press(); // Pay {B}; the bots pass and it resolves
+    expect(game().players[0].battlefield.filter((c) => c.name === 'Squirrel 1/1 G')).toHaveLength(0);
+    expect(game().players[1].battlefield.some((c) => c.name === 'Shivan Dragon')).toBe(true);
+    expect(game().log.some((l) => l.text.includes('Shivan Dragon gets +2/-2'))).toBe(true);
   });
 });
 
