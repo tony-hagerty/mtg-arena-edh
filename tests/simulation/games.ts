@@ -7,7 +7,12 @@ import { describe, expect, it } from 'vitest';
 import { ALL_DECKS, DECKS } from '../../src/cards/db';
 import type { DeckDef } from '../../src/cards/db';
 import { twoCommanderDeck } from '../helpers';
+import { scriptCards } from '../../src/cards/oracle';
 import { playOut } from './play';
+
+/** The mana group's cards (src/cards/edhrec/mana.ts): those the parser reads, and those with hand scripts. */
+const MANA_PARSED = ['Ignoble Hierarch', 'Noble Hierarch', 'Faeburrow Elder', 'Leyline of the Guildpact', 'Rhythm of the Wild'];
+const MANA_HAND = ['Vivi Ornitier', 'Kinnan, Bonder Prodigy', 'Baylen, the Haymaker', 'Helga, Skittish Seer', 'Zaxara, the Exemplary', 'Esika, God of the Tree // The Prismatic Bridge', 'Urza, Lord High Artificer', 'Sisay, Weatherlight Captain', 'Mana Drain'];
 
 interface Group {
   seeds: number[];
@@ -113,6 +118,24 @@ export const GAMES: Record<string, GameSet> = {
           boros.basics = { Plains: 16, Mountain: 14, Island: 3 };
           const green = { ...DECKS[3], cards: [...DECKS[3].cards.slice(1), 'Garruk Wildspeaker'] };
           return [boros, DECKS[1], { ...boros, id: 'boros2' }, green];
+        },
+      },
+    ],
+  },
+  'edhrec-mana': {
+    title: "decks with EDHREC's mana cards: exalted, riot, triggered mana abilities, tap-N costs",
+    groups: [
+      {
+        // Seeds where they come up: 63 exalted and Baylen, 65 Urza and the Leyline, 71 Zaxara, Esika and Sisay.
+        seeds: [63, 65, 71],
+        name: toFinish,
+        decks: () => {
+          // The parser scripts its cards as it does a pasted deck's.
+          scriptCards(MANA_PARSED);
+          const mana = twoCommanderDeck();
+          mana.cards.push(...MANA_PARSED, ...MANA_HAND);
+          mana.basics = { Plains: 7, Mountain: 6, Forest: 4, Island: 4 };
+          return [mana, DECKS[1], { ...mana, id: 'mana2' }, DECKS[3]];
         },
       },
     ],
