@@ -307,7 +307,8 @@ are from the Comprehensive Rules in `docs/rules/`.
   creature that just arrived can pay it (302.6). Auto-pay and bots use it like any other
   source, tapping such a creature only after lands and mana rocks.
 - **Special mana:** restricted mana that makes a spell uncounterable (106.6, Cavern of
-  Souls), mana kept until end of turn (Birgi), mana abilities a land gains until end of
+  Souls, Delighted Halfling's legendary spells), if it pays any part of the cost; a copy of
+  that spell can be countered (707.10), mana kept until end of turn (Birgi), mana abilities a land gains until end of
   turn (Rain of Filth), and Lion's Eye Diamond (discard your hand, only with priority).
 - **More mana:** mana that can be spent only on instants and sorceries (106.6, Tablet of
   Discovery), unspent red mana kept between steps and turns (500.5, Electro), "activate
@@ -325,7 +326,8 @@ are from the Comprehensive Rules in `docs/rules/`.
   (Vivi Ornitier: by hand, pick the combination), "For each color among permanents you
   control, add one mana of that color" (Faeburrow Elder, Bloom Tender; 105.2: colourless
   isn't a colour), and "Activate only once each turn" (602.5b, for as long as it is the same
-  object, 400.7). One that would make no mana now (X is 0) isn't offered.
+  object, 400.7). One that would make no mana now (X is 0) is still a mana ability (605.1a):
+  it can be activated by hand for nothing, using up its turn; auto-pay leaves it alone.
 - **Mana spent only on some creature spells (106.6):** "creature spells with mana value 4 or
   greater or creature spells with {X} in their mana costs" (Helga).
 - **Triggered mana abilities (605.1b, 605.4a):** "Whenever you tap a nonland permanent for

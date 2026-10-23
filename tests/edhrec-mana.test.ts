@@ -7,8 +7,9 @@ import './fixtures';
 import { registerCards } from '../src/cards/db';
 import { scriptCards } from '../src/cards/oracle';
 import { unsupported } from '../src/cards/support';
-import { applyAction, applyBotAction, botAction, colorsOf, createToken, hasType, makeCard, manaAbilities, newGame, permanent, stats } from '../src/engine';
-import type { Action, Card, Game, PlayerId } from '../src/engine';
+import { applyAction, applyBotAction, botAction, colorsOf, copyItem, counterable, createToken, hasType, makeCard, manaAbilities, newGame, permanent, stats } from '../src/engine';
+import type { Action, Card, CardData, Game, PlayerId } from '../src/engine';
+import corpus from './parser-corpus.generated.json';
 import { useStore } from '../src/ui/store';
 import { buildView, clickPermanent, pickAbility, pickMana, pickTapCreature, pickTriggeredMana, useForMana } from '../src/ui/view';
 import { byName, emptyGame, put, run } from './helpers';
@@ -233,9 +234,22 @@ describe('Vivi Ornitier', () => {
     expect(manaAbilities(theirs, byName(theirs, 1, 'Vivi Ornitier')!)).toEqual([]);
   });
 
-  it('with power 0 it makes nothing', () => {
-    const g = emptyGame((d) => void put(d, 0, 'Vivi Ornitier'));
-    expect(manaAbilities(g, byName(g, 0, 'Vivi Ornitier')!)).toEqual([]);
+  it('with power 0 it can still be activated for nothing (605.1a), which uses up the turn; auto-pay leaves it alone', () => {
+    let g = emptyGame((d) => {
+      put(d, 0, 'Vivi Ornitier');
+      put(d, 0, 'Sol Ring', 'hand');
+    });
+    const vivi = id(g, 'Vivi Ornitier');
+    expect(manaAbilities(g, permanent(g, vivi)!)).toMatchObject([{ amount: 0, produces: [[]] }]);
+    // Nothing to pay {1} with.
+    expect(applyAction(g, { type: 'cast', card: id(g, 'Sol Ring', 'hand') })).toBe(g);
+    g = run(g, { type: 'tapMana', card: vivi, ability: 0, mana: [] });
+    expect(pool(g)).toBe('');
+    // Grown since, it still can't be activated again this turn (602.5b).
+    g = produce(g, (d) => {
+      d.players[0].battlefield.find((c) => c.id === vivi)!.counters['+1/+1'] = 2;
+    });
+    expect(manaAbilities(g, permanent(g, vivi)!)).toEqual([]);
   });
 
   it('a noncreature spell: a +1/+1 counter, and 1 damage to each opponent', () => {
@@ -489,6 +503,48 @@ describe('Mana Drain', () => {
     expect(pool(g, 0)).toBe('C');
   });
 });
+
+describe("mana that says its spell can't be countered (106.6)", () => {
+  const halfling = (corpus.cards as unknown as CardData[]).find((c) => c.name === 'Delighted Halfling')!;
+  registerCards({ 'Delighted Halfling': { ...halfling, image: '', art: '' } });
+  scriptCards(['Delighted Halfling']);
+
+  /** Player 0 casts Lyra Dawnbringer, tapping Delighted Halfling for one of the mana first or not; player 1 tries Counterspell. */
+  const cast = (useHalfling: boolean) => {
+    let g = emptyGame((d) => {
+      put(d, 0, 'Delighted Halfling');
+      put(d, 0, 'Lyra Dawnbringer', 'hand');
+      put(d, 0, 'Plains', 'battlefield', useHalfling ? 4 : 5);
+      put(d, 1, 'Counterspell', 'hand');
+      put(d, 1, 'Island', 'battlefield', 2);
+    });
+    // "{T}: Add one mana of any color. Spend this mana only to cast a legendary spell, and that spell can't be countered."
+    if (useHalfling) g = run(g, { type: 'tapMana', card: id(g, 'Delighted Halfling'), ability: 1, color: 'W' });
+    g = run(g, { type: 'cast', card: id(g, 'Lyra Dawnbringer', 'hand'), hold: true }, { type: 'pass' });
+    g = settle(run(g, { type: 'cast', card: id(g, 'Counterspell', 'hand', 1), targets: [{ kind: 'stack', id: g.stack[0].id }] }));
+    return !!byName(g, 0, 'Lyra Dawnbringer');
+  };
+
+  it("Delighted Halfling: a legendary spell its mana paid for can't be countered; one it didn't pay for can", () => {
+    expect(cast(true)).toBe(true);
+    expect(cast(false)).toBe(false);
+  });
+
+  it("a copy of such a spell can be countered: it wasn't cast with that mana (707.10)", () => {
+    let g = emptyGame((d) => {
+      put(d, 0, 'Lyra Dawnbringer', 'hand');
+      put(d, 0, 'Plains', 'battlefield', 5);
+    });
+    g = produce(run(g, { type: 'cast', card: id(g, 'Lyra Dawnbringer', 'hand'), hold: true }), (d) => {
+      d.stack[0].card.cast!.uncounterable = true;
+      copyItem(d, d.stack[0], 0);
+    });
+    const copy = g.triggers.find((t) => t.copy)!;
+    expect(copy.card.cast?.uncounterable).toBe(false);
+    expect(counterable(g, g.stack[0])).toBe(false);
+  });
+});
+
 
 describe('edge cases', () => {
   it("Helga's mana can be spent on a creature spell with {X} in its mana cost, whatever its mana value", () => {

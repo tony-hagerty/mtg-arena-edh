@@ -956,8 +956,9 @@ export function manaAbilities(g: Game, c: Card): ManaUse[] {
     if (ab.amountOf || ab.producesOf) {
       const amount = ab.amountOf ? ab.amountOf(g, c) : ab.amount;
       const produces = ab.producesOf ? ab.producesOf(g, c).filter((o) => o.length) : undefined;
-      // An ability that would add no mana now isn't worth activating: nothing else happens (605.2).
-      if (amount <= 0 || (produces && !produces.length)) return [];
+      // One that would add no mana now is still a mana ability (605.1a, 605.2): it may be
+      // activated for nothing, by hand (auto-pay leaves it alone), and that uses up "once each turn".
+      if (amount <= 0 || (produces && !produces.length)) return [{ ...ab, index, amount: 0, colors: [], produces: [[]] }];
       const colors = produces ? [...new Set(produces.flat())] : typeof ab.colors === 'function' ? ab.colors(g, c) : ab.colors === 'any' ? WUBRG : ab.colors === 'identity' ? g.players[c.controller].colors : ab.colors;
       return colors.length ? [{ ...ab, index, amount: produces ? Math.max(...produces.map((o) => o.length)) : amount, colors, ...(produces ? { produces } : {}) }] : [];
     }
@@ -1106,7 +1107,9 @@ const restricted = (m: Restriction) => !!(m.only || m.legendary || m.types || m.
 
 /** The restrictions on mana a mana ability makes (106.6), to put on each mana. */
 const restrictionsOf = (ab: Restriction & { uncounterable?: boolean; chosenType?: boolean }, chosen?: string | null): Partial<Mana> => ({
-  ...(ab.chosenType ? (chosen ? { only: chosen, uncounterable: ab.uncounterable } : {}) : ab.only ? { only: ab.only, uncounterable: ab.uncounterable } : {}),
+  ...(ab.chosenType ? (chosen ? { only: chosen } : {}) : ab.only ? { only: ab.only } : {}),
+  // "... and that spell can't be countered" (106.6), whatever else the mana is restricted to (Cavern of Souls, Delighted Halfling).
+  ...(ab.uncounterable ? { uncounterable: true } : {}),
   ...(ab.legendary ? { legendary: true } : {}),
   ...(ab.types ? { types: ab.types } : {}),
   ...(ab.minMv !== undefined ? { minMv: ab.minMv, ...(ab.orX ? { orX: true } : {}) } : {}),
@@ -1126,8 +1129,8 @@ function findManaSources(g: Game, pid: PlayerId, manual: boolean): Source[] {
   for (const c of [...p.battlefield, ...(manual ? p.hand : [])]) {
     for (const ab of manaAbilities(g, c)) {
       // Auto-pay never discards a card for mana (Skirge Familiar): it costs a card.
-      // Nor does it sacrifice a creature for mana (Phyrexian Tower).
-      if ((ab.manual || ab.fromHand || ab.discard || ab.sacrificeCreature) && !manual) continue;
+      // Nor does it sacrifice a creature for mana (Phyrexian Tower), or use one that makes no mana now.
+      if ((ab.manual || ab.fromHand || ab.discard || ab.sacrificeCreature || ab.amount <= 0) && !manual) continue;
       if (!usable(g, pid, c, ab)) continue;
       // One with a mana cost (a Signet) isn't a plain source: auto-pay works it in with
       // `planWithCosted`. By hand it can be used when its cost can be paid without it.
@@ -1154,7 +1157,8 @@ function findManaSources(g: Game, pid: PlayerId, manual: boolean): Source[] {
           life: ab.life ?? 0,
           // Tapping a creature for it costs that creature's attack or block.
           busy: !!creature || (!ab.noTap && !ab.fromHand && (isCreature(g, c) || activatedAbilities(g, c).some((a) => a.cost.tap))),
-          ...(ab.chosenType ? { only: c.chosen ?? undefined, uncounterable: ab.uncounterable } : {}),
+          ...(ab.chosenType ? { only: c.chosen ?? undefined } : {}),
+          ...(ab.uncounterable ? { uncounterable: true } : {}),
           ...(ab.legendary ? { legendary: true } : {}),
           ...(ab.types ? { types: ab.types } : {}),
           ...(ab.minMv !== undefined ? { minMv: ab.minMv, ...(ab.orX ? { orX: true } : {}) } : {}),
@@ -1540,7 +1544,8 @@ const extraMana = (s: Source, made: ManaSym[]): Mana[] =>
     sym,
     source: s.id,
     ability: s.ability,
-    ...(s.only ? { only: s.only, uncounterable: s.uncounterable } : {}),
+    ...(s.only ? { only: s.only } : {}),
+    ...(s.uncounterable ? { uncounterable: true } : {}),
     ...(s.legendary ? { legendary: true } : {}),
     ...(s.types ? { types: s.types } : {}),
     ...(s.minMv !== undefined ? { minMv: s.minMv, ...(s.orX ? { orX: true } : {}) } : {}),

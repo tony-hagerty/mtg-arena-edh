@@ -555,7 +555,7 @@ function ManaPicker() {
           </span>
           {o.mana.map((m) => (
             <button key={m.join('')} className="chip" onClick={() => pickMana(o.ability, m)} aria-label={m.join('')}>
-              <ManaCost cost={m.map((x) => `{${x}}`).join('')} />
+              {m.length ? <ManaCost cost={m.map((x) => `{${x}}`).join('')} /> : 'No mana'}
             </button>
           ))}
         </div>
