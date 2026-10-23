@@ -29,6 +29,7 @@ import {
   counterCount,
   copySpell,
   createToken,
+  createTokens,
   creaturesOf,
   crew,
   cycling,
@@ -1111,7 +1112,8 @@ function playerEffect(rest: string, who: Subject, env: Env, st: State, clause: s
   }
   if ((m = /^creates? (.+)$/.exec(rest)) && !/ for each /.test(rest)) {
     const made = tokenList(m[1], env.x, clause);
-    return each((g, ctx, p, memo) => made.forEach((t) => createToken(g, p, t.key, t.n(g, ctx, memo))));
+    // Every kind at once: one event (111.2, 614.1a).
+    return each((g, ctx, p, memo) => void createTokens(g, p, made.map((t) => ({ key: t.key, count: t.n(g, ctx, memo) }))));
   }
   if (/^takes? an extra turn after this one$/.test(rest)) return each((g, _ctx, p) => extraTurn(g, p));
   // "Search their library for a basic land card, put it onto the battlefield tapped, then shuffle."
@@ -1715,7 +1717,7 @@ function youEffect(rest: string, env: Env, st: State, clause: string): Read {
   if ((m = /^create (.+?)(?: for each (.+))?$/.exec(rest))) {
     const made = tokenList(m[1], env.x, clause);
     const each = m[2] ? (counted(m[2], env.x) ?? refuse(clause, `"for each ${m[2]}"`)) : null;
-    return { targets: [], run: (g, ctx, _i, memo) => made.forEach((t) => createToken(g, ctx.you, t.key, t.n(g, ctx, memo) * (each ? each(g, ctx, memo) : 1))) };
+    return { targets: [], run: (g, ctx, _i, memo) => void createTokens(g, ctx.you, made.map((t) => ({ key: t.key, count: t.n(g, ctx, memo) * (each ? each(g, ctx, memo) : 1) }))) };
   }
   // Mana from a spell or ability that isn't a mana ability (Dark Ritual, 106.1, 605.1).
   if ((m = /^add ((?:\{[wubrgc]\})+)$/.exec(rest))) {

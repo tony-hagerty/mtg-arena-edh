@@ -654,7 +654,10 @@ are from the Comprehensive Rules in `docs/rules/`.
   not afterward (Sephiroth's Super Nova emblem).
 - **More triggers (tokens group):** "whenever one or more [tokens] you control enter", once for
   each event that puts permanents onto the battlefield (603.2c; Marneus Calgar), and "whenever a
-  [Dwarf] you control becomes tapped", only when it was untapped (Magda).
+  [Dwarf] you control becomes tapped", only when it was untapped (Magda). Tokens of several kinds
+  that one effect creates ("create a Treasure token and a Food token") are created in one event
+  (111.2), as the parser reads them: a replacement effect sees them all (614.1a), and "one or
+  more tokens enter" triggers once.
 - **Attack restrictions on a defender (508.1c):** Eriette's "Each creature that's enchanted by
   an Aura you control can't attack you or planeswalkers you control": such a creature may still
   attack another player, or a battle. A creature that must attack can't break it to do so

@@ -7,6 +7,7 @@ import { anyGrantingStatic, characteristics, hasOwnAbilities, heldMemo, inBase, 
 import { replace, whileArriving } from './replace';
 import type {
   ActivatedAbility,
+  TokenSpec,
   BroadcastHook,
   CastVia,
   AskChoice,
@@ -2975,8 +2976,18 @@ export function becomeCopy(g: Game, c: Card, copy: CopyInfo) {
  * copies of (707.2), set before they enter.
  */
 export function createToken(g: Game, pid: PlayerId, key: string, count = 1, opts: { tapped?: boolean; copy?: CopyInfo | null; attachTo?: string } = {}): Card[] {
-  if (g.players[pid].lost || count <= 0) return [];
-  const happens = replace(g, { kind: 'tokens', player: pid, tokens: [{ key, count, copy: opts.copy ?? null }] });
+  return createTokens(g, pid, [{ key, count, copy: opts.copy ?? null }], opts);
+}
+
+/**
+ * Creates several kinds of token at once, as one event (111.2): "create a Treasure token and a
+ * Food token". Replacement effects see them all together (614.1a: Chatterfang's "that many"), and
+ * "whenever one or more tokens enter" triggers once (603.2c).
+ */
+export function createTokens(g: Game, pid: PlayerId, specs: (Omit<TokenSpec, 'copy'> & { copy?: TokenSpec['copy'] })[], opts: { tapped?: boolean; attachTo?: string } = {}): Card[] {
+  const tokens = specs.filter((t) => t.count > 0).map((t) => ({ ...t, copy: t.copy ?? null }));
+  if (g.players[pid].lost || !tokens.length) return [];
+  const happens = replace(g, { kind: 'tokens', player: pid, tokens });
   if (happens.kind !== 'tokens') return [];
   const owner = happens.player;
   if (g.players[owner].lost) return [];
