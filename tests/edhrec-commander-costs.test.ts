@@ -357,6 +357,26 @@ describe('affinity (702.41) and cascade (702.85) read by the parser', () => {
     expect(byName(g, 0, 'The First Sliver')).toBeDefined();
   });
 
+  it('exiles the cards one at a time, each its own event (Laelia, the Blade Reforged\'s ruling), not all at once', () => {
+    scriptCards(PARSED);
+    let g = emptyGame((d) => {
+      d.players[0].isBot = false;
+      put(d, 0, 'The First Sliver', 'hand');
+      for (const n of ['Plains', 'Island', 'Swamp', 'Mountain', 'Forest']) put(d, 0, n);
+      d.players[0].library = [makeCard(d, 'Forest', 0, 'library'), makeCard(d, 'Plains', 0, 'library'), makeCard(d, 'Child of Night', 0, 'library'), ...d.players[0].library];
+    });
+    const before = g.log.length;
+    g = settle(run(g, { type: 'cast', card: byName(g, 0, 'The First Sliver', 'hand')!.id }), (x) => x.decision?.type === 'cast');
+    // No ability watches cards leaving a library for exile, so the events show as separate zone
+    // changes: one log line each, in order, and each card timestamped after the one before (613.7d).
+    const lines = g.log.slice(before).filter((l) => /exiles .* from the top of/.test(l.text)).map((l) => l.cards);
+    expect(lines).toEqual([['Forest'], ['Plains'], ['Child of Night']]);
+    const exiled = g.players[0].exile;
+    expect(exiled.map((c) => c.name)).toEqual(['Forest', 'Plains', 'Child of Night']);
+    expect(exiled[0].ts).toBeLessThan(exiled[1].ts);
+    expect(exiled[1].ts).toBeLessThan(exiled[2].ts);
+  });
+
   it('declining the cascaded card puts it on the bottom with the rest; nothing found puts everything back', () => {
     scriptCards(PARSED);
     let g = emptyGame((d) => {
