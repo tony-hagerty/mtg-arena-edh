@@ -202,12 +202,19 @@ const stripAbilityWord = (line: string) => {
   return m && ABILITY_WORDS.includes(m[1]) ? m[2] : line;
 };
 /**
+ * Keywords with rules meaning that are written "[Keyword] — [ability]", so they aren't labels to
+ * take off: forecast (702.57a), boast (702.142a), visit (702.159a), solved and "to solve"
+ * (702.169a, 719.2), exhaust (702.177a), max speed (702.178a) and power-up (702.193a).
+ */
+export const LABEL_KEYWORDS = ['forecast', 'boast', 'visit', 'solved', 'to solve', 'exhaust', 'max speed', 'power-up'];
+/**
  * A flavor word (207.2d), tailored to one card so no list has it: "Three Autostubs — Whenever
- * ...". Scryfall lists it among the card's keywords; the line goes on after the dash.
+ * ...". Scryfall lists it among the card's keywords; the line goes on after the dash. Never a
+ * keyword written the same way (`LABEL_KEYWORDS`): taking "Boast —" off would drop its rules.
  */
 const stripFlavorWord = (line: string, d: CardData) => {
   const m = /^([a-z' ,0-9-]+) — (.+)$/.exec(line);
-  return m && d.keywords.some((k) => k.toLowerCase() === m[1]) && !SUPPORTED_KEYWORDS.includes(m[1]) ? m[2] : line;
+  return m && d.keywords.some((k) => k.toLowerCase() === m[1]) && !SUPPORTED_KEYWORDS.includes(m[1]) && !LABEL_KEYWORDS.includes(m[1]) ? m[2] : line;
 };
 
 /** Every subtype by its lower-case name, singular and plural ("dragon", "dragons", "elves"). */

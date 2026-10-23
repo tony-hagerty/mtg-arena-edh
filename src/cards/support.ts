@@ -6,7 +6,7 @@ import { SUPPORTED_KEYWORDS, hasScript } from '../engine';
 import { cardData, isCardName } from './db';
 import type { DeckDef } from './db';
 import type { CardData } from '../engine/types';
-import { refusalOf } from './oracle';
+import { LABEL_KEYWORDS, refusalOf } from './oracle';
 
 /** Ability words and keyword actions: they label a rule that the card's script implements. */
 export const ABILITY_WORDS = ['landfall', 'treasure', 'mill', 'threshold', 'metalcraft', 'recruit', "scions' secretary", 'delirium', 'surveil', 'imprint', 'channel', 'ferocious', 'bloodrush', 'populate', 'food', 'throw wide the gates', 'flare star', 'double', 'magecraft', 'role token', 'sell contraband', 'buy information', 'hire a mercenary', 'connive', 'medicus ministorum', 'monstrosity', 'madness', 'miracle', 'amass'];
@@ -39,7 +39,7 @@ const isKeywordLine = (line: string) =>
  * a label in front of one of its abilities, with no rules meaning? Scryfall lists them among
  * the keywords; what follows the dash is what the card's script implements.
  */
-const isFlavorWord = (d: CardData, k: string) => (d.faces ?? [d]).some((f) => abilities(f.oracleText).some((line) => line.toLowerCase().startsWith(`${k} — `)));
+const isFlavorWord = (d: CardData, k: string) => !LABEL_KEYWORDS.includes(k) && (d.faces ?? [d]).some((f) => abilities(f.oracleText).some((line) => line.toLowerCase().startsWith(`${k} — `)));
 
 /** One reason the engine can't play a card. */
 export interface CardProblem {
