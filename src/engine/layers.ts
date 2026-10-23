@@ -575,6 +575,24 @@ export function characteristics(g: Game, c: Card, upTo: Layer = '7d', temporary 
   return chars;
 }
 
+/**
+ * Its base power and toughness (613.4a-b: layers 7a and 7b), before +N/+N effects, counters
+ * and switching, for "power greater than its base power" (Kutzil). Worked out afresh: a kept
+ * answer may be for a later layer. A copy that remembers a permanent as it last was has only
+ * its final values.
+ */
+export function basePT(g: Game, c: Card): { power: number; toughness: number } {
+  const base = untouched(g);
+  if (base) return basePT(base, inBase(c));
+  if (c.lki) return { power: c.lki.power, toughness: c.lki.toughness };
+  if (c.zone !== 'battlefield') {
+    const w = offBattlefield(g, c);
+    return { power: w.power, toughness: w.toughness };
+  }
+  const { chars } = layers(g, c, '7b', true);
+  return { power: chars.power, toughness: chars.toughness };
+}
+
 /** A card off the battlefield: its copiable values, with its characteristic-defining abilities applied (604.3). */
 function offBattlefield(g: Game, draft: Card): Characteristics {
   const c = plain(draft);
