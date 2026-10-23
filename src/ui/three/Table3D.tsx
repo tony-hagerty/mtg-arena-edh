@@ -5,7 +5,7 @@ import type { GLProps, ThreeEvent } from '@react-three/fiber';
 import { BufferAttribute, Color, Group, MathUtils, Matrix4, Mesh, MeshBasicMaterial, OrthographicCamera, Plane, PlaneGeometry, Raycaster, Vector2, Vector3 } from 'three';
 import type { BufferGeometry, DirectionalLight, PerspectiveCamera, Texture, WebGLRenderer } from 'three';
 import { WebGPURenderer } from 'three/webgpu';
-import { attachmentsOf, data, defenseOf, isBattle, isCreature, isPlaneswalker, loyaltyOf, stats } from '../../engine';
+import { attachmentsOf, data, defenseOf, isBattle, isCreature, isPlaneswalker, isRingBearer, loyaltyOf, stats, timesTempted } from '../../engine';
 import type { Card, Game, Player } from '../../engine';
 import type { BoardStep } from '../BoardSplash';
 import { FaceUpPile, Library, creaturePiles, landPiles, otherPermanents } from '../Board';
@@ -288,6 +288,8 @@ function CardProxy({ card, g, pile, covered = false }: { card: Card; g: Game; pi
       {isBattle(g, card) && <div className="tile-pt tile-defense">{defenseOf(card)}</div>}
       <Counters card={card} />
       {sick && <i className="tile-sick ms ms-ability-summoning-sickness" title="Summoning sick" />}
+      {/* The Ring-bearer (701.54a): a gold ring, with how many times the Ring has tempted its controller. */}
+      {isRingBearer(g, card) && <i className="tile-ring" title={`Ring-bearer: the Ring has tempted ${g.players[card.controller].name} ${timesTempted(g, card.controller)} time${timesTempted(g, card.controller) === 1 ? '' : 's'}`} />}
       {/* The 3D card already dims when tapped; the proxy adds only the symbol. */}
       {card.tapped && !covered && <i className="tap-symbol ms ms-tap" />}
       {card.textless && <TextlessBadge />}

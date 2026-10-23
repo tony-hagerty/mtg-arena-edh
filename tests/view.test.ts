@@ -1330,3 +1330,37 @@ describe('undo (Ctrl+Z)', () => {
     expect(tapped()).toEqual(['Mountain']);
   });
 });
+
+describe('tapping permanents for a cost, and proliferating, in the UI', () => {
+  it('picks exactly three untapped Elves for High Perfect Morcant, then chooses what to proliferate, players too (701.34a)', () => {
+    play((d) => {
+      put(d, 0, 'High Perfect Morcant').sick = true;
+      put(d, 0, 'Llanowar Elves');
+      put(d, 0, 'Elvish Mystic').counters = { '+1/+1': 1 };
+      put(d, 0, 'Walking Corpse');
+      d.players[1].counters = { poison: 2 };
+    });
+    const morcant = byName(game(), 0, 'High Perfect Morcant')!;
+    clickPermanent(morcant);
+    let v = buildView();
+    expect(v.prompt).toContain('three untapped Elves you control (0 of 3 chosen)');
+    // A Zombie isn't an Elf.
+    expect(v.glow.get(byName(game(), 0, 'Walking Corpse')!.id)).toBeUndefined();
+    clickPermanent(byName(game(), 0, 'Walking Corpse')!);
+    clickPermanent(morcant);
+    clickPermanent(byName(game(), 0, 'Llanowar Elves')!);
+    expect(buildView().primary?.disabled).toBe(true);
+    clickPermanent(byName(game(), 0, 'Elvish Mystic')!);
+    v = buildView();
+    expect(v.prompt).toContain('(3 of 3 chosen)');
+    press(); // Tap: no mana to pay, so it goes on the stack and resolves
+    expect(game().players[0].battlefield.filter((c) => c.tapped).length).toBe(3);
+    const d = game().decision;
+    expect(d?.type).toBe('chooseCards');
+    const choice = (d as { choice: { players?: number[]; cards: string[] } }).choice;
+    expect(choice.players).toEqual([1]);
+    useStore.getState().act({ type: 'chooseCards', cards: choice.cards, players: [1] });
+    expect(byName(game(), 0, 'Elvish Mystic')!.counters['+1/+1']).toBe(2);
+    expect(game().players[1].counters?.poison).toBe(3);
+  });
+});

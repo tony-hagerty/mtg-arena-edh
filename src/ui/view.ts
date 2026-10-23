@@ -30,6 +30,7 @@ import {
   tappedForManaOptions,
   crewOptions,
   crewPower,
+  tapCostOptions,
   data,
   exileOptions,
   defaultProtector,
@@ -65,7 +66,6 @@ import {
   isCreature,
   specsFor,
   activationExileOptions,
-  activationTapOptions,
   describeRef,
   discardOptions,
   escapeOptions,
@@ -278,6 +278,12 @@ function expandSpecs(base: TargetSpec[], chosen: number, done: boolean): TargetS
   return [...specsFor(base, chosen), ...(done ? [] : [last])];
 }
 
+/** The source a spell or ability choosing targets is from: a triggered ability's as it triggered, with its event (`Card.triggeredBy`). */
+function targetSource(g: Game, t: Targeting): Card {
+  const d = g.decision;
+  return d?.type === 'targets' && t.mode === 'trigger' ? d.item.card : findCard(g, t.cardId)!;
+}
+
 /** The spell or ability the game is waiting on new targets for, if any. */
 function retargetItem(g: Game): StackItem | undefined {
   const d = g.decision;
@@ -406,11 +412,22 @@ function isExiling(t: Targeting): boolean {
   return !!card && !!scriptFor(asSpell(card, t.choices.face)).alternativeCosts?.[t.choices.alt]?.exile;
 }
 
-/** Targets are chosen and a Vehicle's crew still has to be picked (702.122a). Returns the power needed, or 0. */
+/**
+ * Targets are chosen and a Vehicle's crew still has to be picked (702.122a), or the permanents
+ * a "Tap three untapped Elves you control" cost taps. Returns the power or number needed, or 0.
+ */
 function crewNeeded(t: Targeting): number {
   if (t.crewDone || t.chosen.length < t.specs.length) return 0;
   const card = findCard(S().game!, t.cardId);
-  return (card && activatedOf(t, card)?.cost.crew) || 0;
+  const cost = card && activatedOf(t, card)?.cost;
+  return cost?.crew || (cost?.tapUntapped ? (cost.tapUntapped.count ?? 1) : 0);
+}
+
+/** The permanents that could be tapped for `card`'s "Tap N untapped ... you control" cost, or for its crew. */
+function tapOptions(g: Game, me: PlayerId, t: Targeting, card: Card): Card[] {
+  const cost = activatedOf(t, card)?.cost;
+  // The source among them, unless its own {T} is part of the cost (`tapCostOptions`).
+  return cost?.tapUntapped ? tapCostOptions(g, me, card, t.activated) : crewOptions(g, me, card);
 }
 
 /** Everything is chosen and the spell or ability is waiting for its cost to be paid (601.2f-h). */
@@ -429,19 +446,8 @@ const isPaying = (t: Targeting) =>
   !isEscaping(t) &&
   !isDelving(t) &&
   !isDiscarding(t) &&
-  !crewNeeded(t) &&
-  !tapsNeeded(t);
+  !crewNeeded(t);
 
-/**
- * Targets are chosen and the permanents a "Tap three untapped tokens you control" cost taps
- * still have to be picked (Baylen). Returns how many it taps, or 0.
- */
-function tapsNeeded(t: Targeting): number {
-  if (t.mode !== 'activate' || t.tapsDone || t.chosen.length < t.specs.length) return 0;
-  const card = findCard(S().game!, t.cardId);
-  const tap = card && activatedOf(t, card)?.cost.tapUntapped;
-  return tap ? (tap.count ?? 1) : 0;
-}
 
 /** The mana a spell or ability costs, and the same thing written out ("{1}{B}{B}"), with any life to pay. */
 function costOf(g: Game, t: Targeting): { cost: Cost; text: string } {
@@ -821,6 +827,19 @@ export function buildView(): View {
 
   // --- picking the creatures that crew a Vehicle (702.122a) ---
   const need = t ? crewNeeded(t) : 0;
+  const tapping = t && need ? activatedOf(t, findCard(g, t.cardId)!)?.cost.tapUntapped : undefined;
+  if (t && need && tapping) {
+    // "Tap three untapped Elves you control": exactly that many.
+    const card = findCard(g, t.cardId)!;
+    const picked = t.crew ?? [];
+    for (const c of tapOptions(g, me, t, card)) view.glow.set(c.id, 'target');
+    for (const id of picked) view.glow.set(id, 'picked');
+    view.glow.set(card.id, picked.includes(card.id) ? 'picked' : view.glow.get(card.id) ?? 'picked');
+    view.prompt = `Tap ${tapping.label ?? tapCostText(tapping).replace(/^Tap /, '')} (${picked.length} of ${need} chosen).`;
+    view.primary = { label: 'Tap', sub: label(card), tone: 'go', disabled: picked.length !== need, onClick: confirmCrew };
+    view.secondary = { label: 'Cancel', tone: 'cancel', onClick: cancel };
+    return view;
+  }
   if (t && need) {
     const card = findCard(g, t.cardId)!;
     const picked = (t.crew ?? []).map((id) => permanent(g, id)).filter((c) => c !== undefined);
@@ -830,20 +849,6 @@ export function buildView(): View {
     view.glow.set(card.id, 'picked');
     view.prompt = `Crew ${need}: tap creatures with total power ${need} or more (${power} so far).`;
     view.primary = { label: 'Crew', sub: label(card), tone: 'go', disabled: power < need, onClick: confirmCrew };
-    view.secondary = { label: 'Cancel', tone: 'cancel', onClick: cancel };
-    return view;
-  }
-
-  // --- picking the permanents a "Tap three untapped tokens you control" cost taps (Baylen) ---
-  const taps = t ? tapsNeeded(t) : 0;
-  if (t && taps) {
-    const card = findCard(g, t.cardId)!;
-    const picked = t.taps ?? [];
-    for (const c of activationTapOptions(g, me, card, t.activated)) view.glow.set(c.id, 'target');
-    for (const id of picked) view.glow.set(id, 'picked');
-    view.glow.set(card.id, 'picked');
-    view.prompt = `${label(card)}: ${tapCostText(activatedOf(t, card)!.cost.tapUntapped!).toLowerCase()} (${picked.length} picked).`;
-    view.primary = { label: 'Tap', sub: label(card), tone: 'go', disabled: picked.length !== taps, onClick: confirmTaps };
     view.secondary = { label: 'Cancel', tone: 'cancel', onClick: cancel };
     return view;
   }
@@ -899,7 +904,8 @@ export function buildView(): View {
     // "Any number of" targets (115.1d): as many as the human picks, none included.
     if (spec?.any && t.mode !== 'retarget') {
       const n = t.chosen.filter((_, i) => t.specs[i]?.any).length;
-      view.prompt = `${source ? label(source) : ''}: choose any number of ${spec.label} (${n} so far).`;
+      const most = spec.most?.(g, targetSource(g, t));
+      view.prompt = `${source ? label(source) : ''}: choose ${most !== undefined ? `up to ${most}` : 'any number'} of ${spec.label} (${n} so far).`;
       view.primary = { label: 'Done', sub: plural(n, 'target'), tone: 'go', onClick: finishAny };
     }
     if (t.mode === 'retarget') {
@@ -1313,7 +1319,7 @@ function pay() {
   const action: Action =
     t.mode === 'cast'
       ? { type: 'cast', card: t.cardId, targets: t.chosen, hold, ...t.choices, ...single, ...(t.discard ? { discard: t.discard } : {}) }
-      : { type: 'activate', card: t.cardId, ability: t.ability, activated: t.activated, x: t.x, targets: t.chosen, hold, crew: t.crew, discard: t.discard, sacrifice: t.choices.sacrifice, exile: t.exile, graveyard: t.graveyard, ...(t.taps ? { tapped: t.taps } : {}) };
+      : { type: 'activate', card: t.cardId, ability: t.ability, activated: t.activated, x: t.x, targets: t.chosen, hold, crew: t.crew, discard: t.discard, sacrifice: t.choices.sacrifice, exile: t.exile, graveyard: t.graveyard };
   if (!S().act(action)) cancel();
 }
 
@@ -1348,27 +1354,13 @@ function untappedIn(t: Targeting, id: string): Targeting {
 /** Adds a creature to the crew, or takes it back out. */
 function pickCrew(g: Game, me: PlayerId, t: Targeting, card: Card) {
   const vehicle = findCard(g, t.cardId)!;
-  if (!crewOptions(g, me, vehicle).some((c) => c.id === card.id)) return;
+  if (!tapOptions(g, me, t, vehicle).some((c) => c.id === card.id)) return;
   const crew = t.crew ?? [];
+  // No more than a "Tap N untapped ..." cost taps.
+  const tapping = activatedOf(t, vehicle)?.cost.tapUntapped;
+  const most = tapping && (tapping.count ?? 1);
+  if (most !== undefined && !crew.includes(card.id) && crew.length >= most) return;
   useStore.setState({ targeting: stepFrom(t, { crew: crew.includes(card.id) ? crew.filter((id) => id !== card.id) : [...crew, card.id] }) });
-}
-
-/** Adds a permanent to those tapped for the ability's cost, or takes it back out (Baylen's tokens). */
-function pickTap(g: Game, me: PlayerId, t: Targeting, card: Card) {
-  if (!activationTapOptions(g, me, findCard(g, t.cardId)!, t.activated).some((c) => c.id === card.id)) return;
-  const taps = t.taps ?? [];
-  useStore.setState({ targeting: stepFrom(t, { taps: taps.includes(card.id) ? taps.filter((id) => id !== card.id) : [...taps, card.id] }) });
-}
-
-/** Done picking what to tap: on to paying, or straight on the stack if that was all it cost. */
-function confirmTaps() {
-  const t = S().targeting;
-  const g = S().game;
-  const me = S().human;
-  if (!t || !g || me === null) return;
-  const next = stepFrom(t, { tapsDone: true });
-  useStore.setState({ targeting: next });
-  if (paidUp(g, me, next)) pay();
 }
 
 /** Done picking the crew: on to paying, which for crew alone costs nothing, so it goes straight on the stack. */
@@ -1556,6 +1548,7 @@ function manaAbilityText(card: Card, ab: ManaUse): string {
     ...(ab.chosenType && card.chosen ? [`${card.chosen} creature spells only`] : []),
     ...(ab.legendary ? ['legendary spells only'] : []),
     ...(ab.types ? [`${ab.types.map((t) => t.toLowerCase()).join(' and ')} spells only`] : []),
+    ...(ab.subtype ? [`${ab.subtype} spells only`] : []),
   ];
   return [parts.join(', ') || 'Add', ...notes].join(' · ');
 }
@@ -1730,11 +1723,12 @@ function chooseTarget(ref: TargetRef | null) {
   const s = S();
   const { game: g, human: me } = s;
   const t = targetingOf(s);
-  if (!g || me === null || !t || t.announcing || isSacrificing(t) || isExiling(t) || isExilingForAbility(t) || isEscaping(t) || isDelving(t) || isDiscarding(t) || crewNeeded(t) || tapsNeeded(t)) return;
+  if (!g || me === null || !t || t.announcing || isSacrificing(t) || isExiling(t) || isExilingForAbility(t) || isEscaping(t) || isDelving(t) || isDiscarding(t) || crewNeeded(t)) return;
   if (ref && !currentTargets(g, me, t).some((x) => x.kind === ref.kind && x.id === ref.id)) return;
-  // "Any number of" targets (115.1d): another slot for the next one.
+  // "Any number of" targets (115.1d): another slot for the next one, unless that is the most it may have ("up to X").
   const spec = t.specs[t.chosen.length];
-  const specs = spec?.any && ref && t.mode !== 'retarget' ? [...t.specs, spec] : t.specs;
+  const room = !spec?.most || t.chosen.filter((_, i) => t.specs[i]?.any).length + 1 < spec.most(g, targetSource(g, t));
+  const specs = spec?.any && ref && t.mode !== 'retarget' && room ? [...t.specs, spec] : t.specs;
   advance(stepFrom(t, { chosen: [...t.chosen, ref], specs }));
 }
 
@@ -1888,7 +1882,6 @@ export function clickPermanent(card: Card) {
   if (t && isExiling(t)) return;
   if (t && isExilingForAbility(t)) return ctx && chooseAbilityExile(ctx.g, ctx.me, t, card);
   if (t && crewNeeded(t)) return ctx && pickCrew(ctx.g, ctx.me, t, card);
-  if (t && tapsNeeded(t)) return ctx && pickTap(ctx.g, ctx.me, t, card);
   if (t) return chooseTarget({ kind: 'card', id: card.id });
   if (!ctx) return;
   const { g, me } = ctx;
