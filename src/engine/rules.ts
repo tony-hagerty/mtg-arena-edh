@@ -3477,7 +3477,8 @@ export function proliferate(g: Game, pid: PlayerId, q: { then?: string; data?: R
     text: 'proliferate: choose any number of permanents and/or players with counters; each gets another counter of each kind it has',
     button: 'Proliferate',
     then: q.then ?? '@proliferate',
-    data: q.data,
+    // A bot answers it as a proliferate choice, whoever's continuation it is.
+    data: { ...(q.data ?? {}), bot: 'proliferate' },
     ...(q.script ? { script: q.script } : {}),
   });
   return true;

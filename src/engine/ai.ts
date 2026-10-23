@@ -1020,12 +1020,13 @@ function cardChoice(g: Game, pid: PlayerId): Action {
   if (choice.kind === 'pick' && (choice.then === '@discard' || choice.data?.bot === 'discard')) return { type: 'chooseCards', cards: valued((c) => cardWant(g, pid, c), min) };
   if (choice.kind === 'pick' && choice.data?.populate) return { type: 'chooseCards', cards: valued((c) => -worth(g, c), 1) };
   // Proliferate (701.34a): what gains from another counter, its own or an opponent's.
-  if (choice.kind === 'pick' && choice.then === '@proliferate') return proliferateChoice(g, pid, cards, choice.players ?? []);
+  if (choice.kind === 'pick' && (choice.then === '@proliferate' || choice.data?.bot === 'proliferate')) return proliferateChoice(g, pid, cards, choice.players ?? []);
   // Blight (701.68a): the creature that loses least; for a cost, only if one loses little (ward).
   if (choice.kind === 'pick' && choice.data?.bot === 'blight') {
     const n = (choice.data.blight as number) ?? 1;
     const [c] = [...cards].filter((x) => valid.has(x.id)).sort((a, b) => blightLoss(g, a, n) - blightLoss(g, b, n));
-    if (!c || (min === 0 && blightLoss(g, c, n) > 1.5)) return { type: 'chooseCards', cards: [] };
+    const survives = !!c && stats(g, c).toughness > n;
+    if (!c || (min === 0 && !survives && blightLoss(g, c, n) > 1.5)) return { type: 'chooseCards', cards: [] };
     return { type: 'chooseCards', cards: [c.id] };
   }
   if (choice.kind === 'pick') return { type: 'chooseCards', cards: best(Math.max(min, Math.min(max, 1))) };
