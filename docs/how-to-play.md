@@ -126,7 +126,10 @@ The full guide to the game's screens and controls. For a quick start, see the
   pill under your portrait. Costs spend that mana first and auto-tap only for the rest.
   A source with a choice (a dual land, a Talisman, Sunken Ruins, Command Tower) asks which
   ability and which mana you want, in the prompt's band in the middle of the table (under
-  the words while you are paying), with **Cancel** to tap nothing. Click a tapped source
+  the words while you are paying), with **Cancel** to tap nothing. A cost that taps other
+  permanents (Urza's artifact, Baylen's two tokens) shows them as chips to pick; Vivi
+  Ornitier lists each combination of {U} and {R}. When a triggered mana ability adds mana of
+  your choice (Kinnan, after a source that made two types), the band asks for it next. Click a tapped source
   again to take its mana back, whatever else using it did: the life a Talisman or a
   painland cost you comes back, a Treasure or Lotus Petal returns, and so does what it
   triggered. That works until you do something other than make mana; after that, a source
@@ -244,7 +247,8 @@ The full guide to the game's screens and controls. For a quick start, see the
 | **Battle** | Its defense is the orange box. When you cast a Siege, the prompt asks which opponent protects it. |
 | **Two faces** (split, adventurer, modal double-faced) | The prompt has a **Face** row: pick the half, the Adventure, or the face to play. A modal card's land face says "(land)"; its button reads **Play** instead of **Cast**. |
 | **Class** | Click yours to see its level bars; pick the next one and pay for it. |
-| **Several abilities** (Deathrite Shaman) | Click the permanent to see every activated ability; the ones you can't use now are dimmed. With only one usable, clicking goes straight to it. |
+| **Several abilities** (Deathrite Shaman) | Click the permanent to see every activated ability; the ones you can't use now are dimmed. With only one usable, clicking goes straight to it. A permanent that can also make mana now (Urza, Baylen) lists **Add mana** first. |
+| **Tapping other permanents for a cost** (Baylen's "Tap three untapped tokens") | After its targets, click the permanents to tap (they glow), then **Tap**. |
 | **"One mana of any color"** | A window with the five colours opens while it resolves. **Lion's Eye Diamond** asks for the colour when you click it. |
 | **Aura and Equipment** | What is attached to a permanent fans out behind it, toward the top of the card, each showing its name and a strip of art; it taps and attacks with the permanent. Click an Equipment's strip to equip it to something else, hover a strip to read the card. An enchanted land stands on its own instead of in its pile. |
 | **Graveyard and exile** | A graveyard, or the well (the exile), glows when something in it can be cast (flashback, escape, an adventurer card whose Adventure you cast, or a card an effect lets you cast or play, in anyone's exile). Right-click it to open it and click the glowing card. With escape (Underworld Breach) a window then asks for the three other cards to exile. A card exiled face down shows its back, unless you may look at it. |
