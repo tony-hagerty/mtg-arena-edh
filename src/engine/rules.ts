@@ -2479,6 +2479,15 @@ export function triggerTimes(g: Game, source: Card, hook: TriggerHook, event: ob
  */
 export const ENTERING_HOOKS: TriggerHook[] = ['onEnter', 'onCreatureEnters', 'onPermanentEnters', 'onLandfall', 'onEvoked', 'onOffspring'];
 
+/** The permanent whose entering set off `source`'s ability on `hook` (one of `ENTERING_HOOKS`): the source itself, or the one the event names. */
+export function enteringPermanent(hook: TriggerHook, source: Card, event: object): Card | undefined {
+  const e = event as Partial<TriggerEvents['onCreatureEnters'] & TriggerEvents['onLandfall']>;
+  if (hook === 'onEnter' || hook === 'onEvoked' || hook === 'onOffspring') return source;
+  if (hook === 'onCreatureEnters' || hook === 'onPermanentEnters') return e.entered;
+  if (hook === 'onLandfall') return e.land;
+  return undefined;
+}
+
 /**
  * The events that are a creature attacking, for "If a creature attacking causes a triggered
  * ability ... to trigger" (Isshin, Two Heavens as One): "whenever this attacks" (mobilize's

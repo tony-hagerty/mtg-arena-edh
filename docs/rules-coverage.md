@@ -837,6 +837,8 @@ card, naming the clause: it never guesses. Hand scripts always win.
   (702.135a). An intervening "if" (603.4) is checked as it triggers and as it resolves.
   "That player", "that much" and "that creature" are the event's; "it" in a trigger about
   another object is that object. Modal triggered abilities ("choose one —", 603.3c).
+  "Whenever one or more creatures you control deal combat damage to a player" (once for each
+  player hit, 603.2c).
 - **Activated abilities (602):** costs of {T}, mana with {X} (107.3a), "Pay N life" (119.4),
   "Discard a card", "Discard this card" (channel, bloodrush: from the hand), "Sacrifice this",
   "Sacrifice a / another / N [kind of permanent]", "Exile this", "Exile a creature you
@@ -908,14 +910,17 @@ card, naming the clause: it never guesses. Hand scripts always win.
   tapped"; "you may cast spells as though they had flash"; "spells you control can't be
   countered"; "untap [this / all artifacts you control] during each other player's untap step";
   token and counter doubling and Hardened Scales (614.1a); Propaganda's attack tax (508.1g);
-  "during your turn, your opponents can't cast spells or activate abilities".
+  "during your turn, your opponents can't cast spells or activate abilities"; trigger
+  doublers, "if an artifact or creature entering / a creature dying / a creature attacking
+  causes a triggered ability of a permanent you control to trigger, that ability triggers an
+  additional time" (603.2d: Panharmonicon, Teysa Karlov, Isshin).
 - **Refused:** anything else, including "instead" effects it has no template for, conditions it
   can't read, X outside a cost, and cards whose rules the engine doesn't have (playing lands
   from a graveyard, an extra land each turn, copies). A fetched card it refuses can't be
   played: it is never played as a stand-in.
 - `npm run parse-report` prints the cards it scripts on its own and every refusal: for the
   pool (324 of 519 cards with rules text, 62%) and for a corpus of the 600 most-played
-  Commander cards (`tests/parser-corpus.generated.json`: 405 of 590, 69%), whose refusals it
+  Commander cards (`tests/parser-corpus.generated.json`: 406 of 590, 69%), whose refusals it
   groups by opening words and by shape, biggest first. A test plays about 190 pool cards with
   the parsed script and with the hand script and checks the table ends the same; others play
   each template on a made-up card and check a near miss is refused.
