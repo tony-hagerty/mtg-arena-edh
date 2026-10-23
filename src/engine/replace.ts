@@ -56,6 +56,9 @@ export function withReplacementAnswers<T>(list: number[] | null, fn: () => T): T
  */
 let arriving: Set<string> | null = null;
 
+/** Is permanent `id` being put onto the battlefield right now, with others or alone (614.12)? "Each other Angel you already control" doesn't count it. */
+export const isArriving = (id: string) => !!arriving?.has(id);
+
 /** Runs `fn`, which sets up permanents `ids` as they enter the battlefield together (614.12). */
 export function whileArriving<T>(ids: string[], fn: () => T): T {
   const was = arriving;

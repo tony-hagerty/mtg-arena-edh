@@ -236,7 +236,6 @@ The full guide to the game's screens and controls. For a quick start, see the
 | **Class** | Click yours to see its level bars; pick the next one and pay for it. |
 | **Several abilities** (Deathrite Shaman) | Click the permanent to see every activated ability; the ones you can't use now are dimmed. With only one usable, clicking goes straight to it. |
 | **An ability with modes** (Breya's "Choose one —") | The prompt lists the modes; pick as many as it says, then **Continue** to its targets and cost. A reflexive ability's modes (Caesar's "When you do, choose two —") are asked in a window as it triggers. |
-| **"Tap ten untapped Elves"** (Lathril) | After the targets, the permanents you could tap glow yellow; click ten (a second click takes one back), then press **Tap**. |
 | **Tokens that enter attacking** (mobilize, Caesar) | When more than one opponent could be attacked, a window asks which player, then whether to attack a planeswalker or battle of theirs instead. |
 | **"One mana of any color"** | A window with the five colours opens while it resolves. **Lion's Eye Diamond** asks for the colour when you click it. |
 | **Aura and Equipment** | What is attached to a permanent fans out behind it, toward the top of the card, each showing its name and a strip of art; it taps and attacks with the permanent. Click an Equipment's strip to equip it to something else, hover a strip to read the card. An enchanted land stands on its own instead of in its pile. |
@@ -247,7 +246,15 @@ The full guide to the game's screens and controls. For a quick start, see the
 | **New targets** (Deflecting Swat) | Click the new target for each slot, or press **Keep Target**. A card in a graveyard (Sevinne's Reclamation) is targeted from a window. |
 | **Cast as it resolves** (Beseech the Mirror) | A window offers **Cast** or **Don't Cast**; casting goes through the usual targets and costs. |
 | **A choice from several places** (Highway Robbery: discard a card or sacrifice a land) | The window groups the cards by where they are, **Your hand** and **Your battlefield**, so a Mountain in your hand isn't taken for one on the table. |
+| **Proliferate** (Atraxa, Karn's Bastion) | A window shows every permanent with a counter, under whose battlefield it is, and a button for each player with counters (their counters in brackets). Click the ones that get another counter of each kind they have, any number or none, and press **Proliferate**. |
+| **Blight** (High Perfect Morcant, Auntie Ool's ward) | A window asks which creature of yours gets the -1/-1 counters. Paying Auntie Ool's **Ward—Blight 2** is optional: choose none and your spell or ability is countered. |
+| **Tap untapped creatures as a cost** (High Perfect Morcant's "Tap three untapped Elves") | After clicking the permanent, the ones you could tap glow yellow, the permanent itself included (not when the cost taps it too, as Lathril's does); click exactly that many (a second click takes one back) and press **Tap**. Summoning sickness doesn't matter. |
+| **Moving a counter** (Tidus, Nesting Grounds) | When the first creature has more than one kind of counter, a window asks which kind moves. |
+| **Counters on players** (poison, experience, rad) | They show as small pills under the player's name on their portrait. Ten poison counters lose the game. |
 | **Library search** (Rampant Growth, Cultivate, Path to Exile, ...) | Your whole library opens. Cards you could find glow; click one and press **Choose**, or **Find Nothing**. |
+| **Ward that asks for a sacrifice** (Ygra's "Ward—Sacrifice a Food") | When your spell or ability targets it, a window shows what of yours you could sacrifice: pick one and press **Sacrifice**, or **Don't Pay** to have it countered. |
+| **The Ring tempts you** (Frodo, Sauron) | With two or more creatures, a window asks which is your **Ring-bearer**. It carries a gold ring on the table, and the log counts the times the Ring has tempted you. |
+| **Amass** (Sauron) | With two or more Armies, a window asks which gets the counters. |
 
 ## Triggers and pop-up windows
 

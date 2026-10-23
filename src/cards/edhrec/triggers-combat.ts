@@ -130,10 +130,10 @@ registerScripts({
     // "Whenever one or more creatures you control each with power greater than its base power
     // deals combat damage to a player, draw a card." Once for each player dealt combat damage
     // (603.2c), if one of the creatures that dealt it is yours with power above its base (613.4a-b).
-    onCombatDamageToPlayers: {
-      when: (g, { self, hits }) =>
-        hits.some((h) => {
-          const c = permanent(g, h.source.id) ?? h.source;
+    onPlayerDealtCombatDamage: {
+      when: (g, { self, sources }) =>
+        sources.some((s) => {
+          const c = permanent(g, s.id) ?? s;
           return c.controller === self.controller && stats(g, c).power > basePT(g, c).power;
         }),
       resolve: (g, { you }) => draw(g, you),
@@ -148,7 +148,7 @@ registerScripts({
     // "{T}, Tap ten untapped Elves you control: Each opponent loses 10 life and you gain 10 life."
     // Lathril is tapped for {T}, so it can't be one of the ten; a summoning-sick Elf can (302.6).
     activated: {
-      cost: { tap: true, tapCreatures: { n: 10, spec: { type: 'permanent', who: 'you', filter: (g, c) => subtypesOf(g, c).includes('Elf'), label: 'untapped Elves you control' } } },
+      cost: { tap: true, tapUntapped: { n: 10, filter: (g, c) => subtypesOf(g, c).includes('Elf'), label: 'ten untapped Elves you control' } },
       text: '{T}, Tap ten untapped Elves you control: Each opponent loses 10 life and you gain 10 life.',
       resolve: (g, { you }) => {
         simultaneously(g, () => opponentsOf(g, you).forEach((o) => loseLife(g, o.id, 10)));
