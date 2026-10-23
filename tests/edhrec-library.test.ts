@@ -256,3 +256,265 @@ describe('Choco, Seeker of Paradise', () => {
     expect(stats(g, byName(g, 0, 'Choco, Seeker of Paradise')!).power).toBe(4);
   });
 });
+
+describe('Tom Bombadil', () => {
+  const sagas = (g: Game) => g.players[0].battlefield.filter((c) => c.name === 'History of Benalia');
+
+  it('has hexproof and indestructible with four or more lore counters among Sagas you control', () => {
+    const tom = (lore: number[]) => {
+      const g = emptyGame((d) => {
+        put(d, 0, 'Tom Bombadil');
+        for (const n of lore) put(d, 0, 'History of Benalia').counters.lore = n;
+        // An opponent's Saga doesn't count.
+        put(d, 1, 'History of Benalia').counters.lore = 2;
+      });
+      const t = byName(g, 0, 'Tom Bombadil')!;
+      return [has(g, t, 'hexproof'), has(g, t, 'indestructible')];
+    };
+    expect(tom([2, 2])).toEqual([true, true]);
+    expect(tom([2, 1])).toEqual([false, false]);
+  });
+
+  it("when a Saga's final chapter ability resolves, reveals until a Saga card and puts it onto the battlefield", () => {
+    let g = emptyGame((d) => {
+      put(d, 0, 'Tom Bombadil');
+      put(d, 0, 'History of Benalia').counters.lore = 1;
+      top(d, 0, ['Plains', 'History of Benalia', 'Island']);
+    });
+    // Chapter II isn't the final chapter.
+    g = until(produce(g, (d) => addCounters(d, byName(d, 0, 'History of Benalia'), 1, 'lore', { by: 'rule' })), quiet);
+    expect(names(g.players[0].library)).toEqual(['Plains', 'History of Benalia', 'Island']);
+    // Chapter III is: the Saga from the library enters, the Plains goes to the bottom.
+    g = until(produce(g, (d) => addCounters(d, byName(d, 0, 'History of Benalia'), 1, 'lore', { by: 'rule' })), quiet);
+    expect(sagas(g)).toHaveLength(1);
+    expect(sagas(g)[0].counters.lore).toBe(1);
+    expect(names(g.players[0].library)).toEqual(['Island', 'Plains']);
+  });
+
+  it('triggers only once each turn', () => {
+    let g = emptyGame((d) => {
+      put(d, 0, 'Tom Bombadil');
+      put(d, 0, 'History of Benalia').counters.lore = 2;
+      put(d, 0, 'History of Benalia').counters.lore = 2;
+      top(d, 0, ['History of Benalia', 'History of Benalia', 'Plains']);
+    });
+    g = until(
+      produce(g, (d) => d.players[0].battlefield.filter((c) => c.name === 'History of Benalia').forEach((c) => addCounters(d, c, 1, 'lore', { by: 'rule' }))),
+      quiet,
+    );
+    // Both old Sagas were sacrificed; only one came from the library.
+    expect(sagas(g)).toHaveLength(1);
+    expect(names(g.players[0].library)).toEqual(['History of Benalia', 'Plains']);
+  });
+});
+
+describe('Pantlaza, Sun-Favored', () => {
+  const setup = () =>
+    emptyGame((d) => {
+      put(d, 0, 'Pantlaza, Sun-Favored', 'hand');
+      put(d, 0, 'Colossal Dreadmaw', 'hand');
+      top(d, 0, ['Plains', 'Colossal Dreadmaw', 'Elite Vanguard', 'Island']);
+    });
+  const enter = (g: Game, name: string) => produce(g, (d) => enterBattlefield(d, byName(d, 0, name, 'hand')!));
+
+  it("may discover X, X its toughness (701.57a): the card not cast goes into the hand, the rest on the bottom", () => {
+    let g = until(enter(setup(), 'Pantlaza, Sun-Favored'), decides('ask'));
+    expect(g.decision).toMatchObject({ choice: { yes: 'Discover 4' } });
+    g = until(run(g, { type: 'answer', yes: true }), decides('cast'));
+    // Discover 4 passes over the land and the mana value 6 card.
+    expect(names(g.players[0].exile)).toEqual(['Plains', 'Colossal Dreadmaw', 'Elite Vanguard']);
+    g = until(run(g, { type: 'answer', yes: false }), quiet);
+    expect(byName(g, 0, 'Elite Vanguard', 'hand')).toBeDefined();
+    expect(g.players[0].exile).toHaveLength(0);
+    expect(names(g.players[0].library)[0]).toBe('Island');
+    expect(names(g.players[0].library.slice(1)).sort()).toEqual(['Colossal Dreadmaw', 'Plains']);
+    // Done once this turn: another Dinosaur entering doesn't trigger it (603.2h).
+    g = until(enter(g, 'Colossal Dreadmaw'), quiet);
+    expect(g.log.filter((l) => l.text.includes('Pantlaza, Sun-Favored triggers'))).toHaveLength(1);
+  });
+
+  it('casts the discovered card without paying its mana cost', () => {
+    let g = until(enter(setup(), 'Pantlaza, Sun-Favored'), decides('ask'));
+    g = until(run(g, { type: 'answer', yes: true }), decides('cast'));
+    g = until(run(g, { type: 'cast', card: byName(g, 0, 'Elite Vanguard', 'exile')!.id }), quiet);
+    expect(byName(g, 0, 'Elite Vanguard')).toBeDefined();
+  });
+
+  it('declining leaves it for the next Dinosaur this turn', () => {
+    let g = until(enter(setup(), 'Pantlaza, Sun-Favored'), decides('ask'));
+    g = until(run(g, { type: 'answer', yes: false }), quiet);
+    expect(g.players[0].exile).toHaveLength(0);
+    g = until(enter(g, 'Colossal Dreadmaw'), decides('ask'));
+    // The Dreadmaw's toughness is 6.
+    expect(g.decision).toMatchObject({ choice: { yes: 'Discover 6' } });
+  });
+});
+
+describe('Jodah, the Unifier', () => {
+  it('legendary creatures you control get +X/+X, X the number of legendary creatures you control', () => {
+    const g = emptyGame((d) => {
+      put(d, 0, 'Jodah, the Unifier');
+      put(d, 0, 'Lyra Dawnbringer');
+      put(d, 0, 'Elite Vanguard');
+      put(d, 1, 'Sheoldred, the Apocalypse');
+    });
+    expect(stats(g, byName(g, 0, 'Jodah, the Unifier')!)).toMatchObject({ power: 7, toughness: 7 });
+    expect(stats(g, byName(g, 0, 'Lyra Dawnbringer')!)).toMatchObject({ power: 7, toughness: 7 });
+    expect(stats(g, byName(g, 0, 'Elite Vanguard')!)).toMatchObject({ power: 2, toughness: 1 });
+    expect(stats(g, byName(g, 1, 'Sheoldred, the Apocalypse')!)).toMatchObject({ power: 4, toughness: 5 });
+  });
+
+  const setup = () =>
+    emptyGame((d) => {
+      put(d, 0, 'Jodah, the Unifier');
+      put(d, 0, 'Swamp', 'battlefield', 6);
+      put(d, 0, 'Kokusho, the Evening Star', 'hand');
+      top(d, 0, ['Plains', 'Shivan Dragon', 'Sheoldred, the Apocalypse', 'Island']);
+    });
+
+  it('a legendary spell cast from the hand: exile until a legendary nonland card with lesser mana value, cast it free', () => {
+    let g = until(run(setup(), { type: 'cast', card: byName(setup(), 0, 'Kokusho, the Evening Star', 'hand')!.id }), decides('cast'));
+    expect(names(g.players[0].exile)).toEqual(['Plains', 'Shivan Dragon', 'Sheoldred, the Apocalypse']);
+    g = until(run(g, { type: 'cast', card: byName(g, 0, 'Sheoldred, the Apocalypse', 'exile')!.id }), quiet);
+    expect(byName(g, 0, 'Sheoldred, the Apocalypse')).toBeDefined();
+    expect(byName(g, 0, 'Kokusho, the Evening Star')).toBeDefined();
+    expect(names(g.players[0].library)[0]).toBe('Island');
+    expect(names(g.players[0].library.slice(1)).sort()).toEqual(['Plains', 'Shivan Dragon']);
+  });
+
+  it('a card not cast goes on the bottom with the rest', () => {
+    let g = until(run(setup(), { type: 'cast', card: byName(setup(), 0, 'Kokusho, the Evening Star', 'hand')!.id }), decides('cast'));
+    g = until(run(g, { type: 'answer', yes: false }), quiet);
+    expect(g.players[0].exile).toHaveLength(0);
+    expect(names(g.players[0].library.slice(1)).sort()).toEqual(['Plains', 'Sheoldred, the Apocalypse', 'Shivan Dragon']);
+  });
+
+  it("doesn't trigger for a legendary spell cast from the command zone", () => {
+    let g = emptyGame((d) => {
+      put(d, 0, 'Jodah, the Unifier');
+      put(d, 0, 'Plains', 'battlefield', 5);
+    });
+    g = runWith({ autoPass: false }, g, { type: 'cast', card: g.players[0].command[0].id });
+    expect(g.stack).toHaveLength(1);
+    expect(g.triggers).toHaveLength(0);
+  });
+});
+
+/** A game at the start of player 1's upkeep, with these permanents for player 0. */
+const opponentsUpkeep = (...mine: string[]) =>
+  emptyGame((d) => {
+    for (const n of mine) put(d, 0, n);
+    d.active = 1;
+    d.priority = 1;
+    d.step = 'upkeep';
+  });
+const theirMain = (g: Game) => g.active === 1 && g.step === 'main1' && quiet(g);
+
+describe('Nekusar, the Mindrazer (parsed)', () => {
+  it("each player draws an additional card in their draw step (504.2), and an opponent's draws each deal 1 damage", () => {
+    const g = until(opponentsUpkeep('Nekusar, the Mindrazer'), theirMain);
+    expect(g.players[1].hand).toHaveLength(2);
+    expect(g.players[1].life).toBe(38);
+  });
+
+  it("doesn't damage its controller for their own draws", () => {
+    let g = emptyGame((d) => {
+      put(d, 0, 'Nekusar, the Mindrazer');
+      d.step = 'upkeep';
+    });
+    g = until(g, (x) => x.step === 'main1' && quiet(x));
+    expect(g.players[0].hand).toHaveLength(2);
+    expect(g.players[0].life).toBe(40);
+  });
+});
+
+describe('Xyris, the Writhing Storm (parsed)', () => {
+  const snakes = (g: Game) => g.players[0].battlefield.filter((c) => label(c) === 'Snake');
+
+  it("the first card an opponent draws in their draw step makes no Snake; every other card they draw does", () => {
+    let g = until(opponentsUpkeep('Xyris, the Writhing Storm'), theirMain);
+    expect(snakes(g)).toHaveLength(0);
+    // With Nekusar, the draw step's second card makes one.
+    g = until(opponentsUpkeep('Xyris, the Writhing Storm', 'Nekusar, the Mindrazer'), theirMain);
+    expect(snakes(g)).toHaveLength(1);
+    expect(stats(g, snakes(g)[0])).toMatchObject({ power: 1, toughness: 1 });
+    // Outside a draw step, every card.
+    g = until(produce(g, (d) => draw(d, 1, 2)), quiet);
+    expect(snakes(g)).toHaveLength(3);
+    // Its controller's own draws make none.
+    g = until(produce(g, (d) => draw(d, 0, 1)), quiet);
+    expect(snakes(g)).toHaveLength(3);
+  });
+
+  it('combat damage to a player: you and that player each draw that many cards (121.2c)', () => {
+    let g = emptyGame((d) => {
+      put(d, 0, 'Xyris, the Writhing Storm');
+    });
+    g = until(attack(g, 'Xyris, the Writhing Storm'), (x) => x.step === 'main2' && quiet(x));
+    expect(g.players[1].life).toBe(37);
+    expect(g.players[0].hand).toHaveLength(3);
+    expect(g.players[1].hand).toHaveLength(3);
+    // Those were draws outside their draw step: a Snake for each of player 1's.
+    expect(snakes(g)).toHaveLength(3);
+  });
+});
+
+describe("Captain N'ghathrod", () => {
+  it('Horrors you control have menace', () => {
+    const g = emptyGame((d) => {
+      put(d, 0, "Captain N'ghathrod");
+      put(d, 0, 'Ravenous Chupacabra');
+      put(d, 0, 'Elite Vanguard');
+      put(d, 1, 'Ravenous Chupacabra');
+    });
+    expect(has(g, byName(g, 0, "Captain N'ghathrod")!, 'menace')).toBe(true);
+    expect(has(g, byName(g, 0, 'Ravenous Chupacabra')!, 'menace')).toBe(true);
+    expect(has(g, byName(g, 0, 'Elite Vanguard')!, 'menace')).toBe(false);
+    expect(has(g, byName(g, 1, 'Ravenous Chupacabra')!, 'menace')).toBe(false);
+  });
+
+  it("a Horror's combat damage mills that many; at your end step, an artifact or creature card milled this turn comes over", () => {
+    let g = emptyGame((d) => {
+      put(d, 0, "Captain N'ghathrod");
+      put(d, 0, 'Ravenous Chupacabra');
+      top(d, 1, ['Serra Angel', 'Sol Ring', 'Plains', 'Island', 'Island']);
+      // Already there before this turn, and put there from a hand: not from their library this turn.
+      put(d, 1, 'Shivan Dragon', 'graveyard');
+      put(d, 1, 'Elite Vanguard', 'graveyard').arrived = { from: 'hand', turn: d.turn };
+    });
+    g = until(attack(g, 'Ravenous Chupacabra'), (x) => x.step === 'main2' && quiet(x));
+    // The Chupacabra's 2 combat damage mills two: the Serra Angel and the Sol Ring.
+    expect(names(g.players[1].graveyard).sort()).toEqual(['Elite Vanguard', 'Serra Angel', 'Shivan Dragon', 'Sol Ring']);
+    g = until(g, decides('targets'));
+    const d = g.decision as Extract<Game['decision'], { type: 'targets' }>;
+    const spec = scriptOf("Captain N'ghathrod").onEndStep as { targets: Parameters<typeof legalTargets>[2][] };
+    const legal = legalTargets(g, 0, spec.targets[0], d.item.card).map((t) => names([g.players[1].graveyard.find((c) => c.id === t.id)!])[0]);
+    expect(legal.sort()).toEqual(['Serra Angel', 'Sol Ring']);
+    g = until(run(g, { type: 'chooseTargets', targets: [card(byName(g, 1, 'Serra Angel', 'graveyard')!)] }), quiet);
+    expect(byName(g, 0, 'Serra Angel')).toBeDefined();
+    expect(byName(g, 0, 'Serra Angel')!.owner).toBe(1);
+  });
+});
+
+describe('Damn (parsed)', () => {
+  it('destroys target creature, or every creature for its overload cost (702.96b)', () => {
+    let g = emptyGame((d) => {
+      put(d, 0, 'Damn', 'hand');
+      put(d, 0, 'Swamp', 'battlefield', 2);
+      put(d, 0, 'Elite Vanguard');
+      put(d, 1, 'Serra Angel');
+    });
+    g = until(run(g, { type: 'cast', card: byName(g, 0, 'Damn', 'hand')!.id, targets: [card(byName(g, 1, 'Serra Angel')!)] }), quiet);
+    expect(byName(g, 1, 'Serra Angel')).toBeUndefined();
+    expect(byName(g, 0, 'Elite Vanguard')).toBeDefined();
+    g = emptyGame((d) => {
+      put(d, 0, 'Damn', 'hand');
+      put(d, 0, 'Plains', 'battlefield', 4);
+      put(d, 0, 'Elite Vanguard');
+      put(d, 1, 'Serra Angel');
+    });
+    g = until(run(g, { type: 'cast', card: byName(g, 0, 'Damn', 'hand')!.id, alt: 0 }), quiet);
+    expect(byName(g, 1, 'Serra Angel')).toBeUndefined();
+    expect(byName(g, 0, 'Elite Vanguard')).toBeUndefined();
+  });
+});
