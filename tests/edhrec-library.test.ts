@@ -5,7 +5,7 @@ import { produce } from 'immer';
 import { describe, expect, it } from 'vitest';
 import { problemsOf } from '../src/cards/support';
 import { scriptCards } from '../src/cards/oracle';
-import { addCounters, applyAction, applyBotAction, botAction, destroy, draw, enterBattlefield, exileAll, has, label, legalTargets, makeCard, scriptOf, stats } from '../src/engine';
+import { addCounters, applyAction, applyBotAction, botAction, destroy, draw, enterBattlefield, exileAll, has, label, legalTargets, makeCard, pump, scriptOf, stats } from '../src/engine';
 import type { Action, Card, Game, PlayerId, TargetRef } from '../src/engine';
 import { byName, emptyGame, put, run, runWith } from './helpers';
 import './fixtures';
@@ -516,5 +516,22 @@ describe('Damn (parsed)', () => {
     g = until(run(g, { type: 'cast', card: byName(g, 0, 'Damn', 'hand')!.id, alt: 0 }), quiet);
     expect(byName(g, 1, 'Serra Angel')).toBeUndefined();
     expect(byName(g, 0, 'Elite Vanguard')).toBeUndefined();
+  });
+});
+
+describe('abilities about a permanent that has left use it as it last was (608.2h)', () => {
+  it("Pantlaza: X is the toughness of a Dinosaur that died before the ability resolved, as it last was", () => {
+    let g = emptyGame((d) => {
+      put(d, 0, 'Pantlaza, Sun-Favored');
+      put(d, 0, 'Colossal Dreadmaw', 'hand');
+    });
+    // It enters, and gets +2/+2 and dies while the ability waits.
+    g = produce(g, (d) => {
+      enterBattlefield(d, byName(d, 0, 'Colossal Dreadmaw', 'hand')!);
+      pump(d, byName(d, 0, 'Colossal Dreadmaw'), 2, 2);
+      destroy(d, byName(d, 0, 'Colossal Dreadmaw'));
+    });
+    g = until(g, decides('ask'));
+    expect(g.decision).toMatchObject({ choice: { yes: 'Discover 8' } });
   });
 });
