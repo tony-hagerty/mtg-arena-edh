@@ -192,6 +192,10 @@ are from the Comprehensive Rules in `docs/rules/`.
 - **Modal triggered abilities (603.3c):** "choose one or more —" is chosen as the ability
   goes on the stack, with the targets of the chosen modes (Black Market Connections). One
   with too few modes that can be chosen is removed from the stack.
+- **Modal activated abilities (700.2a):** "{2}, Sacrifice two artifacts: Choose one —"
+  (Breya, Etherium Shaper): the modes are chosen as the ability is activated, before its X
+  and targets (601.2b-c via 602.2b), in the prompt's band; each mode has its own targets, and
+  a mode with no legal target can't be chosen. Bots try each legal choice of modes.
 - **Choosing a number** partway through resolving: Electro's "you may pay {X}" and Mages'
   Contest's bidding, where you start at 1 and the two bidders top each other until the
   high bid stands.
@@ -547,7 +551,15 @@ are from the Comprehensive Rules in `docs/rules/`.
 - **Trigger doubling (603.2d):** Roaming Throne's "triggers an additional time", even for
   a creature that died alongside it (603.10a). Elesh Norn, Mother of Machines does it for
   abilities of your permanents that a permanent entering causes to trigger, and stops
-  such abilities of your opponents' permanents from triggering at all.
+  such abilities of your opponents' permanents from triggering at all. Annie Joins Up
+  does it for a legendary creature's own abilities, Isshin, Two Heavens as One for
+  abilities a creature attacking causes to trigger ("whenever this attacks", mobilize,
+  "whenever a creature attacks", "whenever you attack"; a creature becoming tapped as it
+  attacks is another event), and Teysa Karlov for abilities a creature dying causes to
+  trigger ("when this dies", "whenever a creature dies", a creature leaving the
+  battlefield for a graveyard, a creature card put into a graveyard from the battlefield,
+  and a creature being sacrificed, 700.4, 701.21a; a noncreature permanent dying doesn't
+  count). Delayed and reflexive triggered abilities are never doubled (603.2d).
 - **Protection for a player (702.16):** Serra's Emissary's "You ... have protection from
   the chosen card type": damage from such sources is prevented and spells and abilities
   from them can't target you.
@@ -625,7 +637,29 @@ are from the Comprehensive Rules in `docs/rules/`.
   (702.16j), life gained this turn (Haliya), and "if an opponent would begin an extra
   turn, that player skips that turn instead" (614.10, Trouble in Pairs).
 - **Reflexive triggers (603.12):** "When a creature card is exiled this way, ..." (Agatha's
-  Soul Cauldron).
+  Soul Cauldron), and "you may sacrifice another creature. When you do, choose two —"
+  (Caesar, Legion's Emperor): the sacrifice is chosen as the ability resolves, and the
+  reflexive ability's modes as it goes on the stack (603.3c).
+- **Combat damage from toughness (510.1a):** Arcades, the Strategist's creatures with
+  defender and Felothar the Steadfast's creatures assign combat damage equal to their
+  toughness, attacking or blocking, and may attack as though they didn't have defender
+  (702.3b). Both are effects on the creature, not abilities of its own (113.12), so losing
+  all abilities doesn't take them.
+- **Tapped and attacking (508.4):** creatures put onto the battlefield tapped and attacking
+  (mobilize, 702.181a, Zurgo Stormrender; Caesar's Soldiers): their controller chooses
+  which defending player, planeswalker or battle each attacks, every opponent being a
+  defending player (802.2); with one thing to attack, no question. They never "attacked",
+  so nothing triggers on them attacking. Bots attack the opponent with the least life.
+- **"Whenever one or more creatures you control deal combat damage to a player"** triggers
+  once for each player dealt combat damage in a combat damage step (603.2c), with every
+  creature that hit them: Kutzil, Malamet Exemplar's "each with power greater than its base
+  power" (base power is layer 7a-7b, 613.4a-b, before counters and +N/+N effects).
+- **"Tap ten untapped Elves you control"** as an activation cost (Lathril, Blade of the
+  Elves): the ten are picked as the ability is activated (click them), summoning-sick ones
+  too (302.6), and not the source when {T} is in the cost as well.
+- **"Whenever a creature token you control leaves the battlefield, draw a card if it was
+  attacking"** (Zurgo Stormrender): whether it was attacking is remembered with the event
+  (603.10a).
 - **More triggers:** "whenever an opponent searches their library" (once for each search,
   701.23h, Archivist of Oghma), "whenever two or more creatures attack" (Argent Dais),
   "becomes the target of a spell or ability" (Monk Gyatso), "draws their second card each
@@ -701,8 +735,7 @@ These are deliberate cuts for a prototype. The biggest ones come first.
   can block more than one. Trample over planeswalkers (702.19c) isn't supported.
 - **Targets:** "two target lands" can name the same land twice. Targets that exist only
   when kicked (702.33g) aren't supported.
-- **Modes and copies:** only spells can be modal: modal triggered and activated abilities
-  (700.2b) aren't supported. A copy's controller must pick legal new targets or keep all
+- **Modes and copies:** A copy's controller must pick legal new targets or keep all
   the old ones (707.10c allows keeping some). Copying abilities isn't supported yet.
 - **Layers (613) not built yet:** effects that set or change colour (layer 5). No card has
   a copy effect with a duration ("until end of turn") yet. In layer 6: "can't have
