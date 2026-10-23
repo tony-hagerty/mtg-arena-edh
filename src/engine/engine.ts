@@ -139,6 +139,14 @@ import {
   triggerModeOptions,
   rememberModes,
   CARD_TYPES,
+  blight,
+  blighted,
+  proliferated,
+  radiation,
+  playerCounters,
+  DECAYED,
+  RAD_COUNTERS,
+  triggerTimes,
 } from './rules';
 import type { EnterOpts } from './rules';
 import { inBase, settled, untouched } from './layers';
@@ -157,6 +165,7 @@ import type {
   Choice,
   DamageAssignment,
   DamageRoom,
+  Delayed,
   ExtraTurn,
   Game,
   LoyaltyAbility,
@@ -465,7 +474,7 @@ function afterChoice(g: Game) {
  * Runs the continuation a choice names (`CardScript.then`), with the answer. Choices it
  * asks come before any that were already waiting: they are the next step of the same effect.
  */
-function runThen(g: Game, choice: Choice, answer: { picked?: Card[]; yes?: boolean; name?: string; player?: PlayerId; n?: number }) {
+function runThen(g: Game, choice: Choice, answer: { picked?: Card[]; yes?: boolean; name?: string; player?: PlayerId; n?: number; players?: PlayerId[] }) {
   if (!('then' in choice) || !choice.then) return;
   const key = choice.then;
   // The card the continuation belongs to: one entering the battlefield or acting from an
@@ -490,6 +499,7 @@ function runThen(g: Game, choice: Choice, answer: { picked?: Card[]; yes?: boole
     player: answer.player ?? null,
     n: answer.n ?? 0,
     data,
+    pickedPlayers: answer.players ?? [],
   });
   // A card entering with others whose replacement effect sent it elsewhere (Mox Diamond): the rest needn't wait for it.
   const group = (data.enter as EnterOpts | undefined)?.group;
@@ -560,10 +570,22 @@ const ENGINE_THEN: Record<string, (g: Game, ctx: ThenCtx) => void> = {
   '@ward': (g, { yes, data }) => {
     if (!yes) counter(g, { kind: 'stack', id: data.item as string });
   },
+  // "Ward—Blight 2": the creature chosen pays it (701.68a); choosing none doesn't, and the spell or ability is countered.
+  '@wardBlight': (g, { picked, data, chooser }) => {
+    if (picked[0]) blighted(g, chooser, picked[0], data.blight as number, { by: 'cost' });
+    else {
+      log(g, `${says(g.players[chooser], 'declines')} to pay for ${data.source as string}.`, chooser);
+      counter(g, { kind: 'stack', id: data.item as string });
+    }
+  },
+  // Proliferate (701.34a): the permanents and players chosen each get another counter of each kind they have.
+  '@proliferate': (g, { chooser, picked, pickedPlayers }) => proliferated(g, chooser, picked, pickedPlayers ?? []),
+  // Blight N (701.68a): N -1/-1 counters on the creature chosen.
+  '@blight': (g, { chooser, picked, data }) => blighted(g, chooser, picked[0], data.blight as number),
 };
 
 /** Carries out a card choice once the player has made it. */
-function doChoice(g: Game, choice: CardChoice, cards: Card[]) {
+function doChoice(g: Game, choice: CardChoice, cards: Card[], players: PlayerId[] = []) {
   const p = g.players[choice.player];
   if (choice.kind === 'legend') return;
   if (choice.kind === 'bottom') {
@@ -571,7 +593,7 @@ function doChoice(g: Game, choice: CardChoice, cards: Card[]) {
     log(g, `${says(p, 'puts')} ${cards.length} card${cards.length === 1 ? '' : 's'} on the bottom.`, p.id);
     return;
   }
-  if (choice.kind === 'pick') return runThen(g, choice, { picked: cards });
+  if (choice.kind === 'pick') return runThen(g, choice, { picked: cards, players });
   const [found] = cards;
   // A card found is shown only if the effect says to reveal it, or it goes onto the battlefield (701.23e).
   // Otherwise only the searcher sees which card it is: the others' log says "a card".
@@ -925,6 +947,8 @@ function canPayActivation(g: Game, pid: PlayerId, c: Card, activated: number, x:
   // A summoning-sick creature can't pay a tap cost (302.6).
   if (ab.cost.tap && (c.tapped || (isCreature(g, c) && c.sick && !has(g, c, 'haste')))) return false;
   if (ab.cost.crew && crewPower(g, pid, c, crewOptions(g, pid, c)) < ab.cost.crew) return false;
+  // "Tap three untapped Elves you control": with {T} too, the source can't be one of them.
+  if (ab.cost.tapUntapped && tapCostOptions(g, pid, c, activated).filter((x) => !ab.cost.tap || x.id !== c.id).length < ab.cost.tapUntapped.n) return false;
   if (ab.cost.counters && counterCount(c, ab.cost.counters.kind) < ab.cost.counters.n) return false;
   if (ab.cost.discard && discardOptions(g, pid, c, ab.cost.discardFilter).length < ab.cost.discard) return false;
   if (ab.cost.sacrificeOne && activationSacrificeOptions(g, pid, c, activated).length < (ab.cost.sacrificeCount ?? 1)) return false;
@@ -932,6 +956,16 @@ function canPayActivation(g: Game, pid: PlayerId, c: Card, activated: number, x:
   if (ab.cost.exileGraveyard && g.players[pid].graveyard.length < ab.cost.exileGraveyard) return false;
   // The source can't also make the mana if tapping, sacrificing or exiling it is part of the cost.
   return !(ab.cost.mana || ab.cost.life) || !!planPayment(g, pid, activationCost(g, pid, c, ab, x), undefined, ab.cost.tap || ab.cost.sacrifice || ab.cost.exileSelf ? [c.id] : []);
+}
+
+/**
+ * Permanents `pid` could tap to pay a "Tap three untapped Elves you control" cost of `c`'s
+ * activated ability `activated` (`tapUntapped`): untapped ones they control that fit, `c`
+ * included. Summoning sickness doesn't matter: it isn't their {T} (302.6).
+ */
+export function tapCostOptions(g: Game, pid: PlayerId, c: Card, activated = 0): Card[] {
+  const spec = activatedAt(g, c, activated)?.cost.tapUntapped;
+  return spec ? g.players[pid].battlefield.filter((x) => !x.tapped && spec.filter(g, x)) : [];
 }
 
 /** Permanents `pid` could exile to pay an "Exile a creature you control" cost of `c`'s activated ability `activated` (The Soul Stone). */
@@ -1048,6 +1082,8 @@ function targetsOk(g: Game, pid: PlayerId, c: Card, specs: TargetSpec[], targets
   return specs.every((spec, i) => {
     const t = targets[i];
     // "Any number of" targets: each one chosen is a different object (115.3).
+    // "Up to X target ...": no more than X of them (`most`).
+    if (spec.any && spec.most && specs.filter((s) => s.any).length > spec.most(g, c)) return false;
     if (spec.any) return !!t && !targets.some((o, k) => k < i && specs[k].any && o && sameRef(o, t)) && legalTargets(g, pid, spec, c, x).some((r) => sameRef(r, t));
     if (!t) return !!spec.optional;
     const other = spec.distinctFrom === undefined ? null : targets[spec.distinctFrom];
@@ -1311,7 +1347,7 @@ function paradigm(g: Game, item: StackItem) {
 
 
 /** Delayed triggered abilities whose moment has come trigger, once each (603.7b). */
-function fireDelayed(g: Game, step: 'upkeep' | 'main1' | 'end') {
+function fireDelayed(g: Game, step: Delayed['step']) {
   const due = g.delayed.filter((d) => d.step === step && (d.turn === undefined || d.turn === g.turn) && (d.player === undefined || d.player === g.active));
   g.delayed = g.delayed.filter((d) => !due.includes(d) || d.repeat);
   for (const d of due) {
@@ -1369,6 +1405,15 @@ function beginStep(g: Game, step: Step) {
       for (const c of p.battlefield) if (isSaga(g, c) && scriptFor(c).chapters?.length) addCounters(g, c, 1, 'lore', { by: 'rule' });
       broadcast(g, 'onPrecombatMain', { player: pid }); // 505.1a
       fireDelayed(g, 'main1');
+      // Rad counters (728.1): "At the beginning of each player's precombat main phase, if that
+      // player has one or more rad counters, ...". It has no source, and the active player
+      // controls it (an exception to 113.8).
+      if (playerCounters(p, 'rad') > 0) {
+        g.triggers.push({ id: `s${g.nextId++}`, kind: 'triggered', controller: pid, card: makeCard(g, RAD_COUNTERS, pid, 'command', { isToken: true }), hook: 'onRad', event: { player: pid }, targets: [] });
+      }
+      break;
+    case 'endCombat':
+      fireDelayed(g, 'endCombat'); // "at end of combat" (511.2)
       break;
     case 'beginCombat':
       g.combat = { attacks: [], toBlock: [], struckFirst: null, moreDamage: false };
@@ -1526,6 +1571,8 @@ function attackersDeclared(g: Game) {
   for (const a of combat.attacks) {
     const c = permanent(g, a.id)!;
     trigger(g, c, 'onAttack', { defender: a.defender, target: a.target });
+    // Decayed (702.147a): "When this creature attacks, sacrifice it at end of combat."
+    if (has(g, c, 'decayed')) for (let k = triggerTimes(g, c, 'onDecayed'); k > 0; k--) g.triggers.push({ id: `s${g.nextId++}`, kind: 'triggered', controller: c.controller, card: snapshot(c), hook: 'onDecayed', event: {}, targets: [] });
     broadcast(g, 'onCreatureAttacks', { attacker: c, defender: a.defender, target: a.target });
   }
   // "Whenever [two or more creatures] attack": once, with every attack (508.1m).
@@ -1720,13 +1767,17 @@ function dealCombatDamage(g: Game, firstStrike: boolean, struckFirst: Set<string
     }
   }
   // Combat damage is dealt all at once, as one event (510.2).
+  const toPlayers = new Map<PlayerId, Card[]>();
   simultaneously(g, () => {
     for (const h of hits) {
       if (h.card && !isCreature(g, h.card)) dealDamage(g, h.src, { kind: 'card', id: h.card.id }, h.n, true); // logged: a planeswalker or battle
       else if (h.card) damageCard(g, h.src, h.card, h.n, true);
-      else damagePlayer(g, h.src, h.player!, h.n, true);
+      else if (damagePlayer(g, h.src, h.player!, h.n, true) > 0) toPlayers.set(h.player!, [...(toPlayers.get(h.player!) ?? []), snapshot(h.src)]);
     }
   });
+  // "Whenever one or more creatures ... deal combat damage to a player": once for each player
+  // dealt combat damage (603.2c), with the creatures that dealt it as they were then.
+  for (const [player, sources] of toPlayers) broadcast(g, 'onPlayerDealtCombatDamage', { player, sources });
 }
 
 // ---------- priority and the stack ----------
@@ -1839,8 +1890,19 @@ function resolveTop(g: Game) {
       // Ward (702.21a): counter the spell or ability unless its controller pays.
       const { item: id, cost } = item.event as TriggerEvents['onWard'];
       const target = g.stack.find((x) => x.id === id);
-      if (target) {
-        const what = [cost.mana, cost.life && `${cost.life} life`].filter(Boolean).join(' and ');
+      const what0 = target && (target.kind === 'spell' ? label(target.card) : `${label(target.card)}'s ability`);
+      if (target && cost.blight) {
+        // "Ward—Blight N": its controller may blight N to pay (701.68a). With no creature to put
+        // the counters on they can't (701.68b), so it is countered.
+        const pid = target.controller;
+        // Choosing a creature pays; choosing none doesn't (118.12a).
+        const text = `blight ${cost.blight} (choose a creature you control for the -1/-1 counters), or choose none and ${what0} is countered (ward)`;
+        if (!blight(g, pid, cost.blight, { then: '@wardBlight', data: { item: id, source: label(card), ward: true }, optional: true, text })) {
+          log(g, `${label(card)}: ${g.players[pid].you ? 'you' : g.players[pid].name} can't blight ${cost.blight}, so ${what0} is countered (ward).`, pid, [card]);
+          counter(g, { kind: 'stack', id });
+        }
+      } else if (target) {
+        const what =[cost.mana, cost.life && `${cost.life} life`].filter(Boolean).join(' and ');
         ask(g, target.controller, {
           text: `Pay ${what}, or ${target.kind === 'spell' ? label(target.card) : `${label(target.card)}'s ability`} is countered (ward).`,
           cost: cost.mana,
@@ -1851,9 +1913,20 @@ function resolveTop(g: Game) {
           data: { item: id },
         });
       }
+    } else if (item.hook === 'onRad') {
+      // Rad counters (728.1): the player mills, loses life and removes rad counters.
+      radiation(g, (item.event as TriggerEvents['onRad']).player);
+    } else if (item.hook === 'onDecayed') {
+      // Decayed (702.147a): "When this creature attacks, sacrifice it at end of combat": a
+      // delayed triggered ability, for this turn's end of combat step (511.2, 603.7).
+      g.delayed.push({ id: `d${g.nextId++}`, controller, card, key: DECAYED, step: 'endCombat', turn: g.turn, data: { id: card.id, moves: card.moves } });
     } else if (item.hook === 'onDelayed') {
       const { key, data: extra } = item.event as TriggerEvents['onDelayed'];
-      if (key === LOSE_GAME) {
+      if (key === DECAYED) {
+        // Sacrificed if it is still the same object and its controller still controls it (603.7c, 701.21a).
+        const c = permanent(g, extra.id as string);
+        if (c && c.moves === extra.moves && c.controller === controller) dieMany(g, [c], 'is sacrificed');
+      } else if (key === LOSE_GAME) {
         log(g, `${says(g.players[controller], 'loses')} the game (${label(card)}).`, controller, [card]);
         loseGame(g, controller, label(card));
       } else if (key === REBOUND) {
@@ -2367,10 +2440,13 @@ function act(g: Game, a: Action): boolean {
       const targets = specs.map((_, i) => a.targets?.[i] ?? null);
       if (!targetsOk(g, pid, c, specs, targets, x)) return false;
       // Crew: the chosen creatures must be able to crew and have enough power (702.122a).
-      const crewing = (a.crew ?? []).map((id) => crewOptions(g, pid, c).find((x) => x.id === id));
-      if (ab.cost.crew) {
+      // "Tap three untapped Elves you control": exactly that many that fit, other than the source if {T} taps it too.
+      const tapping = ab.cost.tapUntapped;
+      const crewing = (a.crew ?? []).map((id) => (tapping ? tapCostOptions(g, pid, c, a.activated).filter((x) => !ab.cost.tap || x.id !== c.id) : crewOptions(g, pid, c)).find((x) => x.id === id));
+      if (ab.cost.crew || tapping) {
         if (crewing.some((x) => !x) || new Set(a.crew).size !== crewing.length) return false;
-        if (crewPower(g, pid, c, crewing as Card[]) < ab.cost.crew) return false;
+        if (ab.cost.crew && crewPower(g, pid, c, crewing as Card[]) < ab.cost.crew) return false;
+        if (tapping && crewing.length !== tapping.n) return false;
       } else if (crewing.length) return false;
       // "Discard a card": exactly that many other cards from the hand.
       const discarding = (a.discard ?? []).map((id) => discardOptions(g, pid, c, ab.cost.discardFilter).find((x) => x.id === id));
@@ -2395,12 +2471,13 @@ function act(g: Game, a: Action): boolean {
         item.sacrificedPower = sacrificing.map((x) => stats(g, x!).power);
       }
       // Nothing tapped or sacrificed for the rest of the cost makes mana for it.
-      const busy = [...(ab.cost.tap || ab.cost.sacrifice || ab.cost.exileSelf ? [c.id] : []), ...(a.sacrifice ?? []), ...(a.exile ?? [])];
+      const busy = [...(ab.cost.tap || ab.cost.sacrifice || ab.cost.exileSelf ? [c.id] : []), ...(a.sacrifice ?? []), ...(a.exile ?? []), ...(tapping ? (a.crew ?? []) : [])];
       if ((ab.cost.mana || ab.cost.life) && !pay(g, pid, activationCost(g, pid, c, ab, x), undefined, busy)) return false;
       if (ab.cost.tap) tap(g, c);
       if (ab.cost.counters) removeCounters(c, ab.cost.counters.n, ab.cost.counters.kind);
       for (const x of crewing) tap(g, x!);
-      if (crewing.length) log(g, `${crewing.map((x) => label(x!)).join(' and ')} crew${crewing.length === 1 ? 's' : ''} ${label(c)}.`, pid, [...(crewing as Card[]), c]);
+      if (crewing.length && tapping) log(g, `${says(p, 'taps')} ${crewing.map((x) => label(x!)).join(', ')} (${label(c)}).`, pid, [...(crewing as Card[]), c]);
+      else if (crewing.length) log(g, `${crewing.map((x) => label(x!)).join(' and ')} crew${crewing.length === 1 ? 's' : ''} ${label(c)}.`, pid, [...(crewing as Card[]), c]);
       const chosen = targets.filter((t): t is TargetRef => !!t).map((t) => describeRef(g, t));
       log(g, `${says(p, 'activates')} ${label(c)}${several ? ` (${ab.text})` : ''}${hasX ? ` (X = ${x})` : ''}${chosen.length ? ` targeting ${chosen.join(' and ')}` : ''}.`, pid, [c, ...refCards(g, targets)]);
       flash(g, c, pid, 'activated');
@@ -2574,6 +2651,10 @@ function act(g: Game, a: Action): boolean {
       const picked = a.cards.map((id) => cards.find((c) => c.id === id));
       if (new Set(a.cards).size !== a.cards.length || picked.length < min || picked.length > max) return false;
       if (picked.some((c) => !c || !valid.has(c.id))) return false;
+      // Players chosen too, each one it offers at most once (proliferate, 701.34a).
+      const players = a.players ?? [];
+      const offered = choice.kind === 'pick' ? (choice.players ?? []) : [];
+      if (new Set(players).size !== players.length || players.some((x) => !offered.includes(x))) return false;
       g.decision = null;
       if (choice.kind === 'legend') {
         // The legend rule (704.5j): the rest go to their owners' graveyards. It is a
@@ -2582,7 +2663,7 @@ function act(g: Game, a: Action): boolean {
         g.priority = choice.resume;
         return true;
       }
-      doChoice(g, choice, picked as Card[]);
+      doChoice(g, choice, picked as Card[], players);
       afterChoice(g);
       return true;
     }
@@ -2618,7 +2699,15 @@ function act(g: Game, a: Action): boolean {
       if (g.decision?.type !== 'name') return false;
       const { choice } = g.decision;
       const valid =
-        choice.of === 'creature type' ? CREATURE_TYPES.includes(a.name) : choice.of === 'color' ? COLORS.includes(a.name) : choice.of === 'card type' ? CARD_TYPES.includes(a.name) : isCardName(a.name);
+        choice.of === 'counter'
+          ? !!choice.options?.includes(a.name)
+          : choice.of === 'creature type'
+            ? CREATURE_TYPES.includes(a.name)
+            : choice.of === 'color'
+              ? COLORS.includes(a.name)
+              : choice.of === 'card type'
+                ? CARD_TYPES.includes(a.name)
+                : isCardName(a.name);
       if (!valid) return false;
       g.decision = null;
       const named = choice.of === 'color' ? `{${a.name}}` : a.name;

@@ -8,7 +8,7 @@ import type { DeckDef } from './db';
 import { refusalOf } from './oracle';
 
 /** Ability words and keyword actions: they label a rule that the card's script implements. */
-export const ABILITY_WORDS = ['landfall', 'treasure', 'mill', 'threshold', 'metalcraft', 'recruit', "scions' secretary", 'delirium', 'surveil', 'imprint', 'channel', 'ferocious', 'bloodrush', 'populate', 'food', 'throw wide the gates', 'flare star', 'double', 'magecraft', 'role token', 'sell contraband', 'buy information', 'hire a mercenary', 'connive', 'medicus ministorum', 'monstrosity', 'madness', 'miracle'];
+export const ABILITY_WORDS = ['landfall', 'treasure', 'mill', 'threshold', 'metalcraft', 'recruit', "scions' secretary", 'delirium', 'surveil', 'imprint', 'channel', 'ferocious', 'bloodrush', 'populate', 'food', 'throw wide the gates', 'flare star', 'double', 'magecraft', 'role token', 'sell contraband', 'buy information', 'hire a mercenary', 'connive', 'medicus ministorum', 'monstrosity', 'madness', 'miracle', 'proliferate', 'blight', 'cheer'];
 
 /**
  * Keywords the engine applies from a card's keyword list alone, with no script, and that
@@ -16,7 +16,7 @@ export const ABILITY_WORDS = ['landfall', 'treasure', 'mill', 'threshold', 'meta
  * played without its rules text (`textlessRefusal`). Every other supported keyword is spelt
  * out by the card's script (kicker, equip, crew, cycling ...) or changes how it is cast.
  */
-export const PLAIN_KEYWORDS = ['flying', 'reach', 'deathtouch', 'lifelink', 'trample', 'vigilance', 'haste', 'first strike', 'double strike', 'menace', 'fear', 'defender', 'hexproof', 'indestructible', 'flash', 'shadow', 'landwalk', 'plainswalk', 'islandwalk', 'swampwalk', 'mountainwalk', 'forestwalk', 'changeling', 'devoid', 'partner'];
+export const PLAIN_KEYWORDS = ['flying', 'reach', 'deathtouch', 'lifelink', 'trample', 'vigilance', 'haste', 'first strike', 'double strike', 'menace', 'fear', 'defender', 'hexproof', 'indestructible', 'flash', 'shadow', 'landwalk', 'plainswalk', 'islandwalk', 'swampwalk', 'mountainwalk', 'forestwalk', 'changeling', 'devoid', 'partner', 'decayed'];
 
 /** Oracle text split into abilities, with reminder text removed. */
 export const abilities = (text: string) =>

@@ -736,6 +736,34 @@ button {
   text-shadow: 0 0 0.3rem #000, 0 0 0.3rem #000, 0 0 0.5rem #000;
 }
 
+/* A player's counters (122.1), under their name: poison, experience, rad. */
+.avatar-counters {
+  z-index: 2;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0.4rem;
+  margin-top: 0.3rem;
+}
+
+.player-counter {
+  padding: 0.15rem 0.7rem;
+  font: 600 1.25rem var(--sans);
+  white-space: nowrap;
+  background: var(--sunken);
+  border: 0.1rem solid var(--edge);
+  border-radius: var(--r-pill);
+  box-shadow: var(--shadow-sm);
+}
+
+.player-counter.counter-poison {
+  color: #9be37a;
+}
+
+.player-counter.counter-rad {
+  color: #e8e35a;
+}
+
 .life-delta {
   position: absolute;
   left: 50%;
@@ -2751,6 +2779,30 @@ button {
 
 .picker-move button:disabled {
   opacity: 0.3;
+}
+
+/* Players to choose besides the cards (proliferate, 701.34a). */
+.picker-players {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 1rem;
+  margin-bottom: 1.6rem;
+}
+
+.picker-players .chip {
+  min-width: 4rem;
+  padding: 0.4rem 1.2rem;
+  font: 600 1.6rem var(--sans);
+  color: #fff;
+  background: var(--raised);
+  border: 0.15rem solid var(--edge);
+  border-radius: 0.8rem;
+}
+
+.picker-players .chip.on {
+  border-color: var(--gold);
+  background: #3a3324;
 }
 
 .picker-buttons {

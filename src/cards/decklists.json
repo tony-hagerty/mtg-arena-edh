@@ -894,6 +894,20 @@
       "keywords": [],
       "query": "t:token !\"Zombie\" c=b pow=2 tou=2"
     },
+    "Zombie Decayed": {
+      "name": "Zombie",
+      "power": "2",
+      "toughness": "2",
+      "colors": [
+        "B"
+      ],
+      "typeLine": "Token Creature — Zombie",
+      "oracleText": "Decayed (This creature can't block. When it attacks, sacrifice it at end of combat.)",
+      "keywords": [
+        "Decayed"
+      ],
+      "query": "t:token !\"Zombie\" c=b pow=2 tou=2 o:decayed"
+    },
     "Plant": {
       "name": "Plant",
       "power": "0",
