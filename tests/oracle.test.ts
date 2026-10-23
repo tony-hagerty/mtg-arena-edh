@@ -1313,3 +1313,81 @@ describe('conditions as it resolves, "that land", "that player", granted mana (6
     expect(refusal('Artifact', 'Lands you control have "{T}: Add one mana of any color. Activate only as a sorcery."')).not.toBeNull();
   });
 });
+
+describe('proliferate, Ward—Blight and moving a counter from Oracle text', () => {
+  it('reads "proliferate" (701.34a) as a choice made as it resolves, in printed order', () => {
+    teach('Test Proliferator', 'Artifact', '{T}: Proliferate. Draw a card.');
+    let g = emptyGame((d) => {
+      d.players[0].isBot = false;
+      put(d, 0, 'Test Proliferator');
+      put(d, 0, 'Llanowar Elves').counters = { '+1/+1': 1 };
+      d.players[1].counters = { poison: 1 };
+      d.players[0].library = [makeCard(d, 'Plains', 0, 'library')];
+    });
+    g = run(g, { type: 'activate', card: byName(g, 0, 'Test Proliferator')!.id });
+    for (let i = 0; i < 10 && g.decision?.type !== 'chooseCards'; i++) g = applyAction(g, { type: 'pass' });
+    // The draw waits for the choice: it comes after the proliferate (608.2c).
+    expect(g.players[0].hand.length).toBe(0);
+    const choice = (g.decision as { choice: { players?: number[] } }).choice;
+    expect(choice.players).toEqual([1]);
+    g = run(g, { type: 'chooseCards', cards: [byName(g, 0, 'Llanowar Elves')!.id], players: [1] });
+    expect(byName(g, 0, 'Llanowar Elves')!.counters['+1/+1']).toBe(2);
+    expect(g.players[1].counters?.poison).toBe(2);
+    expect(g.players[0].hand.length).toBe(1);
+    // A bot answers it as a proliferate choice.
+    let h = emptyGame((d) => {
+      put(d, 0, 'Test Proliferator');
+      put(d, 0, 'Llanowar Elves').counters = { '+1/+1': 1 };
+      put(d, 1, 'Elvish Mystic').counters = { '+1/+1': 1 };
+      d.players[0].library = [makeCard(d, 'Plains', 0, 'library')];
+    });
+    h = settle(run(h, { type: 'activate', card: byName(h, 0, 'Test Proliferator')!.id }));
+    expect(byName(h, 0, 'Llanowar Elves')!.counters['+1/+1']).toBe(2);
+    expect(byName(h, 1, 'Elvish Mystic')!.counters['+1/+1']).toBe(1);
+    // Near misses aren't read as proliferate.
+    expect(refusal('Instant', 'Proliferate twice.')).not.toBeNull();
+    expect(refusal('Instant', 'Target player proliferates.')).not.toBeNull();
+  });
+
+  it('reads "Ward—Blight N." (702.21a, 701.68a), not other ward costs it does not know', () => {
+    expect(parse('Creature — Goblin', 'Ward—Blight 2. (To blight 2, a player puts two -1/-1 counters on a creature they control.)')).toMatchObject({ ok: true, script: { ward: { blight: 2 } } });
+    expect(refusal('Creature — Goblin', 'Ward—Blight X.')).not.toBeNull();
+    teach('Test Blight Warden', 'Creature — Goblin', 'Ward—Blight 1.');
+    let g = emptyGame((d) => {
+      put(d, 0, 'Test Blight Warden');
+      put(d, 1, 'Lightning Bolt', 'hand');
+      put(d, 1, 'Mountain');
+      put(d, 1, 'Serra Angel');
+      d.priority = 1;
+    });
+    g = run(g, { type: 'cast', card: byName(g, 1, 'Lightning Bolt', 'hand')!.id, targets: [cardRef(byName(g, 0, 'Test Blight Warden')!.id)] });
+    g = settle(g);
+    // The bot pays with its 4/4: it loses little.
+    expect(byName(g, 1, 'Serra Angel')!.counters['-1/-1']).toBe(1);
+    expect(byName(g, 0, 'Test Blight Warden')).toBeUndefined();
+  });
+
+  it('reads "move a counter from target ... onto a second target ..." (122.5)', () => {
+    teach('Test Nesting', 'Land', '{T}: Add {C}.\n{1}, {T}: Move a counter from target permanent you control onto a second target permanent. Activate only as a sorcery.');
+    const ab = [scriptOf('Test Nesting').activated].flat()[0];
+    expect(ab).toMatchObject({ sorcery: true, targets: [{ type: 'permanent', who: 'you' }, { type: 'permanent' }] });
+    let g = emptyGame((d) => {
+      d.players[0].isBot = false;
+      put(d, 0, 'Test Nesting');
+      put(d, 0, 'Plains');
+      put(d, 0, 'Llanowar Elves').counters = { '+1/+1': 1, charge: 2 };
+      put(d, 1, 'Serra Angel');
+    });
+    const elves = byName(g, 0, 'Llanowar Elves')!;
+    const angel = byName(g, 1, 'Serra Angel')!;
+    g = run(g, { type: 'activate', card: byName(g, 0, 'Test Nesting')!.id, targets: [cardRef(elves.id), cardRef(angel.id)] });
+    for (let i = 0; i < 10 && g.decision?.type !== 'name'; i++) g = applyAction(g, { type: 'pass' });
+    expect(g.decision).toMatchObject({ type: 'name', choice: { of: 'counter', options: ['+1/+1', 'charge'] } });
+    g = run(g, { type: 'name', name: 'charge' });
+    expect(byName(g, 0, 'Llanowar Elves')!.counters).toEqual({ '+1/+1': 1, charge: 1 });
+    expect(byName(g, 1, 'Serra Angel')!.counters).toEqual({ charge: 1 });
+    // Not between players, or with "another" instead of "a second".
+    expect(refusal('Instant', 'Move a counter from target player onto a second target player.')).not.toBeNull();
+    expect(refusal('Instant', 'Move a counter from target creature onto another target creature.')).not.toBeNull();
+  });
+});
