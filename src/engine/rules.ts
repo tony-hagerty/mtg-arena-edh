@@ -2,11 +2,12 @@
 // Immer draft of one; turn structure and action handling live in engine.ts.
 import { CREATURE_TYPES, cardData } from '../cards/db';
 import { current, isDraft } from 'immer';
-import { NO_SCRIPT, anyGrantFor, scriptOf } from './registry';
+import { NO_SCRIPT, anyGrantFor, anyScriptHas, scriptOf } from './registry';
 import { anyGrantingStatic, characteristics, hasOwnAbilities, heldMemo, inBase, mayHaveScript, mayLoseAbilities, settled, staticRemoval, typesOf, untouched } from './layers';
 import { replace, whileArriving } from './replace';
 import type {
   ActivatedAbility,
+  AlternativeCost,
   BroadcastHook,
   CastVia,
   AskChoice,
@@ -144,6 +145,15 @@ export const SUPPORTED_KEYWORDS = [
   'shadow',
   'landwalk',
   ...Object.keys(LANDWALKS),
+  // Cascade (702.85) by the engine, from the card's keywords or given by a permanent
+  // (`grantsCascade`); affinity (702.41) is read by the Oracle text parser as a cost reduction;
+  // ninjutsu and commander ninjutsu (702.49) by the engine with the card's script (`ninjutsu`);
+  // blitz (702.152) is given by a permanent (`grantsAlternativeCosts`).
+  'cascade',
+  'affinity',
+  'ninjutsu',
+  'commander ninjutsu',
+  'blitz',
 ];
 
 // ---------- card queries ----------
@@ -530,7 +540,8 @@ export function attackCost(g: Game, attacks: { id: string; defender: PlayerId; t
     if (a.target !== null) continue;
     for (const e of g.effects) if (e.kind === 'attackTax' && e.player === a.defender) cost = addCosts(cost, parseCost(e.mana));
   }
-  return cost;
+  // The active player pays (508.1g); K'rrik lets them pay life for {B} in any cost.
+  return lifeInsteadOfMana(g, g.active, cost);
 }
 
 /** Does a cost ask for nothing at all? */
@@ -648,13 +659,31 @@ export function altCostsOf(g: Game, c: Card, face = 0, pid = c.owner): number[] 
   // Warp is cast only from the hand (702.185a). A madness or miracle cost is paid only when
   // that ability's trigger lets its owner cast it, and then nothing else can be (702.35a, 702.94a).
   const via = castVia(g, c);
-  const alts = (scriptFor(c, 'stack', face).alternativeCosts ?? []).map((a) => ((a.warp && c.zone !== 'hand') || a.via !== via ? { ...a, when: () => false } : a));
+  const alts = alternativeCostsOf(g, c, face, pid).map((a) => ((a.warp && c.zone !== 'hand') || a.via !== via ? { ...a, when: () => false } : a));
   const self = { ...c, controller: pid };
   // One that exiles a card from the caster's hand, or sacrifices a permanent, needs one that fits (118.9).
   const canExile = (i: number) => !alts[i].exile || g.players[pid].hand.some((x) => x.id !== c.id && alts[i].exile!.filter(g, x, self));
   const canSacrifice = (i: number) => !alts[i].sacrifice || g.players[pid].battlefield.some((x) => fitsSpec(g, x, alts[i].sacrifice!, self));
   return alts.map((_, i) => i).filter((i) => (alts[i].when?.(g, self) ?? true) && canExile(i) && canSacrifice(i));
 }
+
+/**
+ * Every alternative cost `pid` could pay to cast `c` as `face` (118.9), available now or not: the
+ * card's own, then the ones permanents give the spell as it is cast (`grantsAlternativeCosts`:
+ * Henzie's blitz, Ashling's evoke), in battlefield order. `CastChoices.alt` and `CastInfo.alt`
+ * index this list.
+ */
+export function alternativeCostsOf(g: Game, c: Card, face = 0, pid = c.owner): AlternativeCost[] {
+  const own = scriptFor(c, 'stack', face).alternativeCosts ?? [];
+  if (!anyScriptHas('grantsAlternativeCosts')) return own;
+  const spell = asSpell(c, face, pid);
+  const given = battlefield(g).flatMap((p) => abilitiesOf(g, p).grantsAlternativeCosts?.(g, p, spell, pid, c.zone) ?? []);
+  return given.length ? [...own, ...given] : own;
+}
+
+/** Alternative cost number `alt` of `c` cast as `face` by `pid` (`alternativeCostsOf`), or undefined. */
+export const alternativeCostAt = (g: Game, c: Card, face: number, alt: number | undefined, pid = c.owner): AlternativeCost | undefined =>
+  alt === undefined ? undefined : alternativeCostsOf(g, c, face, pid)[alt];
 
 /** Does permanent `c` fit what `spec` describes (its type and filter), ignoring targeting? */
 export function fitsSpec(g: Game, c: Card, spec: TargetSpec, source: Card): boolean {
@@ -758,7 +787,7 @@ export function castCost(g: Game, c: Card, choices: CastChoices = {}, pid = c.ow
   // Only the face being cast counts: a split card's half, an Adventure (709.3a, 715.3a).
   const spell = asSpell(c, choices.face ?? 0);
   const script = scriptFor(spell);
-  const alt = choices.alt === undefined ? undefined : script.alternativeCosts?.[choices.alt];
+  const alt = alternativeCostAt(g, c, choices.face ?? 0, choices.alt, pid);
   // Cast from a graveyard, a card pays its flashback cost (702.34a) or, with escape, its
   // mana cost plus exiling three other cards from that graveyard (702.138a).
   const flashback = paysFlashback(g, c, choices) ? flashbackCost(g, c) : undefined;
@@ -797,11 +826,79 @@ export function castCost(g: Game, c: Card, choices: CastChoices = {}, pid = c.ow
   // 601.2f: all increases are added and all reductions taken off together, so the order
   // they apply in doesn't matter. Only generic mana is reduced.
   let change = -(script.costReduction?.(g, c) ?? 0);
-  for (const p of battlefield(g)) change += abilitiesOf(g, p).costModifier?.(g, p, spell, pid, c.zone) ?? 0;
+  for (const p of battlefield(g)) change += abilitiesOf(g, p).costModifier?.(g, p, spell, pid, c.zone, alt) ?? 0;
+  // Cost changes of abilities that function from the command zone (113.6b): The Ur-Dragon's eminence.
+  for (const p of commandZoneCards(g, 'costModifier')) change += scriptFor(p).costModifier?.(g, p, spell, pid, c.zone, alt) ?? 0;
+  // Reductions of coloured mana (118.7b-f): Morophon's "cost {W}{U}{B}{R}{G} less".
+  for (const p of battlefield(g)) {
+    const less = abilitiesOf(g, p).reducesColoredCost?.(g, p, spell, pid, c.zone);
+    if (less) change -= reduceColored(cost, less.colors, !!less.coloredOnly);
+  }
   cost.generic = Math.max(0, cost.generic + change);
   // Delve applies after the total cost is worked out: each card exiled pays for {1} (702.66a-b).
   cost.generic = Math.max(0, cost.generic - (choices.delve?.length ?? 0));
-  return cost;
+  return lifeInsteadOfMana(g, pid, cost);
+}
+
+/**
+ * Cards in players' command zones whose script has an ability of kind `key` that functions
+ * from there (`CardScript.fromCommandZone`, 113.6b).
+ */
+export function commandZoneCards(g: Game, key: BroadcastHook | 'costModifier'): Card[] {
+  if (!anyScriptHas('fromCommandZone')) return [];
+  return g.players.flatMap((p) => (p.lost ? [] : p.command.filter((c) => scriptFor(c).fromCommandZone?.includes(key) && scriptFor(c)[key])));
+}
+
+/**
+ * Takes one mana of each of `colors` off `cost`'s coloured symbols (118.7c), in place: a pip of
+ * that colour, a Phyrexian symbol of it (118.7f), or a hybrid symbol with that colour as one
+ * half (118.7e), matched so as many symbols as possible are paid for (the player chooses the
+ * halves, and never wants fewer symbols gone). Returns how much generic mana the colours with no
+ * symbol to take reduce (118.7b-c), or 0 if the effect reduces only coloured mana.
+ */
+function reduceColored(cost: Cost, colors: Color[], coloredOnly: boolean): number {
+  let left = [...colors];
+  // Pips first: each can only be paid for by its own colour.
+  cost.pips = cost.pips.filter((pip) => {
+    const i = left.indexOf(pip as Color);
+    if (i < 0) return true;
+    left.splice(i, 1);
+    return false;
+  });
+  // Hybrid and Phyrexian symbols: the matching that removes the most symbols (few of each: try them all).
+  const colored = (h: HybridOption[]) => h.filter((x): x is Color => WUBRG.includes(x as ManaSym) && x !== 'C');
+  const best = (hybrids: HybridOption[][], have: Color[]): { removed: number[]; left: Color[] } => {
+    let top = { removed: [] as number[], left: have };
+    hybrids.forEach((h, i) => {
+      for (const color of new Set(colored(h))) {
+        const k = have.indexOf(color);
+        if (k < 0) continue;
+        const rest = best(hybrids.slice(i + 1), have.filter((_, j) => j !== k));
+        if (rest.removed.length + 1 > top.removed.length) top = { removed: [i, ...rest.removed.map((j) => j + i + 1)], left: rest.left };
+      }
+    });
+    return top;
+  };
+  const found = best(cost.hybrid, left);
+  cost.hybrid = cost.hybrid.filter((_, i) => !found.removed.includes(i));
+  left = found.left;
+  return coloredOnly ? 0 : left.length;
+}
+
+/**
+ * `cost` as `pid` may pay it with life for some of its mana: "For each {B} in a cost, you may
+ * pay 2 life rather than pay that mana" (K'rrik) makes each {B} payable like {B/P}. The
+ * payment planner pays mana first and life only when the mana isn't there, as it does for
+ * Phyrexian mana.
+ */
+export function lifeInsteadOfMana(g: Game, pid: PlayerId, cost: Cost): Cost {
+  if (!anyScriptHas('lifeForMana')) return cost;
+  const colors = new Set(battlefield(g).flatMap((p) => abilitiesOf(g, p).lifeForMana?.(g, p, pid) ?? []));
+  if (!colors.size) return cost;
+  const hybrid = cost.hybrid.map((h): HybridOption[] => (h.includes('life') || !h.some((x) => colors.has(x as Color)) ? h : [...h, 'life']));
+  const pips = cost.pips.filter((x) => !colors.has(x as Color));
+  for (const x of cost.pips) if (colors.has(x as Color)) hybrid.push([x, 'life']);
+  return { ...cost, pips, hybrid };
 }
 
 /** A cost that mana of any type can pay: each coloured symbol becomes one mana of any type. */
@@ -831,7 +928,7 @@ export function anyColor(cost: Cost): Cost {
 /** What `pid` pays to activate ability `ab` of `c`: its cost, paid with mana of any colour if something lets them (Agatha's Soul Cauldron). */
 export function activationCost(g: Game, pid: PlayerId, c: Card, ab: ActivatedAbility, x = 0): Cost {
   const cost = abilityCost(ab, g, c, x);
-  return battlefield(g).some((src) => abilitiesOf(g, src).anyColorFor?.(g, src, pid, c)) ? anyColor(cost) : cost;
+  return lifeInsteadOfMana(g, pid, battlefield(g).some((src) => abilitiesOf(g, src).anyColorFor?.(g, src, pid, c)) ? anyColor(cost) : cost);
 }
 
 const BASIC_MANA: Record<string, ManaSym> = { Plains: 'W', Island: 'U', Swamp: 'B', Mountain: 'R', Forest: 'G' };
@@ -2163,6 +2260,8 @@ function shiftCard(g: Game, c: Card, to: Zone) {
   const last = from === 'battlefield' && watchingLeaves(g, batch?.before ?? battlefield(g)) ? lastKnown(g, c) : null;
   if (last && batch && !batch.before) batch.before = battlefield(g).map((x) => rememberPermanent(g, x));
   const before = last && !batch ? battlefield(g).map((x) => rememberPermanent(g, x)) : null;
+  // Blitz: "When this permanent is put into a graveyard from the battlefield, draw a card" (702.152a). Its own ability, as it last was.
+  const blitzed = from === 'battlefield' && to === 'graveyard' && c.cast?.blitz ? { card: last ?? snapshot(c), times: triggerTimes(g, c, 'onBlitzDies') } : null;
   if (c.zone === 'stack') {
     g.stack = g.stack.filter((x) => x.kind !== 'spell' || x.card.id !== c.id);
   } else {
@@ -2215,6 +2314,7 @@ function shiftCard(g: Game, c: Card, to: Zone) {
   c.mayReturn = c.isCommander && (to === 'graveyard' || to === 'exile');
   c.zone = to;
   c.ts = g.nextId++; // a new timestamp as it enters a zone (613.7d)
+  for (let k = blitzed?.times ?? 0; k > 0; k--) g.triggers.push({ id: `s${g.nextId++}`, kind: 'triggered', controller: blitzed!.card.controller, card: blitzed!.card, hook: 'onBlitzDies', event: {}, targets: [] });
   if (c.isToken && to !== 'battlefield') {
     if (last) leaves(g, { left: [{ card: last, to }], exiled: [], before });
     return;
@@ -2533,6 +2633,8 @@ export function broadcast<H extends BroadcastHook>(g: Game, hook: H, event: Trig
     try {
       for (const c of battlefield(g)) trigger(g, c, hook, event);
       for (const p of g.players) for (const c of p.graveyard) if (scriptFor(c).fromGraveyard?.includes(hook)) trigger(g, c, hook, event);
+      // Abilities that function from the command zone (113.6b): eminence.
+      for (const c of commandZoneCards(g, hook)) trigger(g, c, hook, event);
     } finally {
       watchers = outer;
     }
@@ -2572,6 +2674,8 @@ function arrive(g: Game, c: Card, opts: EnterOpts) {
 
 /** The `Delayed.key` of warp's exile (702.185a). Its `data` names the permanent: `id` and `moves`. */
 export const WARP = '@warp';
+/** The `Delayed.key` of blitz's sacrifice at the next end step (702.152a). Its `data` names the permanent: `id` and `moves`. */
+export const BLITZ_SACRIFICE = '@blitz';
 
 /**
  * Sets up a permanent that was just put onto the battlefield, before anything triggers on it.
@@ -2606,6 +2710,16 @@ function setUp(g: Game, c: Card, opts: EnterOpts): Record<string, number> {
   if (alt?.warp) g.delayed.push({ id: `d${g.nextId++}`, controller: c.controller, card: snapshot(c), key: WARP, step: 'end', data: { id: c.id, moves: c.moves } });
   // Dash: "return the permanent this spell becomes to its owner's hand at the beginning of the next end step" (702.109a).
   if (c.cast?.dash) g.delayed.push({ id: `d${g.nextId++}`, controller: c.controller, card: snapshot(c), key: RETURN_TO_HAND, step: 'end', data: { id: c.id, moves: c.moves } });
+  // Blitz: "If this spell's blitz cost was paid, sacrifice the permanent this spell becomes at the beginning of the next end step" (702.152a).
+  if (c.cast?.blitz) g.delayed.push({ id: `d${g.nextId++}`, controller: c.controller, card: snapshot(c), key: BLITZ_SACRIFICE, step: 'end', data: { id: c.id, moves: c.moves } });
+  // Put onto the battlefield attacking (508.4): it is attacking, but never "attacked". Nobody
+  // to attack, or nothing: it enters, but isn't an attacking creature (508.4a).
+  if (opts.attacking && g.combat && !g.players[opts.attacking.defender].lost && (opts.attacking.target === null || permanent(g, opts.attacking.target))) {
+    // During the declare blockers step or later it enters unblocked (508.4d).
+    g.combat.attacks.push({ id: c.id, defender: opts.attacking.defender, target: opts.attacking.target, blockers: [], blocked: false });
+    const target = opts.attacking.target ? permanent(g, opts.attacking.target) : undefined;
+    log(g, `${label(c)} enters attacking ${target ? label(target) : g.players[opts.attacking.defender].name}.`, c.controller, [c, ...(target ? [target] : [])]);
+  }
   if (isBattle(g, c)) {
     c.protector = opts.protector !== undefined && canProtect(g, c, opts.protector) ? opts.protector : defaultProtector(g, c);
     if (c.protector !== null) log(g, `${g.players[c.protector].name} protects ${label(c)}.`, c.controller, [c]);
@@ -2616,8 +2730,9 @@ function setUp(g: Game, c: Card, opts: EnterOpts): Record<string, number> {
 /** Triggers on a permanent having entered (603.6a): its own "enters" abilities, then everything watching. `counters`: what it entered with. */
 function entered(g: Game, c: Card, opts: EnterOpts, counters: Record<string, number>) {
   // Evoke: "When this permanent enters, if its evoke cost was paid, its controller sacrifices it" (702.74a).
+  // Printed, or given as it was cast (Ashling, the Limitless): what was paid is remembered on the spell.
   const alt = c.cast?.alt !== undefined ? scriptFor(c, 'stack', c.face).alternativeCosts?.[c.cast.alt] : undefined;
-  if (alt?.evoke) for (let k = triggerTimes(g, c, 'onEvoked'); k > 0; k--) g.triggers.push({ id: `s${g.nextId++}`, kind: 'triggered', controller: c.controller, card: snapshot(c), hook: 'onEvoked', event: {}, targets: [] });
+  if (alt?.evoke || c.cast?.evoke) for (let k = triggerTimes(g, c, 'onEvoked'); k > 0; k--) g.triggers.push({ id: `s${g.nextId++}`, kind: 'triggered', controller: c.controller, card: snapshot(c), hook: 'onEvoked', event: {}, targets: [] });
   // Offspring: "When this permanent enters, if its offspring cost was paid, create a token that's a copy of it, except it's 1/1" (702.175a).
   if (c.cast?.offspring) for (let k = triggerTimes(g, c, 'onOffspring'); k > 0; k--) g.triggers.push({ id: `s${g.nextId++}`, kind: 'triggered', controller: c.controller, card: snapshot(c), hook: 'onOffspring', event: {}, targets: [] });
   trigger(g, c, 'onEnter', {});
@@ -2663,6 +2778,8 @@ export interface EnterOpts {
   group?: string;
   /** Its caller logs it already ("plays X" for a land played from a graveyard), so `logReturns` doesn't. */
   quiet?: boolean;
+  /** It enters attacking this player, or their planeswalker or battle `target` (508.4): ninjutsu (702.49a). */
+  attacking?: { defender: PlayerId; target: string | null };
 }
 
 /**
@@ -3507,6 +3624,61 @@ export const persist: Trigger<object> = {
  * script. The engine does the rest: the time counters it enters with (`setUp`), and that it
  * isn't a creature while it has one (`characteristics`, layer 4).
  */
+/**
+ * The unblocked attacking creatures `pid` controls, which a ninjutsu cost can return (702.49a).
+ * An attacking creature is blocked or unblocked only once blockers are declared (509.1h), so
+ * none before the declare blockers step's declaration, and none after combat.
+ */
+export function unblockedAttackers(g: Game, pid: PlayerId): Card[] {
+  if (!g.combat || !['blockers', 'damage', 'endCombat'].includes(g.step) || g.decision?.type === 'blockers') return [];
+  return g.combat.attacks
+    .filter((a) => !a.blocked)
+    .map((a) => permanent(g, a.id))
+    .filter((c): c is Card => !!c && c.controller === pid);
+}
+
+/**
+ * Ninjutsu [cost] (702.49a), or with `commander` commander ninjutsu (702.49d): "[Cost], Reveal
+ * this card from your hand [or from the command zone], Return an unblocked attacking creature
+ * you control to its owner's hand: Put this card onto the battlefield from your hand [or the
+ * command zone] tapped and attacking." It functions only from those zones (113.6b), and the
+ * creature enters attacking what the returned creature was attacking (702.49c).
+ */
+export const ninjutsu = (mana: string, commander = false): ActivatedAbility => ({
+  cost: { mana, returnAttacker: true },
+  fromHand: true,
+  ...(commander ? { fromCommand: true } : {}),
+  // Its cost can be paid only while an unblocked attacking creature is there to return (602.2b).
+  when: (g, self) => unblockedAttackers(g, self.owner).length > 0,
+  text: `${commander ? 'Commander ninjutsu' : 'Ninjutsu'} ${mana}`,
+  resolve: (g, { self, you }) => {
+    // Only if it is still the card revealed from that zone (400.7). The ability remembers what the returned creature attacked.
+    const item = resolvingItem(g);
+    const p = g.players[you];
+    const c = [...p.hand, ...p.command].find((x) => x.id === self.id && x.moves === self.moves);
+    if (c && item?.returned) enterBattlefield(g, c, { tapped: true, controller: you, attacking: item.returned });
+  },
+});
+
+/**
+ * How many instances of cascade `spell` has as `caster` casts it from `from` (702.85c): printed
+ * ones ("Cascade, cascade" on one line are two) and ones permanents give it (`grantsCascade`).
+ */
+export function cascadeCount(g: Game, spell: Card, caster: PlayerId, from: Zone | 'stack'): number {
+  const d = data(spell);
+  let n = 0;
+  if (d.keywords.includes('Cascade')) {
+    // Each "cascade" on a line of keywords, reminder text left out.
+    for (const line of d.oracleText.replace(/\([^)]*\)/g, '').split('\n')) {
+      const parts = line.split(',').map((x) => x.trim().toLowerCase());
+      if (parts.every((x) => /^[a-z]+( [a-z]+)?$/.test(x))) n += parts.filter((x) => x === 'cascade').length;
+    }
+    n = Math.max(n, 1);
+  }
+  if (anyScriptHas('grantsCascade')) for (const p of battlefield(g)) n += abilitiesOf(g, p).grantsCascade?.(g, p, spell, caster, from) ?? 0;
+  return n;
+}
+
 export const impending = (n: number, cost: string): Pick<CardScript, 'alternativeCosts' | 'onEndStep'> => {
   // The intervening "if" (603.4): checked as the step begins, and again as it resolves.
   const impends = (c: Card | undefined) => !!c?.cast?.impending && counterCount(c, 'time') > 0;

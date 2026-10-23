@@ -78,6 +78,7 @@ import {
   changeOptions,
   triggerModeOptions,
   triggerOf,
+  unblockedAttackers,
 } from './rules';
 import type { ApplyOptions, AttackOption } from './engine';
 import { produce } from 'immer';
@@ -393,13 +394,13 @@ function candidateActions(g: Game, pid: PlayerId): { action: Action; spendsCard:
   }
   // Plotting a card to cast it free on a later turn (702.170a).
   for (const c of p.hand) if (canPlot(g, pid, c)) out.push({ action: { type: 'plot', card: c.id }, spendsCard: true });
-  // Abilities of permanents, and of cards in the hand that work from there (channel).
-  for (const c of [...p.battlefield, ...p.hand]) {
+  // Abilities of permanents, and of cards in the hand (channel) or command zone (commander ninjutsu) that work from there.
+  for (const c of [...p.battlefield, ...p.hand, ...p.command]) {
     for (const ref of activatable(g, pid, c)) {
       const script = scriptFor(c);
       // An ability with its own rule for when to use it is left to that rule.
       if (ref.ability === undefined && script.botActivate) continue;
-      out.push(...activations(g, pid, c, ref).map((action) => ({ action, spendsCard: c.zone === 'hand' })));
+      out.push(...activations(g, pid, c, ref).map((action) => ({ action, spendsCard: c.zone === 'hand' || c.zone === 'command' })));
     }
   }
   return out;
@@ -439,6 +440,9 @@ function activations(g: Game, pid: PlayerId, c: Card, ref: AbilityRef): Action[]
   // "Exile two cards from your graveyard": the ones the bot wants least.
   const k = ab?.cost.exileGraveyard ?? 0;
   const graveyard = k ? [...g.players[pid].graveyard].sort((a, b) => cardWant(g, pid, a) - cardWant(g, pid, b)).slice(0, k).map((x) => x.id) : undefined;
+  // Ninjutsu (702.49a): return the unblocked attacker worth least.
+  const returned = ab?.cost.returnAttacker ? [...unblockedAttackers(g, pid)].sort((a, b) => sacrificeWorth(g, a) - sacrificeWorth(g, b))[0] : undefined;
+  if (ab?.cost.returnAttacker && !returned) return [];
   return xChoices(g, pid, c, ref, specs).flatMap((x) =>
     targetChoices(g, pid, specs, c, x).map((targets): Action => ({
       type: 'activate',
@@ -452,6 +456,7 @@ function activations(g: Game, pid: PlayerId, c: Card, ref: AbilityRef): Action[]
       ...(victims.length ? { sacrifice: victims.map((x) => x.id) } : {}),
       ...(exiled ? { exile: [exiled.id] } : {}),
       ...(graveyard ? { graveyard } : {}),
+      ...(returned ? { returnAttacker: returned.id } : {}),
     })),
   );
 }
