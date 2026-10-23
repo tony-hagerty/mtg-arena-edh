@@ -24,6 +24,7 @@ import {
   choiceOptions,
   crewOptions,
   crewPower,
+  activationTapOptions,
   exileOptions,
   maxAbilityX,
   maxX,
@@ -33,6 +34,7 @@ import {
 } from './engine';
 import {
   activatedAt,
+  cheapestToTap,
   flashbackCost,
   preferredColor,
   CANT_ATTACK,
@@ -439,6 +441,8 @@ function activations(g: Game, pid: PlayerId, c: Card, ref: AbilityRef): Action[]
   // "Exile two cards from your graveyard": the ones the bot wants least.
   const k = ab?.cost.exileGraveyard ?? 0;
   const graveyard = k ? [...g.players[pid].graveyard].sort((a, b) => cardWant(g, pid, a) - cardWant(g, pid, b)).slice(0, k).map((x) => x.id) : undefined;
+  // "Tap three untapped tokens you control": the ones that cost least to tap.
+  const tapping = ab?.cost.tapUntapped ? cheapestToTap(g, activationTapOptions(g, pid, c, activated), ab.cost.tapUntapped.count ?? 1).map((x) => x.id) : undefined;
   return xChoices(g, pid, c, ref, specs).flatMap((x) =>
     targetChoices(g, pid, specs, c, x).map((targets): Action => ({
       type: 'activate',
@@ -452,6 +456,7 @@ function activations(g: Game, pid: PlayerId, c: Card, ref: AbilityRef): Action[]
       ...(victims.length ? { sacrifice: victims.map((x) => x.id) } : {}),
       ...(exiled ? { exile: [exiled.id] } : {}),
       ...(graveyard ? { graveyard } : {}),
+      ...(tapping ? { tapped: tapping } : {}),
     })),
   );
 }
