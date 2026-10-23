@@ -443,6 +443,11 @@ export interface Card {
   warped?: number;
   /** Phased out indirectly with the permanent it is attached to (702.26g): it phases in with that one. */
   phasedWith?: string;
+  /**
+   * An emblem (114), not a card: it lives in its owner's `Player.emblems` in the command zone,
+   * where its abilities work (114.4). `name` keys its data and script.
+   */
+  emblem?: boolean;
 }
 
 /**
@@ -526,6 +531,12 @@ export interface Player {
    * this player's untap step (502.1). Ones attached to them came along (`Card.phasedWith`).
    */
   phasedOut?: Card[];
+  /**
+   * Emblems this player owns and controls in the command zone (114.2): markers with abilities
+   * that work there (114.4). They aren't cards or permanents (114.5), so they are kept apart
+   * from `command`, which holds the commanders.
+   */
+  emblems?: Card[];
   /**
    * A setting: this (human) player divides their attackers' combat damage by hand when
    * there is a choice (510.1c, 702.19b). Off, it is split automatically.
@@ -754,6 +765,11 @@ export interface Find {
   /** Keywords, lower case: a card with one of them is found too, as with "an instant card or a card with flash". */
   keywords?: string[];
   subtypes?: string[];
+  /**
+   * "An artifact or Dragon card" (Magda): a card with one of these card types or one of these
+   * subtypes, either will do (205.2a, 205.3).
+   */
+  kinds?: { types: string[]; subtypes: string[] };
   /** Mana value at most this. */
   maxMv?: number;
   /** A mana cost exactly one of these ("an artifact card with mana cost {0} or {1}", 202.1). */
@@ -1118,6 +1134,12 @@ export interface Game {
   did?: Record<string, number>;
   /** Paradigm spells that have resolved, by player and name: only the first gives the copies (702.192a). */
   paradigms?: { player: PlayerId; name: string }[];
+  /**
+   * How many times each ability has resolved this turn, for "if this is the second time this
+   * ability has resolved this turn" (Omnath, Locus of Creation): by `resolutionKey` in rules.ts,
+   * one ability of one object (400.7), copies counted as the ability (707.10b).
+   */
+  resolutions?: { turn: number; counts: Record<string, number> };
 }
 
 export type Action =
@@ -1332,6 +1354,13 @@ export interface TriggerEvents {
   /** "Whenever [a permanent] enters": every permanent, creature or not, as it was as it entered. */
   onPermanentEnters: { entered: Card };
   /**
+   * "Whenever one or more [permanents] enter" (Marneus Calgar's tokens): once for each event
+   * that puts permanents onto the battlefield, with every one of them (603.2c, 603.6a).
+   */
+  onPermanentsEnter: { entered: Card[] };
+  /** "Whenever a [permanent] becomes tapped" (Magda's Dwarves): every permanent, as it was as it became tapped. */
+  onPermanentTapped: { tapped: Card };
+  /**
    * "Whenever one or more cards are put into exile from graveyards and/or the battlefield"
    * (Ketramose): once for each event, with the cards (not tokens, 108.2b) as they are in exile.
    * It looks back in time for permanents that left the battlefield (603.10a).
@@ -1513,8 +1542,12 @@ export interface ActivatedAbility {
     counters?: { kind: string; n: number };
     /** "Sacrifice a creature:": one permanent its controller controls that fits, chosen as it is activated. */
     sacrificeOne?: TargetSpec;
-    /** "Sacrifice two other artifacts and/or creatures" (Mondrak): how many different ones fit `sacrificeOne`. One if left out. */
-    sacrificeCount?: number;
+    /**
+     * "Sacrifice two other artifacts and/or creatures" (Mondrak): how many different ones fit
+     * `sacrificeOne`. One if left out. `'x'`: "Sacrifice X Squirrels" (Chatterfang), X announced
+     * as it is activated (107.3a, 601.2b via 602.2b) and read as `ctx.x`.
+     */
+    sacrificeCount?: number | 'x';
     /** "Spend only black mana on X" (Crypt Rats): each X in `mana` is paid with mana of this colour. */
     xColor?: ManaSym;
     /** "Exile this [permanent]" (Relic of Progenitus). */
@@ -1708,6 +1741,17 @@ export interface CardScript extends Triggers {
   skipsExtraTurn?: (g: Game, self: Card, pid: PlayerId) => boolean;
   /** "No more than N creatures can attack this permanent each combat": a restriction on declaring attackers (508.1c). */
   maxAttackers?: number;
+  /**
+   * While this permanent is on the battlefield: can't `attacker` attack `defender` (or the
+   * planeswalker or battle `target`)? A restriction on declaring attackers (508.1c), like
+   * Eriette's "can't attack you or planeswalkers you control".
+   */
+  forbidsAttack?: (g: Game, self: Card, attacker: Card, defender: PlayerId, target: string | null) => boolean;
+  /**
+   * "As this creature transforms into [this face], ..." (712.20): applied while the permanent
+   * transforms into the face with this script, not afterward. Sephiroth's emblem.
+   */
+  asTransforms?: (g: Game, self: Card) => void;
   /** Delayed triggered abilities this card creates (603.7), by key. See `Delayed`. */
   delayed?: Record<string, (g: Game, ctx: Ctx & { data: Record<string, unknown> }) => void>;
   /** An intervening "if" of a delayed triggered ability (603.4): it triggers only if this is true. Its `delayed` checks again as it resolves. */
