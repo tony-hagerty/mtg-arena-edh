@@ -9,7 +9,7 @@ describe('the bot games', () => {
     expect(files.sort()).toEqual(gameFiles().sort());
   });
 
-  it('are 46 games, the regression set', () => {
-    expect(gameFiles().length).toBe(46);
+  it('are 49 games, the regression set', () => {
+    expect(gameFiles().length).toBe(49);
   });
 });

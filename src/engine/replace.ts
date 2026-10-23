@@ -23,7 +23,7 @@
  * deterministic, so it gets back to the same question and uses the answer there.
  */
 import { abilitiesOf, battlefield, counterCount, isBattle, isPlaneswalker, isSaga, label, log, num, playerProtected, protectedFrom, says, data } from './rules';
-import { hasOwnAbilities, withoutStatics } from './layers';
+import { characteristics, hasOwnAbilities, withoutStatics } from './layers';
 import type { Card, CardScript, Game, PlayerId, ReplaceEvent, Replacement, ReplacementChoice, Zone } from './types';
 
 /**
@@ -168,7 +168,10 @@ function builtIn(g: Game, ev: ReplaceEvent, add: (id: string, name: string, r: R
       // Its own abilities count only if it has them as it enters (614.12): it is on the
       // battlefield by now, so the effect of a Humility already there applies to it.
       // Static abilities of permanents entering with it don't exist yet as it enters.
-      const [s, own] = withoutStatics([...(arriving ?? [])].filter((id) => id !== c.id), () => [abilitiesOf(g, c), hasOwnAbilities(g, c)] as const);
+      const [s, own, riots] = withoutStatics(
+        [...(arriving ?? [])].filter((id) => id !== c.id),
+        () => [abilitiesOf(g, c), hasOwnAbilities(g, c), characteristics(g, c, '6').keywords.filter((k) => k === 'riot').length] as const,
+      );
       // "This enters tapped" (614.1c), or "... unless ...", as it would be on the battlefield (614.12).
       const tapped = typeof s.entersTapped === 'function' ? s.entersTapped(g, c, c.controller) : !!s.entersTapped;
       if (tapped && !ev.tapped) add(`${c.id}~tapped`, label(c), { instead: { ...ev, tapped: true } });
@@ -185,6 +188,17 @@ function builtIn(g: Game, ev: ReplaceEvent, add: (id: string, name: string, r: R
       if (own && isPlaneswalker(g, c)) add(`${c.id}~loyalty`, label(c), { instead: more({ loyalty: num(data(c).loyalty) }) });
       if (own && isBattle(g, c)) add(`${c.id}~defense`, label(c), { instead: more({ defense: num(data(c).defense) }) });
       if (isSaga(g, c) && s.chapters?.length) add(`${c.id}~lore`, label(c), { instead: more({ lore: 1 }) });
+      // Riot (702.136a): "You may have this permanent enter with an additional +1/+1 counter on
+      // it. If you don't, it gains haste." Its controller chooses for each instance, which works
+      // on its own (702.136b), whether it is printed or given (Rhythm of the Wild's "Nontoken
+      // creatures you control have riot").
+      for (let i = 0; i < riots; i++) {
+        add(`${c.id}~riot${i}`, `riot (${label(c)})`, {
+          instead: more({ '+1/+1': 1 }),
+          otherwise: { ...ev, keywords: [...(ev.keywords ?? []), 'haste'] },
+          optional: { player: c.controller, text: `Riot: ${label(c)} enters with an additional +1/+1 counter on it, or else it gains haste (702.136a).`, yes: '+1/+1 Counter', no: 'Haste' },
+        });
+      }
       return;
     }
     default:
@@ -231,7 +245,7 @@ const sig = (ev: ReplaceEvent): string =>
   ev.kind === 'none' ? 'none' : JSON.stringify(ev, (_k, v) => (v && typeof v === 'object' && 'owner' in v && 'zone' in v ? (v as Card).id : v));
 
 /** How good an outcome is for player `pid`, for a bot choosing (and the order options are shown in). */
-function worth(ev: ReplaceEvent, pid: PlayerId): number {
+function worth(ev: ReplaceEvent, pid: PlayerId, g?: Game): number {
   const mine = (p: PlayerId) => (p === pid ? 1 : -1);
   switch (ev.kind) {
     case 'damage':
@@ -246,8 +260,12 @@ function worth(ev: ReplaceEvent, pid: PlayerId): number {
       return mine(ev.card.controller) * (ev.counter === '-1/-1' || ev.counter === 'stun' ? -ev.n : ev.n);
     case 'gainLife':
       return mine(ev.player) * ev.amount;
-    case 'enter':
-      return (ev.tapped ? -1 : 0) + Object.values(ev.counters).reduce((n, k) => n + k, 0) / 100;
+    case 'enter': {
+      // Haste is worth more than a counter on its controller's own turn, before attackers are declared (riot).
+      const early = !!g && g.active === ev.card.controller && ['untap', 'upkeep', 'draw', 'main1', 'beginCombat'].includes(g.step);
+      const haste = ev.keywords?.includes('haste') ? (early ? 0.02 : 0.001) : 0;
+      return (ev.tapped ? -1 : 0) + Object.values(ev.counters).reduce((n, k) => n + k, 0) / 100 + haste;
+    }
     case 'begin':
       return 1;
     case 'none':
@@ -304,7 +322,8 @@ function outcome(g: Game, ev: ReplaceEvent, viewer: PlayerId): string {
       return `${ev.amount} life`;
     case 'enter': {
       const counters = Object.entries(ev.counters).map(([k, n]) => `${n} ${k}`);
-      return [ev.tapped ? 'tapped' : 'untapped', ...(counters.length ? [`with ${counters.join(', ')}`] : [])].join(' ');
+      const gains = [...new Set(ev.keywords ?? [])];
+      return [ev.tapped ? 'tapped' : 'untapped', ...(counters.length ? [`with ${counters.join(', ')}`] : []), ...(gains.length ? [`and gains ${gains.join(', ')}`] : [])].join(' ');
     }
     case 'begin':
       return 'it happens';
@@ -350,7 +369,8 @@ export function replace(g: Game, ev: ReplaceEvent): ReplaceEvent {
     return all.filter((f) => (f.r.tier ?? 4) === tier);
   };
   const after = (e: ReplaceEvent, f: Found, apply: boolean, done: Set<string>) => ({
-    e: apply ? settle(f.r.instead) : e,
+    // Turned down, an optional effect may still say what happens instead (riot's haste, 702.136a).
+    e: apply ? settle(f.r.instead) : f.r.otherwise ? settle(f.r.otherwise) : e,
     done: apply && f.r.again ? done : new Set([...done, f.id]),
   });
   /** Every event `e` can end as, by its key. */
@@ -399,7 +419,7 @@ export function replace(g: Game, ev: ReplaceEvent): ReplaceEvent {
     let pick = groups[0].branch;
     if (groups.length > 1) {
       // Best for the chooser first: that's what a bot takes.
-      const best = (x: (typeof groups)[number]) => Math.max(...[...x.ends.values()].map((e) => worth(e, chooser)));
+      const best = (x: (typeof groups)[number]) => Math.max(...[...x.ends.values()].map((e) => worth(e, chooser, g)));
       groups.sort((a, b) => best(b) - best(a));
       const single = new Set(branches.map((b) => b.f.id)).size === 1;
       const text = single && now[0].r.optional ? now[0].r.optional.text : `${describe(g, ev, chooser)}. Choose which replacement effect applies first (616.1).`;
