@@ -139,6 +139,11 @@ import {
   triggerModeOptions,
   rememberModes,
   CARD_TYPES,
+  amassOnto,
+  finishTempting,
+  isRingBearer,
+  pickCards,
+  ringTrigger,
 } from './rules';
 import type { EnterOpts } from './rules';
 import { inBase, settled, untouched } from './layers';
@@ -155,6 +160,7 @@ import type {
   CastChoices,
   CastInfo,
   Choice,
+  Delayed,
   DamageAssignment,
   DamageRoom,
   ExtraTurn,
@@ -491,6 +497,12 @@ function runThen(g: Game, choice: Choice, answer: { picked?: Card[]; yes?: boole
     n: answer.n ?? 0,
     data,
   });
+  // An engine continuation that finishes a keyword action can hand on to the card's own
+  // (`data.next`), for what its effect does next: "the Ring tempts you. Then if ..." (701.54a).
+  if (key.startsWith('@') && typeof data.next === 'string') {
+    const { next, ...rest } = data;
+    runThen(g, { ...choice, then: next as string, data: rest } as Choice, answer);
+  }
   // A card entering with others whose replacement effect sent it elsewhere (Mox Diamond): the rest needn't wait for it.
   const group = (data.enter as EnterOpts | undefined)?.group;
   if (choice.script && group) settleEntering(g, group, card);
@@ -560,6 +572,21 @@ const ENGINE_THEN: Record<string, (g: Game, ctx: ThenCtx) => void> = {
   '@ward': (g, { yes, data }) => {
     if (!yes) counter(g, { kind: 'stack', id: data.item as string });
   },
+  // "Ward—Sacrifice a Food" (702.21a): the permanent picked is sacrificed to pay (701.21a), or with none picked the spell or ability is countered.
+  '@wardSacrifice': (g, { picked, chooser, data }) => {
+    const c = picked[0] && permanent(g, picked[0].id);
+    if (c && c.controller === chooser) {
+      log(g, `${says(g.players[chooser], 'pays')} ward.`, chooser);
+      dieMany(g, [c], 'is sacrificed');
+    } else counter(g, { kind: 'stack', id: data.item as string });
+  },
+  // Amass (701.47a): the Army chosen gets its counters and the subtype.
+  '@amass': (g, { picked, data }) => {
+    const { subtype, n } = data.amass as { subtype: string; n: number };
+    amassOnto(g, picked[0] && permanent(g, picked[0].id), subtype, n);
+  },
+  // The Ring tempts you (701.54a): the creature chosen becomes the Ring-bearer.
+  '@ringBearer': (g, { picked, chooser }) => finishTempting(g, chooser, picked[0] && permanent(g, picked[0].id)),
 };
 
 /** Carries out a card choice once the player has made it. */
@@ -1311,7 +1338,7 @@ function paradigm(g: Game, item: StackItem) {
 
 
 /** Delayed triggered abilities whose moment has come trigger, once each (603.7b). */
-function fireDelayed(g: Game, step: 'upkeep' | 'main1' | 'end') {
+function fireDelayed(g: Game, step: Delayed['step']) {
   const due = g.delayed.filter((d) => d.step === step && (d.turn === undefined || d.turn === g.turn) && (d.player === undefined || d.player === g.active));
   g.delayed = g.delayed.filter((d) => !due.includes(d) || d.repeat);
   for (const d of due) {
@@ -1391,6 +1418,10 @@ function beginStep(g: Game, step: Step) {
     }
     case 'damage':
       combatDamage(g);
+      break;
+    case 'endCombat':
+      // "At end of combat" abilities trigger as the end of combat step begins (511.2).
+      fireDelayed(g, 'endCombat');
       break;
     case 'main2':
       broadcast(g, 'onPostcombatMain', { player: pid }); // 505.1a
@@ -1526,6 +1557,8 @@ function attackersDeclared(g: Game) {
   for (const a of combat.attacks) {
     const c = permanent(g, a.id)!;
     trigger(g, c, 'onAttack', { defender: a.defender, target: a.target });
+    // The Ring, tempted two or more times: "Whenever your Ring-bearer attacks, draw a card, then discard a card." (701.54c)
+    if (isRingBearer(g, c)) ringTrigger(g, c.controller, 2, 'onAttack', { defender: a.defender, target: a.target });
     broadcast(g, 'onCreatureAttacks', { attacker: c, defender: a.defender, target: a.target });
   }
   // "Whenever [two or more creatures] attack": once, with every attack (508.1m).
@@ -1564,6 +1597,18 @@ function blockersDeclared(g: Game) {
   for (const id of new Set(g.combat!.attacks.flatMap((a) => a.blockers))) {
     const b = permanent(g, id);
     if (b) trigger(g, b, 'onBlock', {});
+  }
+  // "Whenever [this creature] becomes blocked by a creature" triggers once for each creature blocking it (509.3d).
+  for (const a of g.combat!.attacks) {
+    const c = permanent(g, a.id);
+    if (!c) continue;
+    for (const id of a.blockers) {
+      const b = permanent(g, id);
+      if (!b) continue;
+      trigger(g, c, 'onBecomesBlocked', { blocker: b });
+      // The Ring, tempted three or more times: "Whenever your Ring-bearer becomes blocked by a creature, ..." (701.54c)
+      if (isRingBearer(g, c)) ringTrigger(g, c.controller, 3, 'onBecomesBlocked', { blocker: b });
+    }
   }
   g.decision = null;
   g.priority = firstPriority(g); // 509.2
@@ -1839,7 +1884,18 @@ function resolveTop(g: Game) {
       // Ward (702.21a): counter the spell or ability unless its controller pays.
       const { item: id, cost } = item.event as TriggerEvents['onWard'];
       const target = g.stack.find((x) => x.id === id);
-      if (target) {
+      const what0 = target ? (target.kind === 'spell' ? label(target.card) : `${label(target.card)}'s ability`) : '';
+      if (target && cost.sacrifice) {
+        // "Ward—Sacrifice a Food": its controller may sacrifice one of theirs that fits; one they can't pay leaves nothing to choose (118.3).
+        const ward = permanent(g, card.id) ?? card;
+        const options = g.players[target.controller].battlefield.filter((c) => fitsSpec(g, c, cost.sacrifice!, ward));
+        if (!options.length) {
+          log(g, `${says(g.players[target.controller], "can't")} sacrifice ${cost.sacrifice.label} for ward.`, target.controller);
+          counter(g, { kind: 'stack', id });
+        } else {
+          pickCards(g, target.controller, options, { min: 0, max: 1, text: `sacrifice ${cost.sacrifice.label}, or ${what0} is countered (ward)`, button: 'Sacrifice', then: '@wardSacrifice', data: { item: id, bot: 'wardSacrifice' } });
+        }
+      } else if (target) {
         const what = [cost.mana, cost.life && `${cost.life} life`].filter(Boolean).join(' and ');
         ask(g, target.controller, {
           text: `Pay ${what}, or ${target.kind === 'spell' ? label(target.card) : `${label(target.card)}'s ability`} is countered (ward).`,
