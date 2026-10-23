@@ -247,6 +247,27 @@ describe('Auras, Equipment and crew in the UI', () => {
     expect(isCreature(game(), byName(game(), 0, 'Untethered Express')!)).toBe(true);
   });
 
+  it('picks the creature that stations a Spacecraft, which gets charge counters equal to its power (702.184a)', () => {
+    play((d) => {
+      put(d, 0, 'Hearthhull, the Worldseed');
+      put(d, 0, 'Raging Goblin');
+      put(d, 0, 'Serra Angel');
+      put(d, 1, 'Serra Angel');
+    });
+    clickPermanent(byName(game(), 0, 'Hearthhull, the Worldseed')!);
+    const v = buildView();
+    expect(v.prompt).toContain('Station');
+    expect(v.primary?.disabled).toBe(true);
+    expect(v.glow.get(byName(game(), 0, 'Serra Angel')!.id)).toBe('target');
+    expect(v.glow.get(byName(game(), 1, 'Serra Angel')!.id)).toBeUndefined();
+    clickPermanent(byName(game(), 1, 'Serra Angel')!); // an opponent's creature: nothing happens
+    expect(buildView().prompt).toContain('Station');
+    clickPermanent(byName(game(), 0, 'Serra Angel')!); // one pick is the whole cost: it goes straight on the stack and resolves
+    expect(byName(game(), 0, 'Serra Angel')!.tapped).toBe(true);
+    expect(byName(game(), 0, 'Hearthhull, the Worldseed')!.counters.charge).toBe(4);
+    expect(isCreature(game(), byName(game(), 0, 'Hearthhull, the Worldseed')!)).toBe(false);
+  });
+
   it('casts an Aura on a target, and equips from the attached Equipment', () => {
     play((d) => {
       put(d, 0, 'Plains', 'battlefield', 3);

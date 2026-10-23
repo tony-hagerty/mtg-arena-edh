@@ -49,6 +49,8 @@ export interface Targeting {
   /** Creatures picked to crew a Vehicle (702.122a), and whether the human is done picking. */
   crew?: string[];
   crewDone?: boolean;
+  /** The other creature picked to tap for a station cost (702.184a). */
+  station?: string;
   /** The loyalty ability (606) or Class level bar being activated, by index, or undefined for one of the card's `activated` abilities. */
   ability?: number;
   /** Which of the card's `activated` abilities, by index (left out, the first). */

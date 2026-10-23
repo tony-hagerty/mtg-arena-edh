@@ -416,7 +416,11 @@ fetched card too, since the card is matched to it by name.
   (`onEnter` ones too) and a short `text`, and `when` may be left out for one that
   triggers on every event.
 - Other trigger hooks: `onPostcombatMain`, `onDrawStep`, `onTapped`, `onDiscard`,
-  `onSacrifice`, `onPlaneswalkerDies`, `onBeginCombat`.
+  `onSacrifice`, `onPlaneswalkerDies`, `onBeginCombat`, `onBend` ("whenever you
+  waterbend, earthbend, firebend, or airbend"), `onRoll` ("whenever you roll a 4 or
+  higher", with the die's `result`), `onPlayerCombatDamaged` ("whenever one or more
+  creatures deal combat damage to a player": once for each player hit, with the `sources`).
+- Firebending N (702.189a) is `onAttack: firebending(2)`; the parser reads the keyword line.
 
 **Spells and costs**
 
@@ -439,7 +443,8 @@ fetched card too, since the card is matched to it by name.
 | Aura | `enchant` and `static: attachedBonus({...})` |
 | Aura on a graveyard card | `enchant: { type: 'graveyard card', ... }`; an effect gives it a new enchant ability with `addLasting(g, aura, { lose: ['enchant'], enchantOf: name })` and the script's `givesEnchant` (Animate Dead) |
 | Equipment | `attachedBonus` with `activated: equip('{2}')` |
-| Vehicle | `activated: crew(3)` |
+| Vehicle | `activated: crew(3)`; a creature that "crews Vehicles as though its power were 2 greater" has `crewBonus: () => 2` |
+| Spacecraft | `activated: [station(), ...]` (702.184a: the tapped creature is `ctx.stationed`); each "N+ \|" line is a `static` on itself while `counterCount(self, 'charge') >= N`, or an ability with `when` (721.2) |
 | Impending | spread `...impending(4, '{1}{U}{U}')` into the script: its alternative cost and end-step trigger; the engine adds the time counters and "isn't a creature" |
 | Several activated abilities | list them in printed order (`activated: [ab1, equip('{1}')]`); an `activate` action and its stack item name one by `activated` (its index) |
 | Activated ability options | `fromHand`, `when`, `reduction`; costs `discard`, `discardSelf`, `counters`, or `sacrificeOne` permanent that fits a spec ("Sacrifice a creature:"), `sacrificeCount` of them ("Sacrifice two ...") |
@@ -460,7 +465,11 @@ sacrifice cost (ability or spell) sees `sacrificed` and `sacrificedPower` (as it
   or a function), and optionally `life`, `damage`, `sacrifice`, `when`, `fromHand`,
   `manual`, `discardHand`, `instant` or `chosenType`.
 - `addMana(g, pid, ['B', 'B', 'B'], self)` for rituals; `addMana(..., { keep: true })`
-  lasts the turn.
+  lasts the turn, `{ untilEndOfCombat: true }` until the combat phase ends (500.5a).
+- An activated ability's resolve sees the mana spent on it by source as `ctx.spentFrom`
+  ("for each mana from Treasures spent to activate this ability").
+- `reducesCost: (g, self, spell, caster) => '{W}{U}{B}{R}{G}'` reduces a cost by coloured
+  mana (118.7b-c); `costModifier` stays for generic changes.
 - `noUntap: true` for "doesn't untap".
 
 **Choices while resolving**
@@ -530,7 +539,8 @@ are shorthand for common ones. A card's own way of entering stays `entersTapped`
 **Other static hooks**
 
 `forbids` ("can't cast"/"can't activate"), `grantsFlash`, `uncounterable`,
-`protectsSpell`, `ward`, `grantsEscape`, `delayedIf`.
+`protectsSpell`, `ward`, `grantsEscape`, `delayedIf`, `extraLands` ("you may play an
+additional land on each of your turns", 305.2b).
 
 **A permanent's abilities**
 
@@ -544,7 +554,13 @@ ability already on the stack, which exists apart from its source (113.7a).
 | Helper | Does |
 | --- | --- |
 | `addCounters(g, card, n, kind)` | adds counters |
-| `createToken(g, pid, 'Treasure')` | makes a predefined token (`'Food'`, `'Clue'` too) |
+| `createToken(g, pid, 'Treasure')` | makes a predefined token (`'Food'`, `'Clue'` too); `createTokens(g, pid, [{ key, count }, ...])` makes several kinds as one event |
+| `becomeMonarch(g, pid)` | the player becomes the monarch (725); `g.monarch` says who it is |
+| `goad(g, card, by)` | goads a creature (701.15); `isGoaded`, `goadedBy` read it |
+| `rollDice(g, pid, 6, n)` | rolls dice (706), triggering `onRoll` for each |
+| `earthbend(g, land, n, you)` | earthbend N (701.66a), with its return trigger |
+| `bend(g, pid, kind)` | notes a bend and triggers `onBend` (what `earthbend`, `firebending` and `airbend(g, cards, by)` do themselves) |
+| `extraLand(g, pid)` | "you may play an additional land this turn" (305.2b) |
 | `addEffect` | an effect until end of turn |
 | `delay` with `delayed[key]` | a delayed trigger (603.7) |
 | `extraTurn`, `winGame`, `loseGame` | as named |
