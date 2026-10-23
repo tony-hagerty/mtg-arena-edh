@@ -400,10 +400,10 @@ describe('Lathril, Blade of the Elves', () => {
     const elves = named(g, 0, 'Elf Warrior').map((c) => c.id);
     expect(named(g, 0, 'Elf Warrior').every((c) => c.sick)).toBe(true);
     // Nine Elves, a tapped Elf, or Lathril itself among the ten: refused.
-    expect(applyAction(g, { type: 'activate', card: lathril.id, tap: elves.slice(0, 9) })).toBe(g);
-    expect(applyAction(g, { type: 'activate', card: lathril.id, tap: [...elves.slice(0, 9), byName(g, 0, 'Llanowar Elves')!.id] })).toBe(g);
-    expect(applyAction(g, { type: 'activate', card: lathril.id, tap: [...elves.slice(0, 9), lathril.id] })).toBe(g);
-    g = settle(run(g, { type: 'activate', card: lathril.id, tap: elves }));
+    expect(applyAction(g, { type: 'activate', card: lathril.id, crew: elves.slice(0, 9) })).toBe(g);
+    expect(applyAction(g, { type: 'activate', card: lathril.id, crew: [...elves.slice(0, 9), byName(g, 0, 'Llanowar Elves')!.id] })).toBe(g);
+    expect(applyAction(g, { type: 'activate', card: lathril.id, crew: [...elves.slice(0, 9), lathril.id] })).toBe(g);
+    g = settle(run(g, { type: 'activate', card: lathril.id, crew: elves }));
     expect(lifeOf(g)).toEqual([50, 30, 30, 30]);
     expect(named(g, 0, 'Elf Warrior').every((c) => c.tapped)).toBe(true);
     expect(byName(g, 0, 'Lathril, Blade of the Elves')!.tapped).toBe(true);
@@ -730,16 +730,16 @@ describe('the triggers-combat group in the UI', () => {
     });
     clickPermanent(byName(game(), 0, 'Lathril, Blade of the Elves')!);
     let v = buildView();
-    expect(v.prompt).toContain('tap 10 untapped Elves you control (0 so far)');
+    expect(v.prompt).toContain('Tap ten untapped Elves you control (0 of 10 chosen)');
     expect(v.primary?.disabled).toBe(true);
     const elves = named(game(), 0, 'Elf Warrior');
     expect(v.glow.get(elves[0].id)).toBe('target');
     for (const e of elves.slice(0, 10)) clickPermanent(e);
     clickPermanent(elves[0]); // a second click takes it back out
-    expect(buildView().prompt).toContain('(9 so far)');
+    expect(buildView().prompt).toContain('(9 of 10 chosen)');
     clickPermanent(elves[10]);
     v = buildView();
-    expect(v.prompt).toContain('(10 so far)');
+    expect(v.prompt).toContain('(10 of 10 chosen)');
     expect(v.primary?.disabled).toBe(false);
     press(); // Tap: costs no mana, so it goes on the stack and resolves
     expect(game().players.map((p) => p.life)).toEqual([50, 30, 30, 30]);
