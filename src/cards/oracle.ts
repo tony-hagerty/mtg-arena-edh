@@ -22,6 +22,8 @@ import {
   attachedBonus,
   battlefield,
   bounce,
+  colorsAmong,
+  colorsOf,
   CANT_ATTACK,
   CANT_BE_BLOCKED,
   CANT_BLOCK,
@@ -167,6 +169,8 @@ const BARE_KEYWORDS = [
   // changeling (702.73) and devoid (702.114) by the layer system, convoke (702.51) and storm
   // (702.40) as the spell is cast, from the card's keywords.
   'fear', 'shadow', 'plainswalk', 'islandwalk', 'swampwalk', 'mountainwalk', 'forestwalk', 'changeling', 'devoid', 'convoke', 'storm',
+  // Exalted (702.83) triggers, and riot (702.136) replaces how it enters, from the keyword, printed or given.
+  'exalted', 'riot',
 ];
 
 /** Keywords an effect may give a creature: the ones `StaticBonus.keywords` carries and the engine checks. */
@@ -701,6 +705,13 @@ function counted(phrase: string, x: Num | null): Num | null {
     const o = object(`${m[1]} card in your graveyard`, 'one', x) ?? object(`${m[1]} cards in your graveyard`, 'many', x);
     if (!o) return null;
     return (g, ctx) => g.players[ctx.you].graveyard.filter((c) => o.test(g, c, ctx.self, 0)).length;
+  }
+  // "For each color among permanents you control" (105.2): the colours they have between them, every effect applied (613.1e).
+  m = /^colors? among (.+)$/.exec(phrase);
+  if (m) {
+    const among = groupPhrase(m[1], x);
+    if (!among) return null;
+    return (g, ctx) => new Set(among(g, ctx).flatMap((c) => colorsOf(g, c))).size;
   }
   const onField = /^(.+) on the battlefield$/.exec(phrase);
   const o = object(onField ? onField[1] : phrase, 'either', x);
@@ -2301,6 +2312,12 @@ function manaEffect(text: string): ManaAbility | null {
 
 function baseMana(text: string): ManaAbility | null {
   if (text === 'add one mana of any color.') return { amount: 1, colors: 'any' };
+  // "For each color among permanents you control, add one mana of that color" (Faeburrow Elder,
+  // Bloom Tender): exactly one of each, worked out as it resolves (605.3b, 105.2). No colour, no mana.
+  if (text === 'for each color among permanents you control, add one mana of that color.') {
+    const among = (g: Game, self: Card) => colorsAmong(g, self.controller) as ManaSym[];
+    return { amount: 1, colors: among, producesOf: (g, self) => [among(g, self)] };
+  }
   if (text === "add one mana of any color in your commander's color identity.") return { amount: 1, colors: 'identity' };
   if (text === 'add one mana of any color that a land an opponent controls could produce.') return { amount: 1, colors: opponentLandColors };
   // "Any one color": all of it the same colour (106.1b), as a ManaAbility makes it.
@@ -2342,16 +2359,19 @@ function manaCost(text: string): Partial<ManaAbility> | null {
     else if ((m = /^((?:\{(?:\d+|[wubrgc]|[wubrg]\/[wubrg])\})+)$/.exec(part)) && !out.cost) out.cost = m[1].toUpperCase();
     else if ((m = /^pay (\d+) life$/.exec(part)) && !out.life) out.life = parseInt(m[1], 10);
     else if (part === 'sacrifice ~') out.sacrifice = true;
-    else if (part === 'tap an untapped creature you control' && out.noTap) out.tapCreature = {};
-    else if (part === 'tap an untapped legendary creature you control' && out.noTap) out.tapCreature = { legendary: true };
-    else if (part === 'discard a card') out.discard = 1;
+    else if ((m = /^tap (an|two|three|four|five) untapped (legendary )?(creature|artifact|token)s? you control$/.exec(part)) && !out.tapCreature) {
+      // "Tap an untapped creature you control" (Relic of Legends, Springleaf Drum's with {T}),
+      // "Tap an untapped artifact you control" (Urza), "Tap two untapped tokens you control" (Baylen).
+      const n = NUMBERS[m[1]];
+      if ((n > 1) !== part.endsWith('s you control')) return null;
+      out.tapCreature = { ...(m[2] ? { legendary: true } : {}), ...(m[3] === 'token' ? { type: '', token: true } : m[3] === 'artifact' ? { type: 'Artifact' } : {}), ...(n > 1 ? { count: n } : {}) };
+    } else if (part === 'discard a card') out.discard = 1;
     else if (part === 'sacrifice a creature') out.sacrificeCreature = true;
     else if (part === 'exile ~ from your hand' && parts.length === 1) out.fromHand = true;
     else return null;
   }
   // "Tap an untapped creature" replaces {T}; nothing else may go without a tap but these (605.1a).
   if (out.noTap && !out.sacrifice && !out.tapCreature && !out.discard && !out.fromHand && !out.sacrificeCreature) return null;
-  if (out.tapCreature) delete out.noTap;
   return out;
 }
 
@@ -2441,6 +2461,17 @@ function staticLine(line: string, d: CardData): StaticFn | null {
       const k = n(g, { self, you: self.controller, targets: [] }, blankMemo());
       return { power: p * k, toughness: t * k };
     };
+  }
+  // "Each nonland permanent you control is all colors" (105.3, 613.1e): its colours become all five.
+  if ((m = /^each (.+?) you control is all colors\.$/.exec(line))) {
+    const o = object(m[1], 'one', null);
+    if (!o || o.zone !== 'battlefield') return null;
+    return (g, self, c) => (c.controller === self.controller && (o.type !== 'creature' || isCreature(g, c)) && o.test(g, c, self, 0) ? { colors: ['W', 'U', 'B', 'R', 'G'] } : null);
+  }
+  // "Lands you control are every basic land type in addition to their other types" (305.7, 613.1d):
+  // each then has each basic land type's mana ability (305.6).
+  if (line === 'lands you control are every basic land type in addition to their other types.') {
+    return (g, self, c) => (c.controller === self.controller && isLand(g, c) ? { subtypes: ['Plains', 'Island', 'Swamp', 'Mountain', 'Forest'] } : null);
   }
   // "Each land is a Swamp in addition to its other land types" (305.7, 613.1d).
   if ((m = /^each land is an? (plains|island|swamp|mountain|forest) in addition to its other land types\.$/.exec(line))) {
@@ -2684,6 +2715,18 @@ function cardLine(text: string, original: string, d: CardData, script: CardScrip
   // "This creature enters with N +1/+1 counters on it." (614.1c, 122.6)
   if ((m = new RegExp(`^~ enters with ${NUM} ([+-]1/[+-]1|[a-z]+) counters? on it\\.$`).exec(text)) && m[1] !== 'x') {
     script.entersWith = { ...script.entersWith, [m[2]]: NUMBERS[m[1]] ?? parseInt(m[1], 10) };
+    return true;
+  }
+  // "If this card is in your opening hand, you may begin the game with it on the battlefield." (103.6a, a Leyline)
+  if (text === 'if ~ is in your opening hand, you may begin the game with it on the battlefield.') {
+    script.openingHand = (g, self, pid) => ask(g, pid, { text: `Begin the game with ${d.name} on the battlefield?`, yes: 'Begin with It', no: 'Keep in Hand', then: 'leyline', script: self.id });
+    then.leyline = (g, { self, you, yes }) => {
+      if (!yes || self.zone !== 'hand') return;
+      log(g, `${says(g.players[you], 'begins')} the game with ${d.name} on the battlefield.`, you, [self]);
+      enterBattlefield(g, self, { controller: you });
+    };
+    // Free: a bot always does.
+    script.botChoice = { ...script.botChoice, leyline: () => ({ type: 'answer', yes: true }) };
     return true;
   }
   // "You have no maximum hand size." (402.2)
@@ -3186,6 +3229,32 @@ const TRIGGERS: [RegExp, (m: RegExpExecArray) => TrigEvent[] | null][] = [
   ],
 ];
 
+/**
+ * A triggered mana ability (605.1b) on a permanent being tapped for mana (106.12, 106.12a), which
+ * resolves at once (605.4a): "Whenever you tap a Swamp for mana, add an additional {B}" (Crypt
+ * Ghast), "Whenever you tap a nonland permanent for mana, add one mana of any type that permanent
+ * produced" (Kinnan), "Whenever enchanted land is tapped for mana, its controller adds an
+ * additional {G}" (Wild Growth). Null if the line is none of these.
+ */
+function tappedForManaLine(text: string, d: CardData): CardScript['tappedForMana'] | null {
+  const syms = (s: string) => s.slice(1, -1).split('}{').map((x) => x.toUpperCase() as ManaSym);
+  let m = /^whenever you tap (an? .+?) for mana, (add an additional ((?:\{[wubrgc]\})+)|add one mana of any type that permanent produced)\.$/.exec(text);
+  if (m) {
+    const about = aboutObject(m[1]);
+    if (!about) return null;
+    const extra = m[3] ? syms(m[3]) : null;
+    // "You": the ability's controller tapped it, so it is theirs to tap (106.12).
+    return (g, self, e) => (e.player === self.controller && about(g, e.source, self) ? { player: e.player, mana: extra ? [extra] : [...new Set(e.produced)].map((s) => [s]) } : null);
+  }
+  m = /^whenever enchanted (land|creature|permanent|forest|plains|island|swamp|mountain) is tapped for mana, its controller adds an additional ((?:\{[wubrgc]\})+)\.$/.exec(text);
+  if (m && d.typeLine.includes('Aura')) {
+    const extra = syms(m[2]);
+    // "Its controller": the enchanted permanent's, who tapped it.
+    return (_g, self, e) => (e.source.id === self.attachedTo ? { player: e.source.controller, mana: [extra] } : null);
+  }
+  return null;
+}
+
 /** "[When / Whenever / At] [event], [if condition,] [effect]": the parts, at the first comma that leaves an event the parser knows. */
 function splitTrigger(text: string): [string, string, string | undefined, string] | null {
   if (!/^(?:when|whenever|at) /.test(text)) return null;
@@ -3406,6 +3475,13 @@ function readCard(d: CardData): CardScript {
       }
       spellEffects.push(...effects(text, { permanent: false, x: xSpell ? (_g, ctx) => ctx.self.cast?.x ?? 0 : null, typeLine: d.typeLine }));
       spellTexts.push(text);
+      continue;
+    }
+    // Triggered mana abilities (605.1b): "Whenever you tap a Swamp for mana, add an additional {B}."
+    const tapped = tappedForManaLine(text, d);
+    if (tapped) {
+      if (script.tappedForMana) return refuse(original, 'a second triggered mana ability');
+      script.tappedForMana = tapped;
       continue;
     }
     // Triggered abilities (603.1): "[When / Whenever / At] [event], [if condition,] [effect]".

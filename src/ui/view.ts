@@ -28,6 +28,7 @@ import {
   attackCost,
   isFree,
   tapCandidates,
+  tappedForManaOptions,
   crewOptions,
   crewPower,
   tapCostOptions,
@@ -83,7 +84,7 @@ import {
   changeOptions,
   creaturesOf,
 } from '../engine';
-import type { AbilityRef, Action, AttackOption, Card, CastChoices, Cost, Game, ManaSym, ManaUse, Payment, PlayerId, StackItem, Step, Stops, TargetRef, TargetSpec } from '../engine';
+import type { AbilityRef, Action, AttackOption, Card, CastChoices, Cost, Game, ManaSym, ManaUse, Payment, PlayerId, StackItem, Step, Stops, TapUntapped, TargetRef, TargetSpec } from '../engine';
 import { absoluteStops, useStore } from './store';
 import type { ManaOption, Targeting, UndoStep } from './store';
 
@@ -103,6 +104,8 @@ export interface AbilityOption {
   cost: string;
   text: string;
   ok: boolean;
+  /** Use its mana abilities instead (`useForMana`). */
+  mana?: boolean;
 }
 
 export interface View {
@@ -421,14 +424,14 @@ function crewNeeded(t: Targeting): number {
   if (t.crewDone || t.chosen.length < t.specs.length) return 0;
   const card = findCard(S().game!, t.cardId);
   const cost = card && activatedOf(t, card)?.cost;
-  return (cost?.crew || cost?.tapUntapped?.n) ?? 0;
+  return cost?.crew || (cost?.tapUntapped ? (cost.tapUntapped.count ?? 1) : 0);
 }
 
 /** The permanents that could be tapped for `card`'s "Tap N untapped ... you control" cost, or for its crew. */
 function tapOptions(g: Game, me: PlayerId, t: Targeting, card: Card): Card[] {
   const cost = activatedOf(t, card)?.cost;
-  if (!cost?.tapUntapped) return crewOptions(g, me, card);
-  return tapCostOptions(g, me, card, t.activated).filter((x) => !cost.tap || x.id !== card.id);
+  // The source among them, unless its own {T} is part of the cost (`tapCostOptions`).
+  return cost?.tapUntapped ? tapCostOptions(g, me, card, t.activated) : crewOptions(g, me, card);
 }
 
 /** Everything is chosen and the spell or ability is waiting for its cost to be paid (601.2f-h). */
@@ -448,6 +451,7 @@ const isPaying = (t: Targeting) =>
   !isDelving(t) &&
   !isDiscarding(t) &&
   !crewNeeded(t);
+
 
 /** The mana a spell or ability costs, and the same thing written out ("{1}{B}{B}"), with any life to pay. */
 function costOf(g: Game, t: Targeting): { cost: Cost; text: string } {
@@ -700,6 +704,8 @@ export function buildView(): View {
     view.glow.set(card.id, 'picked');
     // Its activated abilities don't have a cost apart from their text, which starts with it.
     const options: AbilityOption[] = [
+      // Its mana abilities, as one choice that goes on to the mana picker if there is more to choose (605).
+      ...(canTapForMana(g, me, card) ? [{ ref: {}, cost: '', text: 'Add mana', ok: true, mana: true }] : []),
       ...activatedAbilities(g, card).map((ab, i) => ({ ref: { activated: i }, cost: '', text: ab.text, ok: can({ activated: i }) })),
       ...(script.levels
         ? script.levels.map((bar, i) => ({ ref: { ability: i }, cost: bar.cost, text: bar.text, ok: can({ ability: i }) }))
@@ -833,8 +839,8 @@ export function buildView(): View {
     for (const c of tapOptions(g, me, t, card)) view.glow.set(c.id, 'target');
     for (const id of picked) view.glow.set(id, 'picked');
     view.glow.set(card.id, picked.includes(card.id) ? 'picked' : view.glow.get(card.id) ?? 'picked');
-    view.prompt = `Tap ${tapping.label} (${picked.length} of ${tapping.n} chosen).`;
-    view.primary = { label: 'Tap', sub: label(card), tone: 'go', disabled: picked.length !== tapping.n, onClick: confirmCrew };
+    view.prompt = `Tap ${tapping.label ?? tapCostText(tapping).replace(/^Tap /, '')} (${picked.length} of ${need} chosen).`;
+    view.primary = { label: 'Tap', sub: label(card), tone: 'go', disabled: picked.length !== need, onClick: confirmCrew };
     view.secondary = { label: 'Cancel', tone: 'cancel', onClick: cancel };
     return view;
   }
@@ -1095,13 +1101,13 @@ function priorityView(view: View, g: Game, me: PlayerId, stops: Stops, full: boo
  * pays. It all lives in the UI until the cost is paid, so backing out at any point leaves
  * the game as if the spell was never started (733.1).
  */
-function propose(mode: 'cast' | 'activate', card: Card) {
+function propose(mode: 'cast' | 'activate', card: Card, mana = false) {
   const g = S().game!;
   const me = S().human!;
-  // A planeswalker or Class, or a permanent with several abilities that could be activated:
-  // choose which one first (602, 606, 716.2).
+  // A planeswalker or Class, or a permanent with several abilities that could be activated, its
+  // mana abilities among them (`mana`): choose which one first (602, 605, 606, 716.2).
   const refs = mode === 'activate' ? activatable(g, me, card) : [];
-  if (refs.length > 1 || refs.some((r) => r.ability !== undefined)) {
+  if (mana || refs.length > 1 || refs.some((r) => r.ability !== undefined)) {
     useStore.setState({ targeting: { mode, cardId: card.id, specs: [], chosen: [], tapped: [], choices: {}, announcing: false, pickingAbility: true }, hover: null });
     return;
   }
@@ -1358,7 +1364,8 @@ function pickCrew(g: Game, me: PlayerId, t: Targeting, card: Card) {
   if (!tapOptions(g, me, t, vehicle).some((c) => c.id === card.id)) return;
   const crew = t.crew ?? [];
   // No more than a "Tap N untapped ..." cost taps.
-  const most = activatedOf(t, vehicle)?.cost.tapUntapped?.n;
+  const tapping = activatedOf(t, vehicle)?.cost.tapUntapped;
+  const most = tapping && (tapping.count ?? 1);
   if (most !== undefined && !crew.includes(card.id) && crew.length >= most) return;
   useStore.setState({ targeting: stepFrom(t, { crew: crew.includes(card.id) ? crew.filter((id) => id !== card.id) : [...crew, card.id] }) });
 }
@@ -1523,12 +1530,20 @@ export function chooseGraveyardTarget(id: string) {
   chooseTarget({ kind: 'card', id });
 }
 
+/** A cost that taps untapped permanents (`TapUntapped`) as a card says it: "Tap two untapped tokens you control". */
+export function tapCostText(t: TapUntapped): string {
+  const n = t.count ?? 1;
+  const noun = t.token ? 'token' : t.type === '' ? 'permanent' : (t.type ?? 'Creature').toLowerCase();
+  const count = n === 1 ? 'an' : (['', 'one', 'two', 'three', 'four', 'five'][n] ?? String(n));
+  return `Tap ${count} untapped ${t.legendary ? 'legendary ' : ''}${noun}${n === 1 ? '' : 's'} you control`;
+}
+
 /** What using a mana ability costs and does besides making mana, as its text would say it: "{U/B}, {T}", "{T}, 1 damage to you". */
 function manaAbilityText(card: Card, ab: ManaUse): string {
   const parts = [
     ...(ab.cost ? [ab.cost] : []),
     ...(ab.fromHand ? ['Exile it from your hand'] : ab.noTap ? [] : ['{T}']),
-    ...(ab.tapCreature ? [`Tap an untapped ${ab.tapCreature.legendary ? 'legendary ' : ''}creature you control`] : []),
+    ...(ab.tapCreature ? [tapCostText(ab.tapCreature)] : []),
     ...(ab.life ? [`Pay ${ab.life} life`] : []),
     ...(ab.discard ? ['Discard a card'] : []),
     ...(ab.sacrificeCreature ? ['Sacrifice a creature'] : []),
@@ -1550,7 +1565,8 @@ export function manaOptions(g: Game, me: PlayerId, card: Card): ManaOption[] {
   return manaAbilities(g, card)
     .filter((ab) => canTapForMana(g, me, card, ab.index))
     .map((ab) => {
-      const creatures = tapCandidates(g, me, ab).map((c) => c.id);
+      const creatures = tapCandidates(g, me, ab, card).map((c) => c.id);
+      const tapCount = ab.tapCreature?.count ?? 1;
       // "Discard a card" (Skirge Familiar): the card to discard is picked with the mana.
       const discards = ab.discard ? g.players[me].hand.filter((c) => c.id !== card.id).map((c) => c.id) : [];
       // "Sacrifice a creature" (Phyrexian Tower): the creature too.
@@ -1560,16 +1576,30 @@ export function manaOptions(g: Game, me: PlayerId, card: Card): ManaOption[] {
         text: manaAbilityText(card, ab),
         mana: produceOptions(ab),
         ...(creatures.length ? { creatures } : {}),
+        ...(tapCount > 1 ? { tapCount } : {}),
         ...(discards.length ? { discards } : {}),
         ...(sacrifices.length ? { sacrifices } : {}),
       };
     });
 }
 
-/** The one way to use a card's mana abilities, if there is nothing to choose: one ability, one choice of mana, no creature or card to pick. */
-function plainOption(options: ManaOption[]): ManaOption | undefined {
+/**
+ * The one way to use a card's mana abilities, if there is nothing to choose: one ability, one
+ * choice of mana, no creature or card to pick, and no triggered mana ability asking which mana
+ * it adds (Kinnan's, 605.1b).
+ */
+function plainOption(g: Game, me: PlayerId, card: Card, options: ManaOption[]): ManaOption | undefined {
   const only = options.length === 1 && options[0].mana.length === 1 ? options[0] : undefined;
-  return only && (only.creatures?.length ?? 0) <= 1 && !only.discards && !only.sacrifices ? only : undefined;
+  if (!only || (only.creatures?.length ?? 0) > (only.tapCount ?? 1) || only.discards || only.sacrifices) return undefined;
+  // One that would make no mana now (Vivi Ornitier with power 0) is used only when the human picks it.
+  if (!only.mana[0].length) return undefined;
+  return triggeredAsks(g, me, card, only.ability, only.mana[0]).some((t) => t.mana.length > 1) ? undefined : only;
+}
+
+/** The triggered mana abilities using mana ability `ability` of `card` to make `mana` would set off (605.1b), with the mana each could add. */
+function triggeredAsks(g: Game, me: PlayerId, card: Card, ability: number, mana: ManaSym[]) {
+  const ab = manaAbilities(g, card).find((m) => m.index === ability);
+  return ab ? tappedForManaOptions(g, me, card, ab, mana) : [];
 }
 
 /** Uses `card` for mana by hand outside a spell being cast, as a step Ctrl+Z can take back. */
@@ -1587,28 +1617,42 @@ function tapForMana(g: Game, me: PlayerId, card: Card) {
  */
 function tapByHand(g: Game, me: PlayerId, card: Card, group: string[] = []): string | null {
   const options = manaOptions(g, me, card);
-  const only = plainOption(options);
+  const only = plainOption(g, me, card, options);
   if (!only) {
     if (!options.length) return null;
-    const creature = options.find((o) => o.creatures)?.creatures?.[0];
+    const tapping = options.find((o) => o.creatures);
+    const creature = tapping && !tapping.tapCount ? tapping.creatures![0] : undefined;
+    // A cost that taps several: the first ones, until the human picks others.
+    const taps = tapping?.tapCount ? tapping.creatures!.slice(0, tapping.tapCount) : undefined;
     const discard = options.find((o) => o.discards)?.discards?.[0];
     const sacrifice = options.find((o) => o.sacrifices)?.sacrifices?.[0];
     // A pile is used the same way only when nothing about it is picked card by card.
-    const same = !creature && !discard && !sacrifice && group.length ? { group } : {};
+    const same = !tapping && !discard && !sacrifice && group.length ? { group } : {};
     useStore.setState({
-      manaPick: { cardId: card.id, options, ...same, ...(creature ? { creature } : {}), ...(discard ? { discard } : {}), ...(sacrifice ? { sacrifice } : {}) },
+      manaPick: { cardId: card.id, options, ...same, ...(creature ? { creature } : {}), ...(taps ? { taps } : {}), ...(discard ? { discard } : {}), ...(sacrifice ? { sacrifice } : {}) },
     });
     return null;
   }
+  const several = (only.tapCount ?? 1) > 1;
   const creature = only.creatures?.[0];
-  if (!S().act({ type: 'tapMana', card: card.id, ability: only.ability, mana: only.mana[0], ...(creature ? { tap: creature } : {}) })) return null;
+  const tap = several ? { taps: only.creatures! } : creature ? { tap: creature } : {};
+  if (!S().act({ type: 'tapMana', card: card.id, ability: only.ability, mana: only.mana[0], ...tap })) return null;
   return creature ?? card.id;
 }
 
-/** Picks the creature to tap for the mana ability the mana picker is open for (Relic of Legends). */
+/**
+ * Picks the creature to tap for the mana ability the mana picker is open for (Relic of
+ * Legends). For a cost that taps several (Baylen's two tokens), each click adds one or takes it
+ * back out, the oldest giving way once there are enough.
+ */
 export function pickTapCreature(id: string) {
   const { manaPick } = S();
-  if (manaPick?.options.some((o) => o.creatures?.includes(id))) useStore.setState({ manaPick: { ...manaPick, creature: id } });
+  const option = manaPick?.options.find((o) => o.creatures?.includes(id));
+  if (!manaPick || !option) return;
+  if (!option.tapCount) return useStore.setState({ manaPick: { ...manaPick, creature: id } });
+  const now = manaPick.taps ?? [];
+  const taps = now.includes(id) ? now.filter((x) => x !== id) : [...now, id].slice(-option.tapCount);
+  useStore.setState({ manaPick: { ...manaPick, taps } });
 }
 
 /** Picks the card to discard for the mana ability the mana picker is open for (Skirge Familiar). */
@@ -1623,10 +1667,21 @@ export function pickManaSacrifice(id: string) {
   if (manaPick?.options.some((o) => o.sacrifices?.includes(id))) useStore.setState({ manaPick: { ...manaPick, sacrifice: id } });
 }
 
+/** Answers the next triggered mana ability's choice the mana picker asks (Kinnan's "any type that permanent produced", 605.1b); null cancels. */
+export function pickTriggeredMana(mana: ManaSym[] | null) {
+  const { manaPick } = S();
+  const t = manaPick?.triggered;
+  if (!manaPick || !t) return;
+  if (!mana) return void useStore.setState({ manaPick: null });
+  useStore.setState({ manaPick: { ...manaPick, triggered: { ...t, answers: [...t.answers, mana] } } });
+  pickMana(t.ability, t.mana);
+}
+
 /**
  * Uses the mana ability `ability` of the card the mana picker is open for, making `mana`
  * (null closes the picker). A pile's other permanents are used the same way. While paying,
- * the spell is paid for once the pool covers it.
+ * the spell is paid for once the pool covers it. Triggered mana abilities that offer a choice
+ * of mana (Kinnan's) are asked first, one at a time (`pickTriggeredMana`).
  */
 export function pickMana(ability: number | null, mana?: ManaSym[]) {
   const { manaPick, human: me } = S();
@@ -1634,11 +1689,22 @@ export function pickMana(ability: number | null, mana?: ManaSym[]) {
   if (!manaPick || ability === null || !mana || me === null) return;
   const option = manaPick.options.find((o) => o.ability === ability);
   if (!option) return;
-  const creature = option.creatures ? manaPick.creature : undefined;
+  const source = findCard(S().game!, manaPick.cardId);
+  const asks = source ? triggeredAsks(S().game!, me, source, ability, mana) : [];
+  const answers = [...(manaPick.triggered?.answers ?? [])];
+  while (answers.length < asks.length && asks[answers.length].mana.length === 1) answers.push(asks[answers.length].mana[0]);
+  if (answers.length < asks.length) {
+    useStore.setState({ manaPick: { ...manaPick, triggered: { ability, mana, asks: asks.map((a) => ({ from: a.from.id, mana: a.mana })), answers } } });
+    return;
+  }
+  const creature = option.creatures && !option.tapCount ? manaPick.creature : undefined;
+  const taps = option.tapCount && manaPick.taps?.length === option.tapCount ? manaPick.taps : undefined;
   const extra = {
     ...(creature ? { tap: creature } : {}),
+    ...(taps ? { taps } : {}),
     ...(option.discards && manaPick.discard ? { discard: manaPick.discard } : {}),
     ...(option.sacrifices && manaPick.sacrifice ? { sacrifice: manaPick.sacrifice } : {}),
+    ...(answers.length ? { triggered: answers } : {}),
   };
   // The pick is one step for Ctrl+Z, however many permanents it uses.
   const start = targetingOf(S());
@@ -1651,8 +1717,9 @@ export function pickMana(ability: number | null, mana?: ManaSym[]) {
     if (!card || !canTapForMana(S().game!, me, card, ability)) continue;
     if (!S().act({ type: 'tapMana', card: id, ability, mana, ...extra })) continue;
     // Cancelling the spell takes the mana back: from the creature tapped for it, or the card.
-    if (paying && start) useStore.setState({ targeting: { ...paying, tapped: [...paying.tapped, creature ?? id], prev: start } });
-    else used.push(creature ?? id);
+    const back = creature ?? taps?.[0] ?? id;
+    if (paying && start) useStore.setState({ targeting: { ...paying, tapped: [...paying.tapped, back], prev: start } });
+    else used.push(back);
   }
   if (used.length) record({ kind: 'mana', cards: used });
   const t = targetingOf(S());
@@ -1858,9 +1925,23 @@ export function clickPermanent(card: Card) {
   }
 
   if (deciding || card.controller !== me) return;
-  if (canTapForMana(g, me, card)) tapForMana(g, me, card);
+  // A permanent with a mana ability and another ability that could be activated now (Urza,
+  // Baylen): choose which, the mana among them (`useForMana`).
+  if (canTapForMana(g, me, card) && activatable(g, me, card).length) propose('activate', card, true);
+  else if (canTapForMana(g, me, card)) tapForMana(g, me, card);
   else if (canUntapMana(g, me, card)) s.act({ type: 'untapMana', card: card.id });
   else if (activatable(g, me, card).length) propose('activate', card);
+}
+
+/** From the ability menu: use the permanent for mana instead of activating another of its abilities. */
+export function useForMana() {
+  const t = S().targeting;
+  const g = S().game;
+  const me = S().human;
+  if (!t || !t.pickingAbility || !g || me === null) return;
+  const card = findCard(g, t.cardId);
+  useStore.setState({ targeting: null });
+  if (card) tapForMana(g, me, card);
 }
 
 /**
@@ -1901,7 +1982,7 @@ export function clickGroup(cards: Card[]) {
   // A pile of permanents with a choice of mana (dual lands): it is picked once, for them all.
   const choosing = (g: Game) => {
     const [first, ...rest] = now().filter((c) => canTapForMana(g, me, c));
-    return first && !plainOption(manaOptions(g, me, first)) ? (tapByHand(g, me, first, rest.map((c) => c.id)), true) : false;
+    return first && !plainOption(g, me, first, manaOptions(g, me, first)) ? (tapByHand(g, me, first, rest.map((c) => c.id)), true) : false;
   };
 
   if (t) {
