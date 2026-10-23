@@ -6,10 +6,18 @@ import { SUPPORTED_KEYWORDS, hasScript } from '../engine';
 import { cardData, isCardName } from './db';
 import type { DeckDef } from './db';
 import type { CardData } from '../engine/types';
-import { LABEL_KEYWORDS, refusalOf } from './oracle';
+import { isLabelWord, refusalOf } from './oracle';
 
 /** Ability words and keyword actions: they label a rule that the card's script implements. */
-export const ABILITY_WORDS = ['landfall', 'treasure', 'mill', 'threshold', 'metalcraft', 'recruit', "scions' secretary", 'delirium', 'surveil', 'imprint', 'channel', 'ferocious', 'bloodrush', 'populate', 'food', 'throw wide the gates', 'flare star', 'double', 'magecraft', 'role token', 'sell contraband', 'buy information', 'hire a mercenary', 'connive', 'medicus ministorum', 'monstrosity', 'madness', 'miracle', 'amass', 'proliferate', 'blight', 'cheer'];
+export const ABILITY_WORDS = ['landfall', 'treasure', 'mill', 'threshold', 'metalcraft', 'recruit', "scions' secretary", 'delirium', 'surveil', 'imprint', 'channel', 'ferocious', 'bloodrush', 'populate', 'food', 'throw wide the gates', 'flare star', 'double', 'magecraft', 'role token', 'sell contraband', 'buy information', 'hire a mercenary', 'connive', 'medicus ministorum', 'monstrosity', 'madness', 'miracle', 'amass', 'proliferate', 'blight', 'cheer', 'scry'];
+
+/**
+ * Is keyword `k` (lower case) only a label at the front of one of the card's lines: an ability
+ * word (207.2c) or a flavor word (207.2d), like "Master Tactician — Whenever ..."? Either has no
+ * rules meaning, so the line's ability is what has to work, and the text check covers that.
+ */
+const labelOnly = (d: CardData, k: string) =>
+  isLabelWord(k, d.keywords) && (d.faces ?? [d]).some((f) => abilities(f.oracleText).some((line) => line.toLowerCase().startsWith(`${k} — `)));
 
 /**
  * Keywords the engine applies from a card's keyword list alone, with no script, and that
@@ -33,13 +41,6 @@ const isKeywordLine = (line: string) =>
     .toLowerCase()
     .split(',')
     .every((part) => SUPPORTED_KEYWORDS.includes(part.trim()));
-
-/**
- * Is `k` (lower case) a flavor word on this card (207.2d), like "Three Autostubs — Whenever ...":
- * a label in front of one of its abilities, with no rules meaning? Scryfall lists them among
- * the keywords; what follows the dash is what the card's script implements.
- */
-const isFlavorWord = (d: CardData, k: string) => !LABEL_KEYWORDS.includes(k) && (d.faces ?? [d]).some((f) => abilities(f.oracleText).some((line) => line.toLowerCase().startsWith(`${k} — `)));
 
 /** One reason the engine can't play a card. */
 export interface CardProblem {
@@ -72,7 +73,7 @@ export function problemsOf(name: string): CardProblem[] {
   if (d.typeLine.startsWith('Basic Land')) return [];
   const out: CardProblem[] = [];
   for (const k of d.keywords.map((x) => x.toLowerCase())) {
-    if (!SUPPORTED_KEYWORDS.includes(k) && !ABILITY_WORDS.includes(k) && !isFlavorWord(d, k)) out.push({ kind: 'keyword', text: `unsupported keyword "${k}"` });
+    if (!SUPPORTED_KEYWORDS.includes(k) && !ABILITY_WORDS.includes(k) && !labelOnly(d, k)) out.push({ kind: 'keyword', text: `unsupported keyword "${k}"` });
   }
   for (const face of d.faces ?? [d]) {
     if (!abilities(face.oracleText).some((line) => !isKeywordLine(line)) || hasScript(face.name)) continue;

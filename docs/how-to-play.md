@@ -210,6 +210,8 @@ The full guide to the game's screens and controls. For a quick start, see the
 - When your commander dies, is exiled, or would go to your hand or library, a window asks
   whether it goes to the **Command Zone** (castable again, with tax) or stays where it
   went.
+- A player's emblems (Sephiroth's, for one) sit in the command zone too: each is a ✦ badge
+  down the portrait's inner side, under any commander damage. Hover one to read its ability.
 
 ## Combat
 
@@ -217,6 +219,8 @@ The full guide to the game's screens and controls. For a quick start, see the
   goes), click an opponent's portrait to choose who to attack, then click your creatures.
   Different creatures can attack different players. Planeswalkers and battles you can
   attack glow yellow: click one to send your next attackers at it instead.
+  A creature that can't attack the one you chose (enchanted by an Aura of Eriette's
+  controller, say) doesn't glow, and the prompt says so; it can still attack someone else.
 - **Blocking:** when you are attacked, click your creature. If it could block more than
   one attacker, click the attacker next.
 - **Taking back:** until you press the button that finishes attacking or blocking,

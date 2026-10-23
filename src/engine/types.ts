@@ -453,6 +453,11 @@ export interface Card {
   /** Phased out indirectly with the permanent it is attached to (702.26g): it phases in with that one. */
   phasedWith?: string;
   /**
+   * An emblem (114), not a card: it lives in its owner's `Player.emblems` in the command zone,
+   * where its abilities work (114.4). `name` keys its data and script.
+   */
+  emblem?: boolean;
+  /**
    * The zone it was put into its current zone from, and the turn that happened (400.7: as this
    * object): "a card in an opponent's graveyard that was put there from their library this
    * turn" (Captain N'ghathrod). Left out for a card that hasn't moved since the game began.
@@ -549,6 +554,12 @@ export interface Player {
    */
   phasedOut?: Card[];
   /**
+   * Emblems this player owns and controls in the command zone (114.2): markers with abilities
+   * that work there (114.4). They aren't cards or permanents (114.5), so they are kept apart
+   * from `command`, which holds the commanders.
+   */
+  emblems?: Card[];
+  /**
    * A setting: this (human) player divides their attackers' combat damage by hand when
    * there is a choice (510.1c, 702.19b). Off, it is split automatically.
    */
@@ -557,11 +568,11 @@ export interface Player {
    * The Ring (701.54): set once the Ring has tempted this player, when they get the emblem
    * named The Ring (701.54c). `tempted`: how many times it has tempted them this game.
    * `bearer`: their Ring-bearer (701.54a, a designation, 701.54b), while it is the same
-   * object; another player gaining control of it ends it. `emblem`: the emblem, the source of
-   * its triggered abilities (114.4); it is in the command zone but listed only here. `ts`: the
-   * emblem's timestamp (613.7), for its "is legendary".
+   * object; another player gaining control of it ends it. The emblem itself is one of
+   * `emblems` (114), the source of its triggered abilities (114.4). `ts`: the emblem's
+   * timestamp (613.7), for its "is legendary".
    */
-  ring?: { tempted: number; bearer: { id: string; moves: number } | null; emblem: Card; ts: number };
+  ring?: { tempted: number; bearer: { id: string; moves: number } | null; ts: number };
 }
 
 /** An effect that lasts until end of turn (514.2) and isn't attached to a permanent. */
@@ -793,6 +804,11 @@ export interface Find {
   /** Keywords, lower case: a card with one of them is found too, as with "an instant card or a card with flash". */
   keywords?: string[];
   subtypes?: string[];
+  /**
+   * "An artifact or Dragon card" (Magda): a card with one of these card types or one of these
+   * subtypes, either will do (205.2a, 205.3).
+   */
+  kinds?: { types: string[]; subtypes: string[] };
   /** Mana value at most this. */
   maxMv?: number;
   /** A mana cost exactly one of these ("an artifact card with mana cost {0} or {1}", 202.1). */
@@ -1170,6 +1186,12 @@ export interface Game {
   did?: Record<string, number>;
   /** Paradigm spells that have resolved, by player and name: only the first gives the copies (702.192a). */
   paradigms?: { player: PlayerId; name: string }[];
+  /**
+   * How many times each ability has resolved this turn, for "if this is the second time this
+   * ability has resolved this turn" (Omnath, Locus of Creation): by `resolutionKey` in rules.ts,
+   * one ability of one object (400.7), copies counted as the ability (707.10b).
+   */
+  resolutions?: { turn: number; counts: Record<string, number> };
 }
 
 export type Action =
@@ -1397,6 +1419,13 @@ export interface TriggerEvents {
   onSuspendCast: object;
   /** "Whenever [a permanent] enters": every permanent, creature or not, as it was as it entered. */
   onPermanentEnters: { entered: Card };
+  /**
+   * "Whenever one or more [permanents] enter" (Marneus Calgar's tokens): once for each event
+   * that puts permanents onto the battlefield, with every one of them (603.2c, 603.6a).
+   */
+  onPermanentsEnter: { entered: Card[] };
+  /** "Whenever a [permanent] becomes tapped" (Magda's Dwarves): every permanent, as it was as it became tapped. */
+  onPermanentTapped: { tapped: Card };
   /**
    * "Whenever one or more cards are put into exile from graveyards and/or the battlefield"
    * (Ketramose): once for each event, with the cards (not tokens, 108.2b) as they are in exile.
@@ -1675,8 +1704,12 @@ export interface ActivatedAbility {
     counters?: { kind: string; n: number };
     /** "Sacrifice a creature:": one permanent its controller controls that fits, chosen as it is activated. */
     sacrificeOne?: TargetSpec;
-    /** "Sacrifice two other artifacts and/or creatures" (Mondrak): how many different ones fit `sacrificeOne`. One if left out. */
-    sacrificeCount?: number;
+    /**
+     * "Sacrifice two other artifacts and/or creatures" (Mondrak): how many different ones fit
+     * `sacrificeOne`. One if left out. `'x'`: "Sacrifice X Squirrels" (Chatterfang), X announced
+     * as it is activated (107.3a, 601.2b via 602.2b) and read as `ctx.x`.
+     */
+    sacrificeCount?: number | 'x';
     /** "Spend only black mana on X" (Crypt Rats): each X in `mana` is paid with mana of this colour. */
     xColor?: ManaSym;
     /** "Exile this [permanent]" (Relic of Progenitus). */
@@ -1884,6 +1917,17 @@ export interface CardScript extends Triggers {
   skipsExtraTurn?: (g: Game, self: Card, pid: PlayerId) => boolean;
   /** "No more than N creatures can attack this permanent each combat": a restriction on declaring attackers (508.1c). */
   maxAttackers?: number;
+  /**
+   * While this permanent is on the battlefield: can't `attacker` attack `defender` (or the
+   * planeswalker or battle `target`)? A restriction on declaring attackers (508.1c), like
+   * Eriette's "can't attack you or planeswalkers you control".
+   */
+  forbidsAttack?: (g: Game, self: Card, attacker: Card, defender: PlayerId, target: string | null) => boolean;
+  /**
+   * "As this creature transforms into [this face], ..." (712.20): applied while the permanent
+   * transforms into the face with this script, not afterward. Sephiroth's emblem.
+   */
+  asTransforms?: (g: Game, self: Card) => void;
   /** Delayed triggered abilities this card creates (603.7), by key. See `Delayed`. */
   delayed?: Record<string, (g: Game, ctx: Ctx & { data: Record<string, unknown> }) => void>;
   /** An intervening "if" of a delayed triggered ability (603.4): it triggers only if this is true. Its `delayed` checks again as it resolves. */
@@ -2002,5 +2046,5 @@ export interface CardScript extends Triggers {
 /** Hooks that every permanent on the battlefield hears, not only the card the event is about. */
 export type BroadcastHook = Exclude<
   TriggerHook,
-  'onEnter' | 'onDies' | 'onAttack' | 'onBlock' | 'onCombatDamageToPlayer' | 'onDefeat' | 'onChapter' | 'onLevel' | 'onStorm' | 'onDelayed' | 'onTapped' | 'onWard' | 'onMadness' | 'onMiracle' | 'onSuspendUpkeep' | 'onSuspendCast' | 'onLeave' | 'onCounters' | 'onReflexive' | 'onEvoked' | 'onOffspring' | 'onExalted' | 'onRad' | 'onDecayed'
+  'onEnter' | 'onDies' | 'onAttack' | 'onBlock' | 'onCombatDamageToPlayer' | 'onDefeat' | 'onChapter' | 'onLevel' | 'onStorm' | 'onDelayed' | 'onTapped' | 'onWard' | 'onMadness' | 'onMiracle' | 'onSuspendUpkeep' | 'onSuspendCast' | 'onLeave' | 'onCounters' | 'onReflexive' | 'onEvoked' | 'onOffspring' | 'onExalted' | 'onRad' | 'onDecayed' | 'onBecomesBlocked'
 >;

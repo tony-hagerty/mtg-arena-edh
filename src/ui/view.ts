@@ -10,6 +10,7 @@ import {
   activatedAt,
   attackCandidates,
   attackOptions,
+  attackForbidden,
   blockCandidates,
   canAttack,
   canBlock,
@@ -51,6 +52,7 @@ import {
   permanent,
   planPayment,
   sacrificeOptions,
+  sacrificesFor,
   abilitiesOf,
   scriptFor,
   targetSpecs,
@@ -309,8 +311,10 @@ function handAbility(g: Game, me: PlayerId, card: Card): AbilityRef | undefined 
 function sacrificeNeeds(t: Targeting): { spec: TargetSpec; alt: number | undefined; optional: boolean }[] {
   const card = findCard(S().game!, t.cardId);
   // An ability's "Sacrifice a creature" cost (Goblin Bombardment).
-  const cost = card && activatedOf(t, card)?.cost;
-  if (cost?.sacrificeOne) return Array.from({ length: cost.sacrificeCount ?? 1 }, () => ({ spec: cost.sacrificeOne!, alt: undefined, optional: false }));
+  const ab = card && activatedOf(t, card);
+  const cost = ab?.cost;
+  // "Sacrifice X Squirrels": as many as the X announced (107.3a).
+  if (ab && cost?.sacrificeOne) return Array.from({ length: sacrificesFor(ab, t.x ?? 0) }, () => ({ spec: cost.sacrificeOne!, alt: undefined, optional: false }));
   if (!card || t.mode !== 'cast') return [];
   const script = scriptFor(asSpell(card, t.choices.face));
   const alt = t.choices.alt === undefined ? undefined : script.alternativeCosts?.[t.choices.alt];
@@ -943,7 +947,9 @@ export function buildView(): View {
       view.attackTarget = target;
       const candidates = attackCandidates(g, me);
       const attacks = g.combat?.attacks ?? [];
-      for (const c of candidates) view.glow.set(c.id, 'attack');
+      // A restriction may keep one from attacking what the attackers go after (508.1c): it doesn't glow.
+      const barred = target ? candidates.filter((c) => attackForbidden(g, c, target.defender, target.target)) : [];
+      for (const c of candidates) if (!barred.includes(c)) view.glow.set(c.id, 'attack');
       // Opponents, and the planeswalkers and battles that can be attacked (508.1b).
       for (const o of attackOptions(g, me)) {
         if (!o.target) view.targetPlayers.add(o.defender);
@@ -954,7 +960,8 @@ export function buildView(): View {
       const must = candidates.filter((c) => has(g, c, MUST_ATTACK) && !attacks.some((a) => a.id === c.id));
       view.prompt =
         `Choose attackers — sending them at ${target ? attackName(g, target) : '?'}. Click an opponent${walkers ? ', planeswalker or battle' : ''} to switch.` +
-        (must.length ? ` ${must.map(label).join(' and ')} must attack.` : '');
+        (must.length ? ` ${must.map(label).join(' and ')} must attack.` : '') +
+        (barred.length && target ? ` ${barred.map(label).join(' and ')} can't attack ${attackName(g, target)}.` : '');
       // Attacks that cost mana, like those at a player with Propaganda (508.1g).
       const cost = attackCost(g, attacks);
       if (!isFree(cost)) view.prompt += ` Attacking costs ${costText(cost)}.`;
