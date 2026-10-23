@@ -146,6 +146,12 @@ function Avatar({ player }: { player: Player }) {
               </span>
             )),
         )}
+        {/* Their emblems in the command zone (114): hover one to read its ability. */}
+        {(player.emblems ?? []).map((e) => (
+          <span key={e.id} className="emblem" aria-label={`Emblem: ${data(e).oracleText}`} {...hoverProps(data(e))}>
+            <b>✦</b>
+          </span>
+        ))}
       </div>
       <AnimatePresence>
         {deltas.map((d) => (
