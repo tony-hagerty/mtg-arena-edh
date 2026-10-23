@@ -232,8 +232,14 @@ const LISTED = ['flying', 'reach', 'deathtouch', 'lifelink', 'trample', 'vigilan
 const SCRIPTED = ['ward', 'enchant'];
 
 const addAll = (to: string[], xs: string[] | undefined) => {
-  for (const x of xs ?? []) if (!to.includes(x)) to.push(x);
+  for (const x of xs ?? []) if (!to.includes(x) || STACKING.includes(x)) to.push(x);
 };
+
+/**
+ * Keyword abilities whose every instance works separately, so each one given is listed again:
+ * exalted (702.83b) and riot (702.136b). The engine reads the others as there or not.
+ */
+const STACKING = ['exalted', 'riot'];
 
 /** Does entry `e`, with parts `p`, apply in layer `l`? */
 const appliesAt = (e: Entry, p: LayerParts, l: Layer) =>

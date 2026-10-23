@@ -16,6 +16,13 @@ export interface Mana {
   types?: string[];
   /** "... and that spell can't be countered" (106.6): the spell it is spent on can't be countered. */
   uncounterable?: boolean;
+  /**
+   * "Spend this mana only to cast creature spells with mana value 4 or greater or creature
+   * spells with {X} in their mana costs" (106.6, Helga): the spell's mana value must be at
+   * least this, or, with `orX`, its mana cost has {X}. Goes with `types`.
+   */
+  minMv?: number;
+  orX?: boolean;
   /** "Spend this mana only to cast an Angel spell" (106.6, Giada): spells with this subtype, of any card type. */
   subtype?: string;
   /** Made by a mana ability used by hand that can be taken back: what taking it back undoes (`canUntapMana`). */
@@ -604,6 +611,8 @@ export type TurnEffect =
       ifSubtype?: string;
       /** "If that spell would be put into your graveyard, exile it instead" (Vohar): a spell cast with this permission. */
       graveyardToExile?: boolean;
+      /** "You may play that card without paying its mana cost" (Urza): a spell is cast for nothing, an alternative cost (118.9). */
+      free?: boolean;
     }
   /** Card `card` in a graveyard has flashback this turn, its flashback cost its mana cost (Flashback, Stingcaster Mage). */
   | { kind: 'flashback'; card: string; moves: number }
@@ -630,8 +639,12 @@ export interface Delayed {
   /** The spell or ability that made it, as it was then. */
   card: Card;
   key: string;
-  /** `main1`: "at the beginning of [your] precombat main phase" (505.1). `endCombat`: "at end of combat" (511.2). */
-  step: 'upkeep' | 'main1' | 'endCombat' | 'end';
+  /**
+   * `main1`: "at the beginning of [your] precombat main phase" (505.1). `main`: "at the
+   * beginning of your next main phase", precombat or postcombat, whichever comes first (Mana Drain).
+   * `endCombat`: "at end of combat" (511.2).
+   */
+  step: 'upkeep' | 'main1' | 'main' | 'endCombat' | 'end';
   /** It triggers each time, not once: "at the beginning of each of your precombat main phases for the rest of the game" (paradigm, 702.192a). */
   repeat?: boolean;
   /** Only in this turn. Left out: the next such step of `player`'s turn, or of anyone's turn without `player`. */
@@ -802,6 +815,8 @@ export interface Find {
   costs?: string[];
   /** Toughness at most this, as the card has it in the library (208.2a). */
   maxToughness?: number;
+  /** Legendary cards only (205.4d): "a legendary permanent card" (Sisay). */
+  legendary?: boolean;
   /** "A card named [name]" (201.2): partner with's search (702.124j). */
   name?: string;
   /** "a Mountain or Plains card", for the prompt. */
@@ -990,7 +1005,8 @@ export type ReplaceEvent =
   | { kind: 'tokens'; player: PlayerId; tokens: TokenSpec[] }
   | { kind: 'counters'; card: Card; counter: string; n: number; entering?: boolean; by?: 'cost' | 'rule' }
   | { kind: 'gainLife'; player: PlayerId; amount: number }
-  | { kind: 'enter'; card: Card; tapped: boolean; counters: Record<string, number> }
+  /** `keywords`: abilities it gains as it enters, for as long as it stays: riot's haste (702.136a). */
+  | { kind: 'enter'; card: Card; tapped: boolean; counters: Record<string, number>; keywords?: string[] }
   | { kind: 'begin'; player: PlayerId; what: 'extraTurn' | 'drawStep' }
   | { kind: 'none'; was: ReplaceEvent };
 
@@ -1016,6 +1032,11 @@ export interface Replacement {
   optional?: { player: PlayerId; text: string; yes: string; no: string; bot?: boolean };
   /** It may apply again to the event it made (903.9b, an exception to 614.5). */
   again?: boolean;
+  /**
+   * With `optional`: what happens instead if its player chooses not to apply it, as riot's
+   * "If you don't, it gains haste" (702.136a). Left out, the event goes on unchanged.
+   */
+  otherwise?: ReplaceEvent;
   /** Logged when it is applied. */
   log?: { text: string; player: PlayerId; cards?: Card[] };
 }
@@ -1180,7 +1201,7 @@ export type Action =
   | { type: 'plot'; card: string }
   /** `hold`: keep priority afterwards instead of letting auto-pass pass it (117.3c). */
   | ({ type: 'cast'; card: string; targets?: (TargetRef | null)[]; hold?: boolean } & CastChoices)
-  /** `crew`: the creatures tapped to pay a crew cost (702.122a), or the permanents tapped for a "Tap three untapped Elves you control" cost (`tapUntapped`). */
+  /** `crew`: the creatures tapped to pay a crew cost (702.122a), or the permanents tapped for a "Tap three untapped Elves / tokens you control" cost (`cost.tapUntapped`). */
   /**
    * `ability`: which loyalty ability (606) or Class level bar, by index. Left out, one of
    * the `activated` abilities: `activated` is its index in the list (left out, the first).
@@ -1198,7 +1219,13 @@ export type Action =
   /** `tap`: the creature tapped to pay an ability's "Tap an untapped creature you control" cost (Relic of Legends). */
   /** `discard`: the card discarded to pay a "Discard a card" cost (Skirge Familiar). */
   /** `sacrifice`: the creature sacrificed to pay a "Sacrifice a creature" cost (Phyrexian Tower). */
-  | { type: 'tapMana'; card: string; ability?: number; color?: ManaSym; mana?: ManaSym[]; tap?: string; discard?: string; sacrifice?: string }
+  /**
+   * `taps`: the permanents tapped for a cost that taps more than one, like Baylen's "Tap two
+   * untapped tokens you control". `triggered`: for each triggered mana ability that offers a
+   * choice of mana as it resolves (605.1b, Kinnan's "any type that permanent produced"), in the
+   * order they trigger, the mana chosen. Left out, the engine picks.
+   */
+  | { type: 'tapMana'; card: string; ability?: number; color?: ManaSym; mana?: ManaSym[]; tap?: string; taps?: string[]; triggered?: ManaSym[][]; discard?: string; sacrifice?: string }
   | { type: 'untapMana'; card: string }
   /** `target`: a planeswalker or battle to attack instead of the player; `defender` is then its controller or protector (508.1b). */
   | { type: 'declareAttack'; card: string; defender: PlayerId; target?: string }
@@ -1461,6 +1488,8 @@ export interface TriggerEvents {
   onEvoked: object;
   /** Offspring's "When this permanent enters, if its offspring cost was paid, create a 1/1 token copy of it" (702.175a). */
   onOffspring: object;
+  /** Exalted (702.83a), which the engine triggers and resolves: "that creature", as it was when it attacked alone. */
+  onExalted: { attacker: Card };
   /** "Whenever the Ring tempts you" (701.54d): once the player has finished being tempted. */
   onRingTempts: { player: PlayerId };
   /**
@@ -1554,8 +1583,10 @@ export interface ManaAbility {
   /**
    * "Tap an untapped [legendary] creature you control" is its cost instead of {T} (Relic of
    * Legends). Summoning sickness doesn't matter: the creature's own {T} isn't used (302.6).
+   * `TapUntapped` says what else such a cost can tap: "Tap an untapped artifact you control"
+   * (Urza), "Tap two untapped tokens you control" (Baylen).
    */
-  tapCreature?: { legendary?: boolean };
+  tapCreature?: TapUntapped;
   /** "Discard your hand" is part of the cost (Lion's Eye Diamond). */
   discardHand?: boolean;
   /** "Activate only as an instant": only while its controller has priority. */
@@ -1568,6 +1599,22 @@ export interface ManaAbility {
   legendary?: boolean;
   /** "Spend this mana only to cast instant and sorcery spells" (Tablet of Discovery): spells with one of these card types. */
   types?: string[];
+  /** "Spend this mana only to cast creature spells with mana value 4 or greater or creature spells with {X} in their mana costs" (Helga): see `Mana.minMv`. */
+  minMv?: number;
+  orX?: boolean;
+  /**
+   * "Add X mana ..., where X is [this creature's] power" (Vivi Ornitier, Helga): how much it adds,
+   * worked out as it is used (it resolves at once, 605.3b), instead of `amount`. 0 adds nothing.
+   */
+  amountOf?: (g: Game, self: Card) => number;
+  /**
+   * The exact mana it may add, worked out as it is used, as `produces` otherwise says: "For each
+   * color among permanents you control, add one mana of that color" (Faeburrow Elder), "Add X
+   * mana in any combination of {U} and/or {R}" (Vivi Ornitier, with `combinations`).
+   */
+  producesOf?: (g: Game, self: Card) => ManaSym[][];
+  /** "Activate only once each turn" (602.5b): once a turn, for as long as it is the same object (400.7). */
+  activateOncePerTurn?: boolean;
   /** "Spend this mana only to cast an Angel spell" (Giada): spells with this subtype (106.6). */
   subtype?: string;
   /** "Discard a card" is its cost (Skirge Familiar). Auto-pay never uses it: it costs a card. */
@@ -1584,6 +1631,24 @@ export interface ManaAbility {
    * lists ("Add {W}{W}, {W}{B}, or {B}{B}"). `amount` and `colors` then describe it for display.
    */
   produces?: ManaSym[][];
+}
+
+/**
+ * A cost of tapping untapped permanents the ability's controller controls other than by {T}
+ * (Relic of Legends, Springleaf Drum, Urza, Baylen). It isn't a {T} ability of theirs, so
+ * summoning sickness doesn't matter (302.6). `type`: the card type they have ('Creature' if
+ * left out, '' for any permanent); `token`: tokens only; `legendary`: legendary ones only;
+ * `count`: how many different ones (one if left out).
+ */
+export interface TapUntapped {
+  legendary?: boolean;
+  type?: string;
+  /** Only permanents with this subtype: "Elves" (High Perfect Morcant). */
+  subtype?: string;
+  token?: boolean;
+  /** How the cost says it, if not the way `tapCostText` would: "three untapped Elves you control". */
+  label?: string;
+  count?: number;
 }
 
 /** What a continuation (`CardScript.then`) is told: the answer to the choice it waited on. */
@@ -1654,11 +1719,12 @@ export interface ActivatedAbility {
     /** "Exile two cards from your graveyard" (Matoc): that many cards from its controller's graveyard, chosen as it is activated. */
     exileGraveyard?: number;
     /**
-     * "Tap three untapped Elves you control" (High Perfect Morcant): `n` untapped permanents its
-     * controller controls that fit, chosen as it is activated (the action's `crew`). Not {T}, so
-     * summoning sickness doesn't matter (302.6), and the source may be one of them.
+     * "Tap three untapped tokens you control" (Baylen), "Tap three untapped Elves you control"
+     * (High Perfect Morcant): that many untapped permanents its controller controls that fit,
+     * chosen as it is activated (the action's `crew`). Not {T}, so summoning sickness doesn't
+     * matter (302.6); the source may be one of them unless its own {T} is part of the cost.
      */
-    tapUntapped?: { n: number; filter: (g: Game, c: Card) => boolean; label: string };
+    tapUntapped?: TapUntapped;
   };
   sorcery?: boolean;
   /** Activated from its owner's hand rather than the battlefield, like channel. */
@@ -1941,6 +2007,16 @@ export interface CardScript extends Triggers {
   attackTax?: (g: Game, self: Card, attacker: Card, defender: PlayerId, target: string | null) => string | null;
   /** Ward (702.21). */
   ward?: WardCost;
+  /**
+   * While this permanent is on the battlefield: a triggered mana ability (605.1b) on a player
+   * tapping permanent `source` for mana (106.12: activating a mana ability of it with {T} in its
+   * cost) that produced mana (106.12a), `produced`. It resolves at once, without the stack
+   * (605.4a): `player` adds one of the lists `mana`, chosen by this ability's controller. Null
+   * if it doesn't trigger. "Whenever you tap a nonland permanent for mana, add one mana of any
+   * type that permanent produced" (Kinnan); "Whenever enchanted land is tapped for mana, its
+   * controller adds an additional {G}" (Wild Growth).
+   */
+  tappedForMana?: (g: Game, self: Card, e: { source: Card; player: PlayerId; produced: ManaSym[] }) => { player: PlayerId; mana: ManaSym[][] } | null;
   /** An action from an opening hand (103.6), like Gemstone Caverns's. It queues its own choices. */
   openingHand?: (g: Game, self: Card, pid: PlayerId) => void;
   /**
@@ -1970,5 +2046,5 @@ export interface CardScript extends Triggers {
 /** Hooks that every permanent on the battlefield hears, not only the card the event is about. */
 export type BroadcastHook = Exclude<
   TriggerHook,
-  'onEnter' | 'onDies' | 'onAttack' | 'onBlock' | 'onCombatDamageToPlayer' | 'onDefeat' | 'onChapter' | 'onLevel' | 'onStorm' | 'onDelayed' | 'onTapped' | 'onWard' | 'onMadness' | 'onMiracle' | 'onSuspendUpkeep' | 'onSuspendCast' | 'onLeave' | 'onCounters' | 'onReflexive' | 'onEvoked' | 'onOffspring' | 'onRad' | 'onDecayed' | 'onBecomesBlocked'
+  'onEnter' | 'onDies' | 'onAttack' | 'onBlock' | 'onCombatDamageToPlayer' | 'onDefeat' | 'onChapter' | 'onLevel' | 'onStorm' | 'onDelayed' | 'onTapped' | 'onWard' | 'onMadness' | 'onMiracle' | 'onSuspendUpkeep' | 'onSuspendCast' | 'onLeave' | 'onCounters' | 'onReflexive' | 'onEvoked' | 'onOffspring' | 'onExalted' | 'onRad' | 'onDecayed' | 'onBecomesBlocked'
 >;

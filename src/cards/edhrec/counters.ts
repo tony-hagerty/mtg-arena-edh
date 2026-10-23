@@ -148,7 +148,7 @@ registerScripts({
     // "Tap three untapped Elves you control: Proliferate. Activate only as a sorcery." Not {T}:
     // Morcant may be one of them, summoning sick or not (302.6).
     activated: {
-      cost: { tapUntapped: { n: 3, filter: (g, c) => subtypesOf(g, c).includes('Elf'), label: 'three untapped Elves you control' } },
+      cost: { tapUntapped: { type: '', subtype: 'Elf', count: 3, label: 'three untapped Elves you control' } },
       sorcery: true,
       text: 'Tap three untapped Elves you control: Proliferate',
       resolve: (g, { you }) => void proliferate(g, you),
