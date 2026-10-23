@@ -102,7 +102,12 @@ The full guide to the game's screens and controls. For a quick start, see the
   1. **Targets.** Legal targets are highlighted in **yellow**. Click one.
   2. **Pay.** The prompt shows the cost and the lands auto-pay would tap glow. Press
      **Pay** to confirm, or tap lands yourself: the spell is cast as soon as your mana
-     covers the cost. **Cancel** and the **Hold priority** box sit in a row above Pay.
+     covers the cost. **Cancel** and the **Hold priority** box sit in a row above Pay. A
+     cost with symbols that can be paid with 2 life instead of mana (Phyrexian mana like
+     {B/P}, or any {B} with K'rrik on your side) shows a **Pay with life** stepper: pick how
+     many to pay with life, or leave it on **Auto** to spend mana first and life only where
+     the mana isn't there. The same stepper shows while declaring attackers whose cost has
+     such symbols.
 
   Until it is paid for nothing has happened. The spell isn't on the stack, and Cancel
   untaps any lands you tapped while paying, so you are back exactly where you were.

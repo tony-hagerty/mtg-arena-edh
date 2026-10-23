@@ -213,7 +213,12 @@ are from the Comprehensive Rules in `docs/rules/`.
   values spread over the range when there are more) and keep the best.
 - **Hybrid** ({R/W}), **monocoloured hybrid** ({2/W}) and **Phyrexian** ({W/P}) symbols.
   Auto-pay tries coloured mana first, then {2}, then 2 life, and backs up if a choice
-  leaves the rest unpayable.
+  leaves the rest unpayable. For each symbol that may be paid with 2 life (Phyrexian mana,
+  107.4f; K'rrik's {B}) the payer chooses mana or life before paying (601.2b): the payment
+  panel's **Pay with life** stepper says how many such symbols are paid with life, for a
+  spell, an ability or an attack cost alike (`CastChoices.payLife`, `Action.payLife`), never
+  more life than the player has (119.4). Left on **Auto**, and for bots, mana is spent first
+  and life only where the mana isn't there.
 - **Kicker and multikicker** (702.33), additional costs (118.8): "sacrifice a creature",
   "discard a card" (picked after the targets, from your other cards; bots discard the
   card they want least) and "pay N life" or "pay X life" (X is announced with the spell,
@@ -280,6 +285,10 @@ are from the Comprehensive Rules in `docs/rules/`.
   and is sacrificed at the beginning of the next end step if it is still the same object.
   "Blitz costs you pay cost {1} less for each time you've cast your commander from the
   command zone" takes off generic mana only (601.2f), counting casts of either partner.
+  "Each creature spell you cast with mana value 4 or greater has blitz" counts the X the
+  caster announces (202.3e): blitz and X are chosen together (601.2b), so a creature with
+  {X} in its cost has blitz only with an X that brings its mana value to 4
+  (`AlternativeCost.minX`; the X panel starts there and won't go below).
 - **Affinity (702.41):** "Affinity for creatures/artifacts" is a cost reduction of {1} for
   each such permanent you control (601.2f), and "Instant and sorcery spells you cast have
   affinity for creatures" (Witherbloom, the Balancer) gives it to those spells; several
@@ -293,8 +302,8 @@ are from the Comprehensive Rules in `docs/rules/`.
 - **Paying life for a colour's mana:** K'rrik, Son of Yawgmoth's "For each {B} in a cost,
   you may pay 2 life rather than pay that mana" makes every {B} in a cost you pay (a
   spell's, an ability's, an attack tax) payable like {B/P}: a hybrid or Phyrexian symbol
-  with a black half gets the choice too. As with Phyrexian mana, auto-pay pays mana first
-  and life only when the black mana isn't there (see Known simplifications).
+  with a black half gets the choice too, and the payer chooses mana or life for each symbol
+  as for Phyrexian mana (above).
 
 ### Mana
 
@@ -920,8 +929,6 @@ These are deliberate cuts for a prototype. The biggest ones come first.
 ### Mana and paying
 
 - **Snow mana** {S} isn't supported.
-- **Phyrexian mana** is always paid with mana when the mana is there; you can't choose to
-  pay life instead. Tapping lands by hand first lets you steer it.
 - **Taking mana back:** any mana ability (605.1a) used by hand can be taken back by
   clicking its source again (or the creature tapped for it, Relic of Legends; Ctrl+Z names
   a source that left, a Treasure). This is a convenience, not a rule: mana abilities can't
