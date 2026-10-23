@@ -80,6 +80,9 @@ import {
   shuffle,
   snapshot,
   lastKnown,
+  leftGraveyards,
+  EXILED_CAST,
+  finishExiledCast,
   copyItem,
   findCard,
   flashGranted,
@@ -581,6 +584,8 @@ const ENGINE_THEN: Record<string, (g: Game, ctx: ThenCtx) => void> = {
   '@ward': (g, { yes, data }) => {
     if (!yes) counter(g, { kind: 'stack', id: data.item as string });
   },
+  // Discover (701.57a) and the like (`castFromExiled`): the card wasn't cast, or was; then the rest go on the bottom.
+  [EXILED_CAST]: (g, { yes, data }) => finishExiledCast(g, yes, data),
   // "Ward—Sacrifice a Food" (702.21a): the permanent picked is sacrificed to pay (701.21a), or with none picked the spell or ability is countered.
   '@wardSacrifice': (g, { picked, chooser, data }) => {
     const c = picked[0] && permanent(g, picked[0].id);
@@ -1866,6 +1871,7 @@ function resolveTop(g: Game) {
   );
   const fizzled = item.targets.some(Boolean) && !targets.some(Boolean);
   if (fizzled) log(g, `${label(card)} has no legal target left and does nothing.`, controller, [card]);
+  if (fizzled) item.fizzled = true;
 
   if (item.kind === 'spell') {
     // A gift happens before the spell's other effects, and only if it resolves (702.174j).
@@ -2097,6 +2103,19 @@ function castDone(g: Game, pid: PlayerId, item: StackItem) {
 }
 
 /** The end of resolving: the item leaves the stack, and the active player gets priority (117.3b). */
+/**
+ * "Whenever the final chapter ability of a Saga you control resolves": the Saga as it is now,
+ * or as it last was (608.2h), and whether this was its final chapter ability, the one with its
+ * greatest chapter number (714.2d-e).
+ */
+function chapterResolved(g: Game, item: StackItem) {
+  const now = permanent(g, item.card.id);
+  const saga = now && now.moves === item.card.moves ? now : item.card;
+  const chapter = (item.event as TriggerEvents['onChapter']).chapter;
+  const final = chapter === (now === saga ? abilitiesOf(g, saga) : scriptFor(saga)).chapters?.length;
+  broadcast(g, 'onChapterResolved', { saga: snapshot(saga), chapter, final, controller: saga.controller });
+}
+
 function finishResolving(g: Game) {
   const item = g.stack.find((x) => x.id === g.resolving);
   g.resolving = null;
@@ -2123,6 +2142,8 @@ function finishResolving(g: Game) {
     moveCard(g, item.card, 'exile');
   } else if (item?.kind === 'spell') moveCard(g, item.card, 'graveyard');
   else if (item) g.stack = g.stack.filter((x) => x !== item);
+  // A Saga's chapter ability has resolved (Tom Bombadil): not one that did nothing for want of targets (608.2b).
+  if (item?.hook === 'onChapter' && !item.fizzled) chapterResolved(g, item);
   g.passes = 0;
   g.priority = firstPriority(g);
 }
@@ -2388,6 +2409,9 @@ function act(g: Game, a: Action): boolean {
       c.plotted = undefined;
       c.warped = undefined;
       c.suspend = undefined;
+      c.arrived = { from, turn: g.turn };
+      // Cast from a graveyard, it has left it (603.10a: "whenever one or more cards leave your graveyard").
+      if (from === 'graveyard') leftGraveyards(g, [c]);
       const info: CastInfo = {
         x: hasX ? (choices.x ?? 0) : 0,
         kicked: choices.kicked ?? 0,
