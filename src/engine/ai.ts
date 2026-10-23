@@ -30,9 +30,11 @@ import {
   modeChoices,
   sacrificeOptions,
   delveOptions,
+  tapCostOptions,
 } from './engine';
 import {
   activatedAt,
+  counterKinds,
   flashbackCost,
   preferredColor,
   CANT_ATTACK,
@@ -216,8 +218,10 @@ function targetChoices(g: Game, pid: PlayerId, specs: TargetSpec[], source: Card
     // "Any number of" targets (115.1d): none, each one alone, or all of them.
     if (spec.any) {
       const legal = shortlist(g, pid, legalTargets(g, pid, spec, source, x), 4);
-      const all = legalTargets(g, pid, spec, source, x);
-      const sets = [[], ...legal.map((t) => [t]), ...(all.length > 1 ? [all] : [])];
+      // "Up to X target ...": the X most promising at most (`most`).
+      const most = spec.most ? spec.most(g, source) : Infinity;
+      const all = most < Infinity ? shortlist(g, pid, legalTargets(g, pid, spec, source, x), most) : legalTargets(g, pid, spec, source, x);
+      const sets = [[], ...(most >= 1 ? legal.map((t) => [t]) : []), ...(all.length > 1 ? [all] : [])];
       combos = combos.flatMap((c) => sets.map((set) => [...c, ...set])).slice(0, 40);
       continue;
     }
@@ -232,6 +236,28 @@ function targetChoices(g: Game, pid: PlayerId, specs: TargetSpec[], source: Card
     combos = combos.flatMap((c) => legal.filter((t) => fits(c, t)).map((t) => [...c, t])).slice(0, 40);
   }
   return combos;
+}
+
+/**
+ * Counter kinds that are bad for whoever has them: more of them helps only against an
+ * opponent. Every other kind is taken to be good for its permanent's controller or its player.
+ */
+const HARMFUL_COUNTERS = ['-1/-1', 'stun', 'poison', 'rad', 'defense', 'time', 'finality'];
+const counterGain = (kinds: string[], mine: boolean) => kinds.reduce((n, k) => n + (HARMFUL_COUNTERS.includes(k) === mine ? -1 : 1), 0);
+
+/** What a bot chooses as it proliferates (701.34a): each permanent and player that comes out better for it. */
+function proliferateChoice(g: Game, pid: PlayerId, cards: Card[], players: PlayerId[]): Action {
+  return {
+    type: 'chooseCards',
+    cards: cards.filter((c) => counterGain(counterKinds(c.counters), c.controller === pid) > 0).map((c) => c.id),
+    players: players.filter((x) => counterGain(counterKinds(g.players[x].counters), x === pid) > 0),
+  };
+}
+
+/** What a creature loses as it gets `n` -1/-1 counters (701.68a): all it is worth if that kills it. */
+function blightLoss(g: Game, c: Card, n: number): number {
+  const s = stats(g, c);
+  return s.toughness <= n && !s.keywords.has('indestructible') ? worth(g, c) + 1 : (worth(g, c) * n) / Math.max(1, s.toughness + 1);
 }
 
 /** What a permanent is worth to sacrifice: less is a better sacrifice. */
@@ -426,7 +452,16 @@ function activations(g: Game, pid: PlayerId, c: Card, ref: AbilityRef): Action[]
   // One of its activated abilities, a loyalty ability, or a Class level bar (which has no targets).
   const ab = ability === undefined ? activatedAt(g, c, activated) : undefined;
   const specs = (ab ? ab.targets : abilitiesOf(g, c).loyalty?.[ability!].targets) ?? [];
-  const crew = ab?.cost.crew ? crewChoice(g, pid, c, activated) : undefined;
+  // "Tap three untapped Elves you control": the ones that have done their work this turn first, then the weakest.
+  const tapping = ab?.cost.tapUntapped;
+  const tapped = tapping
+    ? [...tapCostOptions(g, pid, c, activated)]
+        .filter((x) => !ab.cost.tap || x.id !== c.id)
+        .sort((a, b) => Number(!!g.players[pid].attackedWith?.includes(b.id)) - Number(!!g.players[pid].attackedWith?.includes(a.id)) || Number(b.sick) - Number(a.sick) || worth(g, a) - worth(g, b))
+        .slice(0, tapping.n)
+        .map((x) => x.id)
+    : undefined;
+  const crew = ab?.cost.crew ? crewChoice(g, pid, c, activated) : tapped;
   if (crew === null) return [];
   const n = ab?.cost.discard ?? 0;
   const discard = n ? [...discardOptions(g, pid, c, ab?.cost.discardFilter)].sort((a, b) => cardWant(g, pid, a) - cardWant(g, pid, b)).slice(0, n).map((x) => x.id) : undefined;
@@ -984,6 +1019,23 @@ function cardChoice(g: Game, pid: PlayerId): Action {
   if (choice.kind === 'pick' && (choice.then === '@sacrifice' || choice.data?.bot === 'sacrifice')) return { type: 'chooseCards', cards: valued((c) => worth(g, c), min) };
   if (choice.kind === 'pick' && (choice.then === '@discard' || choice.data?.bot === 'discard')) return { type: 'chooseCards', cards: valued((c) => cardWant(g, pid, c), min) };
   if (choice.kind === 'pick' && choice.data?.populate) return { type: 'chooseCards', cards: valued((c) => -worth(g, c), 1) };
+  // "Ward—Sacrifice a Food" (702.21a): pay with its least valuable permanent, if that is a token or cheap; otherwise let it be countered.
+  if (choice.kind === 'pick' && choice.data?.bot === 'wardSacrifice') {
+    const [cheapest] = valued((c) => worth(g, c), 1).map((id) => cards.find((c) => c.id === id)!);
+    return { type: 'chooseCards', cards: cheapest && (cheapest.isToken || worth(g, cheapest) < 2) ? [cheapest.id] : [] };
+  }
+  // The Ring tempts you (701.54a): its most threatening creature carries the Ring. Amass (701.47a): its biggest Army grows.
+  if (choice.kind === 'pick' && (choice.data?.bot === 'ringBearer' || choice.data?.bot === 'amass')) return { type: 'chooseCards', cards: valued((c) => -worth(g, c), 1) };
+  // Proliferate (701.34a): what gains from another counter, its own or an opponent's.
+  if (choice.kind === 'pick' && (choice.then === '@proliferate' || choice.data?.bot === 'proliferate')) return proliferateChoice(g, pid, cards, choice.players ?? []);
+  // Blight (701.68a): the creature that loses least; for a cost, only if one loses little (ward).
+  if (choice.kind === 'pick' && choice.data?.bot === 'blight') {
+    const n = (choice.data.blight as number) ?? 1;
+    const [c] = [...cards].filter((x) => valid.has(x.id)).sort((a, b) => blightLoss(g, a, n) - blightLoss(g, b, n));
+    const survives = !!c && stats(g, c).toughness > n;
+    if (!c || (min === 0 && !survives && blightLoss(g, c, n) > 1.5)) return { type: 'chooseCards', cards: [] };
+    return { type: 'chooseCards', cards: [c.id] };
+  }
   if (choice.kind === 'pick') return { type: 'chooseCards', cards: best(Math.max(min, Math.min(max, 1))) };
   const hand = g.players[pid].hand;
   // The legend rule: keep the first.
@@ -1012,6 +1064,11 @@ function choiceAnswer(g: Game, pid: PlayerId): Action {
   if (d.type === 'number') return { type: 'chooseNumber', n: d.choice.decline ? null : d.choice.min };
   // A player: the first one offered.
   if (d.type === 'player') return { type: 'choosePlayer', player: d.choice.options[0] };
+  // A kind of counter: a good one before a harmful one.
+  if (d.type === 'name' && d.choice.of === 'counter') {
+    const options = d.choice.options ?? [];
+    return { type: 'name', name: options.find((k) => !HARMFUL_COUNTERS.includes(k)) ?? options[0] };
+  }
   if (d.type === 'name' && d.choice.of === 'creature type') return { type: 'name', name: 'Human' };
   if (d.type === 'name' && d.choice.of === 'color') return { type: 'name', name: preferredColor(g, pid) };
   // A card type: creatures are what usually attack and block.
