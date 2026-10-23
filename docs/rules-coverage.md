@@ -591,8 +591,8 @@ are from the Comprehensive Rules in `docs/rules/`.
 - **Amass (701.47):** with no Army, a 0/0 black [subtype] Army token is made; the player
   chooses among their Armies if they have several; it gets the counters, and becomes the
   subtype in addition to its others if it isn't one (Sauron, Orcish Bowmasters).
-- **The Ring tempts you (701.54):** the player gets the emblem The Ring the first time, then
-  chooses one of their creatures as Ring-bearer (asked only with two or more), even with none
+- **The Ring tempts you (701.54):** the player gets the emblem The Ring the first time (one of
+  their emblems, 114, shown on the portrait), then chooses one of their creatures as Ring-bearer (asked only with two or more), even with none
   it counts as being tempted, and "whenever the Ring tempts you" triggers (701.54d). The
   Ring-bearer is legendary (layer 4, the emblem's timestamp) and can't be blocked by creatures
   with greater power; tempted two or more times, it loots as it attacks; three, a creature
@@ -794,6 +794,35 @@ are from the Comprehensive Rules in `docs/rules/`.
   aftermath, paradigm, extort (702.101), job select (702.182), convoke, escape,
   overload, evoke, warp, spree, persist, reconfigure, discover (701.57), and protection from
   a colour or from everything.
+- **"If this is the second time this ability has resolved this turn"** (Ms. Bumbleflower,
+  Omnath, Locus of Creation, Sephiroth): the engine counts each ability's resolutions this
+  turn, one ability of one object (400.7: a permanent that left and came back has a new count),
+  a copy of the ability counting as the ability (707.10b). An ability that does nothing because
+  its targets have all gone hasn't resolved (608.2b) and isn't counted.
+- **Emblems (114):** "you get an emblem with ..." puts one into its owner's command zone, kept
+  apart from the commanders (it is neither a card nor a permanent, 114.5). Its abilities work
+  there (114.4): they trigger like a permanent's. It leaves the game with its owner (800.4a).
+  The portrait shows a player's emblems; hovering one shows its ability.
+- **"As this creature transforms into [this face], ..." (712.20):** applied while it transforms,
+  not afterward (Sephiroth's Super Nova emblem).
+- **More triggers (tokens group):** "whenever one or more [tokens] you control enter", once for
+  each event that puts permanents onto the battlefield (603.2c; Marneus Calgar), and "whenever a
+  [Dwarf] you control becomes tapped", only when it was untapped (Magda). Tokens of several kinds
+  that one effect creates ("create a Treasure token and a Food token") are created in one event
+  (111.2), as the parser reads them: a replacement effect sees them all (614.1a), and "one or
+  more tokens enter" triggers once.
+- **Attack restrictions on a defender (508.1c):** Eriette's "Each creature that's enchanted by
+  an Aura you control can't attack you or planeswalkers you control": such a creature may still
+  attack another player, or a battle. A creature that must attack can't break it to do so
+  (508.1d). Bots don't try it, and on the screen such a creature doesn't glow while its
+  attackers go after you.
+- **"Sacrifice X [permanents]" (107.3a):** X is announced as the ability is activated, then
+  exactly that many are sacrificed (Chatterfang's "{B}, Sacrifice X Squirrels").
+- **Each player chooses, then it all happens at once (101.4):** Kefka's "each player discards a
+  card" and "each opponent sacrifices a permanent of their choice" ask each player in APNAP order
+  (a player sees what those before chose, 101.4b, but not a card hidden in their hand, 101.4a),
+  then do every discard or sacrifice as one event. "A card for each card type among cards
+  discarded this way" counts the card types (205.2a): an artifact creature counts two.
 - **Exalted (702.83):** each instance on each permanent its controller controls triggers when
   a creature attacks alone (506.5), printed or given; "that creature" is the attacker, if it
   is still the same object (400.7).
@@ -949,7 +978,11 @@ card, naming the clause: it never guesses. Hand scripts always win.
   for "Gishath, Sun's Avatar", and a legendary card's "Ureni" for "Ureni of the Unwritten".
   Reminder text is dropped, and an ability word or flavor word in front
   of a line ("Landfall —", "Channel —", "Sell Contraband —") is a label with no rules meaning
-  (207.2c, 207.2d). A card with faces (modal double-faced, transforming, split, Adventure) is
+  (207.2c, 207.2d). Every ability word is one the rules list (207.2c); a flavor word isn't
+  listed (207.2d), so one is a label when the card's keywords name it ("Master Tactician —"),
+  except the keywords with rules meaning written the same way: forecast, boast, visit, solved,
+  exhaust, max speed and power-up (702). The deck-paste check accepts such a word for the same
+  reason, and scry (a keyword action, 701.22) where Scryfall lists it as a keyword. A card with faces (modal double-faced, transforming, split, Adventure) is
   read face by face, one script per face name (712, 709, 715); one face it can't read refuses
   the card. Several abilities on one event become a list on the hook, each triggering on its
   own (603.2).
@@ -961,7 +994,9 @@ card, naming the clause: it never guesses. Hand scripts always win.
   permanent] enters / dies / attacks" (landfall among them), "this or another creature dies",
   "a creature or planeswalker you control dies"; "Whenever equipped or enchanted creature
   attacks / dies / deals damage"; "Whenever a creature you control deals combat damage to a
-  player"; "Whenever you gain life / draw a card / discard a card / sacrifice a permanent",
+  player"; "Whenever this or another nontoken Shrine you control enters", "Whenever one or more
+  tokens you control enter", "Whenever a Dwarf you control becomes tapped"; "Whenever you gain
+  life / draw a card / discard a card / sacrifice a permanent",
   "an opponent draws / loses life / searches their library / casts a spell", "a player draws /
   sacrifices a permanent"; "Whenever you cast a [kind of] spell", magecraft's "cast or copy"
   (207.2c); prowess (702.108a), extort (702.101a), job select (702.182a), afterlife
@@ -1042,7 +1077,15 @@ card, naming the clause: it never guesses. Hand scripts always win.
   art shows; otherwise the text's description ("a 2/2 black Zombie Knight creature token with
   menace") is made into a token on the fly, keyed like the listed ones ("Zombie Knight 2/2
   menace B"), and a quoted ability on it ("It has 'Sacrifice this token: Add {C}.'") is read by
-  the parser itself. An X/X token is refused.
+  the parser itself. An artifact or enchantment token may have that type's subtypes ("a 1/1
+  colorless Shrine enchantment creature token", 205.3d). An X/X token is refused.
+- **An ability's resolutions:** "If this is the second time this ability has resolved this
+  turn, ...", "[effect] if this is the first time ...", and after either "If it's the third
+  time, ..." (Omnath), checked as that part resolves. A spell saying it is refused.
+- **More effects and costs:** "~ deals damage to [target] equal to [an amount]" (Rin and Seri);
+  "put target creature card from a graveyard onto the battlefield under its owner's control"
+  (110.2a, Kenrith); "Sacrifice five Treasures:"; a search for "an artifact or Dragon card",
+  any of those card types or subtypes.
 - **Statics and lines about the card:** "[other] [kind] creatures / permanents you control get
   +N/+N, have [keywords], have 'Ward—Pay N life.'", "Enchant [kind]" with "enchanted creature
   gets / has / can't block" (702.5), "equipped creature gets / has / can't be blocked"; "this

@@ -419,17 +419,24 @@ fetched card too, since the card is matched to it by name.
   (`onEnter` ones too) and a short `text`, and `when` may be left out for one that
   triggers on every event.
 - Other trigger hooks: `onPostcombatMain`, `onDrawStep`, `onTapped`, `onDiscard`,
-  `onSacrifice`, `onPlaneswalkerDies`, `onBeginCombat`, `onRingTempts` ("whenever the Ring
-  tempts you", 701.54d), `onBecomesBlocked` (once for each creature blocking it, 509.3d) and
-  `onChapterResolved` (a Saga's chapter ability resolved; `final` for its final chapter,
-  714.2e). `onLifeLoss` tells `firstThisTurn` for the first life a player loses in a turn,
-  and `onDraw` `firstInDrawStep` for the first card a player draws in their own draw step
-  (504.1).
+  `onSacrifice`, `onPlaneswalkerDies`, `onBeginCombat`, `onPermanentTapped` ("whenever a Dwarf
+  you control becomes tapped"), `onRingTempts` ("whenever the Ring tempts you", 701.54d),
+  `onBecomesBlocked` (once for each creature blocking it, 509.3d) and `onChapterResolved` (a
+  Saga's chapter ability resolved; `final` for its final chapter, 714.2e). `onLifeLoss` tells
+  `firstThisTurn` for the first life a player loses in a turn, and `onDraw` `firstInDrawStep`
+  for the first card a player draws in their own draw step (504.1).
+- "If this is the second time this ability has resolved this turn": `timesResolved(g)` in the
+  resolve, this resolution counted (707.10b, 400.7). An ability that did nothing because its
+  targets had gone (`StackItem.fizzled`, 608.2b) didn't resolve and isn't counted.
+- An emblem (114): register its data and script under a name, and `createEmblem(g, pid, name)`;
+  its abilities trigger from the command zone (`Player.emblems`). "As this transforms into
+  [this face], ..." (712.20) is the face's `asTransforms`.
 - "One or more" hooks, once for each event (603.2c): `onMilled` (the cards milled, every
   player's in one event), `onCountersPut` (a permanent and a kind of counter put on it, as it
   enters too), `onPlayerDealtCombatDamage` (a player and the creatures that dealt them
-  combat damage in that step) and `onLeaveGraveyard` ("whenever one or more cards leave your
-  graveyard": once for each event and graveyard, looking back in time, 603.10a).
+  combat damage in that step), `onPermanentsEnter` ("whenever one or more tokens you control
+  enter", with every permanent that entered) and `onLeaveGraveyard` ("whenever one or more
+  cards leave your graveyard": once for each event and graveyard, looking back in time, 603.10a).
 - `oncePerTurn: true` on a `{ when, resolve }` trigger is "This ability triggers only once
   each turn": one instance a turn, even with `doublesTriggers` (101.2). "Do this only once
   each turn" (603.2h) is `didThisTurn` and `markDid`.
@@ -460,7 +467,7 @@ fetched card too, since the card is matched to it by name.
 | Vehicle | `activated: crew(3)` |
 | Impending | spread `...impending(4, '{1}{U}{U}')` into the script: its alternative cost and end-step trigger; the engine adds the time counters and "isn't a creature" |
 | Several activated abilities | list them in printed order (`activated: [ab1, equip('{1}')]`); an `activate` action and its stack item name one by `activated` (its index) |
-| Activated ability options | `fromHand`, `when`, `reduction`; costs `discard`, `discardSelf`, `counters`, or `sacrificeOne` permanent that fits a spec ("Sacrifice a creature:"), `sacrificeCount` of them ("Sacrifice two ..."), `tapUntapped` ("Tap three untapped Elves you control", picked like a crew) |
+| Activated ability options | `fromHand`, `when`, `reduction`; costs `discard`, `discardSelf`, `counters`, or `sacrificeOne` permanent that fits a spec ("Sacrifice a creature:"), `sacrificeCount` of them ("Sacrifice two ...", or `'x'` for "Sacrifice X Squirrels", read as `ctx.x`), `tapUntapped` ("Tap three untapped Elves you control", picked like a crew) |
 | Ward | `ward: { mana }`, `{ life }` or `{ blight }` ("Ward—Blight 2", 701.68a) |
 | Planeswalker | `loyalty` abilities: `{ cost: -2, text, targets, resolve }`, or `cost: '-X'` |
 | Siege | can add `onDefeat` |
@@ -576,7 +583,8 @@ gives haste; any optional `Replacement` can carry one.
 **Other static hooks**
 
 `forbids` ("can't cast"/"can't activate"), `grantsFlash`, `uncounterable`,
-`protectsSpell`, `ward`, `grantsEscape`, `delayedIf`, and `abilityCostModifier` ("activated
+`protectsSpell`, `ward`, `grantsEscape`, `delayedIf`, `forbidsAttack` ("can't attack you or
+planeswalkers you control", 508.1c; checked by `attackForbidden`), and `abilityCostModifier` ("activated
 abilities of Foods you control cost {1} less", generic mana only, mana abilities included).
 `ward` is mana, life, or `sacrifice` (a `TargetSpec` the payer's permanent must fit:
 "Ward—Sacrifice a Food").
@@ -598,6 +606,7 @@ ability already on the stack, which exists apart from its source (113.7a).
 | --- | --- |
 | `addCounters(g, card, n, kind)` | adds counters |
 | `createToken(g, pid, 'Treasure')` | makes a predefined token (`'Food'`, `'Clue'` too) |
+| `createTokens(g, pid, [{ key, count }, ...])` | several kinds of token at once, as one event (111.2) |
 | `addEffect` | an effect until end of turn; `{ kind: 'mayCast', card, moves, play: true, free: true }` is "you may play that card without paying its mana cost" (Urza) |
 | `delay` with `delayed[key]` | a delayed trigger (603.7); `step: 'main'` is "your next main phase", precombat or postcombat |
 | `extraTurn`, `winGame`, `loseGame` | as named |

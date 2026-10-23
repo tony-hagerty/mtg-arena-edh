@@ -275,7 +275,7 @@ describe('the Ring tempts you (701.54)', () => {
     const g = tempt(emptyGame());
     expect(timesTempted(g, 0)).toBe(1);
     expect(g.players[0].ring?.bearer).toBeNull();
-    expect(g.players[0].ring?.emblem.name).toBe('The Ring');
+    expect(g.players[0].emblems?.map((e) => e.name)).toEqual(['The Ring']);
     expect(timesTempted(g, 1)).toBe(0);
   });
 
@@ -387,7 +387,8 @@ describe('Frodo, Adventurous Hobbit and Sam, Loyal Attendant', () => {
       put(d, 0, 'Elite Vanguard');
       top(d, 0, ['Island', 'Island']);
       d.players[0].lifeGained = 5;
-      d.players[0].ring = { tempted: 1, bearer: null, emblem: makeCard(d, 'The Ring', 0, 'command'), ts: 1 };
+      d.players[0].emblems = [makeCard(d, 'The Ring', 0, 'command', { emblem: true })];
+      d.players[0].ring = { tempted: 1, bearer: null, ts: 1 };
     });
     g = run(g, pass, { type: 'declareAttack', card: byName(g, 0, 'Frodo, Adventurous Hobbit')!.id, defender: 1 }, pass);
     g = settle(g, (x) => asked(x)?.then === '@ringBearer');
