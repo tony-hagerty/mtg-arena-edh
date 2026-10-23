@@ -5,6 +5,15 @@ import '../cards/yshtola';
 import '../cards/ketramose';
 import '../cards/kuja';
 import '../cards/hashaton';
+import '../cards/edhrec/counters';
+import '../cards/edhrec/ward-ring';
+import '../cards/edhrec/triggers-combat';
+import '../cards/edhrec/commander-costs';
+import '../cards/edhrec/mana';
+import '../cards/edhrec/library';
+import '../cards/edhrec/zones';
+import '../cards/edhrec/tokens';
+import '../cards/edhrec/mechanics';
 import '../cards/oracle'; // parsed scripts for cards without a hand script, so after them
 
 export * from './types';

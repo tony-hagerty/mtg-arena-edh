@@ -984,6 +984,13 @@ function cardChoice(g: Game, pid: PlayerId): Action {
   if (choice.kind === 'pick' && (choice.then === '@sacrifice' || choice.data?.bot === 'sacrifice')) return { type: 'chooseCards', cards: valued((c) => worth(g, c), min) };
   if (choice.kind === 'pick' && (choice.then === '@discard' || choice.data?.bot === 'discard')) return { type: 'chooseCards', cards: valued((c) => cardWant(g, pid, c), min) };
   if (choice.kind === 'pick' && choice.data?.populate) return { type: 'chooseCards', cards: valued((c) => -worth(g, c), 1) };
+  // "Ward—Sacrifice a Food" (702.21a): pay with its least valuable permanent, if that is a token or cheap; otherwise let it be countered.
+  if (choice.kind === 'pick' && choice.data?.bot === 'wardSacrifice') {
+    const [cheapest] = valued((c) => worth(g, c), 1).map((id) => cards.find((c) => c.id === id)!);
+    return { type: 'chooseCards', cards: cheapest && (cheapest.isToken || worth(g, cheapest) < 2) ? [cheapest.id] : [] };
+  }
+  // The Ring tempts you (701.54a): its most threatening creature carries the Ring. Amass (701.47a): its biggest Army grows.
+  if (choice.kind === 'pick' && (choice.data?.bot === 'ringBearer' || choice.data?.bot === 'amass')) return { type: 'chooseCards', cards: valued((c) => -worth(g, c), 1) };
   if (choice.kind === 'pick') return { type: 'chooseCards', cards: best(Math.max(min, Math.min(max, 1))) };
   const hand = g.players[pid].hand;
   // The legend rule: keep the first.
