@@ -740,6 +740,43 @@ are from the Comprehensive Rules in `docs/rules/`.
   Flare of Fortitude, Teferi's Protection), "you gain protection from everything"
   (702.16j), life gained this turn (Haliya), and "if an opponent would begin an extra
   turn, that player skips that turn instead" (614.10, Trouble in Pairs).
+- **Revealing and exiling until (701.20a):** "reveal cards from the top of your library
+  until you reveal a creature card. Put that card onto the battlefield and the rest on the
+  bottom in a random order" (Atla Palani, Tom Bombadil, and the parser's template, with "into
+  your hand" too): everyone sees the cards revealed. "Exile cards from the top until you
+  exile a legendary nonland card with lesser mana value. You may cast that card without
+  paying its mana cost. Put the rest on the bottom" (Jodah): as its rulings say, a card not
+  cast then stays in exile and can't be cast later, and with none found the exiled cards
+  become the library again in a random order. "Reveal that many cards ... put any number of Dinosaur creature cards onto the
+  battlefield" (Gishath), "look at that many ... one into your hand, any number of lands onto
+  the battlefield tapped and the rest into your graveyard" (Choco), and "look at the top N.
+  You may put a Dragon creature card from among them onto the battlefield" (Ureni).
+- **Discover (701.57):** exile from the top until a nonland card with mana value N or less;
+  its owner may cast it without paying its mana cost if the spell's mana value is N or less,
+  or else puts it into their hand; the others go on the bottom in a random order (`discover`,
+  Pantlaza, whose "do this only once each turn" is 603.2h).
+- **Put onto the battlefield attacking (508.4):** the creature is attacking the player (or
+  planeswalker or battle) the effect names, but it never "attacked", so nothing triggers on
+  it attacking (Kaalia's "tapped and attacking that opponent"). It isn't attacking if it
+  isn't a creature, if its controller isn't the attacking player, or if that player has left
+  the game or that planeswalker or battle is gone (506.3a-c, 506.3f, 508.4a); put there after
+  blockers are declared, it is unblocked (508.4d).
+- **Cards leaving a graveyard (603.10a):** "whenever one or more cards leave your
+  graveyard" (Teval) triggers once for each event, however many cards left in it: returned,
+  exiled, cast (601.2a) or put anywhere else. It looks back in time.
+- **Sagas:** "whenever the final chapter ability of a Saga you control resolves" (Tom
+  Bombadil; the final chapter is the greatest one, 714.2d-e, and one that did nothing for want
+  of targets didn't resolve, 608.2b); lore counters among Sagas you control. "This ability
+  triggers only once each turn" (a trigger's `oncePerTurn`) is a limit: an effect that makes
+  it trigger an additional time (603.2d, Roaming Throne) adds no second instance, since
+  "can't" beats an effect that would make it happen (101.2).
+- **Draws:** "except the first one they draw in each of their draw steps" (504.1; Xyris,
+  Orcish Bowmasters), and "at the beginning of each player's draw step, that player draws an
+  additional card" (Nekusar), after the turn's own draw (504.2).
+- **Where a card came from:** "a card in an opponent's graveyard that was put there from
+  their library this turn" (Captain N'ghathrod).
+- **An ability about a permanent that has left the battlefield** ("where X is that creature's
+  toughness", Pantlaza) uses it as it last was there (608.2h), not as it entered.
 - **Reflexive triggers (603.12):** "When a creature card is exiled this way, ..." (Agatha's
   Soul Cauldron).
 - **More triggers:** "whenever an opponent searches their library" (once for each search,
@@ -755,8 +792,8 @@ are from the Comprehensive Rules in `docs/rules/`.
   flash, storm,
   cumulative upkeep, mobilize, ward, dash, bargain, gift, afterlife, delve, rebound, decayed,
   aftermath, paradigm, extort (702.101), job select (702.182), convoke, escape,
-  overload, evoke, warp, spree, persist, reconfigure, and protection from a colour or from
-  everything.
+  overload, evoke, warp, spree, persist, reconfigure, discover (701.57), and protection from
+  a colour or from everything.
 - **Exalted (702.83):** each instance on each permanent its controller controls triggers when
   a creature attacks alone (506.5), printed or given; "that creature" is the attacker, if it
   is still the same object (400.7).
@@ -908,7 +945,9 @@ no hand script. It matches each ability, clause by clause, against a list of tem
 builds the script from the helpers in `rules.ts`. One clause it can't read refuses the whole
 card, naming the clause: it never guesses. Hand scripts always win.
 
-- **Reading a card:** reminder text is dropped, and an ability word or flavor word in front
+- **Reading a card:** the card's name, or a shortened one, means the card (201.5c): "Gishath"
+  for "Gishath, Sun's Avatar", and a legendary card's "Ureni" for "Ureni of the Unwritten".
+  Reminder text is dropped, and an ability word or flavor word in front
   of a line ("Landfall —", "Channel —", "Sell Contraband —") is a label with no rules meaning
   (207.2c, 207.2d). A card with faces (modal double-faced, transforming, split, Adventure) is
   read face by face, one script per face name (712, 709, 715); one face it can't read refuses
@@ -926,7 +965,10 @@ card, naming the clause: it never guesses. Hand scripts always win.
   "an opponent draws / loses life / searches their library / casts a spell", "a player draws /
   sacrifices a permanent"; "Whenever you cast a [kind of] spell", magecraft's "cast or copy"
   (207.2c); prowess (702.108a), extort (702.101a), job select (702.182a), afterlife
-  (702.135a). An intervening "if" (603.4) is checked as it triggers and as it resolves.
+  (702.135a); "At the beginning of each player's draw step" (504.2, "that player draws an
+  additional card"), "Whenever an opponent draws a card except the first one they draw in
+  each of their draw steps" (504.1), "Whenever an Egg you control dies" (a creature type
+  means a creature, 205.3d). An intervening "if" (603.4) is checked as it triggers and as it resolves.
   "That player", "that much" and "that creature" are the event's; "it" in a trigger about
   another object is that object. Modal triggered abilities ("choose one —", 603.3c).
 - **Activated abilities (602):** costs of {T}, mana with {X} (107.3a), "Pay N life" (119.4),
@@ -961,8 +1003,14 @@ card, naming the clause: it never guesses. Hand scripts always win.
   in any order, search for a card, a basic land, named basic types, several cards, a card with
   mana value X or less, into the hand, onto the battlefield, into the graveyard or on top
   (701.23), Cultivate's split; damage to targets, groups and players as one event (120); destroy,
-  exile, return to hand, tap and untap targets or groups; "they can't be regenerated" (nothing
-  here regenerates); counters (122); "gets +N/+N and gains [keyword] until end of turn", "can't
+  exile, return to hand, tap and untap targets or groups; "they can't be regenerated" and "a
+  creature destroyed this way can't be regenerated" (nothing here regenerates); "look at the
+  top N ... you may put a [kind] card from among them onto the battlefield"; "reveal cards
+  from the top of your library until you reveal a [kind] card. Put that card onto the
+  battlefield / into your hand and the rest on the bottom in a random order" (701.20a); "you
+  and that player / target opponent each draw ..." (in APNAP order, 121.2c); "draws / mills
+  that many cards" and "deals 1 damage to that player" for a trigger's player and amount;
+  counters (122); "gets +N/+N and gains [keyword] until end of turn", "can't
   block / can't be blocked this turn", "protection from the color of your choice"; fight
   (701.14), "deals damage equal to its power"; counter a spell, "unless its controller pays
   {N}", "exile it instead"; copy a spell (707.10); return a card from a graveyard to the hand or
@@ -1028,7 +1076,7 @@ card, naming the clause: it never guesses. Hand scripts always win.
   played: it is never played as a stand-in.
 - `npm run parse-report` prints the cards it scripts on its own and every refusal: for the
   pool (327 of 519 cards with rules text, 63%) and for a corpus of the 600 most-played
-  Commander cards (`tests/parser-corpus.generated.json`: 417 of 590, 71%), whose refusals it
+  Commander cards (`tests/parser-corpus.generated.json`: 419 of 590, 71%), whose refusals it
   groups by opening words and by shape, biggest first. A test plays about 190 pool cards with
   the parsed script and with the hand script and checks the table ends the same; others play
   each template on a made-up card and check a near miss is refused.

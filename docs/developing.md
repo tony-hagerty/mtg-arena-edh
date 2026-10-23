@@ -420,12 +420,19 @@ fetched card too, since the card is matched to it by name.
   triggers on every event.
 - Other trigger hooks: `onPostcombatMain`, `onDrawStep`, `onTapped`, `onDiscard`,
   `onSacrifice`, `onPlaneswalkerDies`, `onBeginCombat`, `onRingTempts` ("whenever the Ring
-  tempts you", 701.54d) and `onBecomesBlocked` (once for each creature blocking it, 509.3d).
-  `onLifeLoss` tells `firstThisTurn` for the first life a player loses in a turn.
+  tempts you", 701.54d), `onBecomesBlocked` (once for each creature blocking it, 509.3d) and
+  `onChapterResolved` (a Saga's chapter ability resolved; `final` for its final chapter,
+  714.2e). `onLifeLoss` tells `firstThisTurn` for the first life a player loses in a turn,
+  and `onDraw` `firstInDrawStep` for the first card a player draws in their own draw step
+  (504.1).
 - "One or more" hooks, once for each event (603.2c): `onMilled` (the cards milled, every
   player's in one event), `onCountersPut` (a permanent and a kind of counter put on it, as it
-  enters too) and `onPlayerDealtCombatDamage` (a player and the creatures that dealt them
-  combat damage in that step).
+  enters too), `onPlayerDealtCombatDamage` (a player and the creatures that dealt them
+  combat damage in that step) and `onLeaveGraveyard` ("whenever one or more cards leave your
+  graveyard": once for each event and graveyard, looking back in time, 603.10a).
+- `oncePerTurn: true` on a `{ when, resolve }` trigger is "This ability triggers only once
+  each turn": one instance a turn, even with `doublesTriggers` (101.2). "Do this only once
+  each turn" (603.2h) is `didThisTurn` and `markDid`.
 - A target spec with `any` can have `most`: "up to X target creatures" with X worked out from
   the source, a triggered ability's event included (`Card.triggeredBy`).
 
@@ -475,9 +482,10 @@ sacrifice cost (ability or spell) sees `sacrificed` and `sacrificedPower` (as it
 - Worked out as it is used: `amountOf` ("X mana, where X is its power"), `producesOf` (the
   exact lists it may make: `[colorsAmong(g, pid)]` for "one mana of each color among
   permanents you control", `combinations(['U', 'R'], x)` for "any combination of {U} and/or
-  {R}"). `oncePerTurn` for "Activate only once each turn"; `types` with `minMv` and `orX` for
-  "Spend this mana only to cast creature spells with mana value 4 or greater or creature
-  spells with {X} in their mana costs".
+  {R}"). `activateOncePerTurn` for "Activate only once each turn" (602.5b; a trigger's
+  `oncePerTurn` is the different "triggers only once each turn"); `types` with `minMv` and
+  `orX` for "Spend this mana only to cast creature spells with mana value 4 or greater or
+  creature spells with {X} in their mana costs".
 - `tapCreature` is a cost of tapping other untapped permanents (`TapUntapped`): `{ legendary }`
   for Relic of Legends, `{ type: 'Artifact' }` for "an untapped artifact", `{ type: '', token:
   true, count: 2 }` for "two untapped tokens". With `noTap` the source's own {T} isn't part
@@ -594,6 +602,12 @@ ability already on the stack, which exists apart from its source (113.7a).
 | `delay` with `delayed[key]` | a delayed trigger (603.7); `step: 'main'` is "your next main phase", precombat or postcombat |
 | `extraTurn`, `winGame`, `loseGame` | as named |
 | `mill`, `discard`, `discardHand`, `surveil` | as named |
+| `discover(g, pid, n)` | discover N (701.57a), the cast-or-hand choice included |
+| `revealUntil(g, pid, fits, what)` | "reveal cards from the top until you reveal a ... card" (701.20a): the cards revealed, still in the library, and the one that fits |
+| `exileUntil(g, pid, fits)` then `castFromExiled(g, pid, hit, rest, opts)` | "exile cards from the top until ...", "you may cast that card without paying its mana cost" (`maxMv`, `toHand` for discover), and the rest on the bottom in a random order |
+| `enterBattlefield(g, c, { attacking: { defender } })` | put onto the battlefield attacking (508.4) |
+| `leftGraveyards(g, cards)` | cards that left a graveyard other than by `moveCard` (cast from it), for `onLeaveGraveyard` |
+| `Card.arrived` | the zone a card came from into its zone and the turn ("put there from their library this turn") |
 | `exileAll(g, cards, text?, pid?)` | exiles several cards from anywhere as one event and logs once, so "whenever one or more cards are put into exile" triggers once (603.2c). Never `moveCard` cards into exile in a loop |
 | `toGraveyards(g, cards)`, `destroyMany`, `dieMany` | several cards to graveyards as one event |
 | `simultaneously(g, fn)` | runs `fn` as one event: "each opponent loses 1 life" in it triggers "whenever one or more players lose life" once |

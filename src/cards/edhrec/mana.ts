@@ -81,7 +81,7 @@ const scripts: Record<string, CardScript> = {
       amountOf: (g, self) => stats(g, self).power,
       producesOf: (g, self) => combinations(['U', 'R'], stats(g, self).power),
       when: (g, self) => g.active === self.controller,
-      oncePerTurn: true,
+      activateOncePerTurn: true,
     },
     // "Whenever you cast a noncreature spell, put a +1/+1 counter on Vivi Ornitier and it deals
     // 1 damage to each opponent." Gone, it still deals the damage, as it last was (608.2h).
