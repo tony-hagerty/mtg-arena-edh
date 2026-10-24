@@ -5,9 +5,9 @@ import type { MouseEvent } from 'react';
 import { describe, expect, it } from 'vitest';
 import './fixtures';
 import { hoverHandCard, leaveHandCard, useStore } from '../src/ui/store';
-import { hoverProps } from '../src/ui/util';
-import { activateFromHand, buildView, clickGroup, chooseEscape, chooseGraveyardTarget, clickPermanent, clickPlayer, clickStackItem, exileForMana, manaOptions, pickAbility, pickMana, pickManaSacrifice, pickFace, pickMode, playHandCard, setAbilityX, setChoices, stackTucked, undo, setPayLife } from '../src/ui/view';
-import { applyAction, canCast, createToken, data, isCreature, isLand, makeCard, scriptOf } from '../src/engine';
+import { arrowsFrom, edgeToward, hoverProps, stackLoop } from '../src/ui/util';
+import { activateFromHand, buildView, clickGroup, chooseEscape, chooseGraveyardTarget, clickPermanent, clickPlayer, clickStackItem, exileForMana, manaOptions, pickAbility, pickMana, pickManaSacrifice, pickFace, pickMode, playHandCard, setAbilityX, setChoices, stackTucked, undo, setPayLife, useForMana, cancel } from '../src/ui/view';
+import { applyAction, canCast, createToken, data, defaultStops, isCreature, isLand, makeCard, scriptOf } from '../src/engine';
 import { registerScripts } from '../src/engine/registry';
 import { parseCard, scriptCards } from '../src/cards/oracle';
 import { cardData, registerCards } from '../src/cards/db';
@@ -947,6 +947,58 @@ describe('stops and full control in the UI (117.3)', () => {
   });
 });
 
+describe('passing to the end of the turn (F6) and resetting the stops', () => {
+  it('passes at once and through the turn, then the next turn stops as usual', () => {
+    play((d) => {
+      put(d, 0, 'Solitude', 'hand');
+      put(d, 0, 'Swords to Plowshares', 'hand');
+    });
+    const turn = game().turn;
+    useStore.getState().setPassTurn(true);
+    expect(useStore.getState().passTurn).toEqual({ 0: turn });
+    // Beginning of combat and main 2 would have stopped (Solitude can always be cast); the next player's upkeep does.
+    expect([game().active, game().step, game().priority]).toEqual([1, 'upkeep', 0]);
+    // Off again, it passes nothing by itself.
+    useStore.getState().setPassTurn(false);
+    expect(useStore.getState().passTurn).toEqual({});
+    expect([game().active, game().step]).toEqual([1, 'upkeep']);
+  });
+
+  it('turned on while casting, waits for the cast: mana made by hand keeps priority (605.3a), and cancelling starts it', () => {
+    play((d) => {
+      put(d, 0, 'Plains', 'battlefield', 5);
+      put(d, 0, 'Serra Angel', 'hand');
+    });
+    const turn = game().turn;
+    try {
+      playHandCard(byName(game(), 0, 'Serra Angel', 'hand')!);
+      useStore.getState().setPassTurn(true);
+      expect([game().step, game().priority]).toEqual(['main1', 0]);
+      clickPermanent(byName(game(), 0, 'Plains')!);
+      expect([game().step, game().priority, game().players[0].pool.length]).toEqual(['main1', 0, 1]);
+      expect(useStore.getState().targeting).not.toBe(null);
+      cancel();
+      // The Plains untapped, and the rest of the turn passed: nothing stops player 0 on the next one either.
+      expect(game().players[0].battlefield.filter((c) => c.tapped)).toEqual([]);
+      expect([game().turn, game().active]).toEqual([turn + 1, 1]);
+    } finally {
+      useStore.setState({ passTurn: {} });
+    }
+  });
+
+  it('puts the stops back to the defaults', () => {
+    const saved = useStore.getState().stops;
+    try {
+      useStore.getState().setStop(0, 'upkeep', 'always');
+      expect(useStore.getState().stops[0].upkeep).toBe('always');
+      useStore.getState().resetStops();
+      expect(useStore.getState().stops).toEqual(defaultStops(0));
+    } finally {
+      useStore.setState({ stops: saved });
+    }
+  });
+});
+
 describe('a fetch land in the main phase (117.3b)', () => {
   it.each(['hand script', 'Oracle template'])('after the search the human still has priority in main 1 (%s)', (source) => {
     const hand = scriptOf('Polluted Delta');
@@ -1512,5 +1564,74 @@ describe('tapping permanents for a cost, and proliferating, in the UI', () => {
     useStore.getState().act({ type: 'chooseCards', cards: choice.cards, players: [1] });
     expect(byName(game(), 0, 'Elvish Mystic')!.counters['+1/+1']).toBe(2);
     expect(game().players[1].counters?.poison).toBe(3);
+  });
+});
+
+describe("a stack item's target arrows", () => {
+  it('come from the stack item the pointer is on, or else the top of the stack', () => {
+    play((d) => {
+      d.stack.push({ id: 's1', kind: 'spell', controller: 1, card: makeCard(d, 'Shock', 1, 'hand'), targets: [{ kind: 'player', id: 0 }] });
+      d.stack.push({ id: 's2', kind: 'spell', controller: 2, card: makeCard(d, 'Shock', 2, 'hand'), targets: [{ kind: 'player', id: 1 }] });
+    });
+    expect(arrowsFrom(game(), null)).toBe('s2');
+    expect(arrowsFrom(game(), 's1')).toBe('s1');
+    // Something no longer on the stack: the top again.
+    expect(arrowsFrom(game(), 'gone')).toBe('s2');
+    play(() => {});
+    expect(arrowsFrom(game(), null)).toBe(null);
+  });
+
+  it('start on the side of the card that faces the target', () => {
+    const box = { left: 0, top: 0, width: 100, height: 140 };
+    expect(edgeToward(box, 300, 70)).toEqual({ x: 100, y: 70 });
+    expect(edgeToward(box, 50, -500)).toEqual({ x: 50, y: 0 });
+    expect(edgeToward(box, 50 - 200, 70 + 200)).toEqual({ x: 0, y: 120 });
+    // A target inside the card: from where it is.
+    expect(edgeToward(box, 60, 80)).toEqual({ x: 60, y: 80 });
+  });
+
+  it("loop out of the stack's left side to a spell on the stack, into the part of it that shows", () => {
+    // A counterspell (top) 40 px below the spell it targets, which shows 40 px of itself.
+    const d = stackLoop({ left: 100, top: 140, width: 100, height: 140 }, { left: 100, top: 100, width: 100 }, 40);
+    const [x1, y1, c1x, c1y, c2x, c2y, x2, y2] = d.match(/-?[\d.]+/g)!.map(Number);
+    // From the middle of its left side to the left end of the strip, through controls out to the left.
+    expect([x1, y1, x2, y2]).toEqual([100, 210, 100, 120]);
+    expect(c1x).toBeLessThan(100);
+    expect(c2x).toBeLessThan(100);
+    expect([c1y, c2y]).toEqual([210, 120]);
+  });
+});
+
+describe("a land with another ability that can't be paid for now (Abandoned Air Temple)", () => {
+  const temple = () => byName(game(), 0, 'Abandoned Air Temple')!;
+  const setup = () =>
+    play((d) => {
+      put(d, 0, 'Abandoned Air Temple');
+      put(d, 0, 'Plains', 'battlefield', 3);
+      put(d, 0, 'Elite Vanguard');
+      put(d, 0, 'Elite Vanguard', 'hand');
+    });
+
+  it('still shows the ability, dimmed with why: the land taps itself for the cost (602.2)', () => {
+    setup();
+    clickPermanent(temple());
+    const options = buildView().loyalty?.options ?? [];
+    expect(options.map((o) => [o.text.slice(0, 11), o.ok])).toEqual([
+      ['Add mana', true],
+      ['{3}{W}, {T}', false],
+    ]);
+    expect(options[1].why).toBe("Needs {3}{W} from other sources: this taps itself as part of the cost, so it can't make mana for it.");
+    // Add mana taps it as a click on a plain land would.
+    useForMana();
+    expect([temple().tapped, game().players[0].pool.length]).toEqual([true, 1]);
+  });
+
+  it('only makes mana while paying for a spell', () => {
+    setup();
+    playHandCard(byName(game(), 0, 'Elite Vanguard', 'hand')!);
+    clickPermanent(temple());
+    expect(buildView().loyalty).toBeFalsy();
+    // The Temple's {W} paid for it.
+    expect([temple().tapped, byName(game(), 0, 'Elite Vanguard', 'hand')]).toEqual([true, undefined]);
   });
 });

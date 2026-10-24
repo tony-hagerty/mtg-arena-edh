@@ -51,6 +51,34 @@ export const BED_CORNER = 1.6;
 export const BORDER = 1.3;
 /** The well's water radius, rem. */
 export const POND_R = 13;
+/** The most exiled cards the well's whirlpool carries: the newest, by timestamp. */
+export const SWIRL_MAX = 40;
+/** A card's width in the well while there are few, rem; more of them shrink to fit. */
+const SWIRL_W = 5.5;
+
+/**
+ * Where the exiled cards float in the well, newest first, as the whirlpool turns them all
+ * together: a card's width, and each card's distance from the middle and angle at rest. A
+ * few circle side by side half way out; more lie along a spiral winding in from the wall,
+ * the newest outermost and the oldest drawn in toward the middle, a card's width apart.
+ */
+export function wellSwirl(n: number, r: number): { w: number; slots: { r: number; a: number }[] } {
+  const w = n <= 6 ? SWIRL_W : Math.max(3, SWIRL_W * Math.sqrt(6 / n));
+  if (n <= 4) return { w, slots: Array.from({ length: n }, (_, i) => ({ r: r * 0.5, a: (i / n) * Math.PI * 2 })) };
+  // Clear of the wall by about half a card's diagonal, and not quite on the middle.
+  const outer = r - w * 0.9;
+  const inner = Math.max(w * 0.6, r * 0.2);
+  const slots: { r: number; a: number }[] = [];
+  let a = 0;
+  for (let i = 0; i < n; i++) {
+    const rr = outer - ((outer - inner) * i) / (n - 1);
+    slots.push({ r: rr, a });
+    // The next one along the spiral, a card's width further round at this distance.
+    a += (w * 1.05) / rr;
+  }
+  return { w, slots };
+}
+
 /** How far the mats keep from the well's water: its wall and a path around it, rem. */
 export const POND_CLEAR = 4.2;
 /**

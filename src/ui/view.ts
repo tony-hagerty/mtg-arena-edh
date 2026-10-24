@@ -3,6 +3,7 @@
 import { createContext, useContext } from 'react';
 import {
   activatable,
+  activationBlock,
   unblockedAttackers,
   canPlot,
   discardsFor,
@@ -93,7 +94,7 @@ import {
   playPermissions,
   slotLabel,
 } from '../engine';
-import type { AbilityRef, Action, AttackOption, Card, CastChoices, Cost, Game, ManaSym, ManaUse, Payment, PlayerId, StackItem, Step, Stops, TapUntapped, TargetRef, TargetSpec } from '../engine';
+import type { AbilityRef, Action, ActivationBlock, AttackOption, Card, CastChoices, Cost, Game, ManaSym, ManaUse, Payment, PlayerId, StackItem, Step, Stops, TapUntapped, TargetRef, TargetSpec } from '../engine';
 import { absoluteStops, useStore } from './store';
 import type { ManaOption, Targeting, UndoStep } from './store';
 
@@ -113,6 +114,8 @@ export interface AbilityOption {
   cost: string;
   text: string;
   ok: boolean;
+  /** Why it can't be activated now, when it can't (`cantActivate`). */
+  why?: string;
   /** Use its mana abilities instead (`useForMana`). */
   mana?: boolean;
 }
@@ -759,7 +762,12 @@ export function buildView(): View {
     const options: AbilityOption[] = [
       // Its mana abilities, as one choice that goes on to the mana picker if there is more to choose (605).
       ...(canTapForMana(g, me, card) ? [{ ref: {}, cost: '', text: 'Add mana', ok: true, mana: true }] : []),
-      ...activatedAbilities(g, card).map((ab, i) => ({ ref: { activated: i }, cost: '', text: ab.text, ok: can({ activated: i }) })),
+      // Not one that works only from the hand (channel): this card is on the battlefield.
+      ...activatedAbilities(g, card).flatMap((ab, i) => {
+        if (ab.fromHand) return [];
+        const ok = can({ activated: i });
+        return [{ ref: { activated: i }, cost: '', text: ab.text, ok, ...(ok ? {} : { why: cantActivate(g, me, card, i) }) }];
+      }),
       ...(script.levels
         ? script.levels.map((bar, i) => ({ ref: { ability: i }, cost: bar.cost, text: bar.text, ok: can({ ability: i }) }))
         : (script.loyalty ?? []).map((ab, i) => ({ ref: { ability: i }, cost: loyaltyCost(ab.cost), text: ab.text, ok: can({ ability: i }) }))),
@@ -2091,12 +2099,53 @@ export function clickPermanent(card: Card) {
   }
 
   if (deciding || card.controller !== me) return;
-  // A permanent with a mana ability and another ability that could be activated now (Urza,
-  // Baylen): choose which, the mana among them (`useForMana`).
-  if (canTapForMana(g, me, card) && activatable(g, me, card).length) propose('activate', card, true);
+  // A permanent with a mana ability and another ability (Urza, Baylen, Abandoned Air Temple):
+  // choose which, the mana among them (`useForMana`). One that can't be activated now is in
+  // the menu too, dimmed with the reason, so it can be found. While paying for a spell a
+  // click only makes mana (`payByHand`, above).
+  if (canTapForMana(g, me, card) && (activatable(g, me, card).length || activatedAbilities(g, card).some((ab) => !ab.fromHand))) propose('activate', card, true);
   else if (canTapForMana(g, me, card)) tapForMana(g, me, card);
   else if (canUntapMana(g, me, card)) s.act({ type: 'untapMana', card: card.id });
   else if (activatable(g, me, card).length) propose('activate', card);
+}
+
+/** What the ability menu says of an ability the engine won't let be activated (`activationBlock`). */
+const BLOCKED: Record<ActivationBlock, string> = {
+  none: "Can't be used now.",
+  zone: "Can't be used from here.",
+  timing: 'Only when you could cast a sorcery.',
+  forbidden: 'An effect stops it being activated.',
+  condition: "Its condition isn't met now.",
+  unblocked: 'Needs an unblocked attacker of yours.',
+  tapped: 'It is tapped.',
+  // 302.6
+  sick: 'Summoning sick: it has {T} in its cost.',
+  crew: 'Not enough untapped creatures to crew it.',
+  tapUntapped: 'Not enough untapped permanents to tap for its cost.',
+  counters: 'Not enough counters on it.',
+  discard: 'Not enough cards to discard.',
+  sacrifice: 'Nothing to sacrifice for its cost.',
+  exile: 'Nothing to exile for its cost.',
+  graveyard: 'Not enough cards in your graveyard.',
+  modes: 'Not enough modes can be chosen.',
+  // Said with the cost by `cantActivate`.
+  mana: 'Not enough mana.',
+};
+
+/**
+ * Why `card`'s activated ability `i` can't be activated now, for the ability menu: the
+ * engine's reason (`activationBlock`), or its targets. For the mana, the cost as it would be
+ * paid (reductions taken off); a cost with {T} taps the source, so the source can't make
+ * mana toward it too.
+ */
+function cantActivate(g: Game, me: PlayerId, card: Card, i: number): string {
+  const block = activationBlock(g, me, card, i);
+  const ab = activatedAt(g, card, i);
+  if (block === 'mana' && ab) {
+    const cost = costText(activationCost(g, me, card, ab));
+    return ab.cost.tap && canTapForMana(g, me, card) ? `Needs ${cost} from other sources: this taps itself as part of the cost, so it can't make mana for it.` : `Not enough mana: needs ${cost}.`;
+  }
+  return block ? BLOCKED[block] : 'Nothing it could target now.';
 }
 
 /** From the ability menu: use the permanent for mana instead of activating another of its abilities. */

@@ -16,12 +16,15 @@ export function symbolClass(symbol: string): string {
   return `ms-${s === 't' ? 'tap' : s === 'q' ? 'untap' : s}`;
 }
 
+/** A hybrid symbol ({R/W}, {2/G}, {W/U/P}): two halves in one round, which the hand's corner cost places itself. */
+export const isHybrid = (symbol: string) => symbol.split('/').filter((s) => s.toUpperCase() !== 'P').length > 1;
+
 export function ManaCost({ cost }: { cost: string }) {
   const symbols = [...cost.matchAll(/\{([^}]+)\}/g)].map((m) => m[1]);
   return (
     <span className="mana-cost">
       {symbols.map((s, i) => (
-        <i key={i} className={`ms ms-cost ms-shadow ${symbolClass(s)}`} />
+        <i key={i} className={cx('ms ms-cost ms-shadow', symbolClass(s), isHybrid(s) && 'ms-hybrid')} />
       ))}
     </span>
   );

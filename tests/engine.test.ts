@@ -2056,6 +2056,54 @@ describe('stops', () => {
     });
   });
 
+  describe('passing to the end of the turn (F6)', () => {
+    // Player 0 would stop everywhere it can: passing the turn passes through all of it.
+    const always = { upkeep: 'always', draw: 'always', main1: 'always', beginCombat: 'always', attackers: 'always', blockers: 'always', damage: 'always', endCombat: 'always', main2: 'always', end: 'always' } as const;
+    const stops = { 0: [always, always, always, always] };
+
+    it('passes every time the player would get priority that turn, full control too, and stops again the next turn', () => {
+      let g = emptyGame();
+      g = runWith({ stops, fullControl: [0], passTurn: { 0: g.turn } }, g, pass);
+      // The rest of player 0's turn went by; player 1's upkeep is a new turn.
+      expect([g.active, g.step, g.priority]).toEqual([1, 'upkeep', 0]);
+      // Without it, the next step stops player 0.
+      g = emptyGame();
+      g = runWith({ stops }, g, pass);
+      expect([g.active, g.step, g.priority]).toEqual([0, 'beginCombat', 0]);
+    });
+
+    it("passes over an opponent's spell the player could respond to", () => {
+      const setup = () =>
+        emptyGame((d) => {
+          d.active = 1;
+          d.priority = 1;
+          put(d, 0, 'Mountain');
+          put(d, 0, 'Shock', 'hand');
+          put(d, 1, 'Mountain');
+          put(d, 1, 'Shock', 'hand');
+        });
+      const shock = (g: Game): Action => ({ type: 'cast', card: byName(g, 1, 'Shock', 'hand')!.id, targets: [{ kind: 'player', id: 0 }] });
+      let g = setup();
+      g = run(g, shock(g));
+      expect([g.stack.length, g.priority]).toEqual([1, 0]);
+      g = setup();
+      g = runWith({ passTurn: { 0: g.turn } }, g, shock(g));
+      expect([g.stack.length, g.players[0].life]).toEqual([0, 38]);
+    });
+
+    it('still asks for decisions: blockers', () => {
+      let g = emptyGame((d) => {
+        d.active = 1;
+        d.priority = 1;
+        put(d, 0, 'Elite Vanguard');
+        put(d, 1, 'Elite Vanguard');
+      });
+      const opts: ApplyOptions = { passTurn: { 0: g.turn } };
+      g = runWith(opts, g, pass, { type: 'declareAttack', card: byName(g, 1, 'Elite Vanguard')!.id, defender: 0 }, pass);
+      expect([g.decision?.type, g.priority]).toEqual(['blockers', 0]);
+    });
+  });
+
   it('matches the defaults when no stops are given', () => {
     expect(defaultStops(0)[0]).toEqual({ main1: 'always', beginCombat: 'ifAble', blockers: 'ifAble', main2: 'always' });
     expect(defaultStops(0)[1]).toEqual({ upkeep: 'ifAble', attackers: 'ifAble', blockers: 'ifAble', end: 'ifAble' });

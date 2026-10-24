@@ -24,7 +24,7 @@ import { Garden, WATER_Z } from './Garden';
 import { Hall } from './Hall';
 import type { Floating } from './Garden';
 import { burst } from './effects';
-import { gardenPlan, seatArea } from './board';
+import { SWIRL_MAX, gardenPlan, seatArea } from './board';
 import type { Garden as GardenPlan, HandSpot, PileSpot } from './board';
 import { CORNER, cardGeometry, roundedPlane } from './geometry';
 import { CARD_THICKNESS, HELD_LEAN, LIFT_RAD, baseCamera, heldFan, layoutSeat, quadMatrix, tiltRad } from './layout3d';
@@ -407,11 +407,12 @@ const inCombat = (g: Game) => g.step === 'beginCombat' || g.step === 'attackers'
 function Scene({ v, speed, w, h, tableH, seats, plan, players }: { v: View; speed: number; w: number; h: number; tableH: number; seats: SeatLayout[]; plan: GardenPlan; players: Player[] }) {
   const table = useRef<Group>(null);
   const state = useMemo(() => ({ v, speed, table }), [v, speed]);
-  // The top of each player's exile circles in the well; one exiled face down shows its back (406.3).
-  const exiled: Floating[] = players.flatMap((p) => {
-    const top = p.exile[p.exile.length - 1];
-    return top ? [{ id: top.id, image: faceUp(top, v.me) ? data(top).image : null }] : [];
-  });
+  // Every exiled card circles in the well, newest first; one exiled face down shows its back (406.3).
+  const exiled: Floating[] = players
+    .flatMap((p) => p.exile)
+    .sort((a, b) => b.ts - a.ts)
+    .slice(0, SWIRL_MAX)
+    .map((c) => ({ id: c.id, image: faceUp(c, v.me) ? data(c).image : null }));
   return (
     <SceneCtx.Provider value={state}>
       {/* The view for anything inside that asks for it, as the DOM side has it. */}

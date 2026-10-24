@@ -28,6 +28,7 @@ export function hotkeys(mac = MAC): HotkeyGroup[] {
         { keys: [[mod, 'Z']], does: 'Undo the last step that can be: a mana choice, a choice while casting, mana you made, or an attacker or blocker picked.' },
         { keys: [[mod, 'Space']], does: 'Pay, and keep priority afterwards.' },
         { keys: [['Ctrl', 'Shift']], does: 'Press the two alone, then let go: full control on or off.' },
+        { keys: [['F6']], does: 'Pass priority until the end of this turn, or stop passing. Attackers, blockers and choices are still yours.' },
         { keys: [[mac ? 'Option' : 'Alt', 'Enter']], does: 'Fullscreen on or off.' },
       ],
     },
