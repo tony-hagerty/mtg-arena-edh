@@ -8,6 +8,7 @@ import { replace, whileArriving } from './replace';
 export { isArriving } from './replace';
 import type {
   ActivatedAbility,
+  Bend,
   AlternativeCost,
   TokenSpec,
   BroadcastHook,
@@ -164,6 +165,13 @@ export const SUPPORTED_KEYWORDS = [
   'shadow',
   'landwalk',
   ...Object.keys(LANDWALKS),
+  // Earthbend (701.66) and goad (701.15) are keyword actions the engine carries out (`earthbend`,
+  // `goad`); firebending (702.189) is a triggered ability a hand script spells out with
+  // `firebending`; station (702.184) is an activated ability with `cost.station`.
+  'earthbend',
+  'goad',
+  'firebending',
+  'station',
   // Cascade (702.85) by the engine, from the card's keywords or given by a permanent
   // (`grantsCascade`); affinity (702.41) is read by the Oracle text parser as a cost reduction;
   // ninjutsu and commander ninjutsu (702.49) by the engine with the card's script (`ninjutsu`);
@@ -913,17 +921,6 @@ export function usePermit(g: Game, self: Card, slot: string) {
 export const permanentTypesOf = (g: Game, c: Card): string[] => ['Artifact', 'Battle', 'Creature', 'Enchantment', 'Land', 'Planeswalker'].filter((t) => hasType(g, c, t));
 
 /**
- * How many lands `pid` may play this turn (305.2): one, plus what effects add ("You may play an
- * additional land on each of your turns", "you may play an additional land this turn").
- */
-export function landsAllowed(g: Game, pid: PlayerId): number {
-  let n = 1;
-  for (const x of battlefield(g)) if (mayHaveScript(x, 'extraLands')) n += abilitiesOf(g, x).extraLands?.(g, x, pid) ?? 0;
-  for (const e of g.effects) if (e.kind === 'extraLand' && e.player === pid) n += e.n;
-  return n;
-}
-
-/**
  * May `viewer` see the top card of `owner`'s library: its owner may look at it any time (Glarb,
  * Bolas's Citadel), or it is revealed to everyone (Oracle of Mul Daya)?
  */
@@ -1405,6 +1402,8 @@ interface Source {
   busy: boolean;
   /** How much auto-pay wants to leave it untapped (see `keepValue`); set by `planPayment`. */
   keep?: number;
+  /** The permanent's name, kept on the mana it makes (`Mana.name`). */
+  name: string;
 }
 
 /** Can `pid` use this mana ability of `c` now? A creature's {T} ability needs it to be free of summoning sickness (302.6). */
@@ -1434,7 +1433,7 @@ export function untappedFor(g: Game, pid: PlayerId, t: TapUntapped, source?: Car
   return g.players[pid].battlefield.filter(
     (x) =>
       !x.tapped &&
-      !(ownTap && x.id === source?.id) &&
+      !((ownTap || t.other) && x.id === source?.id) &&
       (!type || hasType(g, x, type)) &&
       (!t.subtype || hasType(g, x, t.subtype)) &&
       (!t.token || x.isToken) &&
@@ -1516,6 +1515,7 @@ function findManaSources(g: Game, pid: PlayerId, manual: boolean): Source[] {
       for (const creature of creatures) {
         out.push({
           id: c.id,
+          name: label(c),
           ability: ab.index,
           taps: creature ? [...self, ...creature] : [c.id],
           ...(creature ? { creature: creature[0], ...(several ? { tapped: creature } : {}) } : {}),
@@ -1714,7 +1714,7 @@ export function tapForMana(
   if (ab.cost && !(plan = pay(g, pid, parseCost(ab.cost), undefined, [c.id]))) return;
   const sym = color && ab.colors.includes(color) ? color : ab.colors.length === 1 ? ab.colors[0] : pickColor(g, pid, ab.colors);
   const made = mana && canProduce(ab, mana) ? mana : ab.produces ? pickProduce(g, pid, ab, color) : Array.from({ length: ab.amount }, () => sym);
-  const added: Mana[] = made.map((sym) => ({ sym, source: c.id, ability: ab.index, ...restrictionsOf(ab, c.chosen) }));
+  const added: Mana[] = made.map((sym) => ({ sym, source: c.id, name: label(c), ability: ab.index, ...restrictionsOf(ab, c.chosen) }));
   const tappedFor = ab.tapCreature ? tappedForCost(g, pid, c, ab, tapId) : [];
   const creature = tappedFor[0];
   // A source sacrificed for its mana (a Treasure) is seen by its triggered mana abilities as it last was (603.10a).
@@ -1759,11 +1759,148 @@ function without<T>(a: T[], b: T[], key: (x: T) => string): T[] {
 /**
  * Adds mana straight to a player's pool, as a ritual does. `source` is the card that made
  * it. `keep`: it stays in the pool as steps and phases end, until the end of the turn.
+ * `untilEndOfCombat`: it stays until the combat phase ends (500.5a, firebending).
  */
-export function addMana(g: Game, pid: PlayerId, syms: ManaSym[], source: Card, opts: { keep?: boolean } = {}) {
+export function addMana(g: Game, pid: PlayerId, syms: ManaSym[], source: Card, opts: { keep?: boolean; untilEndOfCombat?: boolean } = {}) {
   if (g.players[pid].lost) return;
-  for (const sym of syms) g.players[pid].pool.push({ sym, source: source.id, ...(opts.keep ? { keep: g.turn } : {}) });
-  if (syms.length) log(g, `${says(g.players[pid], 'adds')} ${syms.map((s) => `{${s}}`).join('')}.`, pid, [source]);
+  for (const sym of syms) g.players[pid].pool.push({ sym, source: source.id, name: label(source), ...(opts.keep ? { keep: g.turn } : {}), ...(opts.untilEndOfCombat ? { combat: g.turn } : {}) });
+  if (syms.length) log(g, `${says(g.players[pid], 'adds')} ${syms.map((s) => `{${s}}`).join('')}${opts.untilEndOfCombat ? ' (until end of combat)' : ''}.`, pid, [source]);
+}
+
+/**
+ * Firebending N (702.189a): "Whenever this creature attacks, add N {R}. Until end of combat, you
+ * don't lose this mana as steps and phases end." An ability that triggers whenever a player
+ * firebends triggers as it resolves (702.189b).
+ */
+export function firebending(n: number): Trigger<TriggerEvents['onAttack']> {
+  return {
+    text: `Firebending ${n}`,
+    resolve: (g, { self, you }) => {
+      addMana(g, you, Array<ManaSym>(n).fill('R'), self, { untilEndOfCombat: true });
+      bend(g, you, 'firebend');
+    },
+  };
+}
+
+/**
+ * Player `pid` has bent (waterbend 701.67c, earthbend 701.66b, firebend 702.189b, airbend
+ * 701.65b): it counts toward what they have done this turn, and "whenever you [bend]" triggers.
+ */
+export function bend(g: Game, pid: PlayerId, kind: Bend) {
+  const p = g.players[pid];
+  if (p.lost) return;
+  p.bent = [...(p.bent ?? []), kind];
+  broadcast(g, 'onBend', { player: pid, kind });
+}
+
+/**
+ * Earthbend N (701.66a): "Target land you control becomes a 0/0 land creature with haste in
+ * addition to its other types. Put N +1/+1 counters on it. When that land dies or is put into
+ * exile, return it to the battlefield tapped under your control." The effect has no duration,
+ * so it lasts as long as the land stays (611.2a); the delayed triggered ability (603.7) is noted
+ * on the land (`Card.earthbent`) and goes on the stack as it leaves. "Whenever a player
+ * earthbends" triggers as that ability is created (701.66b).
+ */
+export function earthbend(g: Game, land: Card | undefined, n: number, you: PlayerId) {
+  if (!land || land.zone !== 'battlefield') return;
+  addLasting(g, land, { types: ['Creature'], setPower: 0, setToughness: 0, keywords: ['haste'] });
+  log(g, `${says(g.players[you], 'earthbends')} ${label(land)}: it is a 0/0 land creature with haste.`, you, [land]);
+  addCounters(g, land, n);
+  land.earthbent = [...(land.earthbent ?? []), you];
+  bend(g, you, 'earthbend');
+}
+
+/**
+ * Goads creature `c` (701.15a): until the next turn of `by`, it attacks each combat if able and
+ * attacks a player other than `by` if able (701.15b). Goaded by `by` already, nothing more
+ * happens (701.15d); goaded by several players, each adds a requirement (701.15c).
+ */
+export function goad(g: Game, c: Card | undefined, by: PlayerId) {
+  if (!c || c.zone !== 'battlefield') return;
+  if (c.goaded?.some((x) => x.by === by)) return;
+  c.goaded = [...(c.goaded ?? []), { by }];
+  log(g, `${label(c)} is goaded by ${g.players[by].name}.`, by, [c]);
+}
+
+/** Is `c` goaded now (701.15b)? */
+export const isGoaded = (c: Card) => !!c.goaded?.length;
+
+/** The players who goaded `c` and are still in the game. */
+export const goadedBy = (g: Game, c: Card): PlayerId[] => (c.goaded ?? []).map((x) => x.by).filter((p) => !g.players[p].lost);
+
+/**
+ * Rolls `n` dice with `sides` sides (706.1). Each die's natural result is its result: nothing
+ * here modifies rolls (706.2). "Whenever you roll" abilities trigger once for each die (603.2c).
+ * Returns the results.
+ */
+export function rollDice(g: Game, pid: PlayerId, sides: number, n = 1): number[] {
+  const results: number[] = [];
+  for (let i = 0; i < n; i++) {
+    const natural = 1 + Math.floor(rand(g) * sides);
+    results.push(natural);
+  }
+  if (n) log(g, `${says(g.players[pid], 'rolls')} ${n === 1 ? `a d${sides}` : `${n} d${sides}s`}: ${results.join(', ')}.`, pid);
+  for (const natural of results) broadcast(g, 'onRoll', { player: pid, sides, natural, result: natural });
+  return results;
+}
+
+/** "You may play an additional land this turn" (305.2b): one more land `pid` may play this turn. */
+export function extraLand(g: Game, pid: PlayerId, n = 1) {
+  const p = g.players[pid];
+  if (p.lost) return;
+  p.extraLands = (p.extraLands ?? 0) + n;
+  log(g, `${says(p, 'may')} play ${n === 1 ? 'an additional land' : `${n} additional lands`} this turn.`, pid);
+}
+
+/**
+ * How many lands `pid` may play this turn (305.2): one, plus any an effect allowed this turn
+ * (`Player.extraLands`) or a permanent allows on each of their turns (`CardScript.extraLands`).
+ */
+export function landsAllowed(g: Game, pid: PlayerId): number {
+  let n = 1 + (g.players[pid].extraLands ?? 0);
+  for (const c of battlefield(g)) n += abilitiesOf(g, c).extraLands?.(g, c, pid) ?? 0;
+  return n;
+}
+
+/**
+ * Station (702.184a): "Tap another untapped creature you control: Put a number of charge counters
+ * on this permanent equal to the tapped creature's power. Activate only as a sorcery." The power
+ * is the creature's as the ability resolves, or as it last was (608.2h).
+ */
+export function station(): ActivatedAbility {
+  return {
+    cost: { tapUntapped: { type: 'Creature', count: 1, other: true, label: 'another untapped creature you control' }, station: true },
+    sorcery: true,
+    text: 'Station: tap another untapped creature you control to put charge counters equal to its power on this.',
+    resolve: (g, { self, stationed }) => {
+      const it = permanent(g, self.id);
+      if (!it || !stationed) return;
+      const now = permanent(g, stationed.id);
+      const power = stats(g, now && now.moves === stationed.moves ? now : stationed).power;
+      if (power > 0) addCounters(g, it, power, 'charge');
+      log(g, `${label(stationed)} stations ${label(it)}: ${power} charge counter${power === 1 ? '' : 's'}.`, self.controller, [it]);
+    },
+  };
+}
+
+/** The monarch's inherent triggered abilities have no source (725.2, an exception to 113.8): this stand-in is their card on the stack. */
+export const THE_MONARCH = 'The Monarch';
+registerToken(THE_MONARCH, { name: THE_MONARCH, manaCost: '', cmc: 0, colors: [], colorIdentity: [], typeLine: 'Emblem', oracleText: "At the beginning of the monarch's end step, that player draws a card.\nWhenever a creature deals combat damage to the monarch, its controller becomes the monarch.", keywords: [], image: '', art: '' });
+
+/**
+ * Player `pid` becomes the monarch (725.1): the current monarch, if another, ceases to be
+ * (725.3). A player who has left the game can't become the monarch.
+ */
+export function becomeMonarch(g: Game, pid: PlayerId) {
+  if (g.players[pid].lost || g.monarch === pid) return;
+  g.monarch = pid;
+  log(g, `${says(g.players[pid], 'becomes')} the monarch.`, pid);
+}
+
+/** One of the monarch's inherent triggered abilities triggers (725.2), controlled by the monarch at the time, `pid`. */
+export function triggerMonarch(g: Game, pid: PlayerId, event: TriggerEvents['onMonarch']) {
+  const card = makeCard(g, THE_MONARCH, pid, 'command', { isToken: true });
+  g.triggers.push({ id: `s${g.nextId++}`, kind: 'triggered', controller: pid, card, hook: 'onMonarch', event, targets: [] });
 }
 
 /**
@@ -1884,6 +2021,8 @@ interface Plan {
   uncounterable: boolean;
   /** Colours other cards want (`colorWants`): generic mana is paid from the pool with the others first. */
   wants: Map<ManaSym, number>;
+  /** The mana spent so far, by the source that made it (`Payment.paid`). */
+  paid: { source: string; name?: string }[];
 }
 
 /**
@@ -1914,6 +2053,7 @@ const extraMana = (s: Source, made: ManaSym[]): Mana[] =>
   made.slice(1).map((sym) => ({
     sym,
     source: s.id,
+    name: s.name,
     ability: s.ability,
     ...(s.only ? { only: s.only } : {}),
     ...(s.uncounterable ? { uncounterable: true } : {}),
@@ -1939,6 +2079,7 @@ const useSource = (plan: Plan, s: Source, made: ManaSym[]): Plan => ({
   // A creature that convoked paid for the mana without it being spent (702.51a).
   spent: plan.spent + (s.convoke ? 0 : 1),
   uncounterable: plan.uncounterable || !!s.uncounterable,
+  paid: s.convoke ? plan.paid : [...plan.paid, { source: s.id, name: s.name }],
 });
 
 /** Spends the mana at `i` in the pool. */
@@ -1947,6 +2088,7 @@ const fromPool = (plan: Plan, i: number): Plan => ({
   pool: plan.pool.filter((_, k) => k !== i),
   spent: plan.spent + 1,
   uncounterable: plan.uncounterable || !!plan.pool[i].uncounterable,
+  paid: [...plan.paid, { source: plan.pool[i].source, name: plan.pool[i].name }],
 });
 
 /**
@@ -2066,6 +2208,8 @@ export interface Payment {
   spent: number;
   /** Mana that makes the spell uncounterable is spent (106.6). */
   uncounterable: boolean;
+  /** The mana spent, by the source that made it: "mana from Treasures spent to activate this ability" (Mr. House). */
+  paid?: { source: string; name?: string }[];
   /** Once paid: the mana that triggered mana abilities added to the payer's pool on top (605.1b, Kinnan). */
   extra?: Mana[];
 }
@@ -2201,7 +2345,7 @@ function planWithCosted(
     const keep2 = [...keep, ...act.tap, c.id];
     const later = avail.slice(i + 1).filter((x) => !keep2.includes(x.c.id));
     for (const made of produceOptions(ab)) {
-      const pool = [...act.pool, ...made.map((sym): Mana => ({ sym, source: c.id, ability: ab.index }))];
+      const pool = [...act.pool, ...made.map((sym): Mana => ({ sym, source: c.id, name: label(c), ability: ab.index }))];
       const rest = planPlain(g, pid, cost, spell, keep2, pool) ?? planWithCosted(g, pid, cost, spell, keep2, pool, later, depth + 1);
       if (!rest || act.life + rest.life + (ab.life ?? 0) > life) continue;
       return {
@@ -2211,6 +2355,7 @@ function planWithCosted(
         life: act.life + rest.life,
         spent: rest.spent,
         uncounterable: rest.uncounterable,
+        paid: rest.paid,
       };
     }
   }
@@ -2243,10 +2388,10 @@ function planPlain(g: Game, pid: PlayerId, cost: Cost, spell: Card | undefined, 
   const hybrid = cost.hybrid.map((h) => h.map((x, i) => ({ x, k: order(x, i) })).sort((a, b) => a.k - b.k).map((o) => o.x));
   // Restricted mana goes first: it can pay for nothing else.
   const ordered = [...pool.filter(restricted), ...pool.filter((m) => !restricted(m))];
-  const start: Plan = { pool: ordered, sources: all, uses: [], abilityLife: 0, generic: cost.generic, life: cost.life, spent: 0, uncounterable: false, wants };
+  const start: Plan = { pool: ordered, sources: all, uses: [], abilityLife: 0, generic: cost.generic, life: cost.life, spent: 0, uncounterable: false, wants, paid: [] };
   const paid = payShards([...pips, ...hybrid], start, locked ? 0 : p.life, cost.lifeSymbols);
   if (!paid || paid.life + paid.abilityLife > p.life) return null;
-  return { tap: [...new Set(paid.uses.flatMap((u) => u.taps))], uses: paid.uses, pool: [...paid.pool, ...kept], life: paid.life, spent: paid.spent, uncounterable: paid.uncounterable };
+  return { tap: [...new Set(paid.uses.flatMap((u) => u.taps))], uses: paid.uses, pool: [...paid.pool, ...kept], life: paid.life, spent: paid.spent, uncounterable: paid.uncounterable, paid: paid.paid };
 }
 
 /** Does `spell`, cast by `pid`, have convoke (702.51a): printed, or given by a permanent like Eirdu's? */
@@ -2264,7 +2409,7 @@ function convokeSources(g: Game, pid: PlayerId, spell: Card | undefined): Source
   if (convokeChosen || !hasConvoke(g, pid, spell)) return [];
   return creaturesOf(g, pid)
     .filter((c) => !c.tapped)
-    .map((c) => ({ id: c.id, ability: -1, taps: [c.id], amount: 1, colors: colorsOf(g, c) as ManaSym[], pain: 0, life: 0, busy: true, convoke: true }));
+    .map((c) => ({ id: c.id, name: label(c), ability: -1, taps: [c.id], amount: 1, colors: colorsOf(g, c) as ManaSym[], pain: 0, life: 0, busy: true, convoke: true }));
 }
 
 /** Whether `pay` looks ahead (`bestPayment`). Off while a bot tries moves out on copies of the game. */
@@ -2654,6 +2799,10 @@ const SECOND_PERSON: Record<string, string> = {
   looks: 'look',
   shuffles: 'shuffle',
   dredges: 'dredge',
+  earthbends: 'earthbend',
+  rolls: 'roll',
+  becomes: 'become',
+  stations: 'station',
   discovers: 'discover',
   gets: 'get',
   taps: 'tap',
@@ -2774,6 +2923,9 @@ function shiftCard(g: Game, c: Card, to: Zone) {
   const happens = replace(g, { kind: 'move', card: c, to });
   if (happens.kind === 'move') to = happens.to;
   if (from === 'battlefield') leaveAbilitiesBehind(g, c);
+  // Earthbend's "When that land dies or is put into exile, return it to the battlefield tapped
+  // under your control" (701.66a): a delayed triggered ability of each player who earthbent it (603.7).
+  const earthbent = from === 'battlefield' && (to === 'graveyard' || to === 'exile') && c.earthbent?.length ? { by: [...c.earthbent], last: lastKnown(g, c) } : null;
   // As it last was on the battlefield, for leaves-the-battlefield abilities (603.10a).
   // Who is watching looks back in time too (603.10a): a permanent that left earlier in the same event still sees this one go.
   const last = from === 'battlefield' && watchingLeaves(g, batch?.before ?? battlefield(g)) ? lastKnown(g, c) : null;
@@ -2831,6 +2983,8 @@ function shiftCard(g: Game, c: Card, to: Zone) {
   c.warped = undefined;
   c.phasedWith = undefined;
   c.discarded = undefined;
+  delete c.goaded; // a designation of the permanent, gone with it (701.15b, 400.7)
+  delete c.earthbent;
   // A permanent spell enters with the face it had on the stack up (712.13). Anywhere else,
   // a card has its front face up (712.8a, 712.14).
   if (c.zone !== 'stack' || to !== 'battlefield') c.face = 0;
@@ -2848,6 +3002,10 @@ function shiftCard(g: Game, c: Card, to: Zone) {
   const zone = g.players[to === 'battlefield' ? c.controller : c.owner][to];
   zone.push(c);
   const stored = zone[zone.length - 1];
+  // The earthbend return triggers once for each player who earthbent it, controlled by that player (603.7a).
+  for (const by of earthbent?.by ?? []) {
+    if (!g.players[by].lost) g.triggers.push({ id: `s${g.nextId++}`, kind: 'triggered', controller: by, card: earthbent!.last, hook: 'onEarthbent', event: { id: stored.id, moves: stored.moves }, targets: [] });
+  }
   if (to === 'graveyard') announce(g, 'onCardToGraveyard', { card: stored, player: c.owner, ...(wasPermanent ? { from: wasPermanent } : {}) });
   // Cards put into exile from a graveyard or the battlefield (Ketramose), which sees itself go (603.10a). Tokens aren't cards (108.2b).
   const exiled = to === 'exile' && (from === 'graveyard' || from === 'battlefield') && watchingExile(g, before ?? batch?.before ?? battlefield(g)) ? [stored] : [];
@@ -4018,6 +4176,8 @@ export function damagePlayer(g: Game, source: Card, pid: PlayerId, n: number, co
   if (has(g, source, 'lifelink')) gainLife(g, source.controller, n); // 702.15b
   if (combat && !g.combatDamaged.includes(pid)) g.combatDamaged.push(pid);
   if (combat) trigger(g, source, 'onCombatDamageToPlayer', { player: pid, amount: n });
+  // "Whenever a creature deals combat damage to the monarch, its controller becomes the monarch" (725.2).
+  if (combat && g.monarch === pid && isCreature(g, source)) triggerMonarch(g, pid, { what: 'take', creature: snapshot(source) });
   // The Ring, tempted four or more times: "Whenever your Ring-bearer deals combat damage to a player, each opponent loses 3 life." (701.54c)
   if (combat && isRingBearer(g, source)) ringTrigger(g, source.controller, 4, 'onCombatDamageToPlayer', { player: pid, amount: n });
   announce(g, 'onDamage', { source: snapshot(source), player: pid, card: null, amount: n, combat });
@@ -4622,13 +4782,16 @@ export const monstrosity = (n: number, mana: string): ActivatedAbility => ({
 });
 
 /** "Crew N": tap other creatures with total power N or more, and this becomes an artifact creature until end of turn (702.122a). */
-export const crew = (n: number): ActivatedAbility => ({
-  cost: { crew: n },
-  text: `Crew ${n}`,
-  resolve: (g, { self }) => {
-    untilEndOfTurn(g, permanent(g, self.id), { types: ['Artifact', 'Creature'] });
-  },
-});
+// A function declaration, so a hand script loading with the engine can call it (hoisted).
+export function crew(n: number): ActivatedAbility {
+  return {
+    cost: { crew: n },
+    text: `Crew ${n}`,
+    resolve: (g, { self }) => {
+      untilEndOfTurn(g, permanent(g, self.id), { types: ['Artifact', 'Creature'] });
+    },
+  };
+}
 
 /** A static bonus for the creature this Aura or Equipment is attached to (303.4b, 301.5a). */
 export const attachedBonus =
@@ -5386,14 +5549,17 @@ export function checkWard(g: Game, item: StackItem, targets: (TargetRef | null)[
 /**
  * Airbends objects (701.65a): exiles them, all at once. For as long as each card stays exiled,
  * its owner may cast it for {2} rather than its mana cost. Tokens and copies of spells cease to
- * exist (111.7, 707.10a). Returns the cards exiled.
+ * exist (111.7, 707.10a). Returns the cards exiled. `by`: the player airbending; "whenever you
+ * airbend" triggers once if they exiled one or more objects this way (701.65b).
  */
-export function airbend(g: Game, objects: Card[]): Card[] {
+export function airbend(g: Game, objects: Card[], by?: PlayerId): Card[] {
   const out: Card[] = [];
+  let exiled = 0;
   simultaneously(g, () => {
     for (const c of objects) {
       if (c.zone !== 'battlefield' && c.zone !== 'stack') continue;
       log(g, `${label(c)} is airbent.`, c.controller, [c]);
+      exiled++;
       if (c.zone === 'stack') {
         const item = g.stack.find((x) => x.kind === 'spell' && x.card.id === c.id);
         if (item?.copy) {
@@ -5408,6 +5574,7 @@ export function airbend(g: Game, objects: Card[]): Card[] {
       }
     }
   });
+  if (exiled && by !== undefined) bend(g, by, 'airbend');
   return out;
 }
 
@@ -5530,6 +5697,15 @@ export function returnCommander(g: Game, c: Card) {
 function eliminate(g: Game, p: Player, reason: string) {
   p.lost = true;
   log(g, `${says(p, 'is')} eliminated (${reason}).`, p.id);
+  // The monarch leaving the game: the active player becomes the monarch, or if they are the
+  // one leaving, the next player in turn order who can (725.4).
+  if (g.monarch === p.id) {
+    const next = g.active !== p.id && !g.players[g.active].lost ? g.active : turnOrder(g, g.active).find((q) => !g.players[q].lost);
+    if (next !== undefined) {
+      g.monarch = next;
+      log(g, `${says(g.players[next], 'becomes')} the monarch.`, next);
+    } else g.monarch = null;
+  }
   const theirs = (x: StackItem) => x.controller === p.id || x.card.owner === p.id;
   // What their permanents exiled "until" they leave returns to its owners (610.3, as Hostage Taker's rulings say).
   const held = battlefield(g).filter((c) => c.owner === p.id).flatMap((c) => c.holds ?? []);

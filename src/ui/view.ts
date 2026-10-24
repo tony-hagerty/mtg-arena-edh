@@ -935,6 +935,7 @@ export function buildView(): View {
     return view;
   }
 
+
   // --- paying for a spell or ability ---
   if (t && isPaying(t)) {
     const card = findCard(g, t.cardId)!;

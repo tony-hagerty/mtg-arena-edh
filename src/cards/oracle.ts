@@ -22,10 +22,14 @@ import {
   attachedBonus,
   ATTACKING_HOOKS,
   battlefield,
+  becomeMonarch,
   causedByCreatureDying,
   ENTERING_HOOKS,
   enteringPermanents,
   bounce,
+  extraLand,
+  firebending,
+  goad,
   colorsAmong,
   colorsOf,
   CANT_ATTACK,
@@ -1745,6 +1749,20 @@ function youEffect(rest: string, env: Env, st: State, clause: string): Read {
       },
     };
   }
+  // "You become the monarch" (725.1).
+  if (rest === 'become the monarch') return { targets: [], run: (g, ctx) => becomeMonarch(g, ctx.you) };
+  // "You may play an additional land this turn" (305.2b): a permission, read whole by `effects`.
+  if ((m = /^may play (an|two|three) additional lands? this turn$/.exec(rest))) {
+    const n = NUMBERS[m[1]];
+    return { targets: [], run: (g, ctx) => extraLand(g, ctx.you, n) };
+  }
+  // "Goad target creature" (701.15a): the ability's controller goads it.
+  if ((m = /^goad (.+)$/.exec(rest))) {
+    const o = mustObjects(m[1], env, st, clause);
+    if (o.zone !== 'battlefield' || o.targets.some((t) => t.type !== 'creature')) return refuse(clause, `can't goad "${m[1]}"`);
+    acted(st, o);
+    return { targets: o.targets, reuse: o.reuse, run: (g, ctx, i, memo) => actOn(g, ctx, i, memo, o).forEach((c) => goad(g, c, ctx.you)) };
+  }
   // Destroy (701.8), exile (701.13), return to its owner's hand (400.6), tap and untap (701.26).
   if ((m = /^(destroy|exile|tap|untap) (.+)$/.exec(rest)) || (m = /^(return) (.+) to (?:its|their) owners?'s? hands?$/.exec(rest))) {
     const verb = m[1];
@@ -2032,12 +2050,6 @@ function effects(text: string, env: Env): Effect[] {
     const start = out.length;
     const read = whereX(raw, env, raw);
     let sentence = read.sentence;
-    // "You may play an additional land this turn" (305.2, Explore): a permission, not a choice to make now.
-    if (sentence === 'you may play an additional land this turn') {
-      out.push({ targets: [], text: raw, run: (g, ctx) => addEffect(g, { kind: 'extraLand', player: ctx.you, n: 1 }) });
-      previous = start;
-      continue;
-    }
     // "If you control four or more lands, untap that land": checked as it resolves (608.2c). Only a condition the parser reads.
     let onlyIf: Cond | undefined;
     const iff = /^if (.+?), (.+)$/.exec(sentence);
@@ -2085,7 +2097,9 @@ function effects(text: string, env: Env): Effect[] {
       mayPay = pay[1] ? { cost: pay[1].toUpperCase() } : { life: parseInt(pay[2], 10) };
       sentence = pay[3];
     }
-    const mayWho = pay ? null : /^(you|its controller|that player|that land's controller) may (.+)$/.exec(sentence.replace(/^that land's controller may /, 'its controller may '));
+    // "You may play an additional land this turn" is a permission, not a choice to make now (305.2b).
+    const permission = /^you may play (?:an|two|three) additional lands? this turn$/.test(sentence);
+    const mayWho = pay || permission ? null : /^(you|its controller|that player|that land's controller) may (.+)$/.exec(sentence.replace(/^that land's controller may /, 'its controller may '));
     if (mayWho) {
       may = true;
       sentence = mayWho[2];
@@ -2794,12 +2808,6 @@ function cardLine(text: string, original: string, d: CardData, script: CardScrip
     };
     return true;
   }
-  // "You may play an additional land on each of your turns" (Exploration), "two additional lands" (Azusa) (305.2).
-  if ((m = /^you may play (an additional land|two additional lands) on each of your turns\.$/.exec(text))) {
-    const n = m[1] === 'two additional lands' ? 2 : 1;
-    script.extraLands = (g, self, pid) => (pid === self.controller && g.active === pid ? n : 0);
-    return true;
-  }
   // "Land cards in your graveyard have dredge 2." (The Necrobloom, 702.52)
   if ((m = /^([a-z]+) cards in your graveyard have dredge (\d+)\.$/.exec(text))) {
     const kind = modifier(m[1]);
@@ -3043,6 +3051,12 @@ function cardLine(text: string, original: string, d: CardData, script: CardScrip
   if ((m = /^creatures can't attack you unless their controller pays (\{\d+\}) for each creature they control that's attacking you\.$/.exec(text))) {
     const tax = m[1];
     script.attackTax = (_g, self, _attacker, defender, target) => (defender === self.controller && target === null ? tax : null);
+    return true;
+  }
+  // "You may play an additional land on each of your turns." (305.2b, Exploration, Azusa's "two additional lands")
+  if ((m = /^you may play (an|two|three) additional lands? on each of your turns\.$/.exec(text))) {
+    const n = NUMBERS[m[1]];
+    script.extraLands = (_g, self, pid) => (pid === self.controller ? n : 0);
     return true;
   }
   // "During your turn, your opponents can't cast spells or activate abilities of artifacts, creatures, or enchantments." (101.2)
@@ -3557,6 +3571,15 @@ function readCard(d: CardData): CardScript {
     const parts = text.split(',').map((p) => p.trim());
     if (parts.includes('prowess') && parts.every((p) => p === 'prowess' || BARE_KEYWORDS.includes(p))) {
       addTrigger(script, 'onCast', { ...prowess, text: 'Prowess' } as AnyTrigger);
+      continue;
+    }
+    // Firebending N (702.189a) is a triggered ability, alone or with other keywords ("Flying, firebending 2").
+    const fire = parts.map((p) => /^firebending (\d+)$/.exec(p)).find(Boolean);
+    if (fire && parts.every((p) => /^firebending \d+$/.test(p) || BARE_KEYWORDS.includes(p))) {
+      for (const p of parts) {
+        const f = /^firebending (\d+)$/.exec(p);
+        if (f) addTrigger(script, 'onAttack', firebending(parseInt(f[1], 10)) as AnyTrigger);
+      }
       continue;
     }
     // Ward {N} among other keywords: "Flying, ward {2}", "Vigilance, trample, ward {3}" (702.21a).

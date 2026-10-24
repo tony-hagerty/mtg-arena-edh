@@ -5,7 +5,7 @@ import { describe, expect, it } from 'vitest';
 import { cardData, registerCards } from '../src/cards/db';
 import { needsScript, parseCard, scriptCards } from '../src/cards/oracle';
 import { parseResults } from '../src/cards/oracle-report';
-import { activatedAt, activationCost, applyAction, applyBotAction, botAction, canCast, canLookAtTop, canPlayLand, castCost, colorsOf, createToken, destroy, discard, draw, draw as drawCards, dredgeOf, enterBattlefield, gainLife, hasScript, isCreature, isLand, landsAllowed, legalTargets, makeCard, manaAbilities, permanent, scriptOf, spellTargets, stats, tap } from '../src/engine';
+import { activatedAt, activationCost, applyAction, applyBotAction, botAction, canCast, canLookAtTop, canPlayLand, castCost, colorsOf, createToken, destroy, discard, draw, draw as drawCards, dredgeOf, enterBattlefield, gainLife, hasScript, isCreature, isLand, legalTargets, makeCard, manaAbilities, permanent, scriptOf, spellTargets, stats, tap } from '../src/engine';
 import type { Action, ActivatedAbility, Card, CardData, CardScript, Ctx, Game, TargetRef, TargetSpec } from '../src/engine';
 import { registerScripts } from '../src/engine/registry';
 import fixtureData from './fixtures.generated.json';
@@ -1464,33 +1464,6 @@ describe('playing from other zones, extra lands and dredge from Oracle text (601
     expect(canPlayLand(k, 0, k.players[0].library[0])).toBe(false);
   });
 
-  it('"You may play an additional land on each of your turns", "two additional lands", and "this turn" (305.2)', () => {
-    teach('Test Exploration', 'Enchantment', 'You may play an additional land on each of your turns.');
-    teach('Test Azusa', 'Creature — Human Monk', 'You may play two additional lands on each of your turns.');
-    teach('Test Explore', 'Sorcery', 'You may play an additional land this turn. Draw a card.');
-    let g = emptyGame((d) => {
-      put(d, 0, 'Test Exploration');
-      put(d, 0, 'Plains', 'hand', 4);
-      put(d, 0, 'Forest');
-    });
-    expect(landsAllowed(g, 0)).toBe(2);
-    expect(landsAllowed(g, 1)).toBe(1);
-    g = run(g, { type: 'playLand', card: byName(g, 0, 'Plains', 'hand')!.id });
-    g = run(g, { type: 'playLand', card: byName(g, 0, 'Plains', 'hand')!.id });
-    expect(canPlayLand(g, 0, byName(g, 0, 'Plains', 'hand')!)).toBe(false);
-    g = produce(g, (d) => void put(d, 0, 'Test Azusa'));
-    expect(landsAllowed(g, 0)).toBe(4);
-    const h = emptyGame((d) => {
-      put(d, 0, 'Test Explore', 'hand');
-      put(d, 0, 'Forest', 'battlefield', 2);
-      put(d, 0, 'Plains', 'hand', 2);
-    });
-    const after = settle(run(h, { type: 'cast', card: byName(h, 0, 'Test Explore', 'hand')!.id }));
-    expect(landsAllowed(after, 0)).toBe(2);
-    expect(after.players[0].hand.length).toBe(3);
-    expect(refusal('Enchantment', "You may play an additional land on each of an opponent's turns.")).not.toBeNull();
-  });
-
   it('"Whenever you play a land" triggers on a land played, not one an effect puts onto the battlefield (305.4)', () => {
     teach('Test Flubs', 'Creature — Frog', 'Whenever you play a land, draw a card.');
     let g = emptyGame((d) => {
@@ -2093,5 +2066,92 @@ describe('proliferate, Ward—Blight and moving a counter from Oracle text', () 
     // Not between players, or with "another" instead of "a second".
     expect(refusal('Instant', 'Move a counter from target player onto a second target player.')).not.toBeNull();
     expect(refusal('Instant', 'Move a counter from target creature onto another target creature.')).not.toBeNull();
+  });
+});
+
+describe('the monarch, goad, extra lands and firebending from Oracle text', () => {
+  /** Passes until the stack is empty, bots answering. */
+  const resolve = (g: Game) => {
+    for (let i = 0; i < 40 && (g.decision || g.stack.length || g.triggers.length); i++) g = g.decision ? applyBotAction(g, botAction(g, g.priority)) : applyAction(g, { type: 'pass' });
+    return g;
+  };
+
+  it('"you become the monarch" (725.1)', () => {
+    teach('Test Jailer', 'Creature — Human', 'When this creature enters, you become the monarch.');
+    let g = emptyGame((d) => {
+      put(d, 0, 'Test Jailer', 'hand');
+      put(d, 0, 'Plains');
+    });
+    g = resolve(run(g, { type: 'cast', card: byName(g, 0, 'Test Jailer', 'hand')!.id }));
+    expect(g.monarch).toBe(0);
+    expect(refusal('Creature — Human', 'When this creature enters, you become the king.')).not.toBeNull();
+  });
+
+  it('"goad target creature" (701.15a), and not a player', () => {
+    teach('Test Prodder', 'Sorcery', 'Goad target creature.');
+    let g = emptyGame((d) => {
+      put(d, 0, 'Test Prodder', 'hand');
+      put(d, 0, 'Plains');
+      put(d, 1, 'Serra Angel');
+    });
+    g = resolve(run(g, { type: 'cast', card: byName(g, 0, 'Test Prodder', 'hand')!.id, targets: [cardRef(byName(g, 1, 'Serra Angel')!.id)] }));
+    expect(byName(g, 1, 'Serra Angel')!.goaded).toEqual([{ by: 0 }]);
+    expect(refusal('Sorcery', 'Goad target player.')).not.toBeNull();
+  });
+
+  it('"you may play an additional land this turn" is a permission, not a question (305.2b)', () => {
+    teach('Test Explore', 'Sorcery', 'You may play an additional land this turn.\nDraw a card.');
+    let g = emptyGame((d) => {
+      d.players[0].isBot = false;
+      put(d, 0, 'Test Explore', 'hand');
+      put(d, 0, 'Plains');
+      put(d, 0, 'Forest', 'hand', 2);
+    });
+    g = run(g, { type: 'playLand', card: byName(g, 0, 'Forest', 'hand')!.id });
+    expect(canPlayLand(g, 0, byName(g, 0, 'Forest', 'hand')!)).toBe(false);
+    g = run(g, { type: 'cast', card: byName(g, 0, 'Test Explore', 'hand')!.id });
+    for (let i = 0; i < 10 && g.stack.length; i++) g = applyAction(g, { type: 'pass' });
+    expect(g.decision).toBeNull(); // nothing was asked
+    expect(canPlayLand(g, 0, byName(g, 0, 'Forest', 'hand')!)).toBe(true);
+    expect(refusal('Sorcery', 'You may play an additional land next turn.')).not.toBeNull();
+  });
+
+  it('"you may play an additional land on each of your turns" (Exploration), "two additional lands" (Azusa)', () => {
+    teach('Test Exploration', 'Enchantment', 'You may play an additional land on each of your turns.');
+    teach('Test Azusa', 'Creature — Human Monk', 'You may play two additional lands on each of your turns.');
+    let g = emptyGame((d) => {
+      put(d, 0, 'Test Exploration');
+      put(d, 0, 'Forest', 'hand', 3);
+      put(d, 1, 'Test Azusa');
+      put(d, 1, 'Forest', 'hand', 2);
+    });
+    g = run(g, { type: 'playLand', card: byName(g, 0, 'Forest', 'hand')!.id });
+    g = run(g, { type: 'playLand', card: byName(g, 0, 'Forest', 'hand')!.id });
+    expect(canPlayLand(g, 0, byName(g, 0, 'Forest', 'hand')!)).toBe(false);
+    // Only on its controller's turns: player 1's Azusa doesn't help player 0.
+    expect(scriptOf('Test Azusa').extraLands!(g, byName(g, 1, 'Test Azusa')!, 0)).toBe(0);
+    expect(scriptOf('Test Azusa').extraLands!(g, byName(g, 1, 'Test Azusa')!, 1)).toBe(2);
+    expect(refusal('Enchantment', 'You may play an additional land on each turn.')).not.toBeNull();
+  });
+
+  it('"Flying, firebending 2" is a triggered ability (702.189a) whose mana lasts until end of combat', () => {
+    teach('Test Firebender', 'Creature — Human Monk', 'Flying, firebending 2', { power: '2', toughness: '2' });
+    expect(scriptOf('Test Firebender').onAttack).toMatchObject({ text: 'Firebending 2' });
+    let g = emptyGame((d) => {
+      d.players[0].isBot = false;
+      put(d, 0, 'Test Firebender');
+    });
+    const step = (a: Action) => {
+      const next = applyAction(g, a, { autoPass: false });
+      expect(next).not.toBe(g);
+      g = next;
+    };
+    for (let i = 0; i < 20 && g.decision?.type !== 'attackers'; i++) step({ type: 'pass' });
+    step({ type: 'declareAttack', card: byName(g, 0, 'Test Firebender')!.id, defender: 1 });
+    step({ type: 'pass' });
+    for (let i = 0; i < 10 && (g.stack.length || g.triggers.length); i++) step({ type: 'pass' });
+    expect(g.players[0].pool.map((m) => m.sym)).toEqual(['R', 'R']);
+    expect(g.players[0].pool.every((m) => m.combat === g.turn)).toBe(true);
+    expect(refusal('Creature — Human', 'Flying, firebending')).not.toBeNull();
   });
 });
