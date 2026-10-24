@@ -1298,6 +1298,54 @@
         "Flying"
       ],
       "query": "t:token !\"Angel\" c=w pow=4 tou=4 o:flying"
+    },
+    "Pilot": {
+      "name": "Pilot",
+      "power": "1",
+      "toughness": "1",
+      "colors": [],
+      "typeLine": "Token Creature — Pilot",
+      "oracleText": "This token crews Vehicles as though its power were 2 greater.",
+      "keywords": [],
+      "query": "t:token !\"Pilot\" c=c pow=1 tou=1"
+    },
+    "Robot 3/3": {
+      "name": "Robot",
+      "power": "3",
+      "toughness": "3",
+      "colors": [],
+      "typeLine": "Token Artifact Creature — Robot",
+      "keywords": [],
+      "query": "t:token !\"Robot\" c=c pow=3 tou=3"
+    },
+    "Assassin 1/1 deathtouch haste": {
+      "name": "Assassin",
+      "power": "1",
+      "toughness": "1",
+      "colors": [
+        "B"
+      ],
+      "typeLine": "Token Creature — Assassin",
+      "oracleText": "Deathtouch, haste",
+      "keywords": [
+        "Deathtouch",
+        "Haste"
+      ],
+      "query": "t:token !\"Assassin\" c=b pow=1 tou=1 kw:deathtouch kw:haste"
+    },
+    "Faerie Rogue 1/1 flying": {
+      "name": "Faerie Rogue",
+      "power": "1",
+      "toughness": "1",
+      "colors": [
+        "B"
+      ],
+      "typeLine": "Token Creature — Faerie Rogue",
+      "oracleText": "Flying",
+      "keywords": [
+        "Flying"
+      ],
+      "query": "t:token !\"Faerie Rogue\" c=b pow=1 tou=1 kw:flying"
     }
   }
 }

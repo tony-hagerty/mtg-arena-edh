@@ -220,6 +220,9 @@ The full guide to the game's screens and controls. For a quick start, see the
 - When your commander dies, is exiled, or would go to your hand or library, a window asks
   whether it goes to the **Command Zone** (castable again, with tax) or stays where it
   went.
+- A gold crown on the lower right of a portrait marks **the monarch** (Queen Marchesa):
+  that player draws a card at the beginning of their end step, and a creature dealing
+  them combat damage makes its controller the monarch.
 - A player's emblems (Sephiroth's, for one) sit in the command zone too: each is a ✦ badge
   down the portrait's inner side, under any commander damage. Hover one to read its ability.
 
@@ -260,6 +263,8 @@ The full guide to the game's screens and controls. For a quick start, see the
 | **Graveyard and exile** | A graveyard, or the well (the exile), glows when something in it can be cast (flashback, escape, an adventurer card whose Adventure you cast, or a card an effect lets you cast or play, in anyone's exile). Right-click it to open it and click the glowing card. With escape (Underworld Breach) a window then asks for the three other cards to exile. A card exiled face down shows its back, unless you may look at it. |
 | **Gift, channel, bargain, plot** | Extra prompt rows and buttons: **Gift** (promise an opponent a gift, or none); a button beside **Cast** for a card with an ability that works from the hand (Otawara's channel) or that can be plotted instead (Highway Robbery); **No Sacrifice** skips a bargain sacrifice. |
 | **Sacrifice costs** (Goblin Bombardment, Village Rites) | After the targets, the creatures you could sacrifice glow yellow; click one. |
+| **Station** (Hearthhull, the Worldseed) | Click the Spacecraft and pick **Station**: your other untapped creatures glow yellow; click the one to tap and press **Tap**. The Spacecraft gets charge counters equal to that creature's power as the ability resolves, and its "N+" abilities work once it has that many. |
+| **Goaded creatures** | A red flag on the left of the tile: the creature must attack this combat if it can, and attack a player other than whoever goaded it if it can (hover the flag to see who). A goaded creature you leave home is sent to attack when you press the button; one declared at its goader while it could attack someone else is refused. |
 | **Shock lands** | Asks whether you pay 2 life as you play it. |
 | **New targets** (Deflecting Swat) | Click the new target for each slot, or press **Keep Target**. A card in a graveyard (Sevinne's Reclamation) is targeted from a window. |
 | **Cast as it resolves** (Beseech the Mirror) | A window offers **Cast** or **Don't Cast**; casting goes through the usual targets and costs. |

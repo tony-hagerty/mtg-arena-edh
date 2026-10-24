@@ -172,6 +172,7 @@ import {
   RAD_COUNTERS,
   triggerTimes,
 } from './rules';
+import { becomeMonarch, goadedBy, isGoaded, landsAllowed, triggerMonarch } from './rules';
 import type { EnterOpts } from './rules';
 import { characteristics, inBase, settled, untouched } from './layers';
 import { NeedsChoice, replace, withReplacementAnswers } from './replace';
@@ -721,7 +722,8 @@ export function canPlayLand(g: Game, pid: PlayerId, c: Card, face?: number): boo
   // A land with an Adventure can be played from exile once its Adventure has resolved (715.3d).
   const from =
     c.zone === 'hand' ? c.owner === pid : (c.zone === 'exile' && c.adventure && c.owner === pid) || ((c.zone === 'exile' || c.zone === 'graveyard') && !!permission(g, pid, c)?.play);
-  return from && g.players[pid].landsPlayed < 1 && timingOk(g, pid, false);
+  // One land a turn (305.2), plus any more that effects allow (305.2b).
+  return from && g.players[pid].landsPlayed < landsAllowed(g, pid) && timingOk(g, pid, false);
 }
 
 /**
@@ -1141,8 +1143,23 @@ export function activatable(g: Game, pid: PlayerId, c: Card): AbilityRef[] {
  */
 export const crewOptions = (g: Game, pid: PlayerId, v: Card) => creaturesOf(g, pid).filter((c) => c.id !== v.id && !c.tapped);
 
-/** Total power of some crew. */
-export const crewPower = (g: Game, _pid: PlayerId, _v: Card, cards: Card[]) => cards.reduce((n, c) => n + Math.max(0, stats(g, c).power), 0);
+/** Total power of some crew. A creature that "crews Vehicles as though its power were 2 greater" (a Pilot token) counts that much more. */
+export const crewPower = (g: Game, _pid: PlayerId, v: Card, cards: Card[]) => cards.reduce((n, c) => n + Math.max(0, stats(g, c).power + (abilitiesOf(g, c).crewBonus?.(g, c, v) ?? 0)), 0);
+
+/**
+ * May goaded creature `c` attack as `option` says (701.15b, 508.1d)? It must attack a player
+ * other than the players who goaded it if it can for free (nobody has to pay to meet a
+ * requirement); only when it can't may it attack anyone else. Any attack is fine for a creature
+ * that isn't goaded.
+ */
+export function goadAllows(g: Game, c: Card, option: AttackOption): boolean {
+  const goaders = goadedBy(g, c);
+  if (!goaders.length) return true;
+  // A requirement can't make it break a restriction (508.1d): a player it can't attack doesn't count.
+  const away = (o: AttackOption) => o.target === null && !goaders.includes(o.defender) && !attackForbidden(g, c, o.defender, null);
+  if (away(option)) return true;
+  return !attackOptions(g, c.controller).some((o) => away(o) && isFree(attackCost(g, [{ id: c.id, defender: o.defender, target: null }])));
+}
 
 /** Every slot has a legal target, or is an optional one left empty, and none repeats one it must differ from (115.3). */
 /** The total a spell divides among its targets (601.2d), or null if it divides nothing. */
@@ -1411,6 +1428,8 @@ function beginTurn(g: Game, pid: PlayerId, extra?: ExtraTurn) {
     p.lifeLost = 0;
     p.lifeGained = 0;
     p.attackedWith = [];
+    p.bent = [];
+    p.extraLands = 0;
   }
   // Effects that last "until your next turn" end as that turn begins (611.2a), and those of a
   // player who has left the game as their turn would have begun (800.4m).
@@ -1419,6 +1438,12 @@ function beginTurn(g: Game, pid: PlayerId, extra?: ExtraTurn) {
   for (const p of g.players) {
     for (const c of [...p.battlefield, ...(p.phasedOut ?? [])]) {
       c.continuous = c.continuous.filter((e) => typeof e.until !== 'object' || !ending.includes(e.until.nextTurnOf));
+      // A creature is goaded until the next turn of the player who goaded it (701.15a).
+      if (c.goaded?.some((x) => ending.includes(x.by))) {
+        const left = c.goaded.filter((x) => !ending.includes(x.by));
+        if (left.length) c.goaded = left;
+        else delete c.goaded;
+      }
     }
   }
   // Delayed abilities waiting for a turn that has passed never trigger.
@@ -1574,6 +1599,8 @@ function beginStep(g: Game, step: Step) {
       break;
     case 'end':
       broadcast(g, 'onEndStep', { player: pid }); // 513.1
+      // "At the beginning of the monarch's end step, that player draws a card" (725.2).
+      if (g.monarch === pid) triggerMonarch(g, pid, { what: 'draw' });
       fireDelayed(g, 'end');
       break;
     case 'cleanup':
@@ -1588,8 +1615,9 @@ const keptMana = (g: Game, pid: PlayerId, m: Mana) => battlefield(g).some((src) 
 
 /** Ends the current step or phase and begins the next. */
 function nextStep(g: Game) {
-  // Unspent mana empties (500.5), except mana an effect says isn't lost this turn (Birgi).
-  for (const p of g.players) p.pool = p.pool.filter((m) => m.keep === g.turn || keptMana(g, p.id, m));
+  // Unspent mana empties (500.5), except mana an effect says isn't lost this turn (Birgi), or
+  // until end of combat (firebending): that goes as the combat phase ends (500.5a).
+  for (const p of g.players) p.pool = p.pool.filter((m) => m.keep === g.turn || (m.combat === g.turn && g.step !== 'endCombat') || keptMana(g, p.id, m));
   const combat = g.combat;
   switch (g.step) {
     case 'upkeep':
@@ -1735,17 +1763,21 @@ function exalted(g: Game, attacker: Card) {
 /**
  * A creature that "attacks each combat if able" and wasn't declared attacks anyway (508.1d):
  * it attacks the next opponent in turn order. Only a player can have been left out, so the
- * requirement is met however it attacks.
+ * requirement is met however it attacks. A goaded creature does the same (701.15b), attacking
+ * a player other than the players who goaded it if it can for free.
  */
 function mustAttack(g: Game, pid: PlayerId) {
   const combat = g.combat!;
   const opponent = turnOrder(g, pid).find((o) => o !== pid);
   if (opponent === undefined) return;
   for (const c of attackCandidates(g, pid)) {
-    if (!has(g, c, MUST_ATTACK) || combat.attacks.some((a) => a.id === c.id)) continue;
+    if ((!has(g, c, MUST_ATTACK) && !isGoaded(c)) || combat.attacks.some((a) => a.id === c.id)) continue;
     // Nobody has to pay to meet a requirement (508.1d): it attacks an opponent it can attack for free, if any.
     // It can't break a restriction to meet it either (508.1d): only an opponent it may attack (508.1c).
-    const free = turnOrder(g, pid).find((o) => o !== pid && !attackForbidden(g, c, o, null) && isFree(attackCost(g, [{ id: c.id, defender: o, target: null }])));
+    // Goaded, a player other than its goaders first (701.15b).
+    const freeTo = (o: PlayerId) => o !== pid && !attackForbidden(g, c, o, null) && isFree(attackCost(g, [{ id: c.id, defender: o, target: null }]));
+    const goaders = goadedBy(g, c);
+    const free = turnOrder(g, pid).find((o) => freeTo(o) && !goaders.includes(o)) ?? turnOrder(g, pid).find(freeTo);
     if (free !== undefined) combat.attacks.push({ id: c.id, defender: free, target: null, blockers: [], blocked: false });
   }
 }
@@ -2018,7 +2050,7 @@ function resolveTop(g: Game) {
     // One that did nothing (`item.fizzled`, 608.2b) never gets here.
     countResolution(g, item);
     // An ability uses its source as it is now, or as it last was if it has gone (113.7a).
-    const ctx = { self: permanent(g, card.id) ?? card, you: controller, targets, sacrificed: item.sacrificed, sacrificedPower: item.sacrificedPower, x: item.x ?? 0, ...(item.modes ? { modes: item.modes } : {}) };
+    const ctx = { self: permanent(g, card.id) ?? card, you: controller, targets, sacrificed: item.sacrificed, sacrificedPower: item.sacrificedPower, x: item.x ?? 0, ...(item.modes ? { modes: item.modes } : {}), ...(item.stationed ? { stationed: item.stationed } : {}), ...(item.spentFrom ? { spentFrom: item.spentFrom } : {}) };
     if (item.kind === 'activated' && item.ability !== undefined && script.levels) {
       // The Class gains the level, and "when this Class becomes level N" triggers (716.2a).
       const cls = permanent(g, card.id);
@@ -2143,6 +2175,21 @@ function resolveTop(g: Game) {
         const c = permanent(g, extra.id as string);
         if (c && c.moves === extra.moves) dieMany(g, [c], 'is sacrificed');
       } else script.delayed?.[key]?.(g, { ...ctx, data: extra });
+    } else if (item.hook === 'onMonarch') {
+      // The monarch's inherent triggered abilities (725.2).
+      const ev = item.event as TriggerEvents['onMonarch'];
+      if (ev.what === 'draw') draw(g, controller, 1);
+      else {
+        // "Its controller becomes the monarch": the creature's controller now, or as it last was (608.2h).
+        const creature = permanent(g, ev.creature.id);
+        becomeMonarch(g, creature && creature.moves === ev.creature.moves ? creature.controller : ev.creature.controller);
+      }
+    } else if (item.hook === 'onEarthbent') {
+      // Earthbend's "return it to the battlefield tapped under your control" (701.66a), if it is still the card that left (400.7).
+      const { id, moves } = item.event as TriggerEvents['onEarthbent'];
+      const owner = g.players[card.owner];
+      const c = [...owner.graveyard, ...owner.exile].find((x) => x.id === id && x.moves === moves);
+      if (c) enterBattlefield(g, c, { tapped: true, controller });
     } else if (item.hook === 'onChapter') {
       script.chapters?.[(item.event as { chapter: number }).chapter - 1]?.resolve(g, ctx);
     } else if (item.hook === 'onReflexive') {
@@ -2728,7 +2775,10 @@ function act(g: Game, a: Action): boolean {
       }
       // Nothing tapped or sacrificed for the rest of the cost makes mana for it.
       const busy = [...(ab.cost.tap || ab.cost.sacrifice || ab.cost.exileSelf ? [c.id] : []), ...(a.sacrifice ?? []), ...(a.exile ?? []), ...(returning ? [returning.id] : []), ...(tapping ? (a.crew ?? []) : [])];
-      if ((ab.cost.mana || ab.cost.life) && !pay(g, pid, activationCost(g, pid, c, ab, x, a.payLife), undefined, busy)) return false;
+      const paidMana = ab.cost.mana || ab.cost.life ? pay(g, pid, activationCost(g, pid, c, ab, x, a.payLife), undefined, busy) : null;
+      if ((ab.cost.mana || ab.cost.life) && !paidMana) return false;
+      // What mana was spent on it, by source ("each mana from Treasures spent to activate this ability").
+      if (paidMana?.paid?.length) item.spentFrom = paidMana.paid;
       if (ab.cost.tap) tap(g, c);
       if (returning) {
         // What it was attacking, for the creature put onto the battlefield attacking (702.49c); then it goes back to its owner's hand.
@@ -2738,8 +2788,11 @@ function act(g: Game, a: Action): boolean {
         bounce(g, returning);
       }
       if (ab.cost.counters) removeCounters(c, ab.cost.counters.n, ab.cost.counters.kind);
+      // Station (702.184a): the creature tapped is remembered as it is now, for its power as the ability resolves (608.2h).
+      if (ab.cost.station && crewing[0]) item.stationed = lastKnown(g, crewing[0]);
       for (const x of crewing) tap(g, x!);
-      if (crewing.length && tapping) log(g, `${says(p, 'taps')} ${crewing.map((x) => label(x!)).join(', ')} (${label(c)}).`, pid, [...(crewing as Card[]), c]);
+      if (crewing.length && ab.cost.station) log(g, `${says(p, 'stations')} ${label(c)} with ${label(crewing[0]!)}.`, pid, [c, crewing[0]!]);
+      else if (crewing.length && tapping) log(g, `${says(p, 'taps')} ${crewing.map((x) => label(x!)).join(', ')} (${label(c)}).`, pid, [...(crewing as Card[]), c]);
       else if (crewing.length) log(g, `${crewing.map((x) => label(x!)).join(' and ')} crew${crewing.length === 1 ? 's' : ''} ${label(c)}.`, pid, [...(crewing as Card[]), c]);
       const chosen = targets.filter((t): t is TargetRef => !!t).map((t) => describeRef(g, t));
       const modeText = ab.modes ? ` (${modes.map((i) => `“${ab.modes!.modes[i].text}”`).join(', ')})` : '';
@@ -2812,6 +2865,8 @@ function act(g: Game, a: Action): boolean {
       if (deciding !== 'attackers' || !g.combat || !c || !canAttack(g, c)) return false;
       const target = a.target ?? null;
       if (!attackOptions(g, pid).some((o) => o.defender === a.defender && o.target === target)) return false;
+      // A goaded creature attacks a player other than its goaders if able (701.15b, 508.1d).
+      if (!goadAllows(g, c, { defender: a.defender, target })) return false;
       // "Can't attack you or planeswalkers you control" (508.1c).
       if (attackForbidden(g, c, a.defender, target)) return false;
       // Attacks that cost something (Propaganda) can be declared only if they can all be paid for (508.1d, 508.1h).

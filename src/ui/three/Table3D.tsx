@@ -288,6 +288,8 @@ function CardProxy({ card, g, pile, covered = false }: { card: Card; g: Game; pi
       {isBattle(g, card) && <div className="tile-pt tile-defense">{defenseOf(card)}</div>}
       <Counters card={card} />
       {sick && <i className="tile-sick ms ms-ability-summoning-sickness" title="Summoning sick" />}
+      {/* Goaded (701.15b): it attacks each combat if able, and a player other than its goaders if able. */}
+      {!!card.goaded?.length && <i className="tile-goad" title={`Goaded by ${card.goaded.map((x) => g.players[x.by].name).join(' and ')}: attacks each combat if able, and not them if able`} />}
       {/* The Ring-bearer (701.54a): a gold ring, with how many times the Ring has tempted its controller. */}
       {isRingBearer(g, card) && <i className="tile-ring" title={`Ring-bearer: the Ring has tempted ${g.players[card.controller].name} ${timesTempted(g, card.controller)} time${timesTempted(g, card.controller) === 1 ? '' : 's'}`} />}
       {/* The 3D card already dims when tapped; the proxy adds only the symbol. */}

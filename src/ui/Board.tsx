@@ -113,6 +113,12 @@ function Avatar({ player }: { player: Player }) {
       {player.commanders.map((name, i) => (
         <CommanderBadges key={name} player={player} name={name} index={i} />
       ))}
+      {/* The monarch (725): a small crown on the right of the portrait. */}
+      {g.monarch === player.id && !player.lost && (
+        <div className="avatar-monarch" title="The monarch: draws a card at the beginning of their end step; a creature dealing them combat damage takes the crown for its controller">
+          ♛
+        </div>
+      )}
       <div className="avatar-life">{player.lost ? '✕' : player.life}</div>
       <div className="avatar-name">
         {player.name}
