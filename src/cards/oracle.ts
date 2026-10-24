@@ -115,6 +115,8 @@ import {
   isRingBearer,
   tokenCopy,
   SUPPORTED_KEYWORDS,
+  explore,
+  exploreEach,
 } from '../engine/rules';
 import type {
   Action,
@@ -219,8 +221,8 @@ const ABILITY_WORDS = [
   'heroic', 'imprint', 'infusion', 'inspired', 'join forces', 'kinship', 'landfall', 'lieutenant', 'magecraft', 'metalcraft', 'morbid', 'opus', 'pack tactics', 'paradox', 'parley',
   'radiance', 'raid', 'rally', 'renew', 'repartee', 'revolt', 'secret council', 'spell mastery', 'strive', 'survival', 'sweep', 'tempting offer', 'threshold', 'undergrowth', 'valiant',
   'vivid', 'void', 'will of the council',
-  // Newer ability words and flavor words (207.2c, 207.2d): Final Fantasy's trance, Spider-Man's Goblin Formula.
-  'trance', 'goblin formula',
+  // Newer ability words and flavor words (207.2c, 207.2d): Final Fantasy's trance, Spider-Man's Goblin Formula, The Wandering Minstrel's ballad.
+  'trance', 'goblin formula', "the minstrel's ballad",
 ];
 /**
  * Keywords with rules meaning that are written "[Keyword] — [ability]", so they aren't labels to
@@ -677,9 +679,11 @@ function tokenList(text: string, x: Num | null, clause: string): { key: string; 
   }
   const parts = text.split(/,? and (?=(?:a|an|one|two|three|four|five|x|\d+) )|, (?=(?:a|an|one|two|three|four|five|x|\d+) )/);
   return parts.map((part) => {
-    const m = new RegExp(`^${NUM} (.+?) tokens?( with .+)?$`).exec(part) ?? new RegExp(`^${NUM} (.+?) tokens?$`).exec(part);
+    const m = new RegExp(`^${NUM} (.+?) tokens?( with .+| that's all colors)?$`).exec(part) ?? new RegExp(`^${NUM} (.+?) tokens?$`).exec(part);
     if (!m) return refuse(clause, `"${part}" isn't a token`);
-    return { key: tokenFor(m[2] + (m[3] ?? ''), clause), n: count(m[1], x, clause) };
+    // "A 2/2 Elemental creature token that's all colors" (105.2c, The Wandering Minstrel).
+    const desc = m[3] === " that's all colors" ? m[2].replace(/^(\d+\/\d+) /, '$1 white, blue, black, red, and green ') : m[2] + (m[3] ?? '');
+    return { key: tokenFor(desc, clause), n: count(m[1], x, clause) };
   });
 }
 
@@ -1408,6 +1412,22 @@ function effect(clause0: string, env: Env, st: State): Read {
 /** What "you" do, or a clause with no subject: an instruction to the ability's controller. */
 function youEffect(rest: string, env: Env, st: State, clause: string): Read {
   let m: RegExpExecArray | null;
+  // Explore (701.44): "this creature explores", "it explores", "target creature explores", "each Merfolk creature you control explores" (701.44d).
+  if ((m = /^(.+?) explores?$/.exec(rest))) {
+    const who = m[1];
+    if (who === '~' || ((who === 'it' || who === 'that creature') && !st.last)) {
+      if (!env.permanent) return refuse(clause, 'a spell exploring');
+      return { targets: [], run: (g, ctx) => explore(g, permanent(g, ctx.self.id) ?? ctx.self) };
+    }
+    const o = objects(who, env, st, clause);
+    if (!o || o.zone !== 'battlefield') return refuse(clause, `"${who}" isn't a permanent the parser knows`);
+    // Several at once explore one after another, in the order their controllers choose (701.44d).
+    return { targets: o.targets, ...(o.reuse ? { reuse: true } : {}), run: (g, ctx, i, memo) => {
+      const cards = actOn(g, ctx, i, memo, o);
+      if (o.group) exploreEach(g, cards);
+      else for (const c of cards) explore(g, permanent(g, c.id) ?? c);
+    } };
+  }
   // Scry N (701.22), surveil N (701.25).
   if ((m = new RegExp(`^scry ${NUM}$`).exec(rest))) return { targets: [], ...scryEffect(count(m[1], env.x, clause)) };
   if ((m = new RegExp(`^surveil ${NUM}$`).exec(rest))) {
@@ -2730,6 +2750,16 @@ function cardLine(text: string, original: string, d: CardData, script: CardScrip
     }
     return true;
   }
+  // "Lands you control enter untapped." (The Wandering Minstrel): a replacement effect (614.1c) that applies to
+  // each such permanent entering, whether an effect would have it enter tapped or not, so with the land's own
+  // "enters tapped" the player chooses the order they apply in and may have it enter either way (616.1, its
+  // rulings); one simply put onto the battlefield tapped enters untapped. Not for permanents entering with it (614.12).
+  if ((m = /^(.+?) you control enter untapped\.$/.exec(text))) {
+    const o = object(`${m[1]} you control`, 'many', null);
+    if (!o || o.zone !== 'battlefield') return refuse(original, `no template for "${m[1]} you control"`);
+    addReplacement(script, (g, self, ev) => (ev.kind === 'enter' && ev.card.controller === self.controller && o.test(g, ev.card, self, 0) ? { instead: { ...ev, tapped: false } } : null));
+    return true;
+  }
   // "This land enters tapped." (614.1c)
   if (text === '~ enters tapped.') {
     script.entersTapped = true;
@@ -3286,6 +3316,14 @@ const TRIGGERS: [RegExp, (m: RegExpExecArray) => TrigEvent[] | null][] = [
   ],
   // "Whenever you play a land" (305.1): not a land an effect puts onto the battlefield (305.4).
   [/^whenever you play a land$/, () => [{ hook: 'onLandPlayed', when: yours((e) => e.player), ev: objectEv('land'), env: { object: true } }]],
+  // "Whenever a creature you control explores" (701.44b): the permanent as it was, its last controller if it left (701.44c).
+  [
+    /^whenever (a|an|another) (.+?) explores$/,
+    (m) => {
+      const about = aboutObject(`${m[1]} ${m[2]}`);
+      return about && [{ hook: 'onExplore', when: (g, e) => about(g, { ...(e.card as Card), controller: e.player as PlayerId }, e.self), ev: objectEv('card'), env: { object: true, player: true } }];
+    },
+  ],
   // "Whenever a Food is put into a graveyard from the battlefield": a leaves-the-battlefield ability, so it looks back in time (603.6c, 603.10a). Tokens go there too before they cease to exist (111.7).
   [
     /^whenever (a|an|another) (.+?) is put into a graveyard from the battlefield$/,

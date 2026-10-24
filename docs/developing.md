@@ -418,7 +418,8 @@ fetched card too, since the card is matched to it by name.
   (`onCreatureEnters: [a, b]`, Dragon Tempest). Then each names its own `targets`
   (`onEnter` ones too) and a short `text`, and `when` may be left out for one that
   triggers on every event.
-- Other trigger hooks: `onLandPlayed` ("whenever you play a land", 305.1, not a land an
+- Other trigger hooks: `onExplore` ("whenever a creature you control explores", 701.44b),
+  `onLandPlayed` ("whenever you play a land", 305.1, not a land an
   effect puts onto the battlefield), `onPostcombatMain`, `onDrawStep`, `onTapped`, `onDiscard`,
   `onSacrifice`, `onPlaneswalkerDies`, `onBeginCombat`, `onPermanentTapped` ("whenever a Dwarf
   you control becomes tapped"), `onRingTempts` ("whenever the Ring tempts you", 701.54d),
@@ -668,6 +669,7 @@ ability already on the stack, which exists apart from its source (113.7a).
 | `extraTurn`, `winGame`, `loseGame` | as named |
 | `addExtraSteps(g, 'upkeep', n)` | additional steps directly after the phase going on (500.9, Obeka) |
 | `offerCastAny(g, pid, cards, { free, maxMv, text })` | "you may cast any number of spells from among them": offers the cards one cast at a time while the ability resolves (608.2g, Kotis) |
+| `explore(g, c)`, `exploreEach(g, cards)` | explore (701.44a), and several at once in the order their controllers choose (701.44d) |
 | `mill`, `discard`, `discardHand`, `surveil` | as named |
 | `discover(g, pid, n)` | discover N (701.57a), the cast-or-hand choice included |
 | `revealUntil(g, pid, fits, what)` | "reveal cards from the top until you reveal a ... card" (701.20a): the cards revealed, still in the library, and the one that fits |

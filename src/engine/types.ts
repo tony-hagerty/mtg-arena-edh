@@ -1604,6 +1604,8 @@ export interface TriggerEvents {
   onOffspring: object;
   /** "Whenever you play a land" (305.1): `land` is the land, on the battlefield. Not a land put there by an effect (305.4). */
   onLandPlayed: { player: PlayerId; land: Card };
+  /** "Whenever a creature you control explores" (701.44b): `card` is the permanent that explored, as it was (701.44c), `player` who controlled it. */
+  onExplore: { card: Card; player: PlayerId };
   /**
    * "Whenever you waterbend, earthbend, firebend, or airbend" (Avatar Aang): a player bent, as
    * each keyword says it triggers (701.65b, 701.66b, 701.67c, 702.189b).
