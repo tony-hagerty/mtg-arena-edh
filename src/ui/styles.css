@@ -27,6 +27,9 @@ html {
   Frames     --f-W ... --f-land: the card frame colours, also each deck's seat colour
 */
 :root {
+  /* Just under the log bar (.log's 1.3rem from the top, .log-bar's 3.6rem), and under its lines (32.6rem more) while the log is open. */
+  --under-log: 6.3rem;
+  --under-log-open: 38.9rem;
   --board: #10161f;
   --board-deep: #05070b;
   --panel: rgba(10, 12, 18, 0.88);
@@ -3069,12 +3072,14 @@ button {
   box-shadow: 0 0 1.2rem rgba(57, 227, 255, 0.45);
 }
 
+/* Under the log bar, not behind it, like .results-show. */
 .picker-pill {
   position: absolute;
   left: 50%;
-  top: 2rem;
+  top: var(--under-log);
   z-index: 150;
   transform: translateX(-50%);
+  transition: top 0.28s cubic-bezier(0.25, 1, 0.5, 1);
   padding: 1.2rem 3rem;
   font: 600 2rem var(--sans);
   color: #fff;
@@ -3119,22 +3124,22 @@ button {
 
 /*
   Brings the game-over screen back after "View Board". Top centre, clear of every seat's
-  controls, just under the log bar (1.3rem + 3.6rem), or under its lines (32.6rem more) while
-  the log is open.
+  controls, just under the log bar, or under its lines while the log is open (--under-log).
 */
 .results-show {
   position: absolute;
   left: 0;
   right: 0;
-  top: 6.3rem;
+  top: var(--under-log);
   width: fit-content;
   margin: 0 auto;
   z-index: 150;
   transition: top 0.28s cubic-bezier(0.25, 1, 0.5, 1);
 }
 
-.results-show.under-log {
-  top: 38.9rem;
+.results-show.under-log,
+.picker-pill.under-log {
+  top: var(--under-log-open);
 }
 
 .confirm {
