@@ -6,7 +6,7 @@ import { describe, expect, it } from 'vitest';
 import './fixtures';
 import { hoverHandCard, leaveHandCard, useStore } from '../src/ui/store';
 import { hoverProps } from '../src/ui/util';
-import { activateFromHand, buildView, clickGroup, chooseEscape, chooseGraveyardTarget, clickPermanent, clickPlayer, clickStackItem, exileForMana, manaOptions, pickAbility, pickMana, pickManaSacrifice, pickFace, pickMode, playHandCard, setAbilityX, setChoices, stackTucked, undo } from '../src/ui/view';
+import { activateFromHand, buildView, clickGroup, chooseEscape, chooseGraveyardTarget, clickPermanent, clickPlayer, clickStackItem, exileForMana, manaOptions, pickAbility, pickMana, pickManaSacrifice, pickFace, pickMode, playHandCard, setAbilityX, setChoices, setPayLife, stackTucked, undo } from '../src/ui/view';
 import { applyAction, canCast, createToken, data, isCreature, scriptOf } from '../src/engine';
 import { registerScripts } from '../src/engine/registry';
 import { parseCard } from '../src/cards/oracle';
@@ -33,6 +33,44 @@ const game = () => useStore.getState().game!;
 const press = () => buildView().primary!.onClick();
 
 describe('casting with choices in the UI (601.2b)', () => {
+  it('lets the payer choose how many Phyrexian or K\'rrik symbols to pay with life (601.2b, 107.4f)', () => {
+    play((d) => {
+      put(d, 0, 'Mountain');
+      put(d, 0, 'Gut Shot', 'hand');
+    });
+    playHandCard(byName(game(), 0, 'Gut Shot', 'hand')!);
+    clickPlayer(1);
+    let v = buildView();
+    // Paying: auto-pay would use the Mountain, so the stepper starts at 0 with life, on Auto.
+    expect(v.payLife).toEqual({ n: 0, max: 1, auto: true });
+    expect(v.prompt).toContain('Pay {R/P}');
+    setPayLife(1);
+    v = buildView();
+    expect(v.payLife).toEqual({ n: 1, max: 1, auto: false });
+    expect(v.prompt).toContain('paying 2 life');
+    press(); // Pay: 2 life, the Mountain stays untapped.
+    expect(game().players[0].life).toBe(38);
+    expect(byName(game(), 0, 'Mountain')!.tapped).toBe(false);
+    // K'rrik: Murder's two {B} may each be paid with life; the stepper goes up to two, Auto goes back to mana.
+    play((d) => {
+      put(d, 0, "K'rrik, Son of Yawgmoth");
+      put(d, 0, 'Swamp', 'battlefield', 3);
+      put(d, 0, 'Murder', 'hand');
+      put(d, 1, 'Serra Angel');
+    });
+    playHandCard(byName(game(), 0, 'Murder', 'hand')!);
+    clickPermanent(byName(game(), 1, 'Serra Angel')!);
+    expect(buildView().payLife).toEqual({ n: 0, max: 2, auto: true });
+    setPayLife(2);
+    expect(buildView().payLife).toEqual({ n: 2, max: 2, auto: false });
+    setPayLife(null);
+    expect(buildView().payLife).toEqual({ n: 0, max: 2, auto: true });
+    setPayLife(2);
+    press();
+    expect(game().players[0].life).toBe(36);
+    expect(game().players[0].battlefield.filter((c) => c.name === 'Swamp' && c.tapped)).toHaveLength(1);
+  });
+
   it('announces X, then targets, then pays', () => {
     play((d) => {
       put(d, 0, 'Mountain', 'battlefield', 4);

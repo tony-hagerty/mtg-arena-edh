@@ -28,7 +28,7 @@ src/cards/      decklists.json        the decks and tokens
                                       what each Commander deck's own cards do
                 edhrec/               hand scripts for EDHREC's most-played cards and
                                       commanders the parser can't read, one file per group
-                                      of mechanics (counters, ward-ring, mana, ...)
+                                      of mechanics (counters, ward-ring, commander-costs, ...)
 src/engine/     types.ts              game state, actions, card-script types
                 rules.ts              queries (stats, mana, targets) + effect primitives
                 layers.ts             continuous effects in layers and timestamp order (613)
@@ -462,7 +462,8 @@ fetched card too, since the card is matched to it by name.
 | --- | --- |
 | Costs printed in rules text | `kicker`, `additionalCost` (a sacrifice), `alternativeCosts`, `costModifier` ("spells cost {1} more/less") |
 | X or kicked spell | reads `self.cast.x` and `self.cast.kicked` |
-| Alternative cost | can `exile` a card from the hand or `sacrifice` a permanent, or be `dash` |
+| Alternative cost | can `exile` a card from the hand or `sacrifice` a permanent, or be `dash`; `minX` needs X at least that (Henzie's blitz, 202.3e) |
+| Paying life for mana | a cost's symbols with a `'life'` option (Phyrexian, `lifeForMana`) are paid with life as `CastChoices.payLife` / `Action.activate.payLife` / `Action.pass.payLife` says (`Cost.lifeSymbols`); left out, mana first |
 | Bargain / gift | `additionalCost.optional` is bargain; `gift` promises a token |
 | Modal spell | `modal` instead of `targets`/`onResolve` |
 | Counterspell | targets `{ type: 'spell' }` and calls `counter` |
@@ -478,7 +479,7 @@ fetched card too, since the card is matched to it by name.
 | Aura on a graveyard card | `enchant: { type: 'graveyard card', ... }`; an effect gives it a new enchant ability with `addLasting(g, aura, { lose: ['enchant'], enchantOf: name })` and the script's `givesEnchant` (Animate Dead) |
 | Equipment | `attachedBonus` with `activated: equip('{2}')` |
 | Vehicle | `activated: crew(3)`; a creature that "crews Vehicles as though its power were 2 greater" has `crewBonus: () => 2` |
-| Spacecraft | `activated: [station(), ...]` (702.184a: the tapped creature is `ctx.stationed`); each "N+ \|" line is a `static` on itself while `counterCount(self, 'charge') >= N`, or an ability with `when` (721.2) |
+| Spacecraft | `activated: station()` (702.184a: the tapped creature is `ctx.stationed`); each "N+ \|" line is a `static` on itself while `counterCount(self, 'charge') >= N` (721.2): types, keywords and base P/T directly, an activated ability through `activatedOf` naming a script registered for that ability alone (Hearthhull) |
 | Impending | spread `...impending(4, '{1}{U}{U}')` into the script: its alternative cost and end-step trigger; the engine adds the time counters and "isn't a creature" |
 | Several activated abilities | list them in printed order (`activated: [ab1, equip('{1}')]`); an `activate` action and its stack item name one by `activated` (its index) |
 | Activated ability options | `fromHand`, `when`, `reduction`; costs `discard`, `discardSelf`, `counters`, or `sacrificeOne` permanent that fits a spec ("Sacrifice a creature:"), `sacrificeCount` of them ("Sacrifice two ...", or `'x'` for "Sacrifice X Squirrels", read as `ctx.x`), `tapUntapped` ("Tap three untapped Elves you control", picked like a crew; with `tap` too, the source isn't one of them, Lathril) |
@@ -522,8 +523,8 @@ sacrifice cost (ability or spell) sees `sacrificed` and `sacrificedPower` (as it
   lasts the turn, `{ untilEndOfCombat: true }` until the combat phase ends (500.5a).
 - An activated ability's resolve sees the mana spent on it by source as `ctx.spentFrom`
   ("for each mana from Treasures spent to activate this ability").
-- `reducesCost: (g, self, spell, caster) => '{W}{U}{B}{R}{G}'` reduces a cost by coloured
-  mana (118.7b-c); `costModifier` stays for generic changes.
+- `reducesColoredCost: (g, self, spell, caster) => ({ colors: ['W', 'U', 'B', 'R', 'G'] })`
+  reduces a cost by coloured mana (118.7b-f, Morophon, Aang); `costModifier` stays for generic changes.
 - `noUntap: true` for "doesn't untap".
 
 **Choices while resolving**
@@ -612,6 +613,17 @@ abilities of Foods you control cost {1} less", generic mana only, mana abilities
 A static ability that gives other permanents an activated ability ("have '{2}, {T},
 Sacrifice this permanent: You gain 3 life'") names a script registered for that ability alone
 in `activatedOf`; the parser registers it under "[card] (ability N)".
+
+**Costs from other permanents, and abilities from the command zone**
+
+| Card | Script |
+| --- | --- |
+| Eminence, "if [this] is in the command zone" | `fromCommandZone: ['onCast']` (or `'onUpkeep'`, `'costModifier'`, ...): those abilities work while the card is in its owner's command zone (113.6b); the trigger's `when` checks the zone it names |
+| Gives spells an alternative cost (Henzie's blitz, Ashling's evoke) | `grantsAlternativeCosts: (g, self, spell, caster, from) => [{ label, mana, blitz: true }]`; `alternativeCostsOf` lists a spell's own and the given ones, and `CastChoices.alt` indexes that list. `costModifier` is told the alternative cost being paid (its sixth argument) |
+| Gives spells cascade | `grantsCascade: (g, self, spell, caster, from) => n` instances (702.85c); printed cascade needs no script |
+| "Costs {W}{U}{B}{R}{G} less" | `reducesColoredCost: (g, self, spell, caster, from) => ({ colors, coloredOnly })` (118.7b-f) |
+| "Pay 2 life rather than pay that mana" for a colour | `lifeForMana: (g, self, pid) => ['B']`: each such symbol in a cost `pid` pays is paid like a Phyrexian one |
+| Ninjutsu, commander ninjutsu | `activated: ninjutsu('{U}{B}', true)`: an ability with `fromHand` (and `fromCommand`) and `cost.returnAttacker`, answered with `Action.returnAttacker`; `unblockedAttackers(g, pid)` are its choices, and the card enters with `EnterOpts.attacking` (508.4) |
 
 **A permanent's abilities**
 
