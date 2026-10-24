@@ -1,6 +1,6 @@
 // What one player may know of the game: their copy of it, with everything hidden from them
 // taken out. The host's server keeps the full game and sends each player only this.
-import { makeCard } from './rules';
+import { canLookAtTop, makeCard } from './rules';
 import type { Card, Game, LogEntry, PlayerId, Zone } from './types';
 
 /** Zones whose cards nobody may look at, unless something lets them: libraries and hands (400.2). */
@@ -34,13 +34,14 @@ function lookingAt(g: Game, viewer: PlayerId): Set<string> | 'library' {
  * nobody else's hand or library. A card exiled face down only by the players who may look
  * at it (406.3). Everything else is public.
  */
-function visible(c: Card, zone: Zone, viewer: PlayerId | null, looking: Set<string> | 'library'): boolean {
+function visible(c: Card, zone: Zone, viewer: PlayerId | null, looking: Set<string> | 'library', top: boolean): boolean {
   if (zone === 'exile') return !c.faceDown || (viewer !== null && c.known.includes(viewer));
   if (!(HIDDEN_ZONES as readonly string[]).includes(zone)) return true;
   // Cards a choice shows them, even another player's (Intuition-style picks).
   if (looking !== 'library' && looking.has(c.id)) return true;
   if (viewer === null || c.owner !== viewer) return false;
-  return zone === 'hand' || looking === 'library';
+  // "You may look at the top card of your library any time" (Glarb): their own top card.
+  return zone === 'hand' || looking === 'library' || top;
 }
 
 /** Replaces every string in `value` that is a key of `ids`, in place, however deep. */
@@ -82,9 +83,10 @@ export function viewFor(g: Game, viewer: PlayerId | null): Game {
   const ids = new Map<string, string>();
   const scratch = { nextId: 0 } as Game;
   for (const p of view.players) {
+    const seesTop = canLookAtTop(g, viewer, p.id);
     for (const zone of [...HIDDEN_ZONES, 'exile'] as const) {
       p[zone] = p[zone].map((c, i) => {
-        if (visible(c, zone, viewer, looking)) return c;
+        if (visible(c, zone, viewer, looking, seesTop && zone === 'library' && i === 0)) return c;
         const id = `hidden-${p.id}-${zone}-${i}`;
         ids.set(c.id, id);
         return makeCard(scratch, HIDDEN, p.id, zone, { id, faceDown: c.faceDown });

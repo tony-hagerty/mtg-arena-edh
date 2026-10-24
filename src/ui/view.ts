@@ -18,6 +18,8 @@ import {
   canCast,
   canCastAs,
   canPlayLand,
+  landCandidates,
+  landPlayOptions,
   canTapForMana,
   canUntapMana,
   altCostsOf,
@@ -87,6 +89,9 @@ import {
   divisionTotal,
   changeOptions,
   creaturesOf,
+  ownRightToCast,
+  playPermissions,
+  slotLabel,
 } from '../engine';
 import type { AbilityRef, Action, AttackOption, Card, CastChoices, Cost, Game, ManaSym, ManaUse, Payment, PlayerId, StackItem, Step, Stops, TapUntapped, TargetRef, TargetSpec } from '../engine';
 import { absoluteStops, useStore } from './store';
@@ -179,7 +184,7 @@ export interface Announce {
    * be paid now. From a graveyard: flashback, and each escape ability (`escape`: how many
    * other cards it exiles).
    */
-  costs: { alt: number | undefined; escape?: number; label: string; payable: boolean }[];
+  costs: { alt: number | undefined; escape?: number; permit?: string; slot?: string; label: string; payable: boolean }[];
   /** A spell with gift (702.174): the opponents a gift can be promised to. */
   gifts: { id: PlayerId; name: string }[] | null;
   /** An ability of the card that works from the hand, like channel: offered instead of playing it. */
@@ -520,6 +525,21 @@ function announceOf(g: Game, me: PlayerId, card: Card, choices: CastChoices): An
   let most = 0;
   if (script.kicker) while (most < (script.kicker.multi ? 20 : 1) && payable({ ...choices, x: 0, kicked: most + 1 })) most++;
   const ways = card.zone === 'graveyard' ? graveyardWays(g, card, face) : null;
+  // A permanent's permission to cast it from where it is (Muldrotha, Glarb): one entry per use it has left.
+  const own = ownRightToCast(g, me, card);
+  const permits = playPermissions(g, me, card)
+    .filter((x) => x.p.cast)
+    .flatMap((x): { permit: string; slot: string | undefined; x: (typeof x) }[] => (x.p.slots ? x.p.slots.map((slot) => ({ permit: x.source.id, slot, x })) : [{ permit: x.source.id, slot: undefined, x }]))
+    // A permission that pays the card's costs as usual opens its own alternative costs too (Muldrotha's rulings).
+    .flatMap(({ permit, slot, x }) => (x.p.free || x.p.cost !== undefined ? [undefined] : [undefined, ...altCostsOf(g, card, face, me)]).map((alt) => ({ permit, slot, x, alt })))
+    .map(({ permit, slot, x, alt }) => {
+      const ch = { ...choices, alt, escape: undefined, permit, slot, x: 0 };
+      const how = x.p.free ? 'free' : alt !== undefined ? alternativeCostAt(g, card, face, alt, me)!.label : costText(castCost(g, card, ch, me));
+      const as = slot !== undefined && (x.p.slots?.length ?? 0) > 1 ? ` as ${slotLabel(slot)}` : '';
+      return { alt, permit, slot, label: `${x.source.id === card.id ? 'Mayhem' : label(x.source)}${as}: ${how}`, payable: payable(ch) };
+    });
+  // A land with several ways to be played (its own right, Muldrotha): the player names one (Muldrotha's rulings).
+  const landWays = land ? landPlayOptions(g, me, card).map((w) => ({ alt: undefined, permit: w.permit, label: w.source ? label(w.source) : card.zone === 'hand' ? 'From your hand' : 'Your own right to play it', payable: canPlayLand(g, me, card, face, w.permit) })) : [];
   const handAb = handAbility(g, me, card);
   const modal = land ? undefined : script.modal;
   const sets = modal ? modeChoices(g, me, card, face) : [];
@@ -555,7 +575,9 @@ function announceOf(g: Game, me: PlayerId, card: Card, choices: CastChoices): An
     handMana: card.zone === 'hand' && canTapForMana(g, me, card),
     handAbility: handAb ? activatedAt(g, card, handAb.activated)!.text : null,
     gifts: script.gift && !land ? opponentsOf(g, me).map((o) => ({ id: o.id, name: o.name })) : null,
-    costs: ways
+    costs: landWays.length > 1
+      ? landWays
+      : ways
       ? [
           ...(ways.flashback ? [{ alt: undefined, label: `Flashback ${scriptFor(card).flashback}`, payable: payable({ ...choices, escape: undefined, x: 0 }) }] : []),
           // An aftermath half (702.127a), or a card an effect lets the player cast from there: its mana cost.
@@ -573,12 +595,16 @@ function announceOf(g: Game, me: PlayerId, card: Card, choices: CastChoices): An
                   payable: payable({ ...choices, escape: escapeSlots(e.exile), x: 0 }),
                 }))
             : []),
+          ...permits,
         ]
-      : (land ? [] : [undefined, ...altCostsOf(g, card, face, me)]).map((alt) => ({
-          alt,
-          label: alt === undefined ? costText(castCost(g, card, { ...choices, alt, kicked: 0, x: 0 }, me)) : alternativeCostAt(g, card, face, alt, me)!.label,
-          payable: payable({ ...choices, alt, kicked: 0, x: 0 }),
-        })),
+      : [
+          ...(land || !own ? [] : [undefined, ...altCostsOf(g, card, face, me)]).map((alt) => ({
+            alt,
+            label: alt === undefined ? costText(castCost(g, card, { ...choices, alt, permit: undefined, slot: undefined, kicked: 0, x: 0 }, me)) : alternativeCostAt(g, card, face, alt, me)!.label,
+            payable: payable({ ...choices, alt, permit: undefined, slot: undefined, kicked: 0, x: 0 }),
+          })),
+          ...(land ? [] : permits),
+        ],
   };
 }
 
@@ -587,7 +613,7 @@ function announceOf(g: Game, me: PlayerId, card: Card, choices: CastChoices): An
  * face it can be played as (712.12). `ok` says whether that way is possible right now.
  */
 function playOptions(g: Game, me: PlayerId, card: Card): { face: number; land: boolean; ok: boolean }[] {
-  const lands = card.zone === 'hand' || card.zone === 'exile' ? landFaces(g, card) : [];
+  const lands = card.zone !== 'battlefield' && card.zone !== 'stack' && card.zone !== 'command' ? landFaces(g, card) : [];
   return [
     ...castFaces(card).filter((f) => !lands.includes(f)).map((face) => ({ face, land: false, ok: canCastAs(g, me, card, face) })),
     ...lands.map((face) => ({ face, land: true, ok: canPlayLand(g, me, card, face) })),
@@ -709,12 +735,13 @@ export function buildView(): View {
     view.glow.set(card.id, 'picked');
     view.announce = announceOf(g, me, card, t.choices);
     const face = t.choices.face ?? 0;
-    const playing = view.announce.faces?.find((f) => f.face === face)?.land;
+    // Played as a land: a modal card's land face (712.12), or a land with several ways to be played (Muldrotha).
+    const playing = landFaces(g, card).includes(face) && !castFaces(card).includes(face);
     const name = data(asSpell(card, face)).name;
     const plot = view.announce.plot;
     view.prompt = playing ? `Play ${name} as a land.` : plot ? `Cast ${name} for ${text}, or plot it for ${plot}?` : `Choose how to cast ${name}: ${text}.`;
     const ready = playing
-      ? canPlayLand(g, me, card, face)
+      ? canPlayLand(g, me, card, face, t.choices.permit) && (landPlayOptions(g, me, card).length <= 1 || t.choices.permit !== undefined)
       : !!planPayment(g, me, castCost(g, card, t.choices, me), asSpell(card, face, me)) && (!view.announce.modal || view.announce.modal.valid);
     view.primary = { label: 'Continue', sub: playing ? `Play ${name}` : `Cast ${name}`, tone: 'go', disabled: !ready, onClick: confirmAnnounce };
     view.secondary = { label: 'Cancel', tone: 'cancel', onClick: cancel };
@@ -990,7 +1017,7 @@ export function buildView(): View {
   // A graveyard card with flashback or escape, or an exiled card that may be cast or played,
   // can be cast too (702.34a, 702.138a, 715.3d).
   for (const c of castableCards(g, me)) if (canCast(g, me, c)) view.glow.set(c.id, 'play');
-  for (const c of [...p.hand, ...g.players.flatMap((o) => o.exile)]) if (canPlayLand(g, me, c)) view.glow.set(c.id, 'play');
+  for (const c of landCandidates(g, me)) if (canPlayLand(g, me, c)) view.glow.set(c.id, 'play');
   // A card that makes mana from the hand (Simian Spirit Guide), or has an ability that works from there (channel).
   if (!deciding) for (const c of p.hand) if (canTapForMana(g, me, c)) view.glow.set(c.id, 'play');
   // Or from the command zone (commander ninjutsu, 702.49d): the crown on the avatar.
@@ -1192,6 +1219,7 @@ function propose(mode: 'cast' | 'activate', card: Card, mana = false) {
   const announcing =
     mode === 'cast' &&
     (options.length > 1 ||
+      landPlayOptions(g, me, card).length > 1 ||
       hasX ||
       !!script.kicker ||
       !!script.offspring ||
@@ -1203,6 +1231,7 @@ function propose(mode: 'cast' | 'activate', card: Card, mana = false) {
       fromHand ||
       canPlot(g, me, card) ||
       (!!ways && (ways.flashback || ways.aftermath || ways.permitted) && ways.escape) ||
+      playPermissions(g, me, card).filter((x) => x.p.cast).flatMap((x) => x.p.slots ?? [undefined]).length + (ways && (ways.flashback || ways.aftermath || ways.permitted || ways.escape) ? 1 : card.zone === 'graveyard' || card.zone === 'library' ? 0 : ownRightToCast(g, me, card) ? 1 : 0) > 1 ||
       escapes(g, card).filter((e) => escapeOptions(g, card).length >= e.exile).length > 1 ||
       (siege && opponentsOf(g, me).length > 1));
   const start: Targeting = { mode, cardId: card.id, specs, chosen: [], tapped: [], choices, announcing, ...(only ? { activated: only } : {}) };
@@ -1287,14 +1316,21 @@ function defaultChoices(g: Game, me: PlayerId, card: Card, face: number): CastCh
   const extra = oneOf ? Math.max(0, oneOf.findIndex((_, i) => canDiscard(i) && planPayment(g, me, castCost(g, card, { face, escape, extra: i }, me), spell))) : undefined;
   const alts = ways ? [] : altCostsOf(g, card, face, me);
   const alt = planPayment(g, me, castCost(g, card, { face, escape, extra }, me), spell) && !castsForAlt(g, card) ? undefined : alts.find((i) => planPayment(g, me, castCost(g, card, { alt: i, face, extra }, me), spell));
+  // Cast only by a permanent's permission (Muldrotha, Glarb, Maralen): start on the first use that can be paid.
+  const permits = playPermissions(g, me, card).filter((x) => x.p.cast).flatMap((x): { permit: string; slot: string | undefined }[] => (x.p.slots ? x.p.slots.map((slot) => ({ permit: x.source.id, slot })) : [{ permit: x.source.id, slot: undefined }]));
+  const ownWay = ways ? ways.flashback || ways.aftermath || ways.permitted || (ways.escape && !!escape) : ownRightToCast(g, me, card);
+  const permit = !ownWay ? (permits.find((pm) => planPayment(g, me, castCost(g, card, { face, extra, permit: pm.permit, slot: pm.slot }, me), spell)) ?? permits[0]) : undefined;
   // An X paid in life ("pay X life", Toxic Deluge) starts at 0, not at all the player's life.
   const hasX = !paysFlashback(g, card, { face, escape }) && parseCost(data(asSpell(card, face)).manaCost).x > 0;
+  const landWays = landFaces(g, card).includes(face) && !castFaces(card).includes(face) ? landPlayOptions(g, me, card) : [];
   const choices: CastChoices = {
-    alt,
-    x: hasX && alt === undefined ? Math.max(0, maxX(g, me, card, { alt, face, escape, extra })) : (alternativeCostAt(g, card, face, alt, me)?.minX ?? 0),
+    ...(landWays.length > 1 ? { permit: landWays[0].permit } : {}),
+    alt: permit ? undefined : alt,
+    x: hasX && alt === undefined && !permit ? Math.max(0, maxX(g, me, card, { alt, face, escape, extra })) : permit ? 0 : (alternativeCostAt(g, card, face, alt, me)?.minX ?? 0),
     kicked: 0,
-    ...(escape ? { escape } : {}),
+    ...(escape && !permit ? { escape } : {}),
     ...(extra !== undefined ? { extra } : {}),
+    ...(permit ? { permit: permit.permit, ...(permit.slot !== undefined ? { slot: permit.slot } : {}) } : {}),
   };
   if (face) choices.face = face;
   if (isSiege(g, spell)) choices.protector = defaultProtector(g, spell) ?? undefined;
@@ -1384,7 +1420,7 @@ function confirmAnnounce() {
   // A modal double-faced card's land face is played, not cast (712.12).
   if (landFaces(g, card).includes(face) && !castFaces(card).includes(face)) {
     useStore.setState({ targeting: null });
-    S().act({ type: 'playLand', card: card.id, face });
+    S().act({ type: 'playLand', card: card.id, face, ...(t.choices.permit !== undefined ? { permit: t.choices.permit } : {}) });
     return;
   }
   advance(stepFrom(t, { announcing: false, specs: castTargets(card, t.choices.modes, face, t.choices.gift, t.choices.alt) }));
@@ -1978,7 +2014,7 @@ export function playHandCard(card: Card) {
   const fromHand = !!handAbility(g, me, card);
   // A plain land is played; anything with a choice of faces, or a spell, is proposed. A card
   // that can't be cast but makes mana from the hand (Simian Spirit Guide) does that.
-  if (options.length === 1 && options[0].land && !fromHand) S().act({ type: 'playLand', card: card.id, face: options[0].face });
+  if (options.length === 1 && options[0].land && !fromHand && landPlayOptions(g, me, card).length <= 1) S().act({ type: 'playLand', card: card.id, face: options[0].face });
   else if (options.some((o) => o.ok)) propose('cast', card);
   else if (fromHand) propose('activate', card);
   // A card that can't be cast now but can be plotted (702.170a).

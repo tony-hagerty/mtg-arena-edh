@@ -6,11 +6,11 @@ import { describe, expect, it } from 'vitest';
 import './fixtures';
 import { hoverHandCard, leaveHandCard, useStore } from '../src/ui/store';
 import { hoverProps } from '../src/ui/util';
-import { activateFromHand, buildView, clickGroup, chooseEscape, chooseGraveyardTarget, clickPermanent, clickPlayer, clickStackItem, exileForMana, manaOptions, pickAbility, pickMana, pickManaSacrifice, pickFace, pickMode, playHandCard, setAbilityX, setChoices, setPayLife, stackTucked, undo } from '../src/ui/view';
-import { applyAction, canCast, createToken, data, isCreature, scriptOf } from '../src/engine';
+import { activateFromHand, buildView, clickGroup, chooseEscape, chooseGraveyardTarget, clickPermanent, clickPlayer, clickStackItem, exileForMana, manaOptions, pickAbility, pickMana, pickManaSacrifice, pickFace, pickMode, playHandCard, setAbilityX, setChoices, stackTucked, undo, setPayLife } from '../src/ui/view';
+import { applyAction, canCast, createToken, data, isCreature, isLand, makeCard, scriptOf } from '../src/engine';
 import { registerScripts } from '../src/engine/registry';
-import { parseCard } from '../src/cards/oracle';
-import { cardData } from '../src/cards/db';
+import { parseCard, scriptCards } from '../src/cards/oracle';
+import { cardData, registerCards } from '../src/cards/db';
 import type { Game } from '../src/engine';
 import { byName, emptyGame, put } from './helpers';
 import { REFUSED_CARDS } from './refused-cards';
@@ -1416,6 +1416,68 @@ describe('undo (Ctrl+Z)', () => {
     useStore.setState({ game: produce(game(), (d) => void (d.priority = 0)) });
     expect(undo()).toBe(false);
     expect(tapped()).toEqual(['Mountain']);
+  });
+});
+
+describe('playing from the top of the library and from the graveyard by permission (zones group)', () => {
+  // Glarb is a fixture the parser reads, as it would a fetched card's.
+  scriptCards(["Glarb, Calamity's Augur"]);
+  it("casts the top card of the library from the pile with Glarb, and sees it (Glarb's rulings)", () => {
+    play((d) => {
+      put(d, 0, "Glarb, Calamity's Augur");
+      put(d, 0, 'Plains', 'battlefield', 5);
+      d.players[0].library.unshift(makeCard(d, 'Serra Angel', 0, 'library'));
+    });
+    const top = game().players[0].library[0];
+    expect(buildView().glow.get(top.id)).toBe('play');
+    playHandCard(top);
+    expect(buildView().prompt).toContain('Pay {3}{W}{W}');
+    press();
+    expect(byName(game(), 0, 'Serra Angel')).toBeDefined();
+  });
+
+  it('asks which permission a land from the graveyard is played by when two apply (Muldrotha\'s rulings)', () => {
+    registerScripts({ 'Test Crucible UI': { playPermission: (g, self, pid, c) => (pid === self.controller && c.zone === 'graveyard' && c.owner === pid && isLand(g, c) ? { land: true } : null) } });
+    registerCards({ 'Test Crucible UI': { name: 'Test Crucible UI', manaCost: '{3}', cmc: 3, colors: [], colorIdentity: [], typeLine: 'Artifact', oracleText: 'You may play lands from your graveyard.', keywords: [], image: '', art: '' } });
+    play((d) => {
+      put(d, 0, 'Muldrotha, the Gravetide');
+      put(d, 0, 'Test Crucible UI');
+      put(d, 0, 'Forest', 'graveyard');
+    });
+    const forest = byName(game(), 0, 'Forest', 'graveyard')!;
+    expect(buildView().glow.get(forest.id)).toBe('play');
+    playHandCard(forest);
+    const a = buildView().announce!;
+    expect(a.costs.map((c) => c.label)).toEqual(['Muldrotha, the Gravetide', 'Test Crucible UI']);
+    expect(a.choices.permit).toBe(byName(game(), 0, 'Muldrotha, the Gravetide')!.id);
+    setChoices({ permit: a.costs[1].permit });
+    expect(buildView().prompt).toContain('Play Forest as a land');
+    press(); // Continue: the land is played by the Crucible's permission, leaving Muldrotha's land use free.
+    expect(byName(game(), 0, 'Forest')).toBeDefined();
+    expect(game().permits ?? {}).toEqual({});
+  });
+
+  it("offers Muldrotha's permanent types as cost chips for a card with two, and casts it as the one picked", () => {
+    play((d) => {
+      put(d, 0, 'Muldrotha, the Gravetide');
+      put(d, 0, 'Plains', 'battlefield', 5);
+      put(d, 0, 'Solemn Simulacrum', 'graveyard');
+    });
+    const golem = byName(game(), 0, 'Solemn Simulacrum', 'graveyard')!;
+    expect(buildView().glow.get(golem.id)).toBe('play');
+    playHandCard(golem);
+    const a = buildView().announce!;
+    expect(a.costs.map((c) => c.label)).toEqual(['Muldrotha, the Gravetide as an artifact: {4}', 'Muldrotha, the Gravetide as a creature: {4}']);
+    expect(a.choices.slot).toBe('Artifact');
+    setChoices({ permit: a.costs[1].permit, slot: a.costs[1].slot });
+    expect(buildView().announce!.choices.slot).toBe('Creature');
+    press(); // Continue
+    expect(buildView().prompt).toContain('Pay {4}');
+    press();
+    expect(byName(game(), 0, 'Solemn Simulacrum')).toBeDefined();
+    // The creature is spent for the turn: a creature card in the graveyard no longer glows.
+    useStore.setState({ game: produce(game(), (d) => void put(d, 0, 'Elite Vanguard', 'graveyard')) });
+    expect(buildView().glow.get(byName(game(), 0, 'Elite Vanguard', 'graveyard')!.id)).toBeUndefined();
   });
 });
 

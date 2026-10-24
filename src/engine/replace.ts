@@ -22,7 +22,7 @@
  * answered applies the same action again from the same state with the answer. The game is
  * deterministic, so it gets back to the same question and uses the answer there.
  */
-import { abilitiesOf, battlefield, counterCount, isBattle, isPlaneswalker, isSaga, label, log, num, playerProtected, protectedFrom, says, data } from './rules';
+import { abilitiesOf, battlefield, counterCount, dredgeOf, isBattle, isPlaneswalker, isSaga, label, log, num, playerProtected, protectedFrom, says, data } from './rules';
 import { characteristics, hasOwnAbilities, withoutStatics } from './layers';
 import type { Card, CardScript, Game, PlayerId, ReplaceEvent, Replacement, ReplacementChoice, Zone } from './types';
 
@@ -163,6 +163,22 @@ function builtIn(g: Game, ev: ReplaceEvent, add: (id: string, name: string, r: R
       }
       return;
     }
+    case 'draw': {
+      // Dredge (702.52a): "As long as you have at least N cards in your library, if you would draw a
+      // card, you may instead mill N cards and return this card from your graveyard to your hand."
+      // Each card with dredge is its own effect, and its player chooses whether to apply it. With
+      // fewer than N cards in the library it can't be used at all (702.52b).
+      const p = g.players[ev.player];
+      for (const c of p.graveyard) {
+        const n = dredgeOf(g, c);
+        if (n === null || p.library.length < n) continue;
+        add(`${c.id}~dredge`, `${label(c)} (dredge ${n})`, {
+          instead: { kind: 'dredge', player: ev.player, card: c, n },
+          optional: { player: ev.player, text: `Dredge ${n}: mill ${n} cards and return ${label(c)} to your hand instead of drawing?`, yes: `Dredge ${label(c)}`, no: 'Draw', bot: false },
+        });
+      }
+      return;
+    }
     case 'enter': {
       const c = ev.card;
       // Its own abilities count only if it has them as it enters (614.12): it is on the
@@ -268,6 +284,9 @@ function worth(ev: ReplaceEvent, pid: PlayerId, g?: Game): number {
     }
     case 'begin':
       return 1;
+    // Dredging is the player's own choice (702.52a): a bot never takes it (`optional.bot`), so it counts as a draw.
+    case 'dredge':
+      return mine(ev.player);
     case 'none':
       return 0;
   }
@@ -300,6 +319,8 @@ function describe(g: Game, ev: ReplaceEvent, viewer: PlayerId): string {
       return `${label(ev.card)} would enter the battlefield`;
     case 'begin':
       return `${who(ev.player)} would begin ${ev.what === 'extraTurn' ? 'an extra turn' : `${ev.player === viewer ? 'your' : 'their'} draw step`}`;
+    case 'dredge':
+      return `${who(ev.player)} would mill ${ev.n} and return ${label(ev.card)} to ${ev.player === viewer ? 'your' : 'their'} hand`;
     case 'none':
       return describe(g, ev.was, viewer);
   }
@@ -327,6 +348,8 @@ function outcome(g: Game, ev: ReplaceEvent, viewer: PlayerId): string {
     }
     case 'begin':
       return 'it happens';
+    case 'dredge':
+      return `dredge ${label(ev.card)}: mill ${ev.n}, it returns to hand`;
     case 'none':
       return ev.was.kind === 'damage' ? 'no damage' : ev.was.kind === 'begin' ? 'skipped' : 'nothing';
   }
