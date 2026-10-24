@@ -5,7 +5,7 @@ import type { MouseEvent } from 'react';
 import { describe, expect, it } from 'vitest';
 import './fixtures';
 import { hoverHandCard, leaveHandCard, useStore } from '../src/ui/store';
-import { arrowsFrom, edgeToward, hoverProps, stackLoop } from '../src/ui/util';
+import { arrowsFrom, edgeToward, hoverProps, pickableFirst, stackLoop } from '../src/ui/util';
 import { activateFromHand, buildView, clickGroup, chooseEscape, chooseGraveyardTarget, clickPermanent, clickPlayer, clickStackItem, exileForMana, manaOptions, pickAbility, pickMana, pickManaSacrifice, pickFace, pickMode, playHandCard, setAbilityX, setChoices, stackTucked, undo, setPayLife, useForMana, cancel } from '../src/ui/view';
 import { applyAction, canCast, createToken, data, defaultStops, isCreature, isLand, makeCard, scriptOf } from '../src/engine';
 import { registerScripts } from '../src/engine/registry';
@@ -1633,5 +1633,41 @@ describe("a land with another ability that can't be paid for now (Abandoned Air 
     expect(buildView().loyalty).toBeFalsy();
     // The Temple's {W} paid for it.
     expect([temple().tapped, byName(game(), 0, 'Elite Vanguard', 'hand')]).toEqual([true, undefined]);
+  });
+});
+
+describe('cards that can be picked come first (pickableFirst)', () => {
+  const names = (cards: { name: string }[]) => cards.map((c) => c.name);
+
+  it('puts what a search can find first, the rest by name (401.2), and what can be cast first in exile', () => {
+    // The game's library already holds a deck: only the cards put here are looked at.
+    const g = emptyGame((d) => {
+      d.players[0].library = [];
+      for (const name of ['Mountain', 'Island', 'Forest', 'Plains']) put(d, 0, name, 'library');
+      for (const name of ['Serra Angel', 'Gut Shot']) put(d, 0, name, 'exile');
+    });
+    const can = (c: { name: string }) => c.name === 'Plains' || c.name === 'Island' || c.name === 'Gut Shot';
+    expect(names(pickableFirst(g, g.players[0].library, can))).toEqual(['Island', 'Plains', 'Forest', 'Mountain']);
+    expect(names(pickableFirst(g, g.players[0].exile, can))).toEqual(['Gut Shot', 'Serra Angel']);
+  });
+
+  it('leaves the top few cards of a library in their order', () => {
+    const g = emptyGame((d) => {
+      d.players[0].library = [];
+      for (const name of ['Mountain', 'Island', 'Forest']) put(d, 0, name, 'library');
+    });
+    const top = g.players[0].library.slice(0, 2);
+    expect(names(pickableFirst(g, top, (c) => c.name === 'Island'))).toEqual(['Mountain', 'Island']);
+  });
+
+  it('leaves a graveyard in its order (404.2), and each zone keeps its places in the list', () => {
+    const g = emptyGame((d) => {
+      d.players[0].library = [];
+      for (const name of ['Mountain', 'Island']) put(d, 0, name, 'graveyard');
+      for (const name of ['Forest', 'Plains']) put(d, 0, name, 'library');
+    });
+    const p = g.players[0];
+    const can = (c: { name: string }) => c.name === 'Island' || c.name === 'Plains';
+    expect(names(pickableFirst(g, [...p.graveyard, ...p.library], can))).toEqual(['Mountain', 'Island', 'Plains', 'Forest']);
   });
 });

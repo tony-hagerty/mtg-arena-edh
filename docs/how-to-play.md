@@ -295,7 +295,7 @@ The full guide to the game's screens and controls. For a quick start, see the
 | **Tap untapped creatures as a cost** (High Perfect Morcant's "Tap three untapped Elves") | After clicking the permanent, the ones you could tap glow yellow, the permanent itself included (not when the cost taps it too, as Lathril's does); click exactly that many (a second click takes one back) and press **Tap**. Summoning sickness doesn't matter. |
 | **Moving a counter** (Tidus, Nesting Grounds) | When the first creature has more than one kind of counter, a window asks which kind moves. |
 | **Counters on players** (poison, experience, rad) | They show as small pills under the player's name on their portrait. Ten poison counters lose the game. |
-| **Library search** (Rampant Growth, Cultivate, Path to Exile, ...) | Your whole library opens. Cards you could find glow; click one and press **Choose**, or **Find Nothing**. |
+| **Library search** (Rampant Growth, Cultivate, Path to Exile, ...) | Your whole library opens, with the cards you could find first. They glow; click one and press **Choose**, or **Find Nothing**. |
 | **Ward that asks for a sacrifice** (Ygra's "Ward—Sacrifice a Food") | When your spell or ability targets it, a window shows what of yours you could sacrifice: pick one and press **Sacrifice**, or **Don't Pay** to have it countered. |
 | **The Ring tempts you** (Frodo, Sauron) | With two or more creatures, a window asks which is your **Ring-bearer**. It carries a gold ring on the table, and the log counts the times the Ring has tempted you. |
 | **Amass** (Sauron) | With two or more Armies, a window asks which gets the counters. |
@@ -307,9 +307,11 @@ The full guide to the game's screens and controls. For a quick start, see the
 - When two or more of your triggered abilities happen at once, you choose their order:
   the one on the left resolves first. Use the arrows to move them.
 - These windows can't be closed, since the game is waiting on you, but **View table**
-  folds one away so you can look at the board.
+  folds one away so you can look at the board; **Back to: ...**, just under the log bar
+  (under the log while it is open), brings it back.
 - A search through your library and graveyard together (Delivery Moogle) lists each place
-  under its own heading, from the top, scrolling for the rest.
+  under its own heading, from the top, scrolling for the rest. In the library the cards you
+  could find come first; the graveyard keeps its order, since some cards care about it.
 - When the game ends, a window says who won, with **Play Again**, **View Board** and
   **Menu**. **View Board** hides it to look over the final board; **Show Results**, just
   under the log bar (under the log while it is open), brings it back.
@@ -328,7 +330,7 @@ The full guide to the game's screens and controls. For a quick start, see the
 | Right-click a card (in your hand, on the table, on the stack, or in a graveyard or exile window) | bigger view that stays up; left-click off it to close (over that window, the first click closes the view and the next the window). A double-faced card has a **Front** / **Back** pill under it: click to turn it over and read the other face |
 | `F6` | pass priority until the end of this turn, or stop passing (see [The stack and your stops](#the-stack-and-your-stops)) |
 | Right-click a graveyard | look through it, or see that it's empty; hovering the pile shows its top card |
-| Right-click the well | look through the exile: everyone's exiled cards, under each owner's name |
+| Right-click the well | look through the exile: everyone's exiled cards, under each owner's name, the ones you can cast first. A graveyard keeps its order. |
 | Click a mat, the well or a path | the board answers: a splash and a soft splash sound in the well, a puff of dust off the leather, chips off the wood, sparks off the slate, lint off the cloth, a little dust off the flagstones, each with its own soft sound. It does nothing in the game. |
 | Right-click anywhere else | nothing: the browser's menu is off in the game (text boxes keep it, for copy and paste) |
 | Hover a card name in the log (dashed underline) | see the card |

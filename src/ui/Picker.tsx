@@ -30,7 +30,7 @@ import {
 import type { Action, AskChoice, Card, CardChoice, CastChoice, DamageAssignment, DamageRoom, Game, NameChoice, NumberChoice, PlayerChoice, ReplacementChoice, PlayerId, StackItem, Zone } from '../engine';
 import { CardImage, ManaCost } from './TextCard';
 import { useStore } from './store';
-import { cx, hoverProps } from './util';
+import { cx, hoverProps, pickableFirst } from './util';
 import { chooseDelve, chooseEscape, chooseGraveCost, chooseGraveyardTarget, playHandCard, useView } from './view';
 
 const act = (a: Action) => useStore.getState().act(a);
@@ -45,6 +45,16 @@ const counterText = (counters: Record<string, number> | undefined) =>
     .filter(([, n]) => n > 0)
     .map(([k, n]) => `${n} ${k}`)
     .join(', ');
+
+/** A folded window's way back: just under the log bar, or under its lines while the log is open. */
+function FoldedPill({ title, onOpen }: { title: string; onOpen: () => void }) {
+  const logOpen = useStore((s) => s.showLog);
+  return (
+    <button className={cx('picker-pill', logOpen && 'under-log')} onClick={onOpen}>
+      Back to: {title}
+    </button>
+  );
+}
 
 export interface PickerButton {
   label: string;
@@ -86,11 +96,7 @@ export function CardPicker({ title, hint, cards, selectable = () => false, max =
   const [pickedPlayers, setPickedPlayers] = useState<PlayerId[]>([]);
   const [folded, setFolded] = useState(false);
   if (folded) {
-    return (
-      <button className="picker-pill" onClick={() => setFolded(false)}>
-        Back to: {title}
-      </button>
-    );
+    return <FoldedPill title={title} onOpen={() => setFolded(false)} />;
   }
   // One tile per card, or per name with `stackCopies`.
   const tiles: Card[][] = [];
@@ -262,7 +268,8 @@ function ChoicePicker({ g, choice }: { g: Game; choice: CardChoice }) {
                 ? 'Choose one, or none.'
                 : `Choose up to ${plural(max, 'card')}.`
         }
-        cards={cards}
+        // Cards picked in order are shown as they are; otherwise what can be picked from exile or a whole library comes first.
+        cards={choice.ordered ? cards : pickableFirst(g, cards, (c) => valid.has(c.id))}
         selectable={(c) => valid.has(c.id)}
         max={max}
         numbered={choice.ordered}
@@ -282,7 +289,7 @@ function ChoicePicker({ g, choice }: { g: Game; choice: CardChoice }) {
     );
   }
   // Cards that can be found first, then the rest of the library.
-  const sorted = [...cards].sort((a, b) => Number(valid.has(b.id)) - Number(valid.has(a.id)));
+  const sorted = pickableFirst(g, cards, (c) => valid.has(c.id));
   const { min } = choiceOptions(g, choice);
   const where =
     choice.to === 'hand'
@@ -349,11 +356,7 @@ function NamePanel({ g, choice }: { g: Game; choice: NameChoice }) {
   const list = choice.of === 'card type' ? CARD_TYPES : type ? CREATURE_TYPES : cardNames();
   const ok = type ? list.includes(name) : isCardName(name);
   if (folded) {
-    return (
-      <button className="picker-pill" onClick={() => setFolded(false)}>
-        Back to: {choice.source}
-      </button>
-    );
+    return <FoldedPill title={choice.source} onOpen={() => setFolded(false)} />;
   }
   return (
     <div className="modal">
@@ -403,11 +406,7 @@ function ColorPanel({ g, choice }: { g: Game; choice: NameChoice }) {
   const [folded, setFolded] = useState(false);
   const source = resolvingItem(g)?.card;
   if (folded) {
-    return (
-      <button className="picker-pill" onClick={() => setFolded(false)}>
-        Back to: {choice.source}
-      </button>
-    );
+    return <FoldedPill title={choice.source} onOpen={() => setFolded(false)} />;
   }
   return (
     <div className="modal">
@@ -526,8 +525,12 @@ function ReplacementPanel({ choice }: { choice: ReplacementChoice }) {
  */
 function CastNowPanel({ g, choice }: { g: Game; choice: CastChoice }) {
   // One card, or several to choose from ("you may cast any number of spells from among them", Kotis): pick one, then cast it.
-  const cards = (choice.cards ?? [choice.card]).map((id) => findCard(g, id)).filter((c): c is Card => !!c);
   const castable = (c: Card) => canCast(g, choice.player, c);
+  const cards = pickableFirst(
+    g,
+    (choice.cards ?? [choice.card]).map((id) => findCard(g, id)).filter((c): c is Card => !!c),
+    castable,
+  );
   const several = cards.length > 1;
   return (
     <CardPicker
@@ -626,11 +629,7 @@ function TriggerOrder({ g, me }: { g: Game; me: PlayerId }) {
   const [order, setOrder] = useState(() => g.triggers.filter((t) => t.controller === me).reverse());
   const [folded, setFolded] = useState(false);
   if (folded) {
-    return (
-      <button className="picker-pill" onClick={() => setFolded(false)}>
-        Back to: order your triggers
-      </button>
-    );
+    return <FoldedPill title="order your triggers" onOpen={() => setFolded(false)} />;
   }
   const move = (i: number, by: number) => {
     const next = [...order];
@@ -710,11 +709,7 @@ function DamagePanel({ g, attackers }: { g: Game; attackers: string[] }) {
   const [split, setSplit] = useState<DamageAssignment[]>(() => autoAssignments(g));
   const [folded, setFolded] = useState(false);
   if (folded) {
-    return (
-      <button className="picker-pill" onClick={() => setFolded(false)}>
-        Back to: divide combat damage
-      </button>
-    );
+    return <FoldedPill title="divide combat damage" onOpen={() => setFolded(false)} />;
   }
   const change = (attacker: string, to: string | null, by: number) =>
     setSplit(
