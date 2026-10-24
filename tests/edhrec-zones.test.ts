@@ -3,9 +3,11 @@
 // additional upkeep steps. Each test is a clause that could go wrong.
 import { produce } from 'immer';
 import { describe, expect, it } from 'vitest';
-import { addCounters, applyAction, applyBotAction, botAction, canBlock, canCast, canPlayLand, castCost, counterCount, discard, has, isHidden, makeCard, stats, viewFor } from '../src/engine';
+import { addCounters, applyAction, applyBotAction, botAction, canBlock, canCast, canPlayLand, castCost, counterCount, discard, has, isHidden, isLand, makeCard, stats, viewFor } from '../src/engine';
 import type { Action, Game, PlayerId, TargetRef } from '../src/engine';
 import { problemsOf } from '../src/cards/support';
+import { registerCards } from '../src/cards/db';
+import { registerScripts } from '../src/engine/registry';
 import { scriptCards } from '../src/cards/oracle';
 import { byName, emptyGame, put, run } from './helpers';
 import './fixtures';
@@ -190,6 +192,53 @@ describe('Muldrotha, the Gravetide', () => {
     // The artifact is spent, the creature still free.
     expect(canCast(g, 0, byName(g, 0, 'Sol Ring', 'graveyard')!)).toBe(false);
     expect(canCast(g, 0, byName(g, 0, 'Elite Vanguard', 'graveyard')!)).toBe(true);
+  });
+
+  it("casts a graveyard card for its own alternative cost through Muldrotha (rulings), and names the permission a land is played by", () => {
+    // A made-up permanent with its own alternative cost, read by the parser.
+    registerCards({ 'Test Rollick': { name: 'Test Rollick', manaCost: '{3}{B}', cmc: 4, colors: ['B'], colorIdentity: ['B'], typeLine: 'Creature — Horror', oracleText: 'If you control a commander, you may cast this spell without paying its mana cost.', power: '3', toughness: '3', keywords: [], image: '', art: '' } });
+    expect(scriptCards(['Test Rollick'])).toEqual([]);
+    // A second permission to play lands from the graveyard, to choose between.
+    registerCards({ 'Test Crucible': { name: 'Test Crucible', manaCost: '{3}', cmc: 3, colors: [], colorIdentity: [], typeLine: 'Artifact', oracleText: 'You may play lands from your graveyard.', keywords: [], image: '', art: '' } });
+    registerScripts({ 'Test Crucible': { playPermission: (g, self, pid, c) => (pid === self.controller && c.zone === 'graveyard' && c.owner === pid && isLand(g, c) ? { land: true } : null) } });
+    let g = board((d) => {
+      d.players[0].battlefield.find((c) => c.name === 'Muldrotha, the Gravetide')!.isCommander = true;
+      put(d, 0, 'Test Rollick', 'graveyard');
+      put(d, 0, 'Test Crucible');
+      put(d, 0, 'Forest', 'graveyard');
+      put(d, 0, 'Island', 'graveyard');
+    });
+    const muldrotha = byName(g, 0, 'Muldrotha, the Gravetide')!;
+    const rollick = byName(g, 0, 'Test Rollick', 'graveyard')!;
+    // Its alternative cost is open through Muldrotha, paying nothing; the creature use is spent all the same.
+    expect(canCast(g, 0, rollick, { permit: muldrotha.id, alt: 0 })).toBe(true);
+    expect(castCost(g, rollick, { permit: muldrotha.id, alt: 0 }, 0)).toMatchObject({ generic: 0, pips: [] });
+    expect(castCost(g, rollick, { permit: muldrotha.id }, 0)).toMatchObject({ generic: 3, pips: ['B'] });
+    g = settle(run(g, { type: 'cast', card: rollick.id, permit: muldrotha.id, alt: 0 }));
+    expect(byName(g, 0, 'Test Rollick')).toBeDefined();
+    expect(g.players[0].battlefield.filter((c) => c.name === 'Plains' && c.tapped)).toHaveLength(0);
+    expect(canCast(g, 0, produce(g, (d) => void put(d, 0, 'Elite Vanguard', 'graveyard')).players[0].graveyard.find((c) => c.name === 'Elite Vanguard')!)).toBe(false);
+    // Two permissions allow the Forest: the player must name one (Muldrotha's rulings).
+    const forest = byName(g, 0, 'Forest', 'graveyard')!;
+    const crucible = byName(g, 0, 'Test Crucible')!;
+    expect(canPlayLand(g, 0, forest)).toBe(true);
+    expect(applyAction(g, { type: 'playLand', card: forest.id })).toBe(g);
+    expect(applyAction(g, { type: 'playLand', card: forest.id, permit: null })).toBe(g); // no right of its own
+    g = run(g, { type: 'playLand', card: forest.id, permit: crucible.id });
+    expect(byName(g, 0, 'Forest')).toBeDefined();
+    // Muldrotha's land use is still free, but the land for the turn is spent (305.2a).
+    expect(Object.keys(g.permits ?? {}).some((k) => k.endsWith(':Land'))).toBe(false);
+    expect(canPlayLand(g, 0, byName(g, 0, 'Island', 'graveyard')!)).toBe(false);
+    // A bot names a way too.
+    let h = board((d) => {
+      put(d, 0, 'Test Crucible');
+      put(d, 0, 'Forest', 'graveyard');
+      d.players[0].hand = [];
+    });
+    const bot = botAction(h, 0);
+    expect(bot).toMatchObject({ type: 'playLand', permit: byName(h, 0, 'Test Crucible')!.id });
+    h = run(h, bot);
+    expect(byName(h, 0, 'Forest')).toBeDefined();
   });
 
   it('uses the one type left on its own when only one fits', () => {
