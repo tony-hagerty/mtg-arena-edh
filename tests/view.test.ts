@@ -5,7 +5,7 @@ import type { MouseEvent } from 'react';
 import { describe, expect, it } from 'vitest';
 import './fixtures';
 import { hoverHandCard, leaveHandCard, useStore } from '../src/ui/store';
-import { arrowsFrom, edgeToward, hoverProps } from '../src/ui/util';
+import { arrowsFrom, edgeToward, hoverProps, stackLoop } from '../src/ui/util';
 import { activateFromHand, buildView, clickGroup, chooseEscape, chooseGraveyardTarget, clickPermanent, clickPlayer, clickStackItem, exileForMana, manaOptions, pickAbility, pickMana, pickManaSacrifice, pickFace, pickMode, playHandCard, setAbilityX, setChoices, stackTucked, undo, setPayLife } from '../src/ui/view';
 import { applyAction, canCast, createToken, data, defaultStops, isCreature, isLand, makeCard, scriptOf } from '../src/engine';
 import { registerScripts } from '../src/engine/registry';
@@ -1566,5 +1566,16 @@ describe("a stack item's target arrows", () => {
     expect(edgeToward(box, 50 - 200, 70 + 200)).toEqual({ x: 0, y: 120 });
     // A target inside the card: from where it is.
     expect(edgeToward(box, 60, 80)).toEqual({ x: 60, y: 80 });
+  });
+
+  it("loop out of the stack's left side to a spell on the stack, into the part of it that shows", () => {
+    // A counterspell (top) 40 px below the spell it targets, which shows 40 px of itself.
+    const d = stackLoop({ left: 100, top: 140, width: 100, height: 140 }, { left: 100, top: 100, width: 100 }, 40);
+    const [x1, y1, c1x, c1y, c2x, c2y, x2, y2] = d.match(/-?[\d.]+/g)!.map(Number);
+    // From the middle of its left side to the left end of the strip, through controls out to the left.
+    expect([x1, y1, x2, y2]).toEqual([100, 210, 100, 120]);
+    expect(c1x).toBeLessThan(100);
+    expect(c2x).toBeLessThan(100);
+    expect([c1y, c2y]).toEqual([210, 120]);
   });
 });

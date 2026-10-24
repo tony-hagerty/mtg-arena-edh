@@ -11,7 +11,7 @@ import { play } from './sound';
 import { MusicControl, SoundControl } from './SoundControl';
 import { useStore } from './store';
 import type { Hover } from './store';
-import { type Seat, arrowsFrom, cx, deckColor, edgeToward, faceUp, hoverProps, seatOf } from './util';
+import { type Seat, arrowsFrom, cx, deckColor, edgeToward, faceUp, hoverProps, seatOf, stackLoop } from './util';
 import { STEP_NAMES, activateFromHand, cancel, clickStackItem, stackTucked, pickAbility, pickAbilityMode, pickMana, pickTapCreature, pickTriggeredMana, useForMana, pickManaDiscard, pickManaSacrifice, pickFace, pickMode, playHandCard, setAbilityX, setChoices, setPayLife, shiftDivision, undo, exileForMana, plotCard, useView } from './view';
 import type { AbilityOption, Btn } from './view';
 import { leftStack, newGame } from './zone-moves';
@@ -1370,7 +1370,7 @@ export function ArrowLayer() {
   const targets = (item?.targets ?? []).flatMap((t): Arrow[] => {
     if (!t) return [];
     const to = t.kind === 'card' ? `[data-card="${t.id}"]` : t.kind === 'stack' ? `[data-stack="${t.id}"]` : `[data-avatar="${t.id}"]`;
-    return [{ key: `t-${item!.id}-${t.kind}-${t.id}`, from: `[data-stack="${item!.id}"]`, to, kind: 'target', edge: true }];
+    return [{ key: `t-${item!.id}-${t.kind}-${t.id}`, from: `[data-stack="${item!.id}"]`, to, kind: 'target', ...(t.kind === 'stack' ? { loop: true } : { edge: true }) }];
   });
   return (
     <>
@@ -1389,6 +1389,8 @@ interface Arrow {
   kind: 'attack' | 'block' | 'target';
   /** It starts on the edge of `from` that faces its target (`edgeToward`), not in its middle. */
   edge?: boolean;
+  /** Both ends are cards on the stack, which overlap: it loops out of the stack's side to the part of `to` that shows (`stackLoop`). */
+  loop?: boolean;
 }
 
 /** Arrows between elements on the screen, following them as they move. */
@@ -1406,8 +1408,17 @@ function Arrows({ arrows, className }: { arrows: Arrow[]; className?: string }) 
         const box = root.getBoundingClientRect();
         root.querySelectorAll<SVGPathElement>('path[data-from]').forEach((p) => {
           const a = document.querySelector(p.dataset.from!)?.getBoundingClientRect();
-          const b = document.querySelector(p.dataset.to!)?.getBoundingClientRect();
+          const target = document.querySelector(p.dataset.to!);
+          const b = target?.getBoundingClientRect();
           if (!a || !b) return p.getAttribute('d') && p.setAttribute('d', '');
+          if (p.dataset.loop) {
+            // What shows of a card on the stack: down to the top of the next one, which covers the rest.
+            const next = target!.nextElementSibling?.getBoundingClientRect();
+            const strip = next && next.top > b.top ? Math.min(b.height, next.top - b.top) : b.height;
+            const d = stackLoop({ left: a.left - box.left, top: a.top - box.top, width: a.width, height: a.height }, { left: b.left - box.left, top: b.top - box.top, width: b.width }, strip);
+            if (p.getAttribute('d') !== d) p.setAttribute('d', d);
+            return;
+          }
           const x2 = b.left + b.width / 2 - box.left;
           const y2 = b.top + b.height / 2 - box.top;
           const start = p.dataset.edge ? edgeToward({ left: a.left - box.left, top: a.top - box.top, width: a.width, height: a.height }, x2, y2) : { x: a.left + a.width / 2 - box.left, y: a.top + a.height / 2 - box.top };
@@ -1438,7 +1449,7 @@ function Arrows({ arrows, className }: { arrows: Arrow[]; className?: string }) 
         ))}
       </defs>
       {arrows.map((a) => (
-        <path key={a.key} data-from={a.from} data-to={a.to} data-edge={a.edge ? '1' : undefined} className={`line-${a.kind}`} markerEnd={`url(#head-${a.kind}${className ? `-${className}` : ''})`} />
+        <path key={a.key} data-from={a.from} data-to={a.to} data-edge={a.edge ? '1' : undefined} data-loop={a.loop ? '1' : undefined} className={`line-${a.kind}`} markerEnd={`url(#head-${a.kind}${className ? `-${className}` : ''})`} />
       ))}
     </svg>
   );
