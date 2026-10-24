@@ -102,7 +102,12 @@ The full guide to the game's screens and controls. For a quick start, see the
   1. **Targets.** Legal targets are highlighted in **yellow**. Click one.
   2. **Pay.** The prompt shows the cost and the lands auto-pay would tap glow. Press
      **Pay** to confirm, or tap lands yourself: the spell is cast as soon as your mana
-     covers the cost. **Cancel** and the **Hold priority** box sit in a row above Pay.
+     covers the cost. **Cancel** and the **Hold priority** box sit in a row above Pay. A
+     cost with symbols that can be paid with 2 life instead of mana (Phyrexian mana like
+     {B/P}, or any {B} with K'rrik on your side) shows a **Pay with life** stepper: pick how
+     many to pay with life, or leave it on **Auto** to spend mana first and life only where
+     the mana isn't there. The same stepper shows while declaring attackers whose cost has
+     such symbols.
 
   Until it is paid for nothing has happened. The spell isn't on the stack, and Cancel
   untaps any lands you tapped while paying, so you are back exactly where you were.
@@ -202,6 +207,11 @@ The full guide to the game's screens and controls. For a quick start, see the
   partner commanders has a portrait split in two.
 - To cast yours, click the **crown** on the top left of your portrait. It glows when you
   can cast it and is dimmed while that commander is anywhere but the command zone.
+- A commander with **commander ninjutsu** (Yuriko) can also be put onto the battlefield from
+  the command zone during combat: once blockers are declared, the crown glows if one of
+  your attackers is unblocked; click it, click the attacker to return to your hand, and pay.
+  The commander enters tapped and attacking whoever that creature attacked, with no
+  commander tax.
 - The badge on the top right of a portrait is that commander's tax: each recast costs 2
   more (`+2`, `+4`, …).
 - With partners, each commander's badges sit on its own half of the portrait: the left

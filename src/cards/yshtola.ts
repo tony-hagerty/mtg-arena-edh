@@ -334,9 +334,10 @@ registerScripts({
     // "This creature is the chosen type in addition to its other types."
     static: (_g, self, c) => (c.id === self.id && self.chosen ? { subtypes: [self.chosen] } : null),
     // "If a triggered ability of another creature you control of the chosen type triggers, it
-    // triggers an additional time." (603.2d)
+    // triggers an additional time." (603.2d) A creature you control is a permanent (108.4,
+    // 903.3d): a commander's eminence ability triggering from the command zone isn't doubled.
     doublesTriggers: (g, self, source) =>
-      !!self.chosen && source.id !== self.id && source.controller === self.controller && isCreature(g, source) && subtypesOf(g, source).includes(self.chosen),
+      source.zone === 'battlefield' && !!self.chosen && source.id !== self.id && source.controller === self.controller && isCreature(g, source) && subtypesOf(g, source).includes(self.chosen),
   },
 
   // ===== Artifacts =====
