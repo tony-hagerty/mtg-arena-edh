@@ -1,5 +1,6 @@
 import type { MouseEvent } from 'react';
 import type { Card, CardData, Game, PlayerId } from '../engine';
+import { label } from '../engine';
 import { useStore } from './store';
 
 /** Joins class names, skipping falsy ones. */
@@ -51,6 +52,43 @@ export function fromSeat<T extends { id: PlayerId }>(players: T[], viewer: Playe
 
 /** Can the human look at this card? Not one exiled face down, unless they may look at it (406.3). */
 export const faceUp = (c: Card, me: PlayerId | null) => !c.faceDown || (me !== null && c.known.includes(me));
+
+/**
+ * The cards in exile or in a whole library that `can` allows first, so a search shows what it
+ * can find and exile shows what can be cast. A whole library is a search: its cards also go
+ * by name, so the library's order stays hidden (401.2). The top few cards of a library keep
+ * their order, and so does a graveyard (404.2): cards care about it. Each pile's cards keep
+ * the places they had in the list, so the groups stay in order.
+ */
+export function pickableFirst(g: Game, cards: Card[], can: (c: Card) => boolean): Card[] {
+  const pileOf = (c: Card) => `${c.zone}:${c.owner}`;
+  const piles = new Map<string, Card[]>();
+  for (const c of cards) {
+    const pile = piles.get(pileOf(c));
+    if (pile) pile.push(c);
+    else piles.set(pileOf(c), [c]);
+  }
+  for (const [k, pile] of piles) {
+    const search = pile[0].zone === 'library' && pile.length === g.players[pile[0].owner].library.length;
+    if (pile[0].zone !== 'exile' && !search) {
+      piles.delete(k);
+      continue;
+    }
+    const shown = search ? [...pile].sort((a, b) => label(a).localeCompare(label(b))) : pile;
+    const yes: Card[] = [];
+    const no: Card[] = [];
+    for (const c of shown) (can(c) ? yes : no).push(c);
+    piles.set(k, [...yes, ...no]);
+  }
+  const next = new Map<string, number>();
+  return cards.map((c) => {
+    const pile = piles.get(pileOf(c));
+    if (!pile) return c;
+    const i = next.get(pileOf(c)) ?? 0;
+    next.set(pileOf(c), i + 1);
+    return pile[i];
+  });
+}
 
 /**
  * Shows the big card preview while the pointer is over an element: a card by its name, or a

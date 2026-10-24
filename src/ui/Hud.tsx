@@ -3,7 +3,7 @@ import type { CSSProperties, ReactNode } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import { cardData, doubleFaces } from '../cards/db';
 import { data, defaultStops, findCard, label, triggerText } from '../engine';
-import type { CardData, Game, LogEntry, Player, PlayerId, Step, StopKind } from '../engine';
+import type { Card, CardData, Game, LogEntry, Player, PlayerId, Step, StopKind } from '../engine';
 import { CardImage, ManaCost, frameOf } from './TextCard';
 import { hotkeys } from './hotkeys';
 import { useRem } from './rem';
@@ -11,7 +11,7 @@ import { play } from './sound';
 import { MusicControl, SoundControl } from './SoundControl';
 import { useStore } from './store';
 import type { Hover } from './store';
-import { type Seat, arrowsFrom, cx, deckColor, edgeToward, faceUp, hoverProps, seatOf, stackLoop } from './util';
+import { type Seat, arrowsFrom, cx, deckColor, edgeToward, faceUp, hoverProps, pickableFirst, seatOf, stackLoop } from './util';
 import { STEP_NAMES, activateFromHand, cancel, clickStackItem, stackTucked, pickAbility, pickAbilityMode, pickMana, pickTapCreature, pickTriggeredMana, useForMana, pickManaDiscard, pickManaSacrifice, pickFace, pickMode, playHandCard, setAbilityX, setChoices, setPayLife, shiftDivision, undo, exileForMana, plotCard, useView } from './view';
 import type { AbilityOption, Btn } from './view';
 import { leftStack, newGame } from './zone-moves';
@@ -1478,12 +1478,14 @@ export function ZoneViewer() {
   const owners = viewer.pid === null ? g.players.filter((p) => p[viewer.zone].length) : [g.players[viewer.pid]];
   const total = owners.reduce((n, p) => n + p[viewer.zone].length, 0);
   const whose = (p: Player) => (p.id === me ? 'Your' : `${p.name}'s`);
+  // A flashback card or an exiled adventurer card can be cast from here (702.34a, 715.3d).
+  const canPlay = (c: Card) => faceUp(c, me) && glow.get(c.id) === 'play';
+  // Newest first; in exile, the cards that can be cast before the rest (`pickableFirst` leaves a graveyard's order alone).
   const cardsOf = (p: Player) =>
-    [...p[viewer.zone]].reverse().map((c) => {
+    pickableFirst(g, [...p[viewer.zone]].reverse(), canPlay).map((c) => {
       // A card exiled face down shows its back, unless the human may look at it (406.3).
       if (!faceUp(c, me)) return <div key={c.id} className="card-back viewer-back" title="Exiled face down" />;
-      // A flashback card or an exiled adventurer card can be cast from here (702.34a, 715.3d).
-      const castable = glow.get(c.id) === 'play';
+      const castable = canPlay(c);
       return (
         <CardImage
           key={c.id}
