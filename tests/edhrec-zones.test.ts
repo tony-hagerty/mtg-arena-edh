@@ -3,7 +3,7 @@
 // additional upkeep steps. Each test is a clause that could go wrong.
 import { produce } from 'immer';
 import { describe, expect, it } from 'vitest';
-import { addCounters, applyAction, applyBotAction, botAction, canBlock, canCast, canPlayLand, castCost, counterCount, discard, has, isHidden, isLand, makeCard, stats, viewFor } from '../src/engine';
+import { addCounters, applyAction, applyBotAction, botAction, canBlock, canCast, canPlayLand, castCost, colorsOf, counterCount, discard, enterBattlefield, enterTogether, explore, has, isHidden, isLand, makeCard, stats, viewFor } from '../src/engine';
 import type { Action, Game, PlayerId, TargetRef } from '../src/engine';
 import { problemsOf } from '../src/cards/support';
 import { registerCards } from '../src/cards/db';
@@ -13,7 +13,7 @@ import { byName, emptyGame, put, run } from './helpers';
 import './fixtures';
 
 // The fixtures aren't in the card pool, so the parser reads these as it would a fetched card's.
-scriptCards(["Glarb, Calamity's Augur", 'The Necrobloom']);
+scriptCards(["Glarb, Calamity's Augur", 'The Necrobloom', 'The Wandering Minstrel']);
 
 const pass = { type: 'pass' } as const;
 const player = (id: PlayerId): TargetRef => ({ kind: 'player', id });
@@ -61,6 +61,8 @@ describe('the zones group is playable', () => {
     'Terra, Magical Adept // Esper Terra',
     'Terra, Herald of Hope',
     'Obeka, Splitter of Seconds',
+    'Hakbal of the Surging Soul',
+    'The Wandering Minstrel',
   ])('%s has no problems', (name) => {
     expect(problemsOf(name)).toEqual([]);
   });
@@ -608,5 +610,190 @@ describe('Obeka, Splitter of Seconds', () => {
     expect(first).toBeGreaterThan(texts.findIndex((t) => /2 combat damage/.test(t)));
     expect(texts.filter((t) => /searches .* library for/.test(t)).length).toBe(2);
     expect(g.players[0].hand.length).toBeGreaterThanOrEqual(hand);
+  });
+});
+
+describe('Hakbal of the Surging Soul', () => {
+  // A Merfolk with no text, and a watcher: "whenever a creature you control explores".
+  registerCards({
+    'Test Merfolk': { name: 'Test Merfolk', manaCost: '{U}', cmc: 1, colors: ['U'], colorIdentity: ['U'], typeLine: 'Creature — Merfolk', oracleText: '', power: '1', toughness: '1', keywords: [], image: '', art: '' },
+    'Test Explorer Watcher': { name: 'Test Explorer Watcher', manaCost: '{G}', cmc: 1, colors: ['G'], colorIdentity: ['G'], typeLine: 'Creature — Elf', oracleText: 'Whenever a creature you control explores, you gain 1 life.', power: '1', toughness: '1', keywords: [], image: '', art: '' },
+  });
+  scriptCards(['Test Explorer Watcher']);
+
+  it('each Merfolk explores at the beginning of combat, one at a time in the order chosen (701.44a, 701.44d)', () => {
+    let g = emptyGame((d) => {
+      human(d);
+      put(d, 0, 'Hakbal of the Surging Soul');
+      put(d, 0, 'Test Merfolk');
+      put(d, 0, 'Test Explorer Watcher');
+      put(d, 0, 'Elite Vanguard'); // not a Merfolk
+      top(d, 0, ['Forest', 'Serra Angel', 'Plains', ...plenty()]);
+    });
+    g = until(g, (x) => x.decision?.type === 'chooseCards' && x.priority === 0);
+    // Two Merfolk: the player picks which explores first.
+    expect(asked(g)!.cards!.length).toBe(2);
+    const merfolk = byName(g, 0, 'Test Merfolk')!;
+    g = run(g, { type: 'chooseCards', cards: [merfolk.id] });
+    // The Merfolk revealed a Forest: into the hand, no counter, no question.
+    expect(byName(g, 0, 'Forest', 'hand')).toBeDefined();
+    expect(counterCount(byName(g, 0, 'Test Merfolk')!)).toBe(0);
+    // Hakbal explores next (the only one left, no pick): Serra Angel, a counter, then the choice.
+    expect(g.decision?.type).toBe('ask');
+    expect(counterCount(byName(g, 0, 'Hakbal of the Surging Soul')!)).toBe(1);
+    g = run(g, { type: 'answer', yes: true });
+    expect(byName(g, 0, 'Serra Angel', 'graveyard')).toBeDefined();
+    g = settle(g);
+    // "Whenever a creature you control explores" triggered twice (701.44b).
+    expect(g.players[0].life).toBe(42);
+    expect(byName(g, 0, 'Elite Vanguard')!.counters['+1/+1']).toBeUndefined();
+  });
+
+  it('a creature that left still explores, as it last was, and gets no counter (701.44c); an empty library still gives the counter (rulings)', () => {
+    registerCards({ 'Test Prowler': { name: 'Test Prowler', manaCost: '{U}', cmc: 1, colors: ['U'], colorIdentity: ['U'], typeLine: 'Creature — Merfolk', oracleText: 'Whenever this creature attacks, it explores.', power: '1', toughness: '1', keywords: [], image: '', art: '' } });
+    expect(scriptCards(['Test Prowler'])).toEqual([]);
+    let g = emptyGame((d) => {
+      human(d);
+      put(d, 0, 'Test Prowler');
+      put(d, 0, 'Test Explorer Watcher');
+      put(d, 0, 'Mountain');
+      put(d, 0, 'Shock', 'hand');
+      top(d, 0, ['Serra Angel', ...plenty()]);
+    });
+    g = until(g, (x) => x.step === 'attackers' && x.decision?.type === 'attackers' && x.priority === 0);
+    g = run(g, { type: 'declareAttack', card: byName(g, 0, 'Test Prowler')!.id, defender: 1 });
+    // The explore trigger is on the stack; the Prowler is shocked in response.
+    for (let i = 0; i < 10 && !(g.stack.length === 1 && g.priority === 0 && !g.decision); i++) g = applyAction(g, pass, { autoPass: false });
+    expect(g.stack).toHaveLength(1);
+    g = run(g, { type: 'cast', card: byName(g, 0, 'Shock', 'hand')!.id, targets: [card(byName(g, 0, 'Test Prowler')!)] });
+    g = until(g, (x) => x.decision?.type === 'ask' && x.priority === 0);
+    // The Prowler is gone, yet it explored: the card was revealed, nothing got a counter, and it may go to the graveyard.
+    expect(byName(g, 0, 'Test Prowler', 'graveyard')).toBeDefined();
+    g = settle(run(g, { type: 'answer', yes: false }));
+    expect(g.players[0].library[0]?.name).toBe('Serra Angel');
+    expect(g.players[0].battlefield.every((c) => !c.counters['+1/+1'])).toBe(true);
+    // "Whenever a creature you control explores" triggered for it (701.44b, rulings).
+    expect(g.players[0].life).toBe(41);
+    // No card to reveal: the counter is still put on.
+    let h = emptyGame((d) => {
+      put(d, 0, 'Test Merfolk');
+      d.players[0].library = [];
+    });
+    h = produce(h, (d) => explore(d, d.players[0].battlefield[0]));
+    expect(counterCount(byName(h, 0, 'Test Merfolk')!)).toBe(1);
+  });
+
+  it('on attack, puts a land from the hand onto the battlefield or draws (608.2d)', () => {
+    let g = emptyGame((d) => {
+      human(d);
+      put(d, 0, 'Hakbal of the Surging Soul');
+      put(d, 0, 'Forest', 'hand');
+      top(d, 0, plenty());
+      d.players[0].library = d.players[0].library.slice(0, 3);
+    });
+    // Combat: Hakbal explores first (a Plains goes to hand), then attacks.
+    g = until(g, (x) => x.step === 'attackers' && x.decision?.type === 'attackers' && x.priority === 0);
+    g = run(g, { type: 'declareAttack', card: byName(g, 0, 'Hakbal of the Surging Soul')!.id, defender: 1 }, pass);
+    g = until(g, (x) => x.decision?.type === 'chooseCards' && x.priority === 0);
+    expect(asked(g)!.cards!.length).toBe(2); // Forest and the Plains explored into the hand
+    g = settle(run(g, { type: 'chooseCards', cards: [byName(g, 0, 'Forest', 'hand')!.id] }));
+    expect(byName(g, 0, 'Forest')).toBeDefined();
+    // Declining draws instead.
+    let h = emptyGame((d) => {
+      human(d);
+      put(d, 0, 'Hakbal of the Surging Soul');
+      put(d, 0, 'Serra Angel', 'hand');
+      top(d, 0, ['Shock', 'Shock', 'Shock']);
+    });
+    h = until(h, (x) => x.step === 'attackers' && x.decision?.type === 'attackers' && x.priority === 0);
+    h = run(h, { type: 'declareAttack', card: byName(h, 0, 'Hakbal of the Surging Soul')!.id, defender: 1 }, pass);
+    h = until(h, (x) => x.step === 'main2' || x.turn > 1);
+    // No land in hand (Shock explored stayed on top or went to the graveyard): a card is drawn.
+    expect(h.players[0].hand.length).toBe(2);
+  });
+});
+
+describe('The Wandering Minstrel', () => {
+  registerCards({
+    'Test Town': { name: 'Test Town', manaCost: '', cmc: 0, colors: [], colorIdentity: [], typeLine: 'Land — Town', oracleText: '{T}: Add {G}.', keywords: [], image: '', art: '' },
+  });
+  scriptCards(['Test Town']);
+
+  it('lands you control enter untapped: a tapland asks the order (616.1, rulings), one put onto the battlefield tapped enters untapped, a shock land needs no life', () => {
+    let g = emptyGame((d) => {
+      human(d);
+      put(d, 0, 'The Wandering Minstrel');
+      put(d, 0, 'Arcane Sanctum', 'hand');
+      put(d, 0, 'Watery Grave', 'hand');
+    });
+    g = run(g, { type: 'playLand', card: byName(g, 0, 'Arcane Sanctum', 'hand')!.id });
+    expect(g.decision?.type).toBe('replacement');
+    const options = (g.decision as { ask: { options: { label: string }[] } }).ask.options;
+    expect(options.map((o) => o.label).sort()).toEqual(['Arcane Sanctum', 'The Wandering Minstrel']);
+    // Apply the Minstrel's effect first: the land's own then makes it enter tapped.
+    g = run(g, { type: 'replacement', option: options.findIndex((o) => o.label === 'The Wandering Minstrel') });
+    expect(byName(g, 0, 'Arcane Sanctum')!.tapped).toBe(true);
+    // The other order: untapped.
+    let h = emptyGame((d) => {
+      human(d);
+      put(d, 0, 'The Wandering Minstrel');
+      put(d, 0, 'Arcane Sanctum', 'hand');
+    });
+    h = run(h, { type: 'playLand', card: byName(h, 0, 'Arcane Sanctum', 'hand')!.id });
+    const opts = (h.decision as { ask: { options: { label: string }[] } }).ask.options;
+    h = run(h, { type: 'replacement', option: opts.findIndex((o) => o.label === 'Arcane Sanctum') });
+    expect(byName(h, 0, 'Arcane Sanctum')!.tapped).toBe(false);
+    // A shock land: declining the life, it still enters untapped; a land put onto the battlefield tapped too.
+    g = until(g, (x) => x.active === 0 && x.turn > 1 && x.step === 'main1' && !x.decision);
+    g = run(g, { type: 'playLand', card: byName(g, 0, 'Watery Grave', 'hand')!.id });
+    expect(g.decision?.type).toBe('ask');
+    g = run(g, { type: 'answer', yes: false });
+    expect(byName(g, 0, 'Watery Grave')!.tapped).toBe(false);
+    expect(g.players[0].life).toBe(40);
+    g = produce(g, (d) => enterBattlefield(d, makeCard(d, 'Forest', 0, 'hand'), { tapped: true, controller: 0 }));
+    expect(byName(g, 0, 'Forest')!.tapped).toBe(false);
+    // An opponent's land, and a bot takes untapped.
+    g = produce(g, (d) => enterBattlefield(d, makeCard(d, 'Forest', 1, 'hand'), { tapped: true, controller: 1 }));
+    expect(byName(g, 1, 'Forest')!.tapped).toBe(true);
+  });
+
+  it("entering together with a tapland, the Minstrel's effect doesn't apply to it (614.12, rulings)", () => {
+    const g = emptyGame((d) => {
+      const minstrel = makeCard(d, 'The Wandering Minstrel', 0, 'hand');
+      const land = makeCard(d, 'Arcane Sanctum', 0, 'hand');
+      d.players[0].hand.push(minstrel, land);
+      enterTogether(d, [{ card: minstrel, opts: { controller: 0 } }, { card: land, opts: { controller: 0 } }]);
+    });
+    expect(byName(g, 0, 'Arcane Sanctum')!.tapped).toBe(true);
+  });
+
+  it("makes a token that's all colors with five Towns at the beginning of combat (603.4), and pumps others by the Towns as it resolves (611.2c)", () => {
+    const towns = (n: number) => (d: Game) => {
+      for (let i = 0; i < n; i++) put(d, 0, 'Test Town');
+    };
+    let g = emptyGame((d) => {
+      put(d, 0, 'The Wandering Minstrel');
+      towns(4)(d);
+    });
+    g = until(g, (x) => x.step === 'main2' && x.active === 0);
+    expect(g.players[0].battlefield.some((c) => c.isToken)).toBe(false);
+    let h = emptyGame((d) => {
+      put(d, 0, 'The Wandering Minstrel');
+      put(d, 0, 'Elite Vanguard');
+      put(d, 0, 'Plains');
+      put(d, 0, 'Island');
+      put(d, 0, 'Swamp');
+      put(d, 0, 'Mountain');
+      towns(5)(d);
+    });
+    // Nine lands: enough for the ability. X is the Towns as it resolves.
+    h = settle(run(h, { type: 'activate', card: byName(h, 0, 'The Wandering Minstrel')!.id }));
+    expect(stats(h, byName(h, 0, 'Elite Vanguard')!)).toMatchObject({ power: 7, toughness: 6 });
+    expect(stats(h, byName(h, 0, 'The Wandering Minstrel')!)).toMatchObject({ power: 1, toughness: 3 });
+    h = until(h, (x) => x.step === 'main2' && x.active === 0);
+    const token = h.players[0].battlefield.find((c) => c.isToken)!;
+    expect(token).toBeDefined();
+    expect(stats(h, token)).toMatchObject({ power: 2, toughness: 2 });
+    expect([...colorsOf(h, token)].sort()).toEqual(['B', 'G', 'R', 'U', 'W']);
   });
 });

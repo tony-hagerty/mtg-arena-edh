@@ -2155,3 +2155,56 @@ describe('the monarch, goad, extra lands and firebending from Oracle text', () =
     expect(refusal('Creature — Human', 'Flying, firebending')).not.toBeNull();
   });
 });
+
+describe('explore (701.44) and "lands you control enter untapped" from Oracle text', () => {
+  it('"this creature explores": a land to the hand, else a counter and the choice; "whenever a creature you control explores" triggers', () => {
+    teach('Test Scout', 'Creature — Merfolk Scout', 'When this creature enters, it explores.');
+    teach('Test Explore Watcher', 'Creature — Elf', 'Whenever a creature you control explores, you gain 1 life.');
+    let g = emptyGame((d) => {
+      d.players[0].isBot = false;
+      put(d, 0, 'Test Explore Watcher');
+      put(d, 0, 'Test Scout', 'hand');
+      put(d, 0, 'Island');
+      d.players[0].library.unshift(makeCard(d, 'Serra Angel', 0, 'library'));
+    });
+    g = run(g, { type: 'cast', card: byName(g, 0, 'Test Scout', 'hand')!.id });
+    for (let i = 0; i < 20 && g.decision?.type !== 'ask'; i++) g = g.decision ? applyBotAction(g, botAction(g, g.priority)) : applyAction(g, { type: 'pass' });
+    expect(g.decision?.type).toBe('ask');
+    expect(byName(g, 0, 'Test Scout')!.counters['+1/+1']).toBe(1);
+    g = settleAll(run(g, { type: 'answer', yes: true }));
+    expect(byName(g, 0, 'Serra Angel', 'graveyard')).toBeDefined();
+    expect(g.players[0].life).toBe(41);
+    expect(refusal('Creature — Merfolk', 'When this creature enters, target player explores.')).not.toBeNull();
+    expect(refusal('Instant', 'Explores.')).not.toBeNull();
+  });
+
+  it('"each Merfolk creature you control explores" asks the order with several (701.44d), and "target creature explores" targets', () => {
+    teach('Test Hakbal', 'Creature — Merfolk', 'At the beginning of your upkeep, each Merfolk creature you control explores.');
+    teach('Test Jadelight', 'Instant', 'Target creature explores.');
+    let g = emptyGame((d) => {
+      d.players[0].isBot = false;
+      put(d, 0, 'Test Hakbal');
+      put(d, 0, 'Test Hakbal');
+      put(d, 0, 'Forest', 'battlefield', 2);
+      put(d, 0, 'Test Jadelight', 'hand');
+      d.players[0].library.unshift(makeCard(d, 'Forest', 0, 'library'), makeCard(d, 'Forest', 0, 'library'), makeCard(d, 'Forest', 0, 'library'));
+    });
+    g = settle(run(g, { type: 'cast', card: byName(g, 0, 'Test Jadelight', 'hand')!.id, targets: [cardRef(byName(g, 0, 'Test Hakbal')!.id)] }));
+    expect(g.players[0].hand.map((c) => c.name)).toEqual(['Forest']);
+    for (let i = 0; i < 400 && !(g.decision?.type === 'chooseCards' && g.priority === 0 && g.turn > 1); i++) g = g.decision ? applyBotAction(g, botAction(g, g.priority)) : applyAction(g, { type: 'pass' });
+    expect(g.decision?.type).toBe('chooseCards');
+    expect((g.decision as { choice: { cards: string[] } }).choice.cards.length).toBe(2);
+  });
+
+  it('"Lands you control enter untapped" is a replacement effect on lands entering under your control (614.1c)', () => {
+    teach('Test Minstrel', 'Creature — Human Bard', 'Lands you control enter untapped.');
+    const g = emptyGame((d) => {
+      put(d, 0, 'Test Minstrel');
+      enterBattlefield(d, makeCard(d, 'Forest', 0, 'hand'), { tapped: true, controller: 0 });
+      enterBattlefield(d, makeCard(d, 'Forest', 1, 'hand'), { tapped: true, controller: 1 });
+    });
+    expect(byName(g, 0, 'Forest')!.tapped).toBe(false);
+    expect(byName(g, 1, 'Forest')!.tapped).toBe(true);
+    expect(refusal('Creature — Human Bard', 'Lands enter untapped.')).not.toBeNull();
+  });
+});

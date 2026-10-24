@@ -2799,6 +2799,7 @@ const SECOND_PERSON: Record<string, string> = {
   looks: 'look',
   shuffles: 'shuffle',
   dredges: 'dredge',
+  explores: 'explore',
   earthbends: 'earthbend',
   rolls: 'roll',
   becomes: 'become',
@@ -5252,6 +5253,57 @@ export function connive(g: Game, c: Card, n = 1) {
     then: '@connive',
     data: { id: c.id, moves: c.moves, bot: 'discard' },
   });
+}
+
+/**
+ * Permanent `c` explores (701.44a): its controller reveals the top card of their library; a land
+ * goes into their hand; otherwise a +1/+1 counter goes on the permanent, if it is still the same
+ * object (701.44c: one that left still explores, as it last was, and gets no counter), and they
+ * may put the revealed card into their graveyard. With no card to reveal the counter is still
+ * put on (its rulings). "Whenever a creature explores" triggers once the process is complete
+ * (701.44b, `onExplore`).
+ */
+export function explore(g: Game, c: Card) {
+  const pid = c.controller;
+  const p = g.players[pid];
+  if (p.lost) return;
+  const top = p.library[0];
+  const it = permanent(g, c.id);
+  const same = it && it.moves === c.moves ? it : undefined;
+  log(g, top ? `${label(c)} explores: ${says(p, 'reveals')} ${label(top)}.` : `${label(c)} explores with no card to reveal.`, pid, top ? [c, top] : [c]);
+  if (top && isLand(g, top)) {
+    moveCard(g, top, 'hand');
+    log(g, `${says(p, 'puts')} ${label(top)} into ${their(p)} hand.`, pid, [top]);
+    explored(g, c, pid);
+    return;
+  }
+  addCounters(g, same, 1);
+  if (!top) return explored(g, c, pid);
+  ask(g, pid, { text: `Explore: put ${label(top)} into your graveyard, or leave it on top of your library?`, yes: 'Graveyard', no: 'Leave on Top', then: '@explored', data: { id: top.id, moves: top.moves, explorer: snapshot(c) } });
+}
+
+/** The explore is complete (701.44b): "whenever a creature you control explores". */
+export function explored(g: Game, c: Card, pid: PlayerId) {
+  broadcast(g, 'onExplore', { card: c, player: pid });
+}
+
+/**
+ * Several permanents explore at once (701.44d): the first player in APNAP order who controls one
+ * of them chooses which of theirs explores first, and so on until each has explored. Each
+ * explore finishes, its choice included, before the next begins (Hakbal's rulings).
+ */
+export function exploreEach(g: Game, cards: Card[]) {
+  const left = cards.filter((c) => permanent(g, c.id)?.moves === c.moves);
+  if (!left.length) return;
+  const order = turnOrder(g, g.active);
+  const first = order.find((pid) => left.some((c) => c.controller === pid))!;
+  const mine = left.filter((c) => c.controller === first);
+  if (mine.length === 1) {
+    explore(g, mine[0]);
+    exploreEach(g, left.filter((c) => c.id !== mine[0].id));
+    return;
+  }
+  pickCards(g, first, mine, { min: 1, max: 1, text: 'choose which explores next', button: 'Explore', then: '@exploreNext', data: { rest: left.map((c) => c.id) } });
 }
 
 /** The player creates a token that's a copy of creature token `token` (701.36a, 707.2). */

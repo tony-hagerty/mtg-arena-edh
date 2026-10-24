@@ -21,6 +21,7 @@ import {
   dieMany,
   draw,
   enterBattlefield,
+  exploreEach,
   exileAll,
   hasType,
   isLand,
@@ -40,6 +41,7 @@ import {
   sameCard,
   says,
   subtypesOf,
+  isCreature,
   their,
   tokenCopy,
   transform,
@@ -317,6 +319,35 @@ registerScripts({
     },
     // A bot pays when it has a creature card to return.
     botChoice: { paid: (g, pid) => ({ type: 'answer', yes: g.players[pid].graveyard.some((c) => hasType(g, c, 'Creature') && num(data(c).power) <= 3) }) },
+  },
+
+  // ===== Hakbal of the Surging Soul =====
+  'Hakbal of the Surging Soul': {
+    // "At the beginning of combat on your turn, each Merfolk creature you control explores." The
+    // Merfolk are those you control as the ability resolves; they explore one at a time, in the
+    // order you choose, each explore complete before the next (701.44a, 701.44d, its rulings).
+    onBeginCombat: {
+      when: (_g, { self, player }) => player === self.controller,
+      resolve: (g, { you }) => exploreEach(g, g.players[you].battlefield.filter((c) => isCreature(g, c) && subtypesOf(g, c).includes('Merfolk'))),
+      text: 'At the beginning of combat on your turn, each Merfolk creature you control explores.',
+    },
+    // "Whenever Hakbal attacks, you may put a land card from your hand onto the battlefield. If
+    // you don't, draw a card." The choice is made as it resolves (608.2d); with no land card in
+    // hand you can't, so you draw.
+    onAttack: (g, { you }) => {
+      const lands = g.players[you].hand.filter((c) => isLand(g, c));
+      if (!lands.length) return draw(g, you);
+      pickCards(g, you, lands, { min: 0, max: 1, text: 'you may put a land card from your hand onto the battlefield. If you don\'t, draw a card', button: 'Put Onto Battlefield', then: 'hakbalLand' });
+    },
+    then: {
+      hakbalLand: (g, { you, picked }) => {
+        const land = picked[0] && g.players[you].hand.find((c) => c.id === picked[0].id);
+        if (land) enterBattlefield(g, land, { controller: you });
+        else draw(g, you);
+      },
+    },
+    // A bot puts a land onto the battlefield when it has one.
+    botChoice: { hakbalLand: (_g, _pid, choice) => ({ type: 'chooseCards', cards: (choice as { cards: string[] }).cards.slice(0, 1) }) },
   },
 
   // ===== Obeka, Splitter of Seconds =====

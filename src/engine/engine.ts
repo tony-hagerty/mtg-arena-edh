@@ -159,6 +159,9 @@ import {
   offerCastAny,
   paidCostText,
   slotLabel,
+  explore,
+  exploreEach,
+  explored,
   alternativeCostAt,
   cascadeCount,
   unblockedAttackers,
@@ -591,6 +594,21 @@ const ENGINE_THEN: Record<string, (g: Game, ctx: ThenCtx) => void> = {
   // "Discards a card" (701.9a): the player chose which.
   '@discard': (g, { picked }) => {
     for (const c of picked) discard(g, c);
+  },
+  // Explore (701.44a): the revealed nonland card goes into the graveyard or stays on top; then the explore is complete (701.44b).
+  '@explored': (g, { yes, chooser, data }) => {
+    const card = g.players[chooser].library.find((x) => x.id === data.id && x.moves === data.moves);
+    if (yes && card) {
+      log(g, `${says(g.players[chooser], 'puts')} ${label(card)} into ${their(g.players[chooser])} graveyard.`, chooser, [card]);
+      moveCard(g, card, 'graveyard');
+    } else if (card) log(g, `${says(g.players[chooser], 'leaves')} ${label(card)} on top of ${their(g.players[chooser])} library.`, chooser, [card]);
+    explored(g, data.explorer as Card, chooser);
+  },
+  // Several permanents exploring (701.44d): the one chosen explores, then the rest are chosen from.
+  '@exploreNext': (g, { picked, data }) => {
+    const chosen = picked[0] && permanent(g, picked[0].id);
+    if (chosen) explore(g, chosen);
+    exploreEach(g, (data.rest as string[]).filter((id) => id !== picked[0]?.id).map((id) => permanent(g, id)).filter((c): c is Card => !!c));
   },
   // Connive (701.50a): the cards picked are discarded, then a +1/+1 counter for each nonland one, on the permanent if it is still there.
   '@connive': (g, { picked, data }) => {

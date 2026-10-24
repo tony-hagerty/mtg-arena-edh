@@ -791,6 +791,25 @@ are from the Comprehensive Rules in `docs/rules/`.
   or the top of the library is one of the turn's land plays (see "Additional lands" for the extra
   ones Flubs, Exploration and Azusa allow). **"Whenever you play a land"** (Flubs) triggers on a
   land played, not on one an effect puts onto the battlefield (305.4).
+- **Explore (701.44):** the permanent's controller reveals the top card of their library; a
+  land goes into their hand, otherwise a +1/+1 counter goes on the permanent and they may put
+  the card into their graveyard (asked, with "Graveyard" or "Leave on Top"); with no card to
+  reveal the counter is still put on (Hakbal's rulings). A permanent that left still explores,
+  as it last was, and gets no counter (701.44c). Several exploring at once (Hakbal of the
+  Surging Soul's "each Merfolk creature you control explores") explore one at a time: the first
+  player in APNAP order picks which of theirs goes first, each explore finishing before the
+  next (701.44d). "Whenever a creature you control explores" triggers once each is complete
+  (701.44b). Bots put the revealed card into the graveyard unless they want to draw it.
+- **"Lands you control enter untapped" (The Wandering Minstrel):** a replacement effect
+  (614.1c) on each land of yours entering, so with a land's own "enters tapped" you choose the
+  order they apply in (616.1) and may have it enter tapped or untapped (its rulings); a land an
+  effect puts onto the battlefield tapped enters untapped. A land entering at the same time as
+  the Minstrel still enters tapped (614.12). A shock land's "you may pay 2 life" is still asked
+  as the land's own choice (614.12a), and the land enters untapped whether you pay or not: by
+  the rulings you would apply the land's effect first, then the Minstrel's, for the same result.
+  The Minstrel's Ballad is a flavor word (207.2d); its ability is an intervening "if" (603.4:
+  five Towns as it triggers and as it resolves), and the token is all five colours (105.2c).
+  Its last ability's X is the Towns as it resolves (611.2c).
 - **Dredge (702.52):** printed ("Dredge 3") or given ("Land cards in your graveyard have
   dredge 2", The Necrobloom). A draw you would make may be replaced: you are asked, as with
   any optional replacement effect (616.1), and mill N and return the card to your hand
@@ -1318,7 +1337,10 @@ card, naming the clause: it never guesses. Hand scripts always win.
   additional lands] on each of your turns" (305.2); "[kind] cards in your graveyard have
   dredge N" (702.52); "each nonland card in your graveyard has mayhem. The mayhem cost is equal
   to its mana cost" and "spells you cast from your graveyard cost {N} less" (702.187b); the
-  condition "you control seven or more lands with different names"; "[effect]. If
+  condition "you control seven or more lands with different names"; "[this / it / that creature /
+  target creature / each [kind] creature you control] explores" and "whenever a creature you
+  control explores" (701.44); "[kind] you control enter untapped" (614.1c); a token "that's
+  all colors" (105.2c); "[effect]. If
   [condition], [effect] instead" as two effects, one for each case (608.2c); the triggers
   "whenever this land or another land you control enters" and "whenever you play a land"; and
   the effect "you may play an additional land this turn".

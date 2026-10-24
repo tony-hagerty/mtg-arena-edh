@@ -1158,6 +1158,11 @@ function choiceAnswer(g: Game, pid: PlayerId): Action {
     return { type: 'name', name: lib.length ? cardData(lib[0].name).name : 'Island' };
   }
   const q = d.choice;
+  // Explore (701.44a): the revealed card goes to the graveyard unless the bot would want to draw it.
+  if (q.then === '@explored') {
+    const revealed = findCard(g, q.data?.id as string);
+    return { type: 'answer', yes: !revealed || cardWant(g, pid, revealed) < 3 };
+  }
   if (!canSayYes(g, q)) return { type: 'answer', yes: false };
   const me = g.players[pid];
   if (q.life && me.life - q.life < 15) return { type: 'answer', yes: false };
