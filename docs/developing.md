@@ -290,7 +290,9 @@ to `games.ts` and a file for it: `tests/games-table.test.ts` fails until the two
 
 Vitest starts the files that took longest last time first. With no timings from an earlier
 run (a fresh checkout, CI), `BotGamesFirst` in `vite.config.ts` starts the games, the
-slowest ones measured (`SLOW_GAMES`) first.
+slowest ones measured (`SLOW_GAMES`) first. The release workflow splits the games over four
+jobs with `npm run test:games -- --shard=<i>/4`; `BotGamesFirst` deals the files out back
+and forth, slowest games first, so each job gets as many games and as many slow ones.
 
 **Profiling.** `npm run profile-game -- <seed>` plays one game under Node's CPU profiler and
 prints the functions that took the most time, by their own code and with what they call.

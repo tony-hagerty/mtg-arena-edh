@@ -20,8 +20,10 @@ permissions:
   contents: write
 
 jobs:
-  # The tests in two jobs that run at the same time: together they are `npm test`. The
-  # quick one reports in a few minutes; the games one plays every whole game with bots.
+  # The tests, as five jobs that run at the same time: together they are `npm test`. The
+  # quick one takes under a minute. The games, every whole game with bots, are split over
+  # four jobs (`--shard`, dealt out by BotGamesFirst in vite.config.ts), a few minutes each.
+  # The .exe builds alongside them, and the release is published only once all have passed.
   quick:
     runs-on: ubuntu-24.04
     timeout-minutes: 15
@@ -36,7 +38,10 @@ jobs:
 
   games:
     runs-on: ubuntu-24.04
-    timeout-minutes: 45
+    timeout-minutes: 20
+    strategy:
+      matrix:
+        shard: [1, 2, 3, 4]
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v5
@@ -44,10 +49,9 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      - run: npm run test:games
+      - run: npm run test:games -- --shard=${{ matrix.shard }}/4
 
   exe:
-    needs: [quick, games]
     runs-on: windows-latest
     timeout-minutes: 30
     steps:
@@ -97,9 +101,21 @@ jobs:
           name: ArenaEDH
           path: release/ArenaEDH.exe
 
+  publish:
+    if: github.ref_type == 'tag'
+    needs: [quick, games, exe]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      # For .github/release-notes.md, and so `gh` knows the repository.
+      - uses: actions/checkout@v5
+
+      - uses: actions/download-artifact@v5
+        with:
+          name: ArenaEDH
+          path: release
+
       - name: Publish the release
-        if: github.ref_type == 'tag'
-        shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
