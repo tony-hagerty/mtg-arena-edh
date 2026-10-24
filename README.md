@@ -111,9 +111,9 @@ Behind an HTTPS proxy, run `fetch-cards`, `fetch-corpus` and `recheck-requests` 
 
 **Releasing:** set `version` in `package.json`, merge to `main`, then push a matching tag
 (`git tag v0.1.0 && git push origin v0.1.0`). The
-[Release workflow](.github/workflows/release.yml) runs the tests (the quick ones and the
-games, as two jobs at once), builds `ArenaEDH.exe` on Windows, checks that it starts, and
-publishes the release with the `.exe` attached.
+[Release workflow](.github/workflows/release.yml) runs the tests (the quick ones, and the
+games split over four jobs) while it builds `ArenaEDH.exe` on Windows and checks that it
+starts. Once all of that passes, it publishes the release with the `.exe` attached.
 
 The stack is TypeScript, React, Zustand and Immer, built with Vite and tested with Vitest.
 The rules engine is a pure function, `applyAction(game, action)`, in `src/engine/`.
