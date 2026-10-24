@@ -121,7 +121,10 @@ The full guide to the game's screens and controls. For a quick start, see the
   pill under your portrait. Costs spend that mana first and auto-tap only for the rest.
   A source with a choice (a dual land, a Talisman, Sunken Ruins, Command Tower) asks which
   ability and which mana you want, in the prompt's band in the middle of the table (under
-  the words while you are paying), with **Cancel** to tap nothing. Click a tapped source
+  the words while you are paying), with **Cancel** to tap nothing. A cost that taps other
+  permanents (Urza's artifact, Baylen's two tokens) shows them as chips to pick; Vivi
+  Ornitier lists each combination of {U} and {R}. When a triggered mana ability adds mana of
+  your choice (Kinnan, after a source that made two types), the band asks for it next. Click a tapped source
   again to take its mana back, whatever else using it did: the life a Talisman or a
   painland cost you comes back, a Treasure or Lotus Petal returns, and so does what it
   triggered. That works until you do something other than make mana; after that, a source
@@ -207,6 +210,8 @@ The full guide to the game's screens and controls. For a quick start, see the
 - When your commander dies, is exiled, or would go to your hand or library, a window asks
   whether it goes to the **Command Zone** (castable again, with tax) or stays where it
   went.
+- A player's emblems (Sephiroth's, for one) sit in the command zone too: each is a ✦ badge
+  down the portrait's inner side, under any commander damage. Hover one to read its ability.
 
 ## Combat
 
@@ -214,6 +219,8 @@ The full guide to the game's screens and controls. For a quick start, see the
   goes), click an opponent's portrait to choose who to attack, then click your creatures.
   Different creatures can attack different players. Planeswalkers and battles you can
   attack glow yellow: click one to send your next attackers at it instead.
+  A creature that can't attack the one you chose (enchanted by an Aura of Eriette's
+  controller, say) doesn't glow, and the prompt says so; it can still attack someone else.
 - **Blocking:** when you are attacked, click your creature. If it could block more than
   one attacker, click the attacker next.
 - **Taking back:** until you press the button that finishes attacking or blocking,
@@ -234,7 +241,10 @@ The full guide to the game's screens and controls. For a quick start, see the
 | **Battle** | Its defense is the orange box. When you cast a Siege, the prompt asks which opponent protects it. |
 | **Two faces** (split, adventurer, modal double-faced) | The prompt has a **Face** row: pick the half, the Adventure, or the face to play. A modal card's land face says "(land)"; its button reads **Play** instead of **Cast**. |
 | **Class** | Click yours to see its level bars; pick the next one and pay for it. |
-| **Several abilities** (Deathrite Shaman) | Click the permanent to see every activated ability; the ones you can't use now are dimmed. With only one usable, clicking goes straight to it. |
+| **Several abilities** (Deathrite Shaman) | Click the permanent to see every activated ability; the ones you can't use now are dimmed. With only one usable, clicking goes straight to it. A permanent that can also make mana now (Urza, Baylen) lists **Add mana** first. |
+| **Tapping other permanents for a cost** (Baylen's "Tap three untapped tokens") | After its targets, click the permanents to tap (they glow), then **Tap**. |
+| **An ability with modes** (Breya's "Choose one —") | The prompt lists the modes; pick as many as it says, then **Continue** to its targets and cost. A reflexive ability's modes (Caesar's "When you do, choose two —") are asked in a window as it triggers. |
+| **Tokens that enter attacking** (mobilize, Caesar) | When more than one opponent could be attacked, a window asks which player, then whether to attack a planeswalker or battle of theirs instead. |
 | **"One mana of any color"** | A window with the five colours opens while it resolves. **Lion's Eye Diamond** asks for the colour when you click it. |
 | **Aura and Equipment** | What is attached to a permanent fans out behind it, toward the top of the card, each showing its name and a strip of art; it taps and attacks with the permanent. Click an Equipment's strip to equip it to something else, hover a strip to read the card. An enchanted land stands on its own instead of in its pile. |
 | **Graveyard and exile** | A graveyard, or the well (the exile), glows when something in it can be cast (flashback, escape, an adventurer card whose Adventure you cast, a card an effect lets you cast or play, in anyone's exile, or a card a permanent like Muldrotha or Maralen lets you play from there). Right-click it to open it and click the glowing card. With escape (Underworld Breach) a window then asks for the three other cards to exile. A card exiled face down shows its back, unless you may look at it. A land in a graveyard you may play (Muldrotha) is played from the window too. |
@@ -247,7 +257,15 @@ The full guide to the game's screens and controls. For a quick start, see the
 | **Cast as it resolves** (Beseech the Mirror) | A window offers **Cast** or **Don't Cast**; casting goes through the usual targets and costs. With several cards on offer (Kotis: "any number of spells from among them") pick one and press **Cast**; the rest are offered again afterwards. |
 | **Dredge** (The Necrobloom) | As you would draw, a window asks whether to dredge a card from your graveyard instead: mill that many and return it to your hand. |
 | **A choice from several places** (Highway Robbery: discard a card or sacrifice a land) | The window groups the cards by where they are, **Your hand** and **Your battlefield**, so a Mountain in your hand isn't taken for one on the table. |
+| **Proliferate** (Atraxa, Karn's Bastion) | A window shows every permanent with a counter, under whose battlefield it is, and a button for each player with counters (their counters in brackets). Click the ones that get another counter of each kind they have, any number or none, and press **Proliferate**. |
+| **Blight** (High Perfect Morcant, Auntie Ool's ward) | A window asks which creature of yours gets the -1/-1 counters. Paying Auntie Ool's **Ward—Blight 2** is optional: choose none and your spell or ability is countered. |
+| **Tap untapped creatures as a cost** (High Perfect Morcant's "Tap three untapped Elves") | After clicking the permanent, the ones you could tap glow yellow, the permanent itself included (not when the cost taps it too, as Lathril's does); click exactly that many (a second click takes one back) and press **Tap**. Summoning sickness doesn't matter. |
+| **Moving a counter** (Tidus, Nesting Grounds) | When the first creature has more than one kind of counter, a window asks which kind moves. |
+| **Counters on players** (poison, experience, rad) | They show as small pills under the player's name on their portrait. Ten poison counters lose the game. |
 | **Library search** (Rampant Growth, Cultivate, Path to Exile, ...) | Your whole library opens. Cards you could find glow; click one and press **Choose**, or **Find Nothing**. |
+| **Ward that asks for a sacrifice** (Ygra's "Ward—Sacrifice a Food") | When your spell or ability targets it, a window shows what of yours you could sacrifice: pick one and press **Sacrifice**, or **Don't Pay** to have it countered. |
+| **The Ring tempts you** (Frodo, Sauron) | With two or more creatures, a window asks which is your **Ring-bearer**. It carries a gold ring on the table, and the log counts the times the Ring has tempted you. |
+| **Amass** (Sauron) | With two or more Armies, a window asks which gets the counters. |
 
 ## Triggers and pop-up windows
 

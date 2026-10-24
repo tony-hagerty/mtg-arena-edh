@@ -28,6 +28,8 @@ export interface ManaOption {
   mana: ManaSym[][];
   /** The creatures that could pay a "Tap an untapped creature you control" cost (Relic of Legends). */
   creatures?: string[];
+  /** How many of them the cost taps, when more than one ("Tap two untapped tokens you control", Baylen). */
+  tapCount?: number;
   /** The cards in hand that could pay a "Discard a card" cost (Skirge Familiar). */
   discards?: string[];
   /** The creatures that could pay a "Sacrifice a creature" cost (Phyrexian Tower). */
@@ -49,6 +51,9 @@ export interface Targeting {
   /** Creatures picked to crew a Vehicle (702.122a), and whether the human is done picking. */
   crew?: string[];
   crewDone?: boolean;
+  /** A modal activated ability (700.2a): the modes picked so far, and whether the human is still picking them: X and targets come next. */
+  modes?: number[];
+  choosingModes?: boolean;
   /** The loyalty ability (606) or Class level bar being activated, by index, or undefined for one of the card's `activated` abilities. */
   ability?: number;
   /** Which of the card's `activated` abilities, by index (left out, the first). */
@@ -304,7 +309,21 @@ interface Store {
    * or creature to sacrifice for it (`creature`, `discard`, `sacrifice`). `group`: identical
    * permanents to use the same way.
    */
-  manaPick: { cardId: string; options: ManaOption[]; group?: string[]; creature?: string; discard?: string; sacrifice?: string } | null;
+  /**
+   * `taps`: the permanents picked for a cost that taps several (Baylen). `triggered`: once the mana
+   * is picked, the choices its triggered mana abilities offer (605.1b, Kinnan), asked one at a time:
+   * the ability and mana picked, every trigger with its choices, and the answers so far.
+   */
+  manaPick: {
+    cardId: string;
+    options: ManaOption[];
+    group?: string[];
+    creature?: string;
+    taps?: string[];
+    discard?: string;
+    sacrifice?: string;
+    triggered?: { ability: number; mana: ManaSym[]; asks: { from: string; mana: ManaSym[][] }[]; answers: ManaSym[][] };
+  } | null;
   showLog: boolean;
   /** The "leave this game?" dialog is open. */
   confirmExit: boolean;

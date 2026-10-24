@@ -25,7 +25,7 @@ import {
   resolvingItem,
   triggerText,
   triggerModeOptions,
-  triggerOf,
+  triggerModesOf,
 } from '../engine';
 import type { Action, AskChoice, Card, CardChoice, CastChoice, DamageAssignment, DamageRoom, Game, NameChoice, NumberChoice, PlayerChoice, ReplacementChoice, PlayerId, StackItem, Zone } from '../engine';
 import { CardImage, ManaCost } from './TextCard';
@@ -39,6 +39,12 @@ const act = (a: Action) => useStore.getState().act(a);
 const withMana = (text: string) =>
   text.split(/((?:\{[^}]+\})+)/).map((part, i) => (part.startsWith('{') ? <ManaCost key={i} cost={part} /> : part));
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
+/** A player's counters (122.1): "2 rad, 1 poison". */
+const counterText = (counters: Record<string, number> | undefined) =>
+  Object.entries(counters ?? {})
+    .filter(([, n]) => n > 0)
+    .map(([k, n]) => `${n} ${k}`)
+    .join(', ');
 
 export interface PickerButton {
   label: string;
@@ -60,8 +66,10 @@ interface PickerProps {
   numbered?: boolean;
   /** Show copies of a card as one tile with a count, so twenty basic lands take one spot. */
   stackCopies?: boolean;
-  /** The buttons along the bottom, given the cards picked so far (by id, in the order picked). */
-  buttons: (picked: string[]) => PickerButton[];
+  /** The buttons along the bottom, given the cards picked so far (by id, in the order picked), and the players picked. */
+  buttons: (picked: string[], players: PlayerId[]) => PickerButton[];
+  /** Players that can be picked too, any number of them, as toggles above the cards (proliferate, 701.34a). */
+  players?: { id: PlayerId; label: string }[];
   /**
    * Which group a card belongs in: where it is, say. With cards from more than one group, each
    * group sits under its own heading, so a Mountain in the hand isn't taken for one on the table.
@@ -73,8 +81,9 @@ interface PickerProps {
  * A window of cards to pick from. It can be folded away to look at the table, but not
  * closed: the game is waiting on the choice.
  */
-export function CardPicker({ title, hint, cards, selectable = () => false, max = 0, numbered, stackCopies, buttons, groupOf }: PickerProps) {
+export function CardPicker({ title, hint, cards, selectable = () => false, max = 0, numbered, stackCopies, buttons, groupOf, players }: PickerProps) {
   const [picked, setPicked] = useState<string[]>([]);
+  const [pickedPlayers, setPickedPlayers] = useState<PlayerId[]>([]);
   const [folded, setFolded] = useState(false);
   if (folded) {
     return (
@@ -132,6 +141,20 @@ export function CardPicker({ title, hint, cards, selectable = () => false, max =
           </button>
         </div>
         {hint && <p className="picker-hint">{withMana(hint)}</p>}
+        {players && players.length > 0 && (
+          <div className="picker-players">
+            {players.map((x) => (
+              <button
+                key={x.id}
+                className={cx('chip', pickedPlayers.includes(x.id) && 'on')}
+                aria-pressed={pickedPlayers.includes(x.id)}
+                onClick={() => setPickedPlayers(pickedPlayers.includes(x.id) ? pickedPlayers.filter((p) => p !== x.id) : [...pickedPlayers, x.id])}
+              >
+                {x.label}
+              </button>
+            ))}
+          </div>
+        )}
         <div className={cx('viewer-cards picker-cards', groups.length > 1 && 'grouped')}>
           {groups.length > 1
             ? groups.map((name) => (
@@ -143,7 +166,7 @@ export function CardPicker({ title, hint, cards, selectable = () => false, max =
             : tiles.map(drawTile)}
         </div>
         <div className="picker-buttons">
-          {buttons(picked).map((b) => (
+          {buttons(picked, pickedPlayers).map((b) => (
             <button key={b.label} className={cx('btn', `btn-${b.tone}`, 'small')} disabled={b.disabled} onClick={b.onClick}>
               <span className="btn-label">{withMana(b.label)}</span>
               {b.sub && <span className="btn-sub">{b.sub}</span>}
@@ -224,8 +247,11 @@ function ChoicePicker({ g, choice }: { g: Game; choice: CardChoice }) {
   }
   if (choice.kind === 'pick') {
     const { min } = choiceOptions(g, choice);
+    // Players offered besides the cards (proliferate): each with what counters they have.
+    const players = choice.players?.map((id) => ({ id, label: `${g.players[id].name} (${counterText(g.players[id].counters)})` }));
     return (
       <CardPicker
+        players={players}
         title={`${choice.source}: ${choice.text}`}
         hint={
           choice.ordered
@@ -241,8 +267,16 @@ function ChoicePicker({ g, choice }: { g: Game; choice: CardChoice }) {
         max={max}
         numbered={choice.ordered}
         groupOf={(c) => zoneName(g, c, choice.player)}
-        buttons={(picked) => [
-          { label: choice.button, sub: max > 1 ? `${picked.length} of ${max}` : undefined, tone: 'go', disabled: picked.length < min, onClick: () => choose(picked) },
+        buttons={(picked, chosen) => [
+          // Picking none is declining, with its own button (ward's "Sacrifice a Food": Don't Pay).
+          ...(choice.decline ? [{ label: choice.decline, tone: 'plain' as const, disabled: picked.length > 0, onClick: () => choose([]) }] : []),
+          {
+            label: choice.button,
+            sub: players?.length ? `${picked.length + chosen.length} chosen` : max > 1 ? `${picked.length} of ${max}` : undefined,
+            tone: 'go',
+            disabled: picked.length < (choice.decline ? Math.max(min, 1) : min),
+            onClick: () => (players ? act({ type: 'chooseCards', cards: picked, players: chosen }) : choose(picked)),
+          },
         ]}
       />
     );
@@ -398,6 +432,19 @@ function ColorPanel({ g, choice }: { g: Game; choice: NameChoice }) {
   );
 }
 
+/** Choosing one of a few named options while a spell or ability resolves: which kind of counter to move (122.5, Tidus). */
+function OptionPanel({ g, choice }: { g: Game; choice: NameChoice }) {
+  const source = resolvingItem(g)?.card;
+  return (
+    <CardPicker
+      title={choice.source}
+      hint={choice.text}
+      cards={source && !isHidden(source) ? [source] : []}
+      buttons={() => (choice.options ?? []).map((name) => ({ label: name, tone: 'go' as const, onClick: () => act({ type: 'name', name }) }))}
+    />
+  );
+}
+
 /** Choosing a player while a spell or ability resolves, like "an opponent" (Wishclaw Talisman). */
 function PlayerPanel({ g, choice }: { g: Game; choice: PlayerChoice }) {
   const source = resolvingItem(g)?.card;
@@ -415,9 +462,9 @@ function PlayerPanel({ g, choice }: { g: Game; choice: PlayerChoice }) {
 function TriggerModesPanel({ g, item }: { g: Game; item: StackItem }) {
   const [picked, setPicked] = useState<number[]>([]);
   const modal = triggerModeOptions(g, item);
-  const t = triggerOf(item);
-  if (!modal || !t || typeof t === 'function' || !t.modes) return null;
-  const modes = t.modes.modes;
+  const t = triggerModesOf(item);
+  if (!modal || !t) return null;
+  const modes = t.modes;
   const toggle = (i: number) => setPicked(picked.includes(i) ? picked.filter((x) => x !== i) : [...picked, i].sort((a, b) => a - b));
   const many = modal.max > 1 ? (modal.min === modal.max ? `${modal.min}` : modal.min === 1 ? 'one or more' : `${modal.min} to ${modal.max}`) : 'one';
   return (
@@ -798,6 +845,7 @@ export function Decisions() {
     case 'ask':
       return <AskPanel key={`${g.log.length}:${d.choice.text}`} g={g} choice={d.choice} />;
     case 'name':
+      if (d.choice.of === 'counter') return <OptionPanel key={g.log.length} g={g} choice={d.choice} />;
       return d.choice.of === 'color' ? <ColorPanel g={g} choice={d.choice} /> : <NamePanel key={g.log.length} g={g} choice={d.choice} />;
     case 'player':
       return <PlayerPanel key={g.log.length} g={g} choice={d.choice} />;

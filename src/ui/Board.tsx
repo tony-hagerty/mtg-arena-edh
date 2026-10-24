@@ -118,6 +118,18 @@ function Avatar({ player }: { player: Player }) {
         {player.name}
         {thinking && <span className="dots" />}
       </div>
+      {/* Counters the player has (122.1): poison, experience, rad. */}
+      {Object.entries(player.counters ?? {}).some(([, n]) => n > 0) && (
+        <div className="avatar-counters">
+          {Object.entries(player.counters ?? {})
+            .filter(([, n]) => n > 0)
+            .map(([kind, n]) => (
+              <span key={kind} className={`player-counter counter-${kind.replace(/[^a-z]/g, '')}`} title={`${n} ${kind} counter${n === 1 ? '' : 's'}`}>
+                {n} {kind}
+              </span>
+            ))}
+        </div>
+      )}
       <div className="cmd-dmg">
         {/* One badge per commander that has hit this player: partners count separately (702.124d). */}
         {g.players.flatMap((o) =>
@@ -134,6 +146,12 @@ function Avatar({ player }: { player: Player }) {
               </span>
             )),
         )}
+        {/* Their emblems in the command zone (114): hover one to read its ability. */}
+        {(player.emblems ?? []).map((e) => (
+          <span key={e.id} className="emblem" aria-label={`Emblem: ${data(e).oracleText}`} {...hoverProps(data(e))}>
+            <b>✦</b>
+          </span>
+        ))}
       </div>
       <AnimatePresence>
         {deltas.map((d) => (
