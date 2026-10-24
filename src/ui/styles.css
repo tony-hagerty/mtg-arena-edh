@@ -884,6 +884,49 @@ button {
   background: radial-gradient(circle at 35% 30%, #ff8a78, #a8261a);
 }
 
+/* Goaded (701.15b): a red disc with a prod mark on the left, below the summoning-sick mark's place. */
+.tile-goad {
+  position: absolute;
+  left: -0.35em;
+  top: 52%;
+  width: 1.6em;
+  height: 1.6em;
+  display: grid;
+  place-items: center;
+  font-size: max(1.15em, 1.1rem);
+  color: #ffe2c8;
+  background: radial-gradient(circle at 50% 35%, #8a2a1e, #2a0c08 75%);
+  border: 0.07em solid #d8785f;
+  border-radius: 50%;
+  box-shadow: 0 0.08em 0.25em rgba(0, 0, 0, 0.7);
+  z-index: 1;
+}
+.tile-goad::before {
+  content: '⚑';
+  font-style: normal;
+  font-size: 0.75em;
+  line-height: 1;
+}
+
+/* The monarch (725): a gold crown on the right of the portrait, level with the life plate. */
+.avatar-monarch {
+  position: absolute;
+  z-index: 3;
+  right: calc(var(--av) * -0.08);
+  bottom: calc(var(--av) * 0.06);
+  width: calc(var(--av) * 0.3);
+  height: calc(var(--av) * 0.3);
+  display: grid;
+  place-items: center;
+  font-size: calc(var(--av) * 0.2);
+  line-height: 1;
+  color: var(--gold-light);
+  background: radial-gradient(circle at 50% 35%, #4a3a12, #171106 75%);
+  border: 0.1rem solid var(--gold);
+  border-radius: 50%;
+  box-shadow: 0 0.1rem 0.4rem rgba(0, 0, 0, 0.7);
+}
+
 /* Summoning sick (302.6): a moon in a dark disc on the left, below the name. */
 /* The Ring-bearer's mark (701.54a): a gold ring on the card's left edge, under the summoning-sick mark. */
 .tile-ring {

@@ -28,6 +28,7 @@ import {
   choiceOptions,
   crewOptions,
   crewPower,
+  goadAllows,
   exileOptions,
   maxAbilityX,
   maxX,
@@ -55,6 +56,7 @@ import {
   fight,
   isBattle,
   isCreature,
+  isGoaded,
   isLand,
   isPlaneswalker,
   asSpell,
@@ -483,6 +485,8 @@ function activations(g: Game, pid: PlayerId, c: Card, ref: AbilityRef): Action[]
     ? [...tapCostOptions(g, pid, c, activated)]
         .sort(
           (a, b) =>
+            // Station (702.184a): the creature that gives the most charge counters.
+            (ab?.cost.station ? stats(g, b).power - stats(g, a).power : 0) ||
             makesMana(a) - makesMana(b) ||
             Number(!!g.players[pid].attackedWith?.includes(b.id)) - Number(!!g.players[pid].attackedWith?.includes(a.id)) ||
             Number(b.sick) - Number(a.sick) ||
@@ -743,11 +747,15 @@ function planAttacks(g: Game, pid: PlayerId): Map<string, AttackOption> {
     const cs = stats(g, c);
     let best: AttackOption | null = null;
     let bestScore = -Infinity;
-    for (const { option, blockers, bias } of opps) {
+    // A goaded creature must attack, and a player other than its goaders if it can (701.15b):
+    // only those attacks are weighed, and the least bad of them is taken whatever it is worth.
+    const goaded = isGoaded(c);
+    const allowed = goaded ? opps.filter((o) => goadAllows(g, c, o.option)) : opps;
+    for (const { option, blockers, bias } of allowed) {
       // A restriction may keep it from attacking this one (508.1c).
       if (attackForbidden(g, c, option.defender, option.target)) continue;
       const unblocked = attackWorth(g, pid, c, option);
-      if (unblocked <= 0) continue;
+      if (unblocked <= 0 && !goaded) continue;
       const able = blockers.filter((b) => canBlock(g, b, c));
       let value = unblocked + 0.5;
       if (able.length >= (cs.keywords.has('menace') ? 2 : 1)) {
@@ -758,7 +766,7 @@ function planAttacks(g: Game, pid: PlayerId): Map<string, AttackOption> {
           value = Math.min(value, (r.bDies ? threat(g, b) : 0) - (r.aDies ? threat(g, c) : 0));
         }
       }
-      if (value > 0.25 && value + bias > bestScore) {
+      if ((value > 0.25 || goaded) && value + bias > bestScore) {
         bestScore = value + bias;
         best = option;
       }
