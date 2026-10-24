@@ -1222,6 +1222,67 @@ describe('triggers from the corpus (603)', () => {
   });
 });
 
+describe('trigger doublers and "one or more creatures" combat damage from the corpus (603.2c, 603.2d)', () => {
+  it('"if an artifact or creature entering causes a triggered ability ... triggers an additional time" doubles only those (Panharmonicon)', () => {
+    teach('Test Harmonicon', 'Artifact', 'If an artifact or creature entering causes a triggered ability of a permanent you control to trigger, that ability triggers an additional time.');
+    teach('Test Greenwarden', 'Creature — Elf Druid', 'Whenever a land you control enters, you gain 1 life.');
+    let g = emptyGame((d) => {
+      put(d, 0, 'Test Harmonicon');
+      put(d, 0, 'Test Greenwarden');
+      put(d, 0, 'Elvish Visionary', 'hand');
+      put(d, 0, 'Forest', 'battlefield', 2);
+      put(d, 0, 'Plains', 'hand');
+      put(d, 1, 'Elvish Visionary', 'hand');
+      put(d, 1, 'Forest', 'battlefield', 2);
+    });
+    const hand = g.players[0].hand.length - 1;
+    // A creature entering: Elvish Visionary's own ability twice.
+    g = settle(run(g, { type: 'cast', card: byName(g, 0, 'Elvish Visionary', 'hand')!.id }));
+    expect(g.players[0].hand.length).toBe(hand + 2);
+    // A land entering isn't an artifact or creature: landfall once.
+    g = settle(run(g, { type: 'playLand', card: byName(g, 0, 'Plains', 'hand')!.id }));
+    expect(g.players[0].life).toBe(41);
+    // "Whenever one or more creatures you control enter" is caused by their entering too (603.2c, 603.2d): twice for a token entering.
+    teach('Test Herald', 'Enchantment', 'Whenever one or more creatures you control enter, you gain 1 life.');
+    g = produce(g, (d) => void put(d, 0, 'Test Herald'));
+    // The token's entering is one event; the ability waits for a player to get priority (603.3).
+    g = settle(applyAction(produce(g, (d) => void createToken(d, 0, 'Soldier')), { type: 'pass' }));
+    expect(g.players[0].life).toBe(43);
+    // An opponent's creature entering: their ability isn't a permanent you control.
+    g = produce(g, (d) => {
+      d.active = 1;
+      d.priority = 1;
+    });
+    const theirs = g.players[1].hand.length - 1;
+    g = settle(run(g, { type: 'cast', card: byName(g, 1, 'Elvish Visionary', 'hand')!.id }));
+    expect(g.players[1].hand.length).toBe(theirs + 1);
+    // Dying and attacking doublers read too; "a permanent you control" must be there, and only a creature dies or attacks.
+    expect(parse('Legendary Creature — Human Advisor', 'If a creature dying causes a triggered ability of a permanent you control to trigger, that ability triggers an additional time.')).toMatchObject({ ok: true });
+    expect(parse('Legendary Creature — Human Samurai', 'If a creature attacking causes a triggered ability of a permanent you control to trigger, that ability triggers an additional time.')).toMatchObject({ ok: true });
+    expect(refusal('Artifact', 'If an artifact or creature entering causes a triggered ability of a permanent to trigger, that ability triggers an additional time.')).not.toBeNull();
+    expect(refusal('Artifact', 'If a land dying causes a triggered ability of a permanent you control to trigger, that ability triggers an additional time.')).not.toBeNull();
+  });
+
+  it('"whenever one or more creatures you control deal combat damage to a player" triggers once for each player hit (Professional Face-Breaker)', () => {
+    teach('Test Face-Breaker', 'Creature — Human Warrior', 'Whenever one or more creatures you control deal combat damage to a player, create a Treasure token.');
+    let g = emptyGame((d) => {
+      put(d, 0, 'Test Face-Breaker');
+      put(d, 0, 'Elite Vanguard');
+      put(d, 0, 'Serra Angel');
+      put(d, 1, 'Elite Vanguard');
+      d.step = 'attackers';
+      d.combat = { attacks: [], toBlock: [], struckFirst: null, moreDamage: false };
+      d.decision = { type: 'attackers' };
+    });
+    const ids = ['Test Face-Breaker', 'Elite Vanguard', 'Serra Angel'].map((n) => byName(g, 0, n)!.id);
+    g = run(g, { type: 'declareAttack', card: ids[0], defender: 1 }, { type: 'declareAttack', card: ids[1], defender: 1 }, { type: 'declareAttack', card: ids[2], defender: 2 }, { type: 'pass' });
+    for (let i = 0; i < 400 && !(g.step === 'main2' && !g.stack.length && !g.triggers.length && !g.decision); i++) g = g.decision ? applyBotAction(g, botAction(g, g.priority)) : applyAction(g, { type: 'pass' });
+    // Two creatures hit player 1 (one Treasure) and one hit player 2 (another); the opponent's Vanguard hit no one.
+    expect(g.players[0].battlefield.filter((c) => c.name === 'Treasure')).toHaveLength(2);
+    expect(refusal('Creature — Human Warrior', 'Whenever one or more creatures you control deal damage to a player, create a Treasure token.')).not.toBeNull();
+  });
+});
+
 describe('modes with their own targets and choices (700.2)', () => {
   it('each chosen mode gets its own share of the targets, a choice in one included', () => {
     teach('Test Command', 'Instant', 'Choose two —\n• Destroy target artifact.\n• Target player discards a card.\n• Test Command deals 2 damage to any target.');

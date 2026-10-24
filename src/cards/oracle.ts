@@ -20,8 +20,12 @@ import {
   addMana,
   ask,
   attachedBonus,
+  ATTACKING_HOOKS,
   battlefield,
   becomeMonarch,
+  causedByCreatureDying,
+  ENTERING_HOOKS,
+  enteringPermanents,
   bounce,
   extraLand,
   firebending,
@@ -2970,6 +2974,25 @@ function cardLine(text: string, original: string, d: CardData, script: CardScrip
     script.forbids = (g, self, pid, act) => g.active === self.controller && pid !== self.controller && act.kind === 'cast';
     return true;
   }
+  // "If an artifact or creature entering causes a triggered ability of a permanent you control to
+  // trigger, that ability triggers an additional time." (603.2d: Panharmonicon, Elesh Norn's first
+  // ability), "If a creature dying causes ..." (Teysa Karlov), "If a creature attacking causes ..."
+  // (Isshin). Only abilities of permanents (not a card's in a graveyard); never a delayed or
+  // reflexive ability, which the engine makes without asking (603.2d).
+  if ((m = /^if (an? .+?) (entering|dying|attacking) causes a triggered ability of a permanent you control to trigger, that ability triggers an additional time\.$/.exec(text))) {
+    const about = aboutObject(m[1]);
+    if (!about) return refuse(original, `"${m[1]}"`);
+    if (m[2] !== 'entering' && m[1] !== 'a creature') return refuse(original, `"${m[1]} ${m[2]}"`);
+    const mine = (self: Card, source: Card) => source.zone === 'battlefield' && source.controller === self.controller;
+    if (m[2] === 'entering') {
+      script.doublesTriggers = (g, self, source, hook, event) => {
+        if (!ENTERING_HOOKS.includes(hook) || !mine(self, source)) return false;
+        return enteringPermanents(hook, source, event).some((entered) => about(g, permanent(g, entered.id) ?? entered, self));
+      };
+    } else if (m[2] === 'dying') script.doublesTriggers = (g, self, source, hook, event) => mine(self, source) && causedByCreatureDying(g, source, hook, event);
+    else script.doublesTriggers = (_g, self, source, hook) => ATTACKING_HOOKS.includes(hook) && mine(self, source);
+    return true;
+  }
   // Alternative costs (118.9): "[If condition, ]you may [pay N life / exile a blue card from your hand / sacrifice a ...] rather than pay this spell's mana cost."
   if ((m = /^(?:if (.+?), )?you may (.+) rather than pay ~'s mana cost\.$/.exec(text))) {
     const cond = m[1] ? condition(m[1]) : null;
@@ -3080,6 +3103,11 @@ const TRIGGERS: [RegExp, (m: RegExpExecArray) => TrigEvent[] | null][] = [
   [/^when(?:ever)? ~ enters or dies$/, () => [{ hook: 'onEnter' }, { hook: 'onDies' }]],
   [/^whenever ~ becomes tapped$/, () => [{ hook: 'onTapped' }]],
   [/^whenever ~ deals combat damage to a player$/, () => [{ hook: 'onCombatDamageToPlayer', ev: playerEv('player', 'amount'), env: { player: true, amount: true } }]],
+  // Once for each player dealt combat damage in the step (603.2c), if one of the creatures that hit them is yours (Professional Face-Breaker).
+  [
+    /^whenever one or more creatures you control deal combat damage to a player$/,
+    () => [{ hook: 'onPlayerDealtCombatDamage', when: (g, e) => (e.sources as Card[]).some((c) => (permanent(g, c.id) ?? c).controller === e.self.controller), ev: playerEv('player'), env: { player: true } }],
+  ],
   // Steps and phases (503.1, 505.1, 507.1, 513.1): "your" is the active player's turn.
   [/^at the beginning of your upkeep$/, () => [{ hook: 'onUpkeep', when: yours((e) => e.player) }]],
   [/^at the beginning of each upkeep$/, () => [{ hook: 'onUpkeep', ev: playerEv('player'), env: { player: true } }]],
