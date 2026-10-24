@@ -219,7 +219,12 @@ are from the Comprehensive Rules in `docs/rules/`.
   values spread over the range when there are more) and keep the best.
 - **Hybrid** ({R/W}), **monocoloured hybrid** ({2/W}) and **Phyrexian** ({W/P}) symbols.
   Auto-pay tries coloured mana first, then {2}, then 2 life, and backs up if a choice
-  leaves the rest unpayable.
+  leaves the rest unpayable. For each symbol that may be paid with 2 life (Phyrexian mana,
+  107.4f; K'rrik's {B}) the payer chooses mana or life before paying (601.2b): the payment
+  panel's **Pay with life** stepper says how many such symbols are paid with life, for a
+  spell, an ability or an attack cost alike (`CastChoices.payLife`, `Action.payLife`), never
+  more life than the player has (119.4). Left on **Auto**, and for bots, mana is spent first
+  and life only where the mana isn't there.
 - **Kicker and multikicker** (702.33), additional costs (118.8): "sacrifice a creature",
   "discard a card" (picked after the targets, from your other cards; bots discard the
   card they want least) and "pay N life" or "pay X life" (X is announced with the spell,
@@ -276,6 +281,35 @@ are from the Comprehensive Rules in `docs/rules/`.
 - **Offspring (702.175):** pay the extra cost and a 1/1 token copy enters with it
   (Coruscation Mage). **Spectacle (702.137):** the cheaper cost only once an opponent has
   lost life this turn (Light Up the Stage).
+- **Alternative costs a permanent gives a spell (118.9):** Henzie "Toolbox" Torre's blitz
+  for creature spells with mana value 4 or more ("the blitz cost is equal to its mana
+  cost"), and Ashling, the Limitless's "gain evoke {4} as you cast them". They are offered
+  with the spell's own costs; what was paid stays with the spell, so the permanent leaving
+  before it resolves changes nothing (`CastInfo.blitz`, `CastInfo.evoke`).
+- **Blitz (702.152):** cast for its blitz cost, the permanent has haste and "When this
+  permanent is put into a graveyard from the battlefield, draw a card" (however it dies),
+  and is sacrificed at the beginning of the next end step if it is still the same object.
+  "Blitz costs you pay cost {1} less for each time you've cast your commander from the
+  command zone" takes off generic mana only (601.2f), counting casts of either partner.
+  "Each creature spell you cast with mana value 4 or greater has blitz" counts the X the
+  caster announces (202.3e): blitz and X are chosen together (601.2b), so a creature with
+  {X} in its cost has blitz only with an X that brings its mana value to 4
+  (`AlternativeCost.minX`; the X panel starts there and won't go below).
+- **Affinity (702.41):** "Affinity for creatures/artifacts" is a cost reduction of {1} for
+  each such permanent you control (601.2f), and "Instant and sorcery spells you cast have
+  affinity for creatures" (Witherbloom, the Balancer) gives it to those spells; several
+  instances each apply (702.41b).
+- **Reductions of coloured mana (118.7b-f):** Morophon's "Spells of the chosen type you
+  cast cost {W}{U}{B}{R}{G} less to cast. This effect reduces only the amount of colored
+  mana you pay": one symbol of each colour is taken off, a Phyrexian symbol by its colour
+  (118.7f), a hybrid symbol by one of its halves (118.7e), chosen so as many symbols as
+  possible are paid for, and the generic part is left alone. A reduction without that
+  sentence would take the excess off generic mana (118.7c).
+- **Paying life for a colour's mana:** K'rrik, Son of Yawgmoth's "For each {B} in a cost,
+  you may pay 2 life rather than pay that mana" makes every {B} in a cost you pay (a
+  spell's, an ability's, an attack tax) payable like {B/P}: a hybrid or Phyrexian symbol
+  with a black half gets the choice too, and the payer chooses mana or life for each symbol
+  as for Phyrexian mana (above).
 
 ### Mana
 
@@ -527,6 +561,28 @@ are from the Comprehensive Rules in `docs/rules/`.
 - **Paradigm (702.192):** the spell is exiled; after the first one of that name you
   resolve, a copy of it is made in exile at each of your precombat main phases, and you
   may cast it free. A copy you don't cast ceases to exist.
+- **Cascade (702.85):** when you cast a spell with cascade, once for each instance it has
+  ("Cascade, cascade", or a second The First Sliver's "Sliver spells you cast have
+  cascade", 702.85c), cards are exiled face up from the top of your library until a
+  nonland card with lesser mana value, which you may cast without paying its mana cost if
+  the resulting spell's mana value is less (a split card's half counts on its own); then
+  every exiled card that wasn't cast goes on the bottom in a random order. The spell's
+  mana value is as cast, X counted (202.3e). Zhulodok, Void Gorger gives colorless spells
+  with mana value 7 or more cast from your hand two instances, which resolve one after the
+  other, the first's spell on the stack above the second trigger.
+- **Abilities that function from the command zone (113.6b, eminence):** Edgar Markov's
+  "Whenever you cast another Vampire spell, if Edgar is in the command zone or on the
+  battlefield" (an intervening "if", 603.4: a commander that changed zones meanwhile is a
+  new object and makes nothing), The Ur-Dragon's "other Dragon spells you cast cost {1}
+  less" and Oloro's "At the beginning of your upkeep, if Oloro is in the command zone".
+  A script lists the hooks that work from there in `fromCommandZone`.
+- **Ninjutsu and commander ninjutsu (702.49):** an activated ability of a card in your
+  hand, or your command zone too for commander ninjutsu (Yuriko, the Tiger's Shadow). Its
+  cost returns an unblocked attacking creature you control to its owner's hand, so it can
+  be activated only once blockers are declared (509.1h) and until combat ends; the card is
+  put onto the battlefield tapped and attacking what that creature was attacking (702.49c),
+  unblocked (508.4d), and it never "attacked" (508.4). Activating it from the command zone
+  isn't casting: no commander tax is paid or added (903.8).
 
 ### Combat
 
@@ -824,8 +880,9 @@ are from the Comprehensive Rules in `docs/rules/`.
   flash, storm,
   cumulative upkeep, mobilize, ward, dash, bargain, gift, afterlife, delve, rebound, decayed,
   aftermath, paradigm, extort (702.101), job select (702.182), convoke, escape,
-  overload, evoke, warp, spree, persist, reconfigure, discover (701.57), and protection from
-  a colour or from everything.
+  overload, evoke, warp, spree, persist, reconfigure, discover (701.57), cascade (702.85),
+  affinity (702.41), ninjutsu and commander ninjutsu (702.49), blitz given by a permanent
+  (702.152), and protection from a colour or from everything.
 - **"If this is the second time this ability has resolved this turn"** (Ms. Bumbleflower,
   Omnath, Locus of Creation, Sephiroth): the engine counts each ability's resolutions this
   turn, one ability of one object (400.7: a permanent that left and came back has a new count),
@@ -972,8 +1029,6 @@ These are deliberate cuts for a prototype. The biggest ones come first.
 ### Mana and paying
 
 - **Snow mana** {S} isn't supported.
-- **Phyrexian mana** is always paid with mana when the mana is there; you can't choose to
-  pay life instead. Tapping lands by hand first lets you steer it.
 - **Taking mana back:** any mana ability (605.1a) used by hand can be taken back by
   clicking its source again (or the creature tapped for it, Relic of Legends; Ctrl+Z names
   a source that left, a Treasure). This is a convenience, not a rule: mana abilities can't
@@ -1064,7 +1119,9 @@ card, naming the clause: it never guesses. Hand scripts always win.
   again with "each" for "target" (702.96b); additional costs of a discard, life or a
   sacrifice (118.8); alternative costs of life, a card exiled from the hand or a sacrifice,
   with a condition (118.9); "this spell costs {1} less for each ..." or "{X} less, where X
-  is ..." (601.2f); "can't be countered".
+  is ..." (601.2f); "Affinity for [permanents]" (702.41a) and "[kind] spells you cast have
+  affinity for [permanents]"; cascade from the keyword line and "[kind] spells you cast
+  have cascade." (702.85); "can't be countered".
 - **Effects:** draw, discard (each player chooses, in APNAP order, 101.4), gain or lose life
   (a number, "that much", "equal to its power", "for each ..."), mill, scry (701.22) and surveil
   (701.25), "look at the top N, put K into your hand and the rest on the bottom", put them back

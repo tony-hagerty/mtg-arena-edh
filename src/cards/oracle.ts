@@ -173,12 +173,14 @@ const BARE_KEYWORDS = [
   // changeling (702.73) and devoid (702.114) by the layer system, convoke (702.51) and storm
   // (702.40) as the spell is cast, from the card's keywords.
   'fear', 'shadow', 'plainswalk', 'islandwalk', 'swampwalk', 'mountainwalk', 'forestwalk', 'changeling', 'devoid', 'convoke', 'storm',
+  // Cascade (702.85) as the spell is cast, from the card's keywords ("Cascade, cascade" is two instances).
+  'cascade',
   // Exalted (702.83) triggers, and riot (702.136) replaces how it enters, from the keyword, printed or given.
   'exalted', 'riot',
 ];
 
 /** Keywords an effect may give a creature: the ones `StaticBonus.keywords` carries and the engine checks. */
-const GRANTABLE = [...BARE_KEYWORDS.filter((k) => !['partner', 'flash', 'changeling', 'devoid', 'convoke', 'storm'].includes(k)), 'shroud'];
+const GRANTABLE = [...BARE_KEYWORDS.filter((k) => !['partner', 'flash', 'changeling', 'devoid', 'convoke', 'storm', 'cascade'].includes(k)), 'shroud'];
 
 /** "Flying", "haste and shroud", "protection from black", "can't be blocked": keywords and restrictions to give. */
 function keywordList(text: string): string[] | null {
@@ -2773,6 +2775,30 @@ function cardLine(text: string, original: string, d: CardData, script: CardScrip
     script.alternativeCosts = [...(script.alternativeCosts ?? []), alt];
     return true;
   }
+  // Affinity for [text] (702.41a): "This spell costs {1} less to cast for each [text] you control." Each instance applies (702.41b).
+  if ((m = /^affinity for (.+)$/.exec(text))) {
+    const n = counted(`${m[1]} you control`, null);
+    if (!n) return refuse(original, `"affinity for ${m[1]}"`);
+    const before = script.costReduction;
+    script.costReduction = (g, self) => (before?.(g, self) ?? 0) + n(g, { self, you: self.controller, targets: [] }, blankMemo());
+    return true;
+  }
+  // "Sliver spells you cast have cascade." (702.85c): one more instance of cascade for each such permanent.
+  if ((m = /^(?:(.+?) )?spells you cast have cascade\.$/.exec(text))) {
+    const kind = spellKind(m[1] ?? '');
+    if (!kind) return refuse(original, `no template for "${m[1]} spells"`);
+    script.grantsCascade = (g, self, spell, caster) => (caster === self.controller && kind(g, spell) ? 1 : 0);
+    return true;
+  }
+  // "Instant and sorcery spells you cast have affinity for creatures." (702.41a): a cost reduction of {1} for each (601.2f).
+  if ((m = /^(?:(.+?) )?spells you cast have affinity for (.+)\.$/.exec(text))) {
+    const kind = spellKind(m[1] ?? '');
+    if (!kind) return refuse(original, `no template for "${m[1]} spells"`);
+    const n = counted(`${m[2]} you control`, null);
+    if (!n) return refuse(original, `"affinity for ${m[2]}"`);
+    script.costModifier = (g, self, spell, caster) => (caster === self.controller && kind(g, spell) ? -n(g, { self, you: self.controller, targets: [] }, blankMemo()) : 0);
+    return true;
+  }
   // Cycling [cost] (702.29a), or basic land typecycling (702.29e), activated from the hand.
   if ((m = /^(plains|island|swamp|mountain|forest)?cycling ((?:\{[0-9wubrgc]\})+)$/.exec(text))) {
     const mana = m[2].toUpperCase();
@@ -3354,7 +3380,7 @@ function lines(d: CardData): { text: string; original: string }[] {
 const isKeywordLine = (line: string) => line.split(',').every((part) => BARE_KEYWORDS.includes(part.trim()));
 
 /** Keywords that change how a spell is cast or where it goes, which the engine applies from the card's keywords. */
-const CAST_KEYWORDS = ['delve', 'rebound', 'paradigm'];
+const CAST_KEYWORDS = ['delve', 'rebound', 'paradigm', 'cascade'];
 
 /** "Activate only as a sorcery", "Activate only during your turn", "Activate only if ...": an activated ability's restrictions (602.5). */
 function restrictions(body: string, line: string): { body: string; sorcery: boolean; when?: ActivatedAbility['when'] } {
