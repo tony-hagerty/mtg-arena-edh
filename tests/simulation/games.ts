@@ -7,7 +7,12 @@ import { describe, expect, it } from 'vitest';
 import { ALL_DECKS, DECKS } from '../../src/cards/db';
 import type { DeckDef } from '../../src/cards/db';
 import { twoCommanderDeck } from '../helpers';
+import { scriptCards } from '../../src/cards/oracle';
 import { playOut } from './play';
+
+/** The mana group's cards (src/cards/edhrec/mana.ts): those the parser reads, and those with hand scripts. */
+const MANA_PARSED = ['Ignoble Hierarch', 'Noble Hierarch', 'Faeburrow Elder', 'Leyline of the Guildpact', 'Rhythm of the Wild'];
+const MANA_HAND = ['Vivi Ornitier', 'Kinnan, Bonder Prodigy', 'Baylen, the Haymaker', 'Helga, Skittish Seer', 'Zaxara, the Exemplary', 'Esika, God of the Tree // The Prismatic Bridge', 'Urza, Lord High Artificer', 'Sisay, Weatherlight Captain', 'Mana Drain'];
 
 interface Group {
   seeds: number[];
@@ -117,6 +122,24 @@ export const GAMES: Record<string, GameSet> = {
       },
     ],
   },
+  'edhrec-mana': {
+    title: "decks with EDHREC's mana cards: exalted, riot, triggered mana abilities, tap-N costs",
+    groups: [
+      {
+        // Seeds where they come up: 63 exalted and Baylen, 65 Urza and the Leyline, 71 Zaxara, Esika and Sisay.
+        seeds: [63, 65, 71],
+        name: toFinish,
+        decks: () => {
+          // The parser scripts its cards as it does a pasted deck's.
+          scriptCards(MANA_PARSED);
+          const mana = twoCommanderDeck();
+          mana.cards.push(...MANA_PARSED, ...MANA_HAND);
+          mana.basics = { Plains: 7, Mountain: 6, Forest: 4, Island: 4 };
+          return [mana, DECKS[1], { ...mana, id: 'mana2' }, DECKS[3]];
+        },
+      },
+    ],
+  },
   'two-commanders': {
     title: 'a 100-card two-commander deck',
     groups: [{ seeds: [7, 8, 9], name: (seed) => `seed ${seed}: bots play it to a finish against the starter decks`, decks: () => [twoCommanderDeck(), DECKS[1], DECKS[3], DECKS[0]] }],
@@ -143,6 +166,32 @@ export const GAMES: Record<string, GameSet> = {
     groups: [
       { seeds: [71, 72, 73], name: (seed) => `seed ${seed}: bots play it to a finish`, decks: () => [deck('kuja'), deck('yshtola'), deck('ketramose'), DECKS[2]] },
       { seeds: [74, 75], name: (seed) => `seed ${seed}: two copies of it play to a finish`, decks: () => [deck('kuja'), DECKS[3], { ...deck('kuja'), id: 'kuja2' }, deck('yshtola')] },
+    ],
+  },
+  'counters-proliferate': {
+    title: 'decks with proliferate, blight, rad and experience counters, decayed and moving counters',
+    groups: [
+      {
+        // Seeds where they come up: 103 proliferates and blights, 106 proliferates with rad counters out, 107 mills to radiation.
+        seeds: [103, 106, 107],
+        name: toFinish,
+        decks: () => {
+          // EDHREC's counters cards (tests/fixtures.ts) in two cut-down starter decks with the basics to cast them, so they come up often.
+          const green = {
+            ...DECKS[3],
+            id: 'counters-green',
+            cards: [...DECKS[3].cards.slice(36), "Atraxa, Praetors' Voice", "Tidus, Yuna's Guardian", 'High Perfect Morcant', 'Meren of Clan Nel Toth', 'The Wise Mothman', "Betor, Ancestor's Voice"],
+            basics: { Forest: 7, Plains: 5, Swamp: 5, Island: 5 },
+          };
+          const white = {
+            ...DECKS[0],
+            id: 'counters-white',
+            cards: [...DECKS[0].cards.slice(36), 'Kilo, Apogee Mind', 'Auntie Ool, Cursewretch', 'Hope Estheim', 'Giada, Font of Hope', 'Wilhelt, the Rotcleaver'],
+            basics: { Plains: 6, Swamp: 6, Island: 4, Mountain: 3, Forest: 3 },
+          };
+          return [green, DECKS[1], white, DECKS[2]];
+        },
+      },
     ],
   },
   hashaton: {

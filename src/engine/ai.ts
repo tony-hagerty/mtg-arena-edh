@@ -4,6 +4,7 @@
 // on what other players do next.
 import {
   abilityHasX,
+  sacrificesFor,
   canPlot,
   activatable,
   autoAssignments,
@@ -17,6 +18,7 @@ import {
   escapeOptions,
   activationSacrificeOptions,
   activationExileOptions,
+  activatedModeOptions,
   canMulligan,
   canSayYes,
   canPlayLand,
@@ -31,9 +33,11 @@ import {
   modeChoices,
   sacrificeOptions,
   delveOptions,
+  tapCostOptions,
 } from './engine';
 import {
   activatedAt,
+  counterKinds,
   flashbackCost,
   preferredColor,
   CANT_ATTACK,
@@ -73,12 +77,13 @@ import {
   opponentsOf,
   itemScript,
   attackCost,
+  attackForbidden,
   canPayAttacks,
   isFree,
   escapes,
   changeOptions,
   triggerModeOptions,
-  triggerOf,
+  triggerModesOf,
   playPermissions,
   ownRightToCast,
 } from './rules';
@@ -219,8 +224,10 @@ function targetChoices(g: Game, pid: PlayerId, specs: TargetSpec[], source: Card
     // "Any number of" targets (115.1d): none, each one alone, or all of them.
     if (spec.any) {
       const legal = shortlist(g, pid, legalTargets(g, pid, spec, source, x), 4);
-      const all = legalTargets(g, pid, spec, source, x);
-      const sets = [[], ...legal.map((t) => [t]), ...(all.length > 1 ? [all] : [])];
+      // "Up to X target ...": the X most promising at most (`most`).
+      const most = spec.most ? spec.most(g, source) : Infinity;
+      const all = most < Infinity ? shortlist(g, pid, legalTargets(g, pid, spec, source, x), most) : legalTargets(g, pid, spec, source, x);
+      const sets = [[], ...(most >= 1 ? legal.map((t) => [t]) : []), ...(all.length > 1 ? [all] : [])];
       combos = combos.flatMap((c) => sets.map((set) => [...c, ...set])).slice(0, 40);
       continue;
     }
@@ -235,6 +242,28 @@ function targetChoices(g: Game, pid: PlayerId, specs: TargetSpec[], source: Card
     combos = combos.flatMap((c) => legal.filter((t) => fits(c, t)).map((t) => [...c, t])).slice(0, 40);
   }
   return combos;
+}
+
+/**
+ * Counter kinds that are bad for whoever has them: more of them helps only against an
+ * opponent. Every other kind is taken to be good for its permanent's controller or its player.
+ */
+const HARMFUL_COUNTERS = ['-1/-1', 'stun', 'poison', 'rad', 'defense', 'time', 'finality'];
+const counterGain = (kinds: string[], mine: boolean) => kinds.reduce((n, k) => n + (HARMFUL_COUNTERS.includes(k) === mine ? -1 : 1), 0);
+
+/** What a bot chooses as it proliferates (701.34a): each permanent and player that comes out better for it. */
+function proliferateChoice(g: Game, pid: PlayerId, cards: Card[], players: PlayerId[]): Action {
+  return {
+    type: 'chooseCards',
+    cards: cards.filter((c) => counterGain(counterKinds(c.counters), c.controller === pid) > 0).map((c) => c.id),
+    players: players.filter((x) => counterGain(counterKinds(g.players[x].counters), x === pid) > 0),
+  };
+}
+
+/** What a creature loses as it gets `n` -1/-1 counters (701.68a): all it is worth if that kills it. */
+function blightLoss(g: Game, c: Card, n: number): number {
+  const s = stats(g, c);
+  return s.toughness <= n && !s.keywords.has('indestructible') ? worth(g, c) + 1 : (worth(g, c) * n) / Math.max(1, s.toughness + 1);
 }
 
 /** What a permanent is worth to sacrifice: less is a better sacrifice. */
@@ -434,34 +463,78 @@ function activations(g: Game, pid: PlayerId, c: Card, ref: AbilityRef): Action[]
   // One of its activated abilities, a loyalty ability, or a Class level bar (which has no targets).
   const ab = ability === undefined ? activatedAt(g, c, activated) : undefined;
   const specs = (ab ? ab.targets : abilitiesOf(g, c).loyalty?.[ability!].targets) ?? [];
-  const crew = ab?.cost.crew ? crewChoice(g, pid, c, activated) : undefined;
+  // "Tap three untapped Elves / tokens you control": not mana sources if it can help (Baylen's
+  // Treasures), then the ones that have done their work this turn, then the weakest.
+  const tapping = ab?.cost.tapUntapped;
+  const makesMana = (x: Card) => Number(manaAbilitiesOf(g, x).length > 0);
+  const tapped = tapping
+    ? [...tapCostOptions(g, pid, c, activated)]
+        .sort(
+          (a, b) =>
+            makesMana(a) - makesMana(b) ||
+            Number(!!g.players[pid].attackedWith?.includes(b.id)) - Number(!!g.players[pid].attackedWith?.includes(a.id)) ||
+            Number(b.sick) - Number(a.sick) ||
+            worth(g, a) - worth(g, b),
+        )
+        .slice(0, tapping.count ?? 1)
+        .map((x) => x.id)
+    : undefined;
+  const crew = ab?.cost.crew ? crewChoice(g, pid, c, activated) : tapped;
   if (crew === null) return [];
   const n = ab?.cost.discard ?? 0;
   const discard = n ? [...discardOptions(g, pid, c, ab?.cost.discardFilter)].sort((a, b) => cardWant(g, pid, a) - cardWant(g, pid, b)).slice(0, n).map((x) => x.id) : undefined;
   // "Sacrifice a creature": the least valuable ones, and not the source itself if there are others.
   const fodder = ab?.cost.sacrificeOne ? [...activationSacrificeOptions(g, pid, c, activated)].sort((a, b) => Number(a.id === c.id) - Number(b.id === c.id) || sacrificeWorth(g, a) - sacrificeWorth(g, b)) : [];
-  const victims = fodder.slice(0, ab?.cost.sacrificeCount ?? 1);
+  // "Sacrifice X Squirrels" takes as many as X (107.3a), chosen with each X below.
+  const victimsFor = (x: number | undefined) => fodder.slice(0, ab ? sacrificesFor(ab, x ?? 0) : 0);
   // "Exile a creature you control": the least valuable one, not the source if there is another.
   const exilable = ab?.cost.exileOne ? [...activationExileOptions(g, pid, c, activated)].sort((a, b) => sacrificeWorth(g, a) - sacrificeWorth(g, b)) : [];
   const exiled = exilable.find((x) => x.id !== c.id) ?? exilable[0];
   // "Exile two cards from your graveyard": the ones the bot wants least.
   const k = ab?.cost.exileGraveyard ?? 0;
   const graveyard = k ? [...g.players[pid].graveyard].sort((a, b) => cardWant(g, pid, a) - cardWant(g, pid, b)).slice(0, k).map((x) => x.id) : undefined;
-  return xChoices(g, pid, c, ref, specs).flatMap((x) =>
-    targetChoices(g, pid, specs, c, x).map((targets): Action => ({
-      type: 'activate',
-      card: c.id,
-      ability,
-      ...(activated ? { activated } : {}),
-      ...(x !== undefined ? { x } : {}),
-      targets,
-      crew,
-      ...(discard ? { discard } : {}),
-      ...(victims.length ? { sacrifice: victims.map((x) => x.id) } : {}),
-      ...(exiled ? { exile: [exiled.id] } : {}),
-      ...(graveyard ? { graveyard } : {}),
-    })),
-  );
+  // A modal ability (700.2a): the card's preferred modes, else every legal choice of modes.
+  const modeSets: (number[] | undefined)[] = ab?.modes ? abilityModeSets(g, pid, c, activated) : [undefined];
+  return modeSets.flatMap((modes) => {
+    const modeSpecs = modes ? modes.flatMap((i) => ab!.modes!.modes[i].targets ?? []) : specs;
+    return xChoices(g, pid, c, ref, modeSpecs).flatMap((x) =>
+      targetChoices(g, pid, modeSpecs, c, x).map((targets): Action => ({
+        type: 'activate',
+        card: c.id,
+        ability,
+        ...(activated ? { activated } : {}),
+        ...(x !== undefined ? { x } : {}),
+        targets,
+        crew,
+        ...(discard ? { discard } : {}),
+        ...(victimsFor(x).length ? { sacrifice: victimsFor(x).map((v) => v.id) } : {}),
+        ...(exiled ? { exile: [exiled.id] } : {}),
+        ...(graveyard ? { graveyard } : {}),
+        ...(modes ? { modes } : {}),
+      })),
+    );
+  });
+}
+
+/**
+ * The sets of modes a bot tries for `c`'s modal activated ability (700.2a): the ones its
+ * card prefers (`modes.bot`) if they can be chosen, else every legal set of `min` to `max`
+ * modes, in printed order; the look-ahead keeps the best.
+ */
+function abilityModeSets(g: Game, pid: PlayerId, c: Card, activated = 0): number[][] {
+  const modal = activatedAt(g, c, activated)?.modes;
+  const legal = activatedModeOptions(g, pid, c, activated);
+  if (!modal || legal.length < modal.min) return [];
+  const wanted = (modal.bot?.(g, pid, c) ?? []).filter((i) => legal.includes(i)).slice(0, modal.max);
+  if (wanted.length >= modal.min) return [[...wanted].sort((a, b) => a - b)];
+  const sets: number[][] = [];
+  const pick = (from: number, chosen: number[]) => {
+    if (chosen.length >= modal.min) sets.push(chosen);
+    if (chosen.length === modal.max) return;
+    for (let i = from; i < legal.length; i++) pick(i + 1, [...chosen, legal[i]]);
+  };
+  pick(0, []);
+  return sets;
 }
 
 // Look-ahead turns auto-pass off, so that passing only ever resolves the stack or ends one
@@ -477,8 +550,7 @@ const STEP_BY_STEP = { autoPass: false, simulate: true } as const;
 function modesFor(g: Game, item: StackItem): Action {
   const modal = triggerModeOptions(g, item);
   if (!modal) return PASS;
-  const t = triggerOf(item);
-  const wanted = (t && typeof t !== 'function' && t.modes?.bot?.(g, item.controller, item.card)) || [];
+  const wanted = triggerModesOf(item)?.bot?.(g, item.controller, item.card) ?? [];
   const modes = wanted.filter((i) => modal.legal.includes(i)).slice(0, modal.max);
   return { type: 'chooseModes', modes: modes.length >= modal.min ? modes : modal.legal.slice(0, modal.min) };
 }
@@ -656,6 +728,8 @@ function planAttacks(g: Game, pid: PlayerId): Map<string, AttackOption> {
     let best: AttackOption | null = null;
     let bestScore = -Infinity;
     for (const { option, blockers, bias } of opps) {
+      // A restriction may keep it from attacking this one (508.1c).
+      if (attackForbidden(g, c, option.defender, option.target)) continue;
       const unblocked = attackWorth(g, pid, c, option);
       if (unblocked <= 0) continue;
       const able = blockers.filter((b) => canBlock(g, b, c));
@@ -684,7 +758,7 @@ function planAttacks(g: Game, pid: PlayerId): Map<string, AttackOption> {
   if (idle.length) {
     const players = opps.filter((o) => o.option.target === null);
     const victim = players.sort((a, b) => b.bias - a.bias).find(({ blockers }) => idle.length >= blockers.length + 2);
-    if (victim) for (const c of idle) plan.set(c.id, victim.option);
+    if (victim) for (const c of idle) if (!attackForbidden(g, c, victim.option.defender, victim.option.target)) plan.set(c.id, victim.option);
   }
   // "No more than one creature can attack [this planeswalker] each combat" (508.1c): only the best ones.
   for (const { option } of opps) {
@@ -993,6 +1067,23 @@ function cardChoice(g: Game, pid: PlayerId): Action {
   if (choice.kind === 'pick' && (choice.then === '@sacrifice' || choice.data?.bot === 'sacrifice')) return { type: 'chooseCards', cards: valued((c) => worth(g, c), min) };
   if (choice.kind === 'pick' && (choice.then === '@discard' || choice.data?.bot === 'discard')) return { type: 'chooseCards', cards: valued((c) => cardWant(g, pid, c), min) };
   if (choice.kind === 'pick' && choice.data?.populate) return { type: 'chooseCards', cards: valued((c) => -worth(g, c), 1) };
+  // "Ward—Sacrifice a Food" (702.21a): pay with its least valuable permanent, if that is a token or cheap; otherwise let it be countered.
+  if (choice.kind === 'pick' && choice.data?.bot === 'wardSacrifice') {
+    const [cheapest] = valued((c) => worth(g, c), 1).map((id) => cards.find((c) => c.id === id)!);
+    return { type: 'chooseCards', cards: cheapest && (cheapest.isToken || worth(g, cheapest) < 2) ? [cheapest.id] : [] };
+  }
+  // The Ring tempts you (701.54a): its most threatening creature carries the Ring. Amass (701.47a): its biggest Army grows.
+  if (choice.kind === 'pick' && (choice.data?.bot === 'ringBearer' || choice.data?.bot === 'amass')) return { type: 'chooseCards', cards: valued((c) => -worth(g, c), 1) };
+  // Proliferate (701.34a): what gains from another counter, its own or an opponent's.
+  if (choice.kind === 'pick' && (choice.then === '@proliferate' || choice.data?.bot === 'proliferate')) return proliferateChoice(g, pid, cards, choice.players ?? []);
+  // Blight (701.68a): the creature that loses least; for a cost, only if one loses little (ward).
+  if (choice.kind === 'pick' && choice.data?.bot === 'blight') {
+    const n = (choice.data.blight as number) ?? 1;
+    const [c] = [...cards].filter((x) => valid.has(x.id)).sort((a, b) => blightLoss(g, a, n) - blightLoss(g, b, n));
+    const survives = !!c && stats(g, c).toughness > n;
+    if (!c || (min === 0 && !survives && blightLoss(g, c, n) > 1.5)) return { type: 'chooseCards', cards: [] };
+    return { type: 'chooseCards', cards: [c.id] };
+  }
   if (choice.kind === 'pick') return { type: 'chooseCards', cards: best(Math.max(min, Math.min(max, 1))) };
   const hand = g.players[pid].hand;
   // The legend rule: keep the first.
@@ -1019,8 +1110,15 @@ function choiceAnswer(g: Game, pid: PlayerId): Action {
   if (scripted) return scripted;
   // A number: none if that is allowed, else the least.
   if (d.type === 'number') return { type: 'chooseNumber', n: d.choice.decline ? null : d.choice.min };
+  // A player to attack with creatures put onto the battlefield attacking (508.4): the one with the least life.
+  if (d.type === 'player' && d.choice.then === '@attackPlayer') return { type: 'choosePlayer', player: [...d.choice.options].sort((a, b) => g.players[a].life - g.players[b].life)[0] };
   // A player: the first one offered.
   if (d.type === 'player') return { type: 'choosePlayer', player: d.choice.options[0] };
+  // A kind of counter: a good one before a harmful one.
+  if (d.type === 'name' && d.choice.of === 'counter') {
+    const options = d.choice.options ?? [];
+    return { type: 'name', name: options.find((k) => !HARMFUL_COUNTERS.includes(k)) ?? options[0] };
+  }
   if (d.type === 'name' && d.choice.of === 'creature type') return { type: 'name', name: 'Human' };
   if (d.type === 'name' && d.choice.of === 'color') return { type: 'name', name: preferredColor(g, pid) };
   // A card type: creatures are what usually attack and block.

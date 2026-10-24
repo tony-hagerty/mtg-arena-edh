@@ -167,7 +167,9 @@ are from the Comprehensive Rules in `docs/rules/`.
   "enters" abilities): each triggers, targets and goes on the stack on its own (603.2),
   and the ordering window and the stack (on hover) say which one it is.
 - **Delayed triggers (603.7), extra turns** (500.7, the newest first), and effects that
-  make a player win (104.2b) or lose (104.3e) the game.
+  make a player win (104.2b) or lose (104.3e) the game. "At the beginning of your next main
+  phase" (Mana Drain) is whichever of your main phases comes first, precombat or
+  postcombat (505.1).
 - **Additional phases (500.8):** Sphinx of the Second Sun's additional beginning phase
   after your postcombat main phase: untap, upkeep and draw steps, then the ending phase.
 - **Additional steps (500.9):** Obeka, Splitter of Seconds's "you get that many additional
@@ -197,6 +199,10 @@ are from the Comprehensive Rules in `docs/rules/`.
 - **Modal triggered abilities (603.3c):** "choose one or more —" is chosen as the ability
   goes on the stack, with the targets of the chosen modes (Black Market Connections). One
   with too few modes that can be chosen is removed from the stack.
+- **Modal activated abilities (700.2a):** "{2}, Sacrifice two artifacts: Choose one —"
+  (Breya, Etherium Shaper): the modes are chosen as the ability is activated, before its X
+  and targets (601.2b-c via 602.2b), in the prompt's band; each mode has its own targets, and
+  a mode with no legal target can't be chosen. Bots try each legal choice of modes.
 - **Choosing a number** partway through resolving: Electro's "you may pay {X}" and Mages'
   Contest's bidding, where you start at 1 and the two bidders top each other until the
   high bid stands.
@@ -310,13 +316,39 @@ are from the Comprehensive Rules in `docs/rules/`.
   creature that just arrived can pay it (302.6). Auto-pay and bots use it like any other
   source, tapping such a creature only after lands and mana rocks.
 - **Special mana:** restricted mana that makes a spell uncounterable (106.6, Cavern of
-  Souls), mana kept until end of turn (Birgi), mana abilities a land gains until end of
+  Souls, Delighted Halfling's legendary spells), if it pays any part of the cost; a copy of
+  that spell can be countered (707.10), mana kept until end of turn (Birgi), mana abilities a land gains until end of
   turn (Rain of Filth), and Lion's Eye Diamond (discard your hand, only with priority).
 - **More mana:** mana that can be spent only on instants and sorceries (106.6, Tablet of
   Discovery), unspent red mana kept between steps and turns (500.5, Electro), "activate
   only if this land entered this turn or if you control a basic land" (Dark Fortress),
   and "{T}, Sacrifice a creature: Add {B}{B}" (Phyrexian Tower: click the Tower, then pick
   the creature).
+- **Costs that tap other permanents (302.6):** "Tap an untapped artifact you control: Add
+  {U}" (Urza) and "Tap two untapped tokens you control: Add one mana of any color" (Baylen),
+  and activated abilities that cost "Tap three untapped tokens you control". Neither the
+  source nor the permanents tapped use their own {T}, so ones that just arrived can be
+  tapped. By hand, pick them in the mana picker or as the ability is activated; auto-pay and
+  bots tap the ones that cost least (tokens and permanents with no mana or {T} ability first).
+- **Mana abilities that work out what they make as they resolve (605.3b):** "Add X mana of
+  any one color, where X is Helga's power", "Add X mana in any combination of {U} and/or {R}"
+  (Vivi Ornitier: by hand, pick the combination), "For each color among permanents you
+  control, add one mana of that color" (Faeburrow Elder, Bloom Tender; 105.2: colourless
+  isn't a colour), and "Activate only once each turn" (602.5b, for as long as it is the same
+  object, 400.7). One that would make no mana now (X is 0) is still a mana ability (605.1a):
+  it can be activated by hand for nothing, using up its turn; auto-pay leaves it alone.
+- **Mana spent only on some creature spells (106.6):** "creature spells with mana value 4 or
+  greater or creature spells with {X} in their mana costs" (Helga).
+- **Triggered mana abilities (605.1b, 605.4a):** "Whenever you tap a nonland permanent for
+  mana, add one mana of any type that permanent produced" (Kinnan), "Whenever you tap a Swamp
+  for mana, add an additional {B}" (Crypt Ghast), "Whenever enchanted land is tapped for mana,
+  its controller adds an additional {G}" (Wild Growth). Tapping for mana is a mana ability
+  with {T} in its cost (106.12), so Urza's and Vivi's abilities don't set them off, and they
+  trigger only once it produced mana (106.12a). They resolve at once, by hand and when
+  auto-pay taps the permanent (the extra mana stays in the pool), and doubling effects like
+  Roaming Throne's apply (603.2d). When one offers a choice (Kinnan after a permanent that
+  made two types), the mana picker asks it after the mana; bots and auto-pay take the type
+  their cards want most. Taking the mana back takes the extra mana too.
 
 ### Permanents
 
@@ -394,7 +426,8 @@ are from the Comprehensive Rules in `docs/rules/`.
 - **Continuous effects in layers (613):** every permanent's types, abilities, power and
   toughness are worked out by `characteristics` (src/engine/layers.ts) from its copiable
   values, applying each effect in its layer: types (4), colours (5: "becomes black"
-  replaces its other colours, 105.3), abilities (6), then power and
+  replaces its other colours, 105.3, and Leyline of the Guildpact's "Each nonland permanent
+  you control is all colors"), abilities (6), then power and
   toughness: characteristic-defining abilities (7a), "base power and toughness" (7b),
   +N/+N and counters (7c), switching (7d). Within a layer, effects apply in timestamp
   order (613.7), and an ability that changes something in several layers does so in all
@@ -488,7 +521,9 @@ are from the Comprehensive Rules in `docs/rules/`.
   "exile five other cards"); you pick the cards to exile while paying.
 - **"You may cast / play that card this turn"** from any exile (Ragavan, Jeska's Will,
   Harnfel, Mnemonic Betrayal, whose spells take mana of any type). A land played this way
-  is the turn's land (305.2a).
+  is the turn's land (305.2a). "Until end of turn, you may play that card without paying its
+  mana cost" (Urza): a spell cast this way pays nothing, an alternative cost, so no other
+  alternative cost can go with it and X is 0 (118.9a, 107.3b).
 - **Casting while a spell resolves**, without paying its mana cost (608.2g, Beseech the
   Mirror), or paying it from a graveyard (Emet-Selch, which also exiles the spell instead
   of putting it into a graveyard).
@@ -570,7 +605,8 @@ are from the Comprehensive Rules in `docs/rules/`.
   mana, to attack, for a cost or by an effect.
 - **Protection from a colour (702.16):** it can't be targeted, blocked by, enchanted or
   equipped by, or dealt damage by anything of that colour. The colour is chosen as the
-  spell or ability resolves (Mother of Runes, Sejiri Shelter).
+  spell or ability resolves (Mother of Runes, Sejiri Shelter), or printed: "Protection from
+  white and from black" is two protection abilities (702.16g, Animar).
 - **Damage and life:** damage prevention (615, Solitary Confinement's "Prevent all damage
   that would be dealt to you"), shroud on a player (702.18a), each player's life lost
   this turn ("if a player lost 4 or more life this turn"), "whenever a source deals
@@ -580,10 +616,59 @@ are from the Comprehensive Rules in `docs/rules/`.
 - **Trigger doubling (603.2d):** Roaming Throne's "triggers an additional time", even for
   a creature that died alongside it (603.10a). Elesh Norn, Mother of Machines does it for
   abilities of your permanents that a permanent entering causes to trigger, and stops
-  such abilities of your opponents' permanents from triggering at all.
+  such abilities of your opponents' permanents from triggering at all. Annie Joins Up
+  does it for a legendary creature's own abilities, Isshin, Two Heavens as One for
+  abilities a creature attacking causes to trigger ("whenever this attacks", mobilize,
+  "whenever a creature attacks", "whenever you attack", exalted; a creature becoming tapped
+  as it attacks is another event), and Teysa Karlov for abilities a creature dying causes to
+  trigger ("when this dies", "whenever a creature dies", a creature leaving the
+  battlefield for a graveyard, and a creature card, an artifact creature's included, put
+  into a graveyard from the battlefield, 700.4, the creature as it last was, so a land made
+  a creature counts; "whenever you sacrifice a permanent" triggers on the sacrifice, not
+  the dying, so it doesn't double, as Teysa's rulings say). A creature dying together with
+  Teysa still counts, and each further Teysa adds one more. Delayed and reflexive triggered
+  abilities are never doubled (603.2d).
 - **Protection for a player (702.16):** Serra's Emissary's "You ... have protection from
   the chosen card type": damage from such sources is prevented and spells and abilities
   from them can't target you.
+- **Ward with other costs (702.21a):** "Ward—Pay 2 life", ward {N} alone or among other
+  keywords ("Flying, ward {2}"), and "Ward—Sacrifice a Food" or "Ward—Sacrifice a legendary
+  artifact or legendary creature": the targeting player picks one of their permanents that
+  fits to sacrifice, or none (Don't Pay), and the spell or ability is countered unless they
+  sacrificed one. With nothing that fits, it is countered without asking (118.3).
+- **Amass (701.47):** with no Army, a 0/0 black [subtype] Army token is made; the player
+  chooses among their Armies if they have several; it gets the counters, and becomes the
+  subtype in addition to its others if it isn't one (Sauron, Orcish Bowmasters).
+- **The Ring tempts you (701.54):** the player gets the emblem The Ring the first time (one of
+  their emblems, 114, shown on the portrait), then chooses one of their creatures as Ring-bearer (asked only with two or more), even with none
+  it counts as being tempted, and "whenever the Ring tempts you" triggers (701.54d). The
+  Ring-bearer is legendary (layer 4, the emblem's timestamp) and can't be blocked by creatures
+  with greater power; tempted two or more times, it loots as it attacks; three, a creature
+  blocking it is sacrificed by its controller at end of combat (511.2); four, its combat
+  damage to a player makes each opponent lose 3 life. The designation ends when another
+  creature is chosen or another player gains control of it, even if control comes back
+  (701.54a). "If [this] is your Ring-bearer" and "the Ring has tempted you N or more times
+  this game" are conditions (Frodo). The table marks the Ring-bearer with a gold ring.
+- **Partner with (702.124j):** besides the deck rule, "When this permanent enters, target
+  player may search their library for a card named [name], reveal it, put it into their
+  hand, then shuffle" (Frodo and Sam): the target player chooses whether to search.
+- **Types and an ability from a static ability:** "Other creatures are Food artifacts in
+  addition to their other types and have '{2}, {T}, Sacrifice this permanent: You gain 3
+  life'" (Ygra), "Artifacts you control are Foods ..." (Ragost): card types and subtypes in
+  layer 4 (205.1b, an object keeps only subtypes that go with its types, 205.3d), the
+  activated ability in layer 6, to the same objects (613.6). "This permanent" in it is the
+  permanent that has it.
+- **Activated abilities that cost less (602.2b, 601.2f):** "Activated abilities of Foods you
+  control cost {1} less to activate" (Sam) takes generic mana off every activated ability of
+  those permanents, mana abilities with mana in their cost included, never below {0}.
+- **"Whenever an opponent loses life for the first time during each of their turns"**
+  (Valgavoth): only the first life they lose in their own turn; several losses at once
+  (combat damage from two creatures) are one first time.
+- **Token copies that aren't legendary (707.9b):** "create a token that's a copy of it,
+  except the token isn't legendary" (Miirym), from its copiable values as it last was if it
+  has left (608.2h).
+- **Flavor words (207.2d)** like Ghyrson Starn's "Three Autostubs —" are labels with no rules
+  meaning.
 - **Suspend (702.62):** a card that gains suspend (Delay's countered spell) loses a time
   counter in each of its owner's upkeeps; when the last is removed, its owner may cast it
   without paying its mana cost, and a creature spell cast this way has haste.
@@ -624,7 +709,9 @@ are from the Comprehensive Rules in `docs/rules/`.
 - **"When enchanted permanent dies or is put into exile, return that card"** (Kaya's
   Ghostform): it looks back in time, so it works when the Aura goes at the same time.
 - **"Do this only once each turn" (603.2h):** the ability doesn't trigger again that turn
-  once its controller has done it (G'raha Tia, Emet-Selch).
+  once its controller has done it (G'raha Tia, Emet-Selch). Declining a "you may" isn't
+  doing it, and one that triggered alongside does nothing once the action is taken (Tidus's
+  Cheer: "you may draw a card and proliferate").
 - **Extra land plays (305.2):** "You may play an additional land on each of your turns"
   (Flubs, the Fool; Exploration; Azusa's two), and "you may play an additional land this turn"
   (Explore). A land played from a graveyard, exile or the top of the library counts as one
@@ -647,6 +734,53 @@ are from the Comprehensive Rules in `docs/rules/`.
   (Flameshape, whose cards are exiled face down but you may look at them). "As many times
   as you choose, exile the top card" (Dance with Calamity), and "exile cards until a
   nonland card" (Tibalt's Trickery, Ensnared by the Mara).
+- **Counters on players (122.1):** a player can have counters of any kind: poison (ten or
+  more lose the game, 704.5c), experience (Meren of Clan Nel Toth), rad (728). They show
+  under the player's name. No replacement effect changes counters put on a player.
+- **Proliferate (701.34a):** the player chooses any number of permanents and/or players
+  that have a counter (none included) as it resolves, then each gets one more counter of
+  each kind it has, all at the same time. A bot chooses its own permanents and itself where
+  the counters help it (anything but -1/-1, stun, defense, time, finality, poison, rad), and
+  its opponents' where they hurt.
+- **Blight N (701.68a):** the player puts N -1/-1 counters on a creature they control, of
+  their choice; with none they can't, and nothing happens (701.68b). "Each opponent blights
+  1" is chosen in turn order from the active player (101.4). **Ward—Blight N** (702.21a) is
+  paid by blighting, or not paid by choosing no creature, which counters the spell or
+  ability; a player with no creature can't pay. Blighting for ward is a cost, so "if an
+  effect would put counters" replacements don't change it. A bot pays only with a creature
+  that survives it, or one worth little.
+- **Rad counters (728.1):** at the beginning of each player's precombat main phase, if they
+  have rad counters, a triggered ability with no source, controlled by them, mills that
+  many cards; for each nonland card milled they lose 1 life and remove a rad counter. The
+  "if" is checked again as it resolves (603.4).
+- **Moving a counter (122.5):** removed from one permanent and put on the other, as any
+  counter is put on (so replacement effects and "whenever counters are put on" see it). If
+  either can't happen, neither does: the same permanent twice, no such counter, or one of
+  them gone. Two instances of "target" ("from target creature ... onto a second target
+  creature") may be the same creature (115.3); then nothing moves. With several kinds on the
+  first, its controller chooses which.
+- **Decayed (702.147a):** the creature can't block, and when it attacks, a delayed
+  triggered ability sacrifices it at end of combat (511.2, 603.7), if its controller still
+  controls the same object then. A decayed keyword counter works too (122.1b).
+- **"One or more" events (603.2c):** "whenever one or more cards are milled" triggers once
+  for each event, however many players milled in it ("each opponent mills X" is one event);
+  "whenever one or more [kind] counters are put on a creature" once for each creature and
+  kind, entering with them included (122.6); "whenever one or more creatures you control
+  deal combat damage to a player" once for each player dealt combat damage in a combat
+  damage step, with every creature that hit them (Kutzil, Malamet Exemplar's "each with
+  power greater than its base power": base power is layer 7a-7b, 613.4a-b, before counters
+  and +N/+N effects).
+- **"Up to X target ..." with X from the event** (The Wise Mothman's "where X is the number
+  of nonland cards milled this way"): at most X targets, chosen as the ability goes on the
+  stack.
+- **"Spend this mana only to cast an Angel spell"** (106.6, Giada): any spell with that
+  subtype, creature or kindred.
+- **"Tap N untapped [permanents] you control" as a cost** (High Perfect Morcant): exactly N
+  untapped ones that fit, chosen as it is activated; the source may be one of them, and
+  summoning sickness doesn't matter (302.6). With {T} in the cost as well ("{T}, Tap ten
+  untapped Elves you control", Lathril, Blade of the Elves) the source isn't one of them.
+- **The amount of life you gained or lost this turn** (Hope Estheim, Betor), counted as
+  the ability resolves.
 - **Populate (701.36):** you choose which creature token to copy, and a token that is
   itself a copy copies what it copies.
 - **Linked abilities** (607, Chrome Mox), cards exiled face down (406.3), and targets in
@@ -667,8 +801,59 @@ are from the Comprehensive Rules in `docs/rules/`.
   Flare of Fortitude, Teferi's Protection), "you gain protection from everything"
   (702.16j), life gained this turn (Haliya), and "if an opponent would begin an extra
   turn, that player skips that turn instead" (614.10, Trouble in Pairs).
+- **Revealing and exiling until (701.20a):** "reveal cards from the top of your library
+  until you reveal a creature card. Put that card onto the battlefield and the rest on the
+  bottom in a random order" (Atla Palani, Tom Bombadil, and the parser's template, with "into
+  your hand" too): everyone sees the cards revealed. "Exile cards from the top until you
+  exile a legendary nonland card with lesser mana value. You may cast that card without
+  paying its mana cost. Put the rest on the bottom" (Jodah): as its rulings say, a card not
+  cast then stays in exile and can't be cast later, and with none found the exiled cards
+  become the library again in a random order. "Reveal that many cards ... put any number of Dinosaur creature cards onto the
+  battlefield" (Gishath), "look at that many ... one into your hand, any number of lands onto
+  the battlefield tapped and the rest into your graveyard" (Choco), and "look at the top N.
+  You may put a Dragon creature card from among them onto the battlefield" (Ureni).
+- **Discover (701.57):** exile from the top until a nonland card with mana value N or less;
+  its owner may cast it without paying its mana cost if the spell's mana value is N or less,
+  or else puts it into their hand; the others go on the bottom in a random order (`discover`,
+  Pantlaza, whose "do this only once each turn" is 603.2h).
+- **Put onto the battlefield attacking (508.4):** the creature is attacking the player (or
+  planeswalker or battle) the effect names, but it never "attacked", so nothing triggers on
+  it attacking (Kaalia's "tapped and attacking that opponent"). When the effect doesn't say
+  what it attacks (mobilize, 702.181a, Zurgo Stormrender and Voice of Victory; Caesar's
+  Soldiers), its controller chooses which defending player, planeswalker or battle, every
+  opponent being a defending player (802.2); with one thing to attack, no question, and bots
+  attack the opponent with the least life. It isn't attacking if it
+  isn't a creature, if its controller isn't the attacking player, or if that player has left
+  the game or that planeswalker or battle is gone (506.3a-c, 506.3f, 508.4a); put there after
+  blockers are declared, it is unblocked (508.4d).
+- **Cards leaving a graveyard (603.10a):** "whenever one or more cards leave your
+  graveyard" (Teval) triggers once for each event, however many cards left in it: returned,
+  exiled, cast (601.2a) or put anywhere else. It looks back in time.
+- **Sagas:** "whenever the final chapter ability of a Saga you control resolves" (Tom
+  Bombadil; the final chapter is the greatest one, 714.2d-e, and one that did nothing for want
+  of targets didn't resolve, 608.2b); lore counters among Sagas you control. "This ability
+  triggers only once each turn" (a trigger's `oncePerTurn`) is a limit: an effect that makes
+  it trigger an additional time (603.2d, Roaming Throne) adds no second instance, since
+  "can't" beats an effect that would make it happen (101.2).
+- **Draws:** "except the first one they draw in each of their draw steps" (504.1; Xyris,
+  Orcish Bowmasters), and "at the beginning of each player's draw step, that player draws an
+  additional card" (Nekusar), after the turn's own draw (504.2).
+- **Where a card came from:** "a card in an opponent's graveyard that was put there from
+  their library this turn" (Captain N'ghathrod).
+- **An ability about a permanent that has left the battlefield** ("where X is that creature's
+  toughness", Pantlaza) uses it as it last was there (608.2h), not as it entered.
 - **Reflexive triggers (603.12):** "When a creature card is exiled this way, ..." (Agatha's
-  Soul Cauldron).
+  Soul Cauldron), and "you may sacrifice another creature. When you do, choose two —"
+  (Caesar, Legion's Emperor): the sacrifice is chosen as the ability resolves, and the
+  reflexive ability's modes as it goes on the stack (603.3c).
+- **Combat damage from toughness (510.1a):** Arcades, the Strategist's creatures with
+  defender and Felothar the Steadfast's creatures assign combat damage equal to their
+  toughness, attacking or blocking, and may attack as though they didn't have defender
+  (702.3b). Both are effects on the creature, not abilities of its own (113.12), so losing
+  all abilities doesn't take them.
+- **"Whenever a creature token you control leaves the battlefield, draw a card if it was
+  attacking"** (Zurgo Stormrender): whether it was attacking is remembered with the event
+  (603.10a).
 - **More triggers:** "whenever an opponent searches their library" (once for each search,
   701.23h, Archivist of Oghma), "whenever two or more creatures attack" (Argent Dais),
   "becomes the target of a spell or ability" (Monk Gyatso), "draws their second card each
@@ -680,11 +865,49 @@ are from the Comprehensive Rules in `docs/rules/`.
 - **Keywords:** flying, reach, first strike, double strike, deathtouch, lifelink,
   trample, vigilance, haste, defender, hexproof, indestructible, menace, fear (702.36),
   flash, storm,
-  cumulative upkeep, mobilize, ward, dash, bargain, gift, afterlife, delve, rebound,
+  cumulative upkeep, mobilize, ward, dash, bargain, gift, afterlife, delve, rebound, decayed,
   aftermath, paradigm, extort (702.101), job select (702.182), convoke, escape,
-  overload, evoke, warp, spree, persist, reconfigure, dredge (702.52), mayhem (702.187),
-  and protection from a colour or from everything. Trance and Goblin Formula are ability
-  words (207.2c), with no rules meaning.
+  overload, evoke, warp, spree, persist, reconfigure, discover (701.57), dredge (702.52),
+  mayhem (702.187), and protection from a colour or from everything. Trance and Goblin
+  Formula are ability words (207.2c), with no rules meaning.
+- **"If this is the second time this ability has resolved this turn"** (Ms. Bumbleflower,
+  Omnath, Locus of Creation, Sephiroth): the engine counts each ability's resolutions this
+  turn, one ability of one object (400.7: a permanent that left and came back has a new count),
+  a copy of the ability counting as the ability (707.10b). An ability that does nothing because
+  its targets have all gone hasn't resolved (608.2b) and isn't counted.
+- **Emblems (114):** "you get an emblem with ..." puts one into its owner's command zone, kept
+  apart from the commanders (it is neither a card nor a permanent, 114.5). Its abilities work
+  there (114.4): they trigger like a permanent's. It leaves the game with its owner (800.4a).
+  The portrait shows a player's emblems; hovering one shows its ability.
+- **"As this creature transforms into [this face], ..." (712.20):** applied while it transforms,
+  not afterward (Sephiroth's Super Nova emblem).
+- **More triggers (tokens group):** "whenever one or more [tokens] you control enter", once for
+  each event that puts permanents onto the battlefield (603.2c; Marneus Calgar), and "whenever a
+  [Dwarf] you control becomes tapped", only when it was untapped (Magda). Tokens of several kinds
+  that one effect creates ("create a Treasure token and a Food token") are created in one event
+  (111.2), as the parser reads them: a replacement effect sees them all (614.1a), and "one or
+  more tokens enter" triggers once.
+- **Attack restrictions on a defender (508.1c):** Eriette's "Each creature that's enchanted by
+  an Aura you control can't attack you or planeswalkers you control": such a creature may still
+  attack another player, or a battle. A creature that must attack can't break it to do so
+  (508.1d). Bots don't try it, and on the screen such a creature doesn't glow while its
+  attackers go after you.
+- **"Sacrifice X [permanents]" (107.3a):** X is announced as the ability is activated, then
+  exactly that many are sacrificed (Chatterfang's "{B}, Sacrifice X Squirrels").
+- **Each player chooses, then it all happens at once (101.4):** Kefka's "each player discards a
+  card" and "each opponent sacrifices a permanent of their choice" ask each player in APNAP order
+  (a player sees what those before chose, 101.4b, but not a card hidden in their hand, 101.4a),
+  then do every discard or sacrifice as one event. "A card for each card type among cards
+  discarded this way" counts the card types (205.2a): an artifact creature counts two.
+- **Exalted (702.83):** each instance on each permanent its controller controls triggers when
+  a creature attacks alone (506.5), printed or given; "that creature" is the attacker, if it
+  is still the same object (400.7).
+- **Riot (702.136):** "You may have this permanent enter with an additional +1/+1 counter on
+  it. If you don't, it gains haste." A replacement effect as it enters (614.1c), so the
+  choice is asked as the replacement question; each instance is chosen on its own
+  (702.136b), whether printed or given as it enters (Rhythm of the Wild's "Nontoken creatures
+  you control have riot", 614.12). Bots take haste on their own turn before combat, else the
+  counter.
 
 ### Bots
 
@@ -745,10 +968,9 @@ These are deliberate cuts for a prototype. The biggest ones come first.
   can block more than one. Trample over planeswalkers (702.19c) isn't supported.
 - **Targets:** "two target lands" can name the same land twice. Targets that exist only
   when kicked (702.33g) aren't supported.
-- **Modes and copies:** only spells can be modal: modal triggered and activated abilities
-  (700.2b) aren't supported. A copy's controller must pick legal new targets or keep all
+- **Modes and copies:** A copy's controller must pick legal new targets or keep all
   the old ones (707.10c allows keeping some). Copying abilities isn't supported yet.
-- **Layers (613) not built yet:** effects that set or change colour (layer 5). No card has
+- **Layers (613) not built yet:** no card has
   a copy effect with a duration ("until end of turn") yet. In layer 6: "can't have
   [ability]" (113.11); effects that give a permanent an ability other than a keyword, ward,
   enchant, or a triggered, activated or mana ability (such as a static ability); losing a keyword ability the card's script carries, other than ward
@@ -827,9 +1049,15 @@ no hand script. It matches each ability, clause by clause, against a list of tem
 builds the script from the helpers in `rules.ts`. One clause it can't read refuses the whole
 card, naming the clause: it never guesses. Hand scripts always win.
 
-- **Reading a card:** reminder text is dropped, and an ability word or flavor word in front
+- **Reading a card:** the card's name, or a shortened one, means the card (201.5c): "Gishath"
+  for "Gishath, Sun's Avatar", and a legendary card's "Ureni" for "Ureni of the Unwritten".
+  Reminder text is dropped, and an ability word or flavor word in front
   of a line ("Landfall —", "Channel —", "Sell Contraband —") is a label with no rules meaning
-  (207.2c, 207.2d). A card with faces (modal double-faced, transforming, split, Adventure) is
+  (207.2c, 207.2d). Every ability word is one the rules list (207.2c); a flavor word isn't
+  listed (207.2d), so one is a label when the card's keywords name it ("Master Tactician —"),
+  except the keywords with rules meaning written the same way: forecast, boast, visit, solved,
+  exhaust, max speed and power-up (702). The deck-paste check accepts such a word for the same
+  reason, and scry (a keyword action, 701.22) where Scryfall lists it as a keyword. A card with faces (modal double-faced, transforming, split, Adventure) is
   read face by face, one script per face name (712, 709, 715); one face it can't read refuses
   the card. Several abilities on one event become a list on the hook, each triggering on its
   own (603.2).
@@ -841,13 +1069,20 @@ card, naming the clause: it never guesses. Hand scripts always win.
   permanent] enters / dies / attacks" (landfall among them), "this or another creature dies",
   "a creature or planeswalker you control dies"; "Whenever equipped or enchanted creature
   attacks / dies / deals damage"; "Whenever a creature you control deals combat damage to a
-  player"; "Whenever you gain life / draw a card / discard a card / sacrifice a permanent",
+  player"; "Whenever this or another nontoken Shrine you control enters", "Whenever one or more
+  tokens you control enter", "Whenever a Dwarf you control becomes tapped"; "Whenever you gain
+  life / draw a card / discard a card / sacrifice a permanent",
   "an opponent draws / loses life / searches their library / casts a spell", "a player draws /
   sacrifices a permanent"; "Whenever you cast a [kind of] spell", magecraft's "cast or copy"
   (207.2c); prowess (702.108a), extort (702.101a), job select (702.182a), afterlife
-  (702.135a). An intervening "if" (603.4) is checked as it triggers and as it resolves.
+  (702.135a); "At the beginning of each player's draw step" (504.2, "that player draws an
+  additional card"), "Whenever an opponent draws a card except the first one they draw in
+  each of their draw steps" (504.1), "Whenever an Egg you control dies" (a creature type
+  means a creature, 205.3d). An intervening "if" (603.4) is checked as it triggers and as it resolves.
   "That player", "that much" and "that creature" are the event's; "it" in a trigger about
   another object is that object. Modal triggered abilities ("choose one —", 603.3c).
+  "Whenever one or more creatures you control deal combat damage to a player" (once for each
+  player hit, 603.2c).
 - **Activated abilities (602):** costs of {T}, mana with {X} (107.3a), "Pay N life" (119.4),
   "Discard a card", "Discard this card" (channel, bloodrush: from the hand), "Sacrifice this",
   "Sacrifice a / another / N [kind of permanent]", "Exile this", "Exile a creature you
@@ -859,9 +1094,14 @@ card, naming the clause: it never guesses. Hand scripts always win.
   or {B}", "one mana of any color", "in your commander's color identity", "that a land an
   opponent controls could produce", "three mana of any one color", Signets ("{1}, {T}: Add
   {W}{U}") and filter lands, with costs of "Pay 1 life", "Sacrifice this", "Sacrifice a
-  creature", "Discard a card", "Tap an untapped [legendary] creature you control" or "Exile
-  this card from your hand", and "This deals 1 damage to you", "Activate only if [condition]"
-  or "Activate only as an instant". A mana ability that does anything else is refused.
+  creature", "Discard a card", "Tap an untapped [legendary] creature you control", "Tap an
+  untapped artifact you control", "Tap two untapped tokens you control" (with or without
+  {T}) or "Exile this card from your hand", and "This deals 1 damage to you", "Activate only
+  if [condition]" or "Activate only as an instant"; "For each color among permanents you
+  control, add one mana of that color" (105.2). A mana ability that does anything else is
+  refused. Triggered mana abilities (605.1b): "Whenever you tap [a kind of permanent] for
+  mana, add an additional [mana]" or "add one mana of any type that permanent produced",
+  and "Whenever enchanted land is tapped for mana, its controller adds an additional [mana]".
 - **Spells:** instants and sorceries; modal spells ("Choose one / two / one or both / one or
   more / up to N —", 700.2) and spree (702.172), each mode with its own targets; kicker with
   "if this spell was kicked" (702.33); flashback (702.34), escape (702.138), overload, read
@@ -875,13 +1115,20 @@ card, naming the clause: it never guesses. Hand scripts always win.
   in any order, search for a card, a basic land, named basic types, several cards, a card with
   mana value X or less, into the hand, onto the battlefield, into the graveyard or on top
   (701.23), Cultivate's split; damage to targets, groups and players as one event (120); destroy,
-  exile, return to hand, tap and untap targets or groups; "they can't be regenerated" (nothing
-  here regenerates); counters (122); "gets +N/+N and gains [keyword] until end of turn", "can't
+  exile, return to hand, tap and untap targets or groups; "they can't be regenerated" and "a
+  creature destroyed this way can't be regenerated" (nothing here regenerates); "look at the
+  top N ... you may put a [kind] card from among them onto the battlefield"; "reveal cards
+  from the top of your library until you reveal a [kind] card. Put that card onto the
+  battlefield / into your hand and the rest on the bottom in a random order" (701.20a); "you
+  and that player / target opponent each draw ..." (in APNAP order, 121.2c); "draws / mills
+  that many cards" and "deals 1 damage to that player" for a trigger's player and amount;
+  counters (122); "gets +N/+N and gains [keyword] until end of turn", "can't
   block / can't be blocked this turn", "protection from the color of your choice"; fight
   (701.14), "deals damage equal to its power"; counter a spell, "unless its controller pays
   {N}", "exile it instead"; copy a spell (707.10); return a card from a graveyard to the hand or
   battlefield, put one on top of a library; sacrifices of the player's choice (701.21a); tokens;
-  populate, investigate, mana that stays until end of turn, an extra turn (with "you lose the
+  populate, investigate, proliferate (701.34), "move a counter from target permanent ... onto a
+  second target permanent" (122.5), mana that stays until end of turn, an extra turn (with "you lose the
   game" at its end), "you may cast spells this turn as though they had flash", "can't cast
   spells this turn", "untap up to N lands"; choices made as it resolves ("return a land you
   control to its owner's hand", "put a land card from your hand onto the battlefield").
@@ -907,19 +1154,45 @@ card, naming the clause: it never guesses. Hand scripts always win.
   art shows; otherwise the text's description ("a 2/2 black Zombie Knight creature token with
   menace") is made into a token on the fly, keyed like the listed ones ("Zombie Knight 2/2
   menace B"), and a quoted ability on it ("It has 'Sacrifice this token: Add {C}.'") is read by
-  the parser itself. An X/X token is refused.
+  the parser itself. An artifact or enchantment token may have that type's subtypes ("a 1/1
+  colorless Shrine enchantment creature token", 205.3d). An X/X token is refused.
+- **An ability's resolutions:** "If this is the second time this ability has resolved this
+  turn, ...", "[effect] if this is the first time ...", and after either "If it's the third
+  time, ..." (Omnath), checked as that part resolves. A spell saying it is refused.
+- **More effects and costs:** "~ deals damage to [target] equal to [an amount]" (Rin and Seri);
+  "put target creature card from a graveyard onto the battlefield under its owner's control"
+  (110.2a, Kenrith); "Sacrifice five Treasures:"; a search for "an artifact or Dragon card",
+  any of those card types or subtypes.
 - **Statics and lines about the card:** "[other] [kind] creatures / permanents you control get
   +N/+N, have [keywords], have 'Ward—Pay N life.'", "Enchant [kind]" with "enchanted creature
   gets / has / can't block" (702.5), "equipped creature gets / has / can't be blocked"; "this
   gets +1/+1 for each ...", base power and toughness from a count (604.3); "can't be blocked",
-  "attacks each combat if able"; ward (702.21); "each land is a Swamp in addition" (305.7);
+  "attacks each combat if able"; ward (702.21), "Ward—Blight N" too; "each land is a Swamp in addition" (305.7);
+  "lands you control are every basic land type in addition to their other types" (305.7);
+  "each [kind] you control is all colors" (105.3); "this gets +1/+1 for each color among
+  [permanents]"; exalted (702.83) and riot (702.136) as keywords, and "have riot"; "If this
+  card is in your opening hand, you may begin the game with it on the battlefield" (103.6a);
   enters tapped, unless [a condition], with N counters, paying 2 or 3 life, or revealing a land
   card (614.1c, 614.12a); no maximum hand size, "doesn't untap", "skip your draw step";
   "[kind] spells you cast cost {1} less / more"; "creatures your opponents control enter
   tapped"; "you may cast spells as though they had flash"; "spells you control can't be
   countered"; "untap [this / all artifacts you control] during each other player's untap step";
   token and counter doubling and Hardened Scales (614.1a); Propaganda's attack tax (508.1g);
-  "during your turn, your opponents can't cast spells or activate abilities"; "you may look at
+  "during your turn, your opponents can't cast spells or activate abilities"; ward with a
+  sacrifice cost, and ward {N} among other keywords; "partner with [name]" (702.124j);
+  "protection from [colour] and from [colour]" (702.16g); "[group] are [types] in addition
+  to their other types [and have '[activated ability]']"; "activated abilities of [kind] you
+  control cost {N} less to activate"; "[kind] spells cost {1} less to cast for each +1/+1
+  counter on this"; amass (701.47), "the Ring tempts you" and "whenever the Ring tempts you"
+  (701.54); "if you gained [N or more] life this turn"; "whenever an opponent loses life for
+  the first time during each of their turns"; "whenever [a permanent] is put into a graveyard
+  from the battlefield"; "when this enters and whenever an opponent draws a card except the
+  first one they draw in each of their draw steps"; "create a token that's a copy of it,
+  except the token isn't legendary"; "you may discard your hand. If you do, ..."; two
+  conditions joined by "and"; and flavor words (207.2d); trigger
+  doublers, "if an artifact or creature entering / a creature dying / a creature attacking
+  causes a triggered ability of a permanent you control to trigger, that ability triggers an
+  additional time" (603.2d: Panharmonicon, Teysa Karlov, Isshin);
   the top card of your library any time", "play with the top card of your library revealed",
   "you may play lands and cast spells [with mana value N or greater] / play lands / cast
   [kind] spells from the top of your library" (601.3); "you may play an additional land [two
@@ -934,8 +1207,8 @@ card, naming the clause: it never guesses. Hand scripts always win.
   can't read, X outside a cost, and cards whose rules the engine doesn't have (copies). A
   fetched card it refuses can't be played: it is never played as a stand-in.
 - `npm run parse-report` prints the cards it scripts on its own and every refusal: for the
-  pool (324 of 519 cards with rules text, 62%) and for a corpus of the 600 most-played
-  Commander cards (`tests/parser-corpus.generated.json`: 405 of 590, 69%), whose refusals it
+  pool (327 of 519 cards with rules text, 63%) and for a corpus of the 600 most-played
+  Commander cards (`tests/parser-corpus.generated.json`: 420 of 590, 71%), whose refusals it
   groups by opening words and by shape, biggest first. A test plays about 190 pool cards with
   the parsed script and with the hand script and checks the table ends the same; others play
   each template on a made-up card and check a near miss is refused.

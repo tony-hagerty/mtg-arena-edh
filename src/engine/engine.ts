@@ -58,8 +58,11 @@ import {
   parseCost,
   pay,
   tapCandidates,
+  untappedFor,
+  pump,
   manaAbilities,
   attackCost,
+  attackForbidden,
   canPayAttacks,
   costText,
   isFree,
@@ -80,6 +83,9 @@ import {
   shuffle,
   snapshot,
   lastKnown,
+  leftGraveyards,
+  EXILED_CAST,
+  finishExiledCast,
   copyItem,
   findCard,
   flashGranted,
@@ -90,6 +96,7 @@ import {
   checkWard,
   counter,
   counterCount,
+  countResolution,
   discard,
   fitsSpec,
   freeCast,
@@ -136,6 +143,11 @@ import {
   canChangeTargets,
   hasType,
   triggerModeOptions,
+  triggerModesOf,
+  combatDamageOf,
+  joinAttack,
+  choosePlayer,
+  pickCards,
   rememberModes,
   CARD_TYPES,
   offeredNow,
@@ -148,13 +160,26 @@ import {
   offerCastAny,
   paidCostText,
   slotLabel,
+  amassOnto,
+  finishTempting,
+  isRingBearer,
+  ringTrigger,
+  blight,
+  blighted,
+  proliferated,
+  radiation,
+  playerCounters,
+  DECAYED,
+  RAD_COUNTERS,
+  triggerTimes,
 } from './rules';
 import type { EnterOpts } from './rules';
-import { inBase, settled, untouched } from './layers';
+import { characteristics, inBase, settled, untouched } from './layers';
 import { NeedsChoice, replace, withReplacementAnswers } from './replace';
 import type {
   AbilityRef,
   Action,
+  ActivatedAbility,
   Mana,
   ManaRewind,
   AskChoice,
@@ -166,6 +191,7 @@ import type {
   Choice,
   DamageAssignment,
   DamageRoom,
+  Delayed,
   ExtraTurn,
   Game,
   LoyaltyAbility,
@@ -177,6 +203,8 @@ import type {
   TargetSpec,
   RetargetChoice,
   ThenCtx,
+  Ctx,
+  Mode,
   TriggerEvents,
   Zone,
   Phase,
@@ -475,7 +503,7 @@ function afterChoice(g: Game) {
  * Runs the continuation a choice names (`CardScript.then`), with the answer. Choices it
  * asks come before any that were already waiting: they are the next step of the same effect.
  */
-function runThen(g: Game, choice: Choice, answer: { picked?: Card[]; yes?: boolean; name?: string; player?: PlayerId; n?: number }) {
+function runThen(g: Game, choice: Choice, answer: { picked?: Card[]; yes?: boolean; name?: string; player?: PlayerId; n?: number; players?: PlayerId[] }) {
   if (!('then' in choice) || !choice.then) return;
   const key = choice.then;
   // The card the continuation belongs to: one entering the battlefield or acting from an
@@ -500,7 +528,14 @@ function runThen(g: Game, choice: Choice, answer: { picked?: Card[]; yes?: boole
     player: answer.player ?? null,
     n: answer.n ?? 0,
     data,
+    pickedPlayers: answer.players ?? [],
   });
+  // An engine continuation that finishes a keyword action can hand on to the card's own
+  // (`data.next`), for what its effect does next: "the Ring tempts you. Then if ..." (701.54a).
+  if (key.startsWith('@') && typeof data.next === 'string') {
+    const { next, ...rest } = data;
+    runThen(g, { ...choice, then: next as string, data: rest } as Choice, answer);
+  }
   // A card entering with others whose replacement effect sent it elsewhere (Mox Diamond): the rest needn't wait for it.
   const group = (data.enter as EnterOpts | undefined)?.group;
   if (choice.script && group) settleEntering(g, group, card);
@@ -522,6 +557,11 @@ const ENGINE_THEN: Record<string, (g: Game, ctx: ThenCtx) => void> = {
     toGraveyards(g, picked);
     log(g, picked.length ? `${says(p, 'surveils')} and ${verbFor(p, 'puts')} ${picked.map(label).join(', ')} into ${their(p)} graveyard.` : `${says(p, 'surveils')}.`, chooser, picked);
   },
+  // Creatures put onto the battlefield attacking (508.4): the defending player chosen, then what of theirs to attack.
+  '@attackPlayer': (g, { chooser, player, data }) => {
+    if (player !== null) offerAttackTargets(g, chooser, data.ids as string[], player);
+  },
+  '@attackTarget': (g, { picked, data }) => attackWith(g, data.ids as string[], { defender: data.defender as PlayerId, target: picked[0]?.id ?? null }),
   // "Sacrifices a creature of their choice" (701.21a).
   '@sacrifice': (g, { picked }) => {
     const c = picked[0] && permanent(g, picked[0].id);
@@ -576,10 +616,39 @@ const ENGINE_THEN: Record<string, (g: Game, ctx: ThenCtx) => void> = {
     const left = (data.cards as string[]).filter((id) => id !== picked[0]?.id).map((id) => findCard(g, id)).filter((c): c is Card => !!c && c.zone !== 'stack' && c.zone !== 'battlefield');
     offerCastAny(g, chooser, left, { free: data.free as boolean, ...(data.maxMv !== undefined ? { maxMv: data.maxMv as number } : {}), text: data.text as string });
   },
+  // Discover (701.57a) and the like (`castFromExiled`): the card wasn't cast, or was; then the rest go on the bottom.
+  [EXILED_CAST]: (g, { yes, data }) => finishExiledCast(g, yes, data),
+  // "Ward—Sacrifice a Food" (702.21a): the permanent picked is sacrificed to pay (701.21a), or with none picked the spell or ability is countered.
+  '@wardSacrifice': (g, { picked, chooser, data }) => {
+    const c = picked[0] && permanent(g, picked[0].id);
+    if (c && c.controller === chooser) {
+      log(g, `${says(g.players[chooser], 'pays')} ward.`, chooser);
+      dieMany(g, [c], 'is sacrificed');
+    } else counter(g, { kind: 'stack', id: data.item as string });
+  },
+  // Amass (701.47a): the Army chosen gets its counters and the subtype.
+  '@amass': (g, { picked, data }) => {
+    const { subtype, n } = data.amass as { subtype: string; n: number };
+    amassOnto(g, picked[0] && permanent(g, picked[0].id), subtype, n);
+  },
+  // The Ring tempts you (701.54a): the creature chosen becomes the Ring-bearer.
+  '@ringBearer': (g, { picked, chooser }) => finishTempting(g, chooser, picked[0] && permanent(g, picked[0].id)),
+  // "Ward—Blight 2": the creature chosen pays it (701.68a); choosing none doesn't, and the spell or ability is countered.
+  '@wardBlight': (g, { picked, data, chooser }) => {
+    if (picked[0]) blighted(g, chooser, picked[0], data.blight as number, { by: 'cost' });
+    else {
+      log(g, `${says(g.players[chooser], 'declines')} to pay for ${data.source as string}.`, chooser);
+      counter(g, { kind: 'stack', id: data.item as string });
+    }
+  },
+  // Proliferate (701.34a): the permanents and players chosen each get another counter of each kind they have.
+  '@proliferate': (g, { chooser, picked, pickedPlayers }) => proliferated(g, chooser, picked, pickedPlayers ?? []),
+  // Blight N (701.68a): N -1/-1 counters on the creature chosen.
+  '@blight': (g, { chooser, picked, data }) => blighted(g, chooser, picked[0], data.blight as number),
 };
 
 /** Carries out a card choice once the player has made it. */
-function doChoice(g: Game, choice: CardChoice, cards: Card[]) {
+function doChoice(g: Game, choice: CardChoice, cards: Card[], players: PlayerId[] = []) {
   const p = g.players[choice.player];
   if (choice.kind === 'legend') return;
   if (choice.kind === 'bottom') {
@@ -587,7 +656,7 @@ function doChoice(g: Game, choice: CardChoice, cards: Card[]) {
     log(g, `${says(p, 'puts')} ${cards.length} card${cards.length === 1 ? '' : 's'} on the bottom.`, p.id);
     return;
   }
-  if (choice.kind === 'pick') return runThen(g, choice, { picked: cards });
+  if (choice.kind === 'pick') return runThen(g, choice, { picked: cards, players });
   const [found] = cards;
   // A card found is shown only if the effect says to reveal it, or it goes onto the battlefield (701.23e).
   // Otherwise only the searcher sees which card it is: the others' log says "a card".
@@ -813,6 +882,8 @@ function choicesOk(g: Game, pid: PlayerId, c: Card, ch: CastChoices): boolean {
   const oneOf = script.additionalCost?.oneOf;
   if (oneOf ? ch.extra === undefined || !Number.isInteger(ch.extra) || ch.extra < 0 || ch.extra >= oneOf.length : ch.extra !== undefined) return false;
   if (ch.alt !== undefined && !altCostsOf(g, c, face, pid).includes(ch.alt)) return false;
+  // Cast "without paying its mana cost" (Urza's permission), it can't be cast for another alternative cost too (118.9a).
+  if (ch.alt !== undefined && permission(g, pid, c)?.free) return false;
   // Cast with madness or miracle, it is cast for that cost (702.35a, 702.94a).
   if (ch.alt === undefined && castsForAlt(g, c)) return false;
   if (ch.protector !== undefined && !(isBattle(g, spell) && canProtect(g, spell, ch.protector))) return false;
@@ -927,7 +998,7 @@ export function maxX(g: Game, pid: PlayerId, c: Card, choices: CastChoices = {})
   // An alternative cost without X, like flashback or "without paying its mana cost", makes X 0 (107.3b).
   // "Pay X life" (118.8) has its X whatever is paid instead of the mana cost.
   const lifeX = scriptFor(asSpell(c, choices.face ?? 0)).additionalCost?.life === 'x';
-  if (!lifeX && (!parseCost(data(asSpell(c, choices.face ?? 0)).manaCost).x || choices.alt !== undefined || paysFlashback(g, c, choices) || freeCast(g, c) || permitFor(g, pid, c, choices)?.p.free)) return 0;
+  if (!lifeX && (!parseCost(data(asSpell(c, choices.face ?? 0)).manaCost).x || choices.alt !== undefined || paysFlashback(g, c, choices) || freeCast(g, c) || permission(g, pid, c)?.free || permitFor(g, pid, c, choices)?.p.free)) return 0;
   let x = -1;
   const spell = asSpell(c, choices.face ?? 0, pid);
   while (x < 99 && planPayment(g, pid, castCost(g, c, { ...choices, x: x + 1 }, pid), spell)) x++;
@@ -962,13 +1033,31 @@ function canPayActivation(g: Game, pid: PlayerId, c: Card, activated: number, x:
   // A summoning-sick creature can't pay a tap cost (302.6).
   if (ab.cost.tap && (c.tapped || (isCreature(g, c) && c.sick && !has(g, c, 'haste')))) return false;
   if (ab.cost.crew && crewPower(g, pid, c, crewOptions(g, pid, c)) < ab.cost.crew) return false;
+  // "Tap three untapped Elves you control": with {T} too, the source can't be one of them (`tapCostOptions`).
+  if (ab.cost.tapUntapped && tapCostOptions(g, pid, c, activated).length < (ab.cost.tapUntapped.count ?? 1)) return false;
   if (ab.cost.counters && counterCount(c, ab.cost.counters.kind) < ab.cost.counters.n) return false;
   if (ab.cost.discard && discardOptions(g, pid, c, ab.cost.discardFilter).length < ab.cost.discard) return false;
-  if (ab.cost.sacrificeOne && activationSacrificeOptions(g, pid, c, activated).length < (ab.cost.sacrificeCount ?? 1)) return false;
+  if (ab.cost.sacrificeOne && activationSacrificeOptions(g, pid, c, activated).length < sacrificesFor(ab, x)) return false;
   if (ab.cost.exileOne && !activationExileOptions(g, pid, c, activated).length) return false;
   if (ab.cost.exileGraveyard && g.players[pid].graveyard.length < ab.cost.exileGraveyard) return false;
+  // A modal ability needs enough modes that can be chosen (700.2a).
+  if (ab.modes && activatedModeOptions(g, pid, c, activated).length < ab.modes.min) return false;
   // The source can't also make the mana if tapping, sacrificing or exiling it is part of the cost.
   return !(ab.cost.mana || ab.cost.life) || !!planPayment(g, pid, activationCost(g, pid, c, ab, x), undefined, ab.cost.tap || ab.cost.sacrifice || ab.cost.exileSelf ? [c.id] : []);
+}
+
+/** How many permanents an activated ability's "Sacrifice ..." cost takes with this X: one, "two", or X ("Sacrifice X Squirrels", 107.3a). */
+export const sacrificesFor = (ab: ActivatedAbility, x: number): number => (!ab.cost.sacrificeOne ? 0 : ab.cost.sacrificeCount === 'x' ? x : (ab.cost.sacrificeCount ?? 1));
+
+/**
+ * Permanents `pid` could tap to pay a "Tap three untapped Elves / tokens you control" cost of
+ * `c`'s activated ability `activated` (`tapUntapped`): untapped ones they control that fit.
+ * Summoning sickness doesn't matter: it isn't their {T} (302.6). `c` may be one of them (High
+ * Perfect Morcant), unless its own {T} is part of the same cost: it can't be untapped for both.
+ */
+export function tapCostOptions(g: Game, pid: PlayerId, c: Card, activated = 0): Card[] {
+  const ab = activatedAt(g, c, activated);
+  return ab?.cost.tapUntapped ? untappedFor(g, pid, ab.cost.tapUntapped, c, !!ab.cost.tap) : [];
 }
 
 /** Permanents `pid` could exile to pay an "Exile a creature you control" cost of `c`'s activated ability `activated` (The Soul Stone). */
@@ -983,6 +1072,13 @@ export function activationSacrificeOptions(g: Game, pid: PlayerId, c: Card, acti
   return spec ? g.players[pid].battlefield.filter((p) => fitsSpec(g, p, spec, c)) : [];
 }
 
+/** Which modes of `c`'s modal activated ability `activated` `pid` could choose now (700.2a): not one with a target that has no legal choice. */
+export function activatedModeOptions(g: Game, pid: PlayerId, c: Card, activated = 0): number[] {
+  const modes = activatedAt(g, c, activated)?.modes;
+  if (!modes) return [];
+  return modes.modes.map((_, i) => i).filter((i) => (modes.modes[i].targets ?? []).every((spec) => spec.optional || spec.any || legalTargets(g, pid, spec, c).length > 0));
+}
+
 /**
  * Cards `pid` could discard to pay a "Discard a card" cost of `c`'s spell or ability: any other
  * card in their hand, or only those that fit `filter` ("Discard a creature card").
@@ -994,7 +1090,9 @@ export const discardOptions = (g: Game, pid: PlayerId, c: Card, filter?: (g: Gam
 export function abilityHasX(g: Game, c: Card, ref: AbilityRef): boolean {
   const script = abilitiesOf(g, c);
   if (ref.ability !== undefined) return !script.levels && script.loyalty?.[ref.ability]?.cost === '-X';
-  return parseCost(activatedAt(g, c, ref.activated)?.cost.mana ?? '').x > 0;
+  const ab = activatedAt(g, c, ref.activated);
+  // "Sacrifice X Squirrels:" has X in its cost too (107.3a).
+  return parseCost(ab?.cost.mana ?? '').x > 0 || ab?.cost.sacrificeCount === 'x';
 }
 
 /**
@@ -1085,6 +1183,8 @@ function targetsOk(g: Game, pid: PlayerId, c: Card, specs: TargetSpec[], targets
   return specs.every((spec, i) => {
     const t = targets[i];
     // "Any number of" targets: each one chosen is a different object (115.3).
+    // "Up to X target ...": no more than X of them (`most`).
+    if (spec.any && spec.most && specs.filter((s) => s.any).length > spec.most(g, c)) return false;
     if (spec.any) return !!t && !targets.some((o, k) => k < i && specs[k].any && o && sameRef(o, t)) && legalTargets(g, pid, spec, c, x).some((r) => sameRef(r, t));
     if (!t) return !!spec.optional;
     const other = spec.distinctFrom === undefined ? null : targets[spec.distinctFrom];
@@ -1120,6 +1220,48 @@ export function attackOptions(g: Game, pid: PlayerId): AttackOption[] {
     }
   }
   return out;
+}
+
+/**
+ * Creatures put onto the battlefield "tapped and attacking", or that an effect says are
+ * attacking (508.4): their controller chooses which defending player, planeswalker a defending
+ * player controls or battle a defending player protects each one attacks (every opponent is a
+ * defending player, 802.2), asked as one question for all of them when there is a choice. They
+ * never "attacked", so nothing triggers on them attacking (508.4). Outside the controller's
+ * own combat they aren't attacking at all (506.2, 508.4a). A bot attacks the opponent with
+ * the least life, never a planeswalker or battle.
+ */
+export function putAttacking(g: Game, pid: PlayerId, creatures: Card[]) {
+  if (!g.combat || g.active !== pid) return;
+  const ids = creatures.filter((c) => c.zone === 'battlefield' && c.controller === pid && isCreature(g, c)).map((c) => c.id);
+  if (!ids.length) return;
+  const options = attackOptions(g, pid);
+  if (!options.length) return;
+  if (options.length === 1) return attackWith(g, ids, options[0]);
+  const defenders = [...new Set(options.map((o) => o.defender))];
+  if (defenders.length === 1) return offerAttackTargets(g, pid, ids, defenders[0]);
+  choosePlayer(g, pid, { text: `Choose the player ${ids.length === 1 ? 'the creature attacks' : 'the creatures attack'}.`, options: defenders, then: '@attackPlayer', data: { ids } });
+}
+
+/** The creatures `ids` attack `option` from now on (508.4): each joins the attack as one put onto the battlefield attacking does (`joinAttack`), if it still can. */
+function attackWith(g: Game, ids: string[], option: AttackOption) {
+  if (!g.combat) return;
+  const candidates = ids.map((id) => permanent(g, id)).filter((c): c is Card => !!c && !g.combat!.attacks.some((a) => a.id === c.id));
+  for (const c of candidates) joinAttack(g, c, option);
+  const cards = candidates.filter((c) => g.combat!.attacks.some((a) => a.id === c.id));
+  if (!cards.length) return;
+  const target = option.target ? permanent(g, option.target) : undefined;
+  log(g, `${cards.map(label).join(', ')} ${cards.length === 1 ? 'is' : 'are'} attacking ${target ? label(target) : g.players[option.defender].name}.`, cards[0].controller, [...cards, ...(target ? [target] : [])]);
+}
+
+/** Defending player `defender` is chosen (508.4): attack them, or a planeswalker they control or battle they protect if they have one, which `pid` is asked about. */
+function offerAttackTargets(g: Game, pid: PlayerId, ids: string[], defender: PlayerId) {
+  const targets = attackOptions(g, pid)
+    .filter((o) => o.defender === defender && o.target)
+    .map((o) => permanent(g, o.target!))
+    .filter((c): c is Card => !!c);
+  if (!targets.length) return attackWith(g, ids, { defender, target: null });
+  pickCards(g, pid, targets, { min: 0, max: 1, text: `attack a planeswalker or battle instead of ${g.players[defender].name}, or none`, button: 'Attack', then: '@attackTarget', data: { ids, defender } });
 }
 
 /** The defender's creatures that could block at least one creature attacking them. */
@@ -1350,7 +1492,7 @@ function paradigm(g: Game, item: StackItem) {
 
 
 /** Delayed triggered abilities whose moment has come trigger, once each (603.7b). */
-function fireDelayed(g: Game, step: 'upkeep' | 'main1' | 'end') {
+function fireDelayed(g: Game, step: Delayed['step']) {
   const due = g.delayed.filter((d) => d.step === step && (d.turn === undefined || d.turn === g.turn) && (d.player === undefined || d.player === g.active));
   g.delayed = g.delayed.filter((d) => !due.includes(d) || d.repeat);
   for (const d of due) {
@@ -1408,6 +1550,17 @@ function beginStep(g: Game, step: Step) {
       for (const c of p.battlefield) if (isSaga(g, c) && scriptFor(c).chapters?.length) addCounters(g, c, 1, 'lore', { by: 'rule' });
       broadcast(g, 'onPrecombatMain', { player: pid }); // 505.1a
       fireDelayed(g, 'main1');
+      // "At the beginning of your next main phase" (505.1): this one, or the postcombat one.
+      fireDelayed(g, 'main');
+      // Rad counters (728.1): "At the beginning of each player's precombat main phase, if that
+      // player has one or more rad counters, ...". It has no source, and the active player
+      // controls it (an exception to 113.8).
+      if (playerCounters(p, 'rad') > 0) {
+        g.triggers.push({ id: `s${g.nextId++}`, kind: 'triggered', controller: pid, card: makeCard(g, RAD_COUNTERS, pid, 'command', { isToken: true }), hook: 'onRad', event: { player: pid }, targets: [] });
+      }
+      break;
+    case 'endCombat':
+      fireDelayed(g, 'endCombat'); // "at end of combat" (511.2)
       break;
     case 'beginCombat':
       g.combat = { attacks: [], toBlock: [], struckFirst: null, moreDamage: false };
@@ -1431,8 +1584,13 @@ function beginStep(g: Game, step: Step) {
     case 'damage':
       combatDamage(g);
       break;
+    case 'endCombat':
+      // "At end of combat" abilities trigger as the end of combat step begins (511.2).
+      fireDelayed(g, 'endCombat');
+      break;
     case 'main2':
       broadcast(g, 'onPostcombatMain', { player: pid }); // 505.1a
+      fireDelayed(g, 'main');
       break;
     case 'end':
       broadcast(g, 'onEndStep', { player: pid }); // 513.1
@@ -1599,11 +1757,32 @@ function attackersDeclared(g: Game) {
   for (const a of combat.attacks) {
     const c = permanent(g, a.id)!;
     trigger(g, c, 'onAttack', { defender: a.defender, target: a.target });
+    // The Ring, tempted two or more times: "Whenever your Ring-bearer attacks, draw a card, then discard a card." (701.54c)
+    if (isRingBearer(g, c)) ringTrigger(g, c.controller, 2, 'onAttack', { defender: a.defender, target: a.target });
+    // Decayed (702.147a): "When this creature attacks, sacrifice it at end of combat."
+    if (has(g, c, 'decayed')) for (let k = triggerTimes(g, c, 'onDecayed'); k > 0; k--) g.triggers.push({ id: `s${g.nextId++}`, kind: 'triggered', controller: c.controller, card: snapshot(c), hook: 'onDecayed', event: {}, targets: [] });
     broadcast(g, 'onCreatureAttacks', { attacker: c, defender: a.defender, target: a.target });
   }
   // "Whenever [two or more creatures] attack": once, with every attack (508.1m).
   const attacks = combat.attacks.map((a) => ({ attacker: snapshot(permanent(g, a.id)!), defender: a.defender, target: a.target }));
   broadcast(g, 'onAttackersDeclared', { player: g.active, attacks });
+  if (combat.attacks.length === 1) exalted(g, permanent(g, combat.attacks[0].id)!);
+}
+
+/**
+ * Exalted (702.83a): "Whenever a creature you control attacks alone, that creature gets +1/+1
+ * until end of turn." A creature attacks alone if it's the only one declared as an attacker
+ * (506.5, 702.83b). Each instance on each permanent its controller controls triggers on its own
+ * (702.83b), as many times as an effect like Roaming Throne's says (603.2d).
+ */
+function exalted(g: Game, attacker: Card) {
+  for (const c of g.players[attacker.controller].battlefield) {
+    const n = characteristics(g, c, '6').keywords.filter((k) => k === 'exalted').length;
+    if (!n) continue;
+    for (let k = n * triggerTimes(g, c, 'onExalted'); k > 0; k--) {
+      g.triggers.push({ id: `s${g.nextId++}`, kind: 'triggered', controller: c.controller, card: snapshot(c), hook: 'onExalted', event: { attacker: snapshot(attacker) }, targets: [] });
+    }
+  }
 }
 
 /**
@@ -1618,7 +1797,8 @@ function mustAttack(g: Game, pid: PlayerId) {
   for (const c of attackCandidates(g, pid)) {
     if (!has(g, c, MUST_ATTACK) || combat.attacks.some((a) => a.id === c.id)) continue;
     // Nobody has to pay to meet a requirement (508.1d): it attacks an opponent it can attack for free, if any.
-    const free = turnOrder(g, pid).find((o) => o !== pid && isFree(attackCost(g, [{ id: c.id, defender: o, target: null }])));
+    // It can't break a restriction to meet it either (508.1d): only an opponent it may attack (508.1c).
+    const free = turnOrder(g, pid).find((o) => o !== pid && !attackForbidden(g, c, o, null) && isFree(attackCost(g, [{ id: c.id, defender: o, target: null }])));
     if (free !== undefined) combat.attacks.push({ id: c.id, defender: free, target: null, blockers: [], blocked: false });
   }
 }
@@ -1637,6 +1817,18 @@ function blockersDeclared(g: Game) {
   for (const id of new Set(g.combat!.attacks.flatMap((a) => a.blockers))) {
     const b = permanent(g, id);
     if (b) trigger(g, b, 'onBlock', {});
+  }
+  // "Whenever [this creature] becomes blocked by a creature" triggers once for each creature blocking it (509.3d).
+  for (const a of g.combat!.attacks) {
+    const c = permanent(g, a.id);
+    if (!c) continue;
+    for (const id of a.blockers) {
+      const b = permanent(g, id);
+      if (!b) continue;
+      trigger(g, c, 'onBecomesBlocked', { blocker: b });
+      // The Ring, tempted three or more times: "Whenever your Ring-bearer becomes blocked by a creature, ..." (701.54c)
+      if (isRingBearer(g, c)) ringTrigger(g, c.controller, 3, 'onBecomesBlocked', { blocker: b });
+    }
   }
   g.decision = null;
   g.priority = firstPriority(g); // 509.2
@@ -1694,8 +1886,9 @@ export function damageRooms(g: Game, firstStrike?: boolean): DamageRoom[] {
     const atk = permanent(g, a.id);
     if (!atk || !dealsNow(g, atk, first, struckFirst)) continue;
     const s = stats(g, atk);
-    // A creature with 0 or less power assigns no combat damage (510.1a).
-    if (s.power <= 0) continue;
+    // Its power, or its toughness under an effect like Arcades's; 0 or less assigns no combat damage (510.1a).
+    const power = combatDamageOf(g, atk);
+    if (power <= 0) continue;
     const trample = s.keywords.has('trample');
     const deathtouch = s.keywords.has('deathtouch');
     const blockers = a.blockers
@@ -1709,7 +1902,7 @@ export function damageRooms(g: Game, firstStrike?: boolean): DamageRoom[] {
     const canThrough = there && (!a.blocked || trample);
     // Two or more blockers to divide among (510.1c), or a trampler's excess to place (702.19b).
     const choice = a.blocked && (blockers.length >= 2 || (trample && canThrough && blockers.length === 1));
-    out.push({ attacker: a.id, power: s.power, blocked: a.blocked, blockers, trample, canThrough, choice });
+    out.push({ attacker: a.id, power, blocked: a.blocked, blockers, trample, canThrough, choice });
   }
   return out;
 }
@@ -1786,20 +1979,24 @@ function dealCombatDamage(g: Game, firstStrike: boolean, struckFirst: Set<string
     for (const id of a.blockers) {
       const b = permanent(g, id);
       if (!b || !dealsNow(g, b, firstStrike, struckFirst)) continue;
-      const bs = stats(g, b);
-      if (bs.power <= 0) continue;
+      const bp = combatDamageOf(g, b);
+      if (bp <= 0) continue;
       if (firstStrike) struckFirst.add(b.id);
-      hits.push({ src: b, card: atk, n: bs.power });
+      hits.push({ src: b, card: atk, n: bp });
     }
   }
   // Combat damage is dealt all at once, as one event (510.2).
+  const toPlayers = new Map<PlayerId, Card[]>();
   simultaneously(g, () => {
     for (const h of hits) {
       if (h.card && !isCreature(g, h.card)) dealDamage(g, h.src, { kind: 'card', id: h.card.id }, h.n, true); // logged: a planeswalker or battle
       else if (h.card) damageCard(g, h.src, h.card, h.n, true);
-      else damagePlayer(g, h.src, h.player!, h.n, true);
+      else if (damagePlayer(g, h.src, h.player!, h.n, true) > 0) toPlayers.set(h.player!, [...(toPlayers.get(h.player!) ?? []), snapshot(h.src)]);
     }
   });
+  // "Whenever one or more creatures ... deal combat damage to a player": once for each player
+  // dealt combat damage (603.2c), with the creatures that dealt it as they were then.
+  for (const [player, sources] of toPlayers) broadcast(g, 'onPlayerDealtCombatDamage', { player, sources });
 }
 
 // ---------- priority and the stack ----------
@@ -1844,6 +2041,7 @@ function resolveTop(g: Game) {
   );
   const fizzled = item.targets.some(Boolean) && !targets.some(Boolean);
   if (fizzled) log(g, `${label(card)} has no legal target left and does nothing.`, controller, [card]);
+  if (fizzled) item.fizzled = true;
 
   if (item.kind === 'spell') {
     // A gift happens before the spell's other effects, and only if it resolves (702.174j).
@@ -1869,6 +2067,9 @@ function resolveTop(g: Game) {
       script.onResolve?.(g, { self: card, you: controller, targets, sacrificed: item.sacrificed, sacrificedPower: item.sacrificedPower });
     }
   } else if (!fizzled) {
+    // It resolves (608.2): counted for "if this is the second time this ability has resolved this turn".
+    // One that did nothing (`item.fizzled`, 608.2b) never gets here.
+    countResolution(g, item);
     // An ability uses its source as it is now, or as it last was if it has gone (113.7a).
     const ctx = { self: permanent(g, card.id) ?? card, you: controller, targets, sacrificed: item.sacrificed, sacrificedPower: item.sacrificedPower, x: item.x ?? 0, ...(item.modes ? { modes: item.modes } : {}) };
     if (item.kind === 'activated' && item.ability !== undefined && script.levels) {
@@ -1880,7 +2081,9 @@ function resolveTop(g: Game) {
         trigger(g, cls, 'onLevel', { level: cls.level });
       }
     } else if (item.kind === 'activated') {
-      (item.ability === undefined ? itemActivated(item)! : script.loyalty![item.ability]).resolve(g, ctx);
+      const ab = item.ability === undefined ? itemActivated(item)! : script.loyalty![item.ability];
+      if ('modes' in ab && ab.modes) resolveModes(g, ab.modes.modes, item.modes ?? [], ctx);
+      else ab.resolve(g, ctx);
     } else if (item.hook === 'onStorm') {
       // A copy for each other spell cast before it this turn (702.40a).
       const { count, item: spell } = item.event as TriggerEvents['onStorm'];
@@ -1912,7 +2115,28 @@ function resolveTop(g: Game) {
       // Ward (702.21a): counter the spell or ability unless its controller pays.
       const { item: id, cost } = item.event as TriggerEvents['onWard'];
       const target = g.stack.find((x) => x.id === id);
-      if (target) {
+      const what0 = target ? (target.kind === 'spell' ? label(target.card) : `${label(target.card)}'s ability`) : '';
+      if (target && cost.sacrifice) {
+        // "Ward—Sacrifice a Food": its controller may sacrifice one of theirs that fits; one they can't pay leaves nothing to choose (118.3).
+        const ward = permanent(g, card.id) ?? card;
+        const options = g.players[target.controller].battlefield.filter((c) => fitsSpec(g, c, cost.sacrifice!, ward));
+        if (!options.length) {
+          log(g, `${says(g.players[target.controller], "can't")} sacrifice ${cost.sacrifice.label} for ward.`, target.controller);
+          counter(g, { kind: 'stack', id });
+        } else {
+          pickCards(g, target.controller, options, { min: 0, max: 1, text: `sacrifice ${cost.sacrifice.label}, or ${what0} is countered (ward)`, button: 'Sacrifice', decline: "Don't Pay", then: '@wardSacrifice', data: { item: id, bot: 'wardSacrifice' } });
+        }
+      } else if (target && cost.blight) {
+        // "Ward—Blight N": its controller may blight N to pay (701.68a). With no creature to put
+        // the counters on they can't (701.68b), so it is countered.
+        const pid = target.controller;
+        // Choosing a creature pays; choosing none doesn't (118.12a).
+        const text = `blight ${cost.blight} (choose a creature you control for the -1/-1 counters), or choose none and ${what0} is countered (ward)`;
+        if (!blight(g, pid, cost.blight, { then: '@wardBlight', data: { item: id, source: label(card), ward: true }, optional: true, text })) {
+          log(g, `${label(card)}: ${g.players[pid].you ? 'you' : g.players[pid].name} can't blight ${cost.blight}, so ${what0} is countered (ward).`, pid, [card]);
+          counter(g, { kind: 'stack', id });
+        }
+      } else if (target) {
         const what = [cost.mana, cost.life && `${cost.life} life`].filter(Boolean).join(' and ');
         ask(g, target.controller, {
           text: `Pay ${what}, or ${target.kind === 'spell' ? label(target.card) : `${label(target.card)}'s ability`} is countered (ward).`,
@@ -1924,9 +2148,20 @@ function resolveTop(g: Game) {
           data: { item: id },
         });
       }
+    } else if (item.hook === 'onRad') {
+      // Rad counters (728.1): the player mills, loses life and removes rad counters.
+      radiation(g, (item.event as TriggerEvents['onRad']).player);
+    } else if (item.hook === 'onDecayed') {
+      // Decayed (702.147a): "When this creature attacks, sacrifice it at end of combat": a
+      // delayed triggered ability, for this turn's end of combat step (511.2, 603.7).
+      g.delayed.push({ id: `d${g.nextId++}`, controller, card, key: DECAYED, step: 'endCombat', turn: g.turn, data: { id: card.id, moves: card.moves } });
     } else if (item.hook === 'onDelayed') {
       const { key, data: extra } = item.event as TriggerEvents['onDelayed'];
-      if (key === LOSE_GAME) {
+      if (key === DECAYED) {
+        // Sacrificed if it is still the same object and its controller still controls it (603.7c, 701.21a).
+        const c = permanent(g, extra.id as string);
+        if (c && c.moves === extra.moves && c.controller === controller) dieMany(g, [c], 'is sacrificed');
+      } else if (key === LOSE_GAME) {
         log(g, `${says(g.players[controller], 'loses')} the game (${label(card)}).`, controller, [card]);
         loseGame(g, controller, label(card));
       } else if (key === REBOUND) {
@@ -1962,11 +2197,18 @@ function resolveTop(g: Game) {
     } else if (item.hook === 'onReflexive') {
       // A reflexive triggered ability (603.12).
       const { key, data: extra } = item.event as TriggerEvents['onReflexive'];
-      itemScript(item).reflexive?.[key]?.resolve(g, { ...ctx, data: extra });
+      const r = itemScript(item).reflexive?.[key];
+      if (r?.modes) resolveModes(g, r.modes.modes, item.modes ?? [], ctx);
+      else r?.resolve(g, { ...ctx, data: extra });
     } else if (item.hook === 'onEvoked') {
       // Evoke (702.74a): its controller sacrifices it, if it is still the same object.
       const c = permanent(g, card.id);
       if (c && c.moves === card.moves) dieMany(g, [c], 'is sacrificed');
+    } else if (item.hook === 'onExalted') {
+      // Exalted (702.83a): "that creature gets +1/+1 until end of turn", if it is still the same object (400.7).
+      const { attacker } = item.event as TriggerEvents['onExalted'];
+      const c = permanent(g, attacker.id);
+      if (c && c.moves === attacker.moves) pump(g, c, 1, 1);
     } else if (item.hook === 'onOffspring') {
       // Offspring (702.175a): a token copy of it, except it's 1/1. If it has left the
       // battlefield, its last known copiable values are used (707.4, 608.2h).
@@ -2043,6 +2285,19 @@ function castDone(g: Game, pid: PlayerId, item: StackItem) {
 }
 
 /** The end of resolving: the item leaves the stack, and the active player gets priority (117.3b). */
+/**
+ * "Whenever the final chapter ability of a Saga you control resolves": the Saga as it is now,
+ * or as it last was (608.2h), and whether this was its final chapter ability, the one with its
+ * greatest chapter number (714.2d-e).
+ */
+function chapterResolved(g: Game, item: StackItem) {
+  const now = permanent(g, item.card.id);
+  const saga = now && now.moves === item.card.moves ? now : item.card;
+  const chapter = (item.event as TriggerEvents['onChapter']).chapter;
+  const final = chapter === (now === saga ? abilitiesOf(g, saga) : scriptFor(saga)).chapters?.length;
+  broadcast(g, 'onChapterResolved', { saga: snapshot(saga), chapter, final, controller: saga.controller });
+}
+
 function finishResolving(g: Game) {
   const item = g.stack.find((x) => x.id === g.resolving);
   g.resolving = null;
@@ -2069,6 +2324,8 @@ function finishResolving(g: Game) {
     moveCard(g, item.card, 'exile');
   } else if (item?.kind === 'spell') moveCard(g, item.card, 'graveyard');
   else if (item) g.stack = g.stack.filter((x) => x !== item);
+  // A Saga's chapter ability has resolved (Tom Bombadil): not one that did nothing for want of targets (608.2b).
+  if (item?.hook === 'onChapter' && !item.fizzled) chapterResolved(g, item);
   g.passes = 0;
   g.priority = firstPriority(g);
 }
@@ -2104,9 +2361,8 @@ function putTriggerOnStack(g: Game): boolean {
   if (modal) {
     // With too few modes that can be chosen, it is removed from the stack (603.3c).
     if (modal.legal.length < modal.min) return true;
-    const t = triggerOf(item) as { modes: { bot?: (g: Game, pid: PlayerId, self: Card) => number[] } };
     if (g.players[pid].isBot) {
-      const wanted = t.modes.bot?.(g, pid, item.card) ?? [];
+      const wanted = triggerModesOf(item)?.bot?.(g, pid, item.card) ?? [];
       item.modes = wanted.filter((i) => modal.legal.includes(i)).slice(0, modal.max);
       if (item.modes.length < modal.min) item.modes = modal.legal.slice(0, modal.min);
       rememberModes(g, item);
@@ -2140,14 +2396,26 @@ function putTriggerOnStack(g: Game): boolean {
   return true;
 }
 
+/** Runs the chosen modes of a modal ability in printed order, each with its own share of the targets (700.2, 700.2c). */
+function resolveModes(g: Game, modes: Mode[], chosen: number[], ctx: Ctx) {
+  let next = 0;
+  for (const i of chosen) {
+    const mode = modes[i];
+    const n = mode.targets?.length ?? 0;
+    const modeCtx: Ctx = { ...ctx, targets: ctx.targets.slice(next, next + n) };
+    mode.resolve(g, modeCtx);
+    next += n;
+  }
+}
+
 /**
  * Logs a triggered ability as it is put on the stack (603.3) and flashes its source, like
  * a cast spell. Copies of spells wait with the triggers but aren't triggered abilities.
  */
 function announceTrigger(g: Game, item: StackItem) {
   if (item.kind !== 'triggered' || item.copy) return;
-  const t = triggerOf(item);
-  const modes = item.modes && t && typeof t !== 'function' && t.modes ? item.modes.map((i) => `“${t.modes!.modes[i].text}”`).join(', ') : '';
+  const modal = triggerModesOf(item);
+  const modes = item.modes && modal ? item.modes.map((i) => `“${modal.modes[i].text}”`).join(', ') : '';
   const text = [triggerText(item), modes].filter(Boolean).join(': ');
   const chosen = item.targets.filter((t): t is TargetRef => !!t).map((t) => describeRef(g, t));
   log(g, `${whose(g.players[item.controller])} ${label(item.card)} triggers${text ? ` (${text})` : ''}${chosen.length ? ` targeting ${chosen.join(' and ')}` : ''}.`, item.controller, [item.card, ...refCards(g, item.targets)]);
@@ -2312,7 +2580,8 @@ function act(g: Game, a: Action): boolean {
       const permit = permitFor(g, pid, c, choices);
       const slot = permit && permitSlot(permit, choices);
       if (permit && slot !== undefined) usePermit(g, permit.source, slot);
-      const free = freeCast(g, c) || !!permit?.p.free;
+      // Or with an effect's "you may play that card without paying its mana cost" (Urza).
+      const free = freeCast(g, c) || !!permit?.p.free || !!permission(g, pid, c)?.free;
       // Cast from exile for {2} after being airbent (701.65a), or free as a plotted card (702.170d).
       const fromExile = exileCast(c);
       const escaped = from === 'graveyard' && !!choices.escape;
@@ -2347,6 +2616,9 @@ function act(g: Game, a: Action): boolean {
       c.plotted = undefined;
       c.warped = undefined;
       c.suspend = undefined;
+      c.arrived = { from, turn: g.turn };
+      // Cast from a graveyard, it has left it (603.10a: "whenever one or more cards leave your graveyard").
+      if (from === 'graveyard') leftGraveyards(g, [c]);
       const info: CastInfo = {
         x: hasX ? (choices.x ?? 0) : 0,
         kicked: choices.kicked ?? 0,
@@ -2454,21 +2726,31 @@ function act(g: Game, a: Action): boolean {
       if (a.ability !== undefined) return activateLoyalty(g, pid, c, a.ability, a);
       const ab = activatedAt(g, c, a.activated)!;
       const several = activatedAbilities(g, c).length > 1;
-      const specs = specsFor(ab.targets ?? [], a.targets?.length ?? 0);
+      // A modal ability: its modes are chosen as it is activated (700.2a), each with its own targets (700.2c).
+      const modes = a.modes ?? [];
+      if (ab.modes) {
+        const legal = activatedModeOptions(g, pid, c, a.activated);
+        if (modes.length < ab.modes.min || modes.length > ab.modes.max) return false;
+        if (modes.some((m, i) => !legal.includes(m) || (i > 0 && m <= modes[i - 1]))) return false;
+      } else if (modes.length) return false;
+      const specs = specsFor(ab.modes ? modes.flatMap((i) => ab.modes!.modes[i].targets ?? []) : (ab.targets ?? []), a.targets?.length ?? 0);
       const targets = specs.map((_, i) => a.targets?.[i] ?? null);
       if (!targetsOk(g, pid, c, specs, targets, x)) return false;
       // Crew: the chosen creatures must be able to crew and have enough power (702.122a).
-      const crewing = (a.crew ?? []).map((id) => crewOptions(g, pid, c).find((x) => x.id === id));
-      if (ab.cost.crew) {
+      // "Tap three untapped Elves you control": exactly that many that fit, other than the source if {T} taps it too.
+      const tapping = ab.cost.tapUntapped;
+      const crewing = (a.crew ?? []).map((id) => (tapping ? tapCostOptions(g, pid, c, a.activated) : crewOptions(g, pid, c)).find((x) => x.id === id));
+      if (ab.cost.crew || tapping) {
         if (crewing.some((x) => !x) || new Set(a.crew).size !== crewing.length) return false;
-        if (crewPower(g, pid, c, crewing as Card[]) < ab.cost.crew) return false;
+        if (ab.cost.crew && crewPower(g, pid, c, crewing as Card[]) < ab.cost.crew) return false;
+        if (tapping && crewing.length !== (tapping.count ?? 1)) return false;
       } else if (crewing.length) return false;
       // "Discard a card": exactly that many other cards from the hand.
       const discarding = (a.discard ?? []).map((id) => discardOptions(g, pid, c, ab.cost.discardFilter).find((x) => x.id === id));
       if (discarding.length !== (ab.cost.discard ?? 0) || discarding.some((x) => !x) || new Set(a.discard).size !== discarding.length) return false;
       // "Sacrifice a creature": exactly one that fits, or as many different ones as it says.
       const sacrificing = (a.sacrifice ?? []).map((id) => activationSacrificeOptions(g, pid, c, a.activated).find((x) => x.id === id));
-      if (sacrificing.length !== (ab.cost.sacrificeOne ? (ab.cost.sacrificeCount ?? 1) : 0) || sacrificing.some((x) => !x) || new Set(a.sacrifice).size !== sacrificing.length) return false;
+      if (sacrificing.length !== sacrificesFor(ab, x) || sacrificing.some((x) => !x) || new Set(a.sacrifice).size !== sacrificing.length) return false;
       // "Exile a creature you control": exactly one that fits (The Soul Stone).
       const exiling = (a.exile ?? []).map((id) => activationExileOptions(g, pid, c, a.activated).find((x) => x.id === id));
       if (exiling.length !== (ab.cost.exileOne ? 1 : 0) || exiling.some((x) => !x)) return false;
@@ -2480,20 +2762,22 @@ function act(g: Game, a: Action): boolean {
       const hasX = abilityHasX(g, c, { activated: a.activated });
       // An ability its source has from another card runs that card's script (Agatha's Soul Cauldron).
       const { from: lender, index: scriptIndex } = activatedSource(g, c, a.activated ?? 0);
-      const item: StackItem = { id: `s${g.nextId++}`, kind: 'activated', controller: pid, card: snapshot(c), targets, ...(a.activated && { activated: a.activated }), ...(scriptIndex !== (a.activated ?? 0) && { scriptIndex }), ...(hasX && { x }), ...(lender && { borrowed: lender }) };
+      const item: StackItem = { id: `s${g.nextId++}`, kind: 'activated', controller: pid, card: snapshot(c), targets, ...(a.activated && { activated: a.activated }), ...(scriptIndex !== (a.activated ?? 0) && { scriptIndex }), ...(hasX && { x }), ...(lender && { borrowed: lender }), ...(ab.modes && { modes: [...modes] }) };
       if (sacrificing.length) {
         item.sacrificed = sacrificing.map((x) => lastKnown(g, x!));
         item.sacrificedPower = sacrificing.map((x) => stats(g, x!).power);
       }
       // Nothing tapped or sacrificed for the rest of the cost makes mana for it.
-      const busy = [...(ab.cost.tap || ab.cost.sacrifice || ab.cost.exileSelf ? [c.id] : []), ...(a.sacrifice ?? []), ...(a.exile ?? [])];
+      const busy = [...(ab.cost.tap || ab.cost.sacrifice || ab.cost.exileSelf ? [c.id] : []), ...(a.sacrifice ?? []), ...(a.exile ?? []), ...(tapping ? (a.crew ?? []) : [])];
       if ((ab.cost.mana || ab.cost.life) && !pay(g, pid, activationCost(g, pid, c, ab, x), undefined, busy)) return false;
       if (ab.cost.tap) tap(g, c);
       if (ab.cost.counters) removeCounters(c, ab.cost.counters.n, ab.cost.counters.kind);
       for (const x of crewing) tap(g, x!);
-      if (crewing.length) log(g, `${crewing.map((x) => label(x!)).join(' and ')} crew${crewing.length === 1 ? 's' : ''} ${label(c)}.`, pid, [...(crewing as Card[]), c]);
+      if (crewing.length && tapping) log(g, `${says(p, 'taps')} ${crewing.map((x) => label(x!)).join(', ')} (${label(c)}).`, pid, [...(crewing as Card[]), c]);
+      else if (crewing.length) log(g, `${crewing.map((x) => label(x!)).join(' and ')} crew${crewing.length === 1 ? 's' : ''} ${label(c)}.`, pid, [...(crewing as Card[]), c]);
       const chosen = targets.filter((t): t is TargetRef => !!t).map((t) => describeRef(g, t));
-      log(g, `${says(p, 'activates')} ${label(c)}${several ? ` (${ab.text})` : ''}${hasX ? ` (X = ${x})` : ''}${chosen.length ? ` targeting ${chosen.join(' and ')}` : ''}.`, pid, [c, ...refCards(g, targets)]);
+      const modeText = ab.modes ? ` (${modes.map((i) => `“${ab.modes!.modes[i].text}”`).join(', ')})` : '';
+      log(g, `${says(p, 'activates')} ${label(c)}${several ? ` (${ab.text})` : ''}${modeText}${hasX ? ` (X = ${x})` : ''}${chosen.length ? ` targeting ${chosen.join(' and ')}` : ''}.`, pid, [c, ...refCards(g, targets)]);
       flash(g, c, pid, 'activated');
       for (const x of discarding) discard(g, x!);
       if (ab.cost.discardSelf) discard(g, c);
@@ -2531,9 +2815,12 @@ function act(g: Game, a: Action): boolean {
       // A mana ability from a hand, like Simian Spirit Guide's, is used from there.
       const c = [...p.battlefield, ...p.hand].find((x) => x.id === a.card);
       if (!c || (deciding && deciding !== 'cast') || !canTapForMana(g, pid, c, a.ability)) return false;
-      if (a.tap !== undefined) {
+      if (a.tap !== undefined || a.taps !== undefined) {
+        // The permanents named for its "Tap an untapped ... you control" cost: as many as it taps, each one that can be (`TapUntapped`).
         const ab = manaAbilities(g, c).find((m) => m.index === (a.ability ?? 0));
-        if (!ab || !tapCandidates(g, pid, ab).some((x) => x.id === a.tap)) return false;
+        const named = a.taps ?? [a.tap!];
+        if (!ab?.tapCreature || named.length !== (ab.tapCreature.count ?? 1) || new Set(named).size !== named.length) return false;
+        if (!named.every((id) => tapCandidates(g, pid, ab, c).some((x) => x.id === id))) return false;
       }
       // "Discard a card: Add {B}" (Skirge Familiar): the card named must be in their hand.
       if (a.discard !== undefined && !p.hand.some((x) => x.id === a.discard && x.id !== c.id)) return false;
@@ -2542,7 +2829,7 @@ function act(g: Game, a: Action): boolean {
       if (used?.sacrificeCreature ? !p.battlefield.some((x) => x.id === a.sacrifice && isCreature(g, x)) : a.sacrifice !== undefined) return false;
       // The exact mana asked for must be one of the ability's choices.
       if (a.mana && (!used || !canProduce(used, a.mana))) return false;
-      tapForMana(g, pid, c, a.ability, a.color, a.tap, a.discard, a.sacrifice, a.mana);
+      tapForMana(g, pid, c, a.ability, a.color, a.taps ?? a.tap, a.discard, a.sacrifice, a.mana, a.triggered);
       return true;
     }
 
@@ -2559,6 +2846,8 @@ function act(g: Game, a: Action): boolean {
       if (deciding !== 'attackers' || !g.combat || !c || !canAttack(g, c)) return false;
       const target = a.target ?? null;
       if (!attackOptions(g, pid).some((o) => o.defender === a.defender && o.target === target)) return false;
+      // "Can't attack you or planeswalkers you control" (508.1c).
+      if (attackForbidden(g, c, a.defender, target)) return false;
       // Attacks that cost something (Propaganda) can be declared only if they can all be paid for (508.1d, 508.1h).
       const next = [...g.combat.attacks.filter((x) => x.id !== c.id), { id: c.id, defender: a.defender, target }];
       // "No more than one creature can attack The Eternal Wanderer each combat" (508.1c).
@@ -2665,6 +2954,10 @@ function act(g: Game, a: Action): boolean {
       const picked = a.cards.map((id) => cards.find((c) => c.id === id));
       if (new Set(a.cards).size !== a.cards.length || picked.length < min || picked.length > max) return false;
       if (picked.some((c) => !c || !valid.has(c.id))) return false;
+      // Players chosen too, each one it offers at most once (proliferate, 701.34a).
+      const players = a.players ?? [];
+      const offered = choice.kind === 'pick' ? (choice.players ?? []) : [];
+      if (new Set(players).size !== players.length || players.some((x) => !offered.includes(x))) return false;
       g.decision = null;
       if (choice.kind === 'legend') {
         // The legend rule (704.5j): the rest go to their owners' graveyards. It is a
@@ -2673,7 +2966,7 @@ function act(g: Game, a: Action): boolean {
         g.priority = choice.resume;
         return true;
       }
-      doChoice(g, choice, picked as Card[]);
+      doChoice(g, choice, picked as Card[], players);
       afterChoice(g);
       return true;
     }
@@ -2709,7 +3002,15 @@ function act(g: Game, a: Action): boolean {
       if (g.decision?.type !== 'name') return false;
       const { choice } = g.decision;
       const valid =
-        choice.of === 'creature type' ? CREATURE_TYPES.includes(a.name) : choice.of === 'color' ? COLORS.includes(a.name) : choice.of === 'card type' ? CARD_TYPES.includes(a.name) : isCardName(a.name);
+        choice.of === 'counter'
+          ? !!choice.options?.includes(a.name)
+          : choice.of === 'creature type'
+            ? CREATURE_TYPES.includes(a.name)
+            : choice.of === 'color'
+              ? COLORS.includes(a.name)
+              : choice.of === 'card type'
+                ? CARD_TYPES.includes(a.name)
+                : isCardName(a.name);
       if (!valid) return false;
       g.decision = null;
       const named = choice.of === 'color' ? `{${a.name}}` : a.name;
@@ -2959,7 +3260,7 @@ function rememberMana(g: Game, a: Action, next: Game): Game {
     // What clicking takes it back: the source, if using it tapped it or took it off the battlefield
     // (a Lotus Petal), and a creature tapped for its cost (Relic of Legends, whose own {T} isn't used).
     const source = permanent(next, a.card);
-    const tapped = [...(!source || (source.tapped && !permanent(g, a.card)?.tapped) ? [a.card] : []), ...(a.tap ? [a.tap] : [])];
+    const tapped = [...(!source || (source.tapped && !permanent(g, a.card)?.tapped) ? [a.card] : []), ...(a.tap ? [a.tap] : []), ...(a.taps ?? [])];
     const entry: ManaRewind = { pid, card: a.card, tapped, action: a, before: g };
     return produce(next, (d) => {
       d.manaRewind = [...kept, entry] as Game['manaRewind'];

@@ -5,10 +5,19 @@
 import { SUPPORTED_KEYWORDS, hasScript } from '../engine';
 import { cardData, isCardName } from './db';
 import type { DeckDef } from './db';
-import { refusalOf } from './oracle';
+import type { CardData } from '../engine/types';
+import { isLabelWord, refusalOf } from './oracle';
 
 /** Ability words and keyword actions: they label a rule that the card's script implements. */
-export const ABILITY_WORDS = ['landfall', 'treasure', 'mill', 'threshold', 'metalcraft', 'recruit', "scions' secretary", 'delirium', 'surveil', 'imprint', 'channel', 'ferocious', 'bloodrush', 'populate', 'food', 'throw wide the gates', 'flare star', 'double', 'magecraft', 'role token', 'sell contraband', 'buy information', 'hire a mercenary', 'connive', 'medicus ministorum', 'monstrosity', 'madness', 'miracle', 'trance', 'goblin formula'];
+export const ABILITY_WORDS = ['landfall', 'treasure', 'mill', 'threshold', 'metalcraft', 'recruit', "scions' secretary", 'delirium', 'surveil', 'imprint', 'channel', 'ferocious', 'bloodrush', 'populate', 'food', 'throw wide the gates', 'flare star', 'double', 'magecraft', 'role token', 'sell contraband', 'buy information', 'hire a mercenary', 'connive', 'medicus ministorum', 'monstrosity', 'madness', 'miracle', 'trance', 'goblin formula', 'amass', 'proliferate', 'blight', 'cheer', 'scry'];
+
+/**
+ * Is keyword `k` (lower case) only a label at the front of one of the card's lines: an ability
+ * word (207.2c) or a flavor word (207.2d), like "Master Tactician — Whenever ..."? Either has no
+ * rules meaning, so the line's ability is what has to work, and the text check covers that.
+ */
+const labelOnly = (d: CardData, k: string) =>
+  isLabelWord(k, d.keywords) && (d.faces ?? [d]).some((f) => abilities(f.oracleText).some((line) => line.toLowerCase().startsWith(`${k} — `)));
 
 /**
  * Keywords the engine applies from a card's keyword list alone, with no script, and that
@@ -16,7 +25,7 @@ export const ABILITY_WORDS = ['landfall', 'treasure', 'mill', 'threshold', 'meta
  * played without its rules text (`textlessRefusal`). Every other supported keyword is spelt
  * out by the card's script (kicker, equip, crew, cycling ...) or changes how it is cast.
  */
-export const PLAIN_KEYWORDS = ['flying', 'reach', 'deathtouch', 'lifelink', 'trample', 'vigilance', 'haste', 'first strike', 'double strike', 'menace', 'fear', 'defender', 'hexproof', 'indestructible', 'flash', 'shadow', 'landwalk', 'plainswalk', 'islandwalk', 'swampwalk', 'mountainwalk', 'forestwalk', 'changeling', 'devoid', 'partner'];
+export const PLAIN_KEYWORDS = ['flying', 'reach', 'deathtouch', 'lifelink', 'trample', 'vigilance', 'haste', 'first strike', 'double strike', 'menace', 'fear', 'defender', 'hexproof', 'indestructible', 'flash', 'shadow', 'landwalk', 'plainswalk', 'islandwalk', 'swampwalk', 'mountainwalk', 'forestwalk', 'changeling', 'devoid', 'partner', 'exalted', 'decayed'];
 
 /** Oracle text split into abilities, with reminder text removed. */
 export const abilities = (text: string) =>
@@ -64,7 +73,7 @@ export function problemsOf(name: string): CardProblem[] {
   if (d.typeLine.startsWith('Basic Land')) return [];
   const out: CardProblem[] = [];
   for (const k of d.keywords.map((x) => x.toLowerCase())) {
-    if (!SUPPORTED_KEYWORDS.includes(k) && !ABILITY_WORDS.includes(k)) out.push({ kind: 'keyword', text: `unsupported keyword "${k}"` });
+    if (!SUPPORTED_KEYWORDS.includes(k) && !ABILITY_WORDS.includes(k) && !labelOnly(d, k)) out.push({ kind: 'keyword', text: `unsupported keyword "${k}"` });
   }
   for (const face of d.faces ?? [d]) {
     if (!abilities(face.oracleText).some((line) => !isKeywordLine(line)) || hasScript(face.name)) continue;

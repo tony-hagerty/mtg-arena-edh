@@ -1,12 +1,14 @@
 // Queries and effect primitives. Everything here either reads a Game or mutates an
 // Immer draft of one; turn structure and action handling live in engine.ts.
-import { CREATURE_TYPES, cardData, isCardName } from '../cards/db';
+import { CREATURE_TYPES, cardData, isCardName, registerToken } from '../cards/db';
 import { current, isDraft } from 'immer';
-import { NO_SCRIPT, anyGrantFor, scriptOf } from './registry';
+import { NO_SCRIPT, anyGrantFor, registerScripts, scriptOf } from './registry';
 import { anyGrantingStatic, characteristics, hasOwnAbilities, heldMemo, inBase, mayHaveScript, mayLoseAbilities, settled, staticRemoval, typesOf, untouched } from './layers';
 import { replace, whileArriving } from './replace';
+export { isArriving } from './replace';
 import type {
   ActivatedAbility,
+  TokenSpec,
   BroadcastHook,
   CastVia,
   AskChoice,
@@ -32,6 +34,7 @@ import type {
   PlayerId,
   StackItem,
   StaticBonus,
+  TapUntapped,
   TargetRef,
   TargetSpec,
   Delayed,
@@ -39,6 +42,7 @@ import type {
   ContinuousEffect,
   Trigger,
   TriggerEvents,
+  TriggerModes,
   TurnEffect,
   TriggerHook,
   Zone,
@@ -49,6 +53,8 @@ import type {
 
 export const STARTING_LIFE = 40;
 export const COMMANDER_DAMAGE = 21;
+/** A player with this many poison counters loses the game (122.1f, 704.5c). */
+export const POISON = 10;
 export const MAX_HAND = 7;
 
 /** A player's maximum hand size (402.2): seven, unless something they control removes it. */
@@ -94,6 +100,8 @@ export const SUPPORTED_KEYWORDS = [
   'storm',
   'cumulative upkeep',
   'partner',
+  // Partner with (702.124j): the deck rules pair the two, and its "When this permanent enters" ability is the card's script (`partnerWith`).
+  'partner with',
   'mobilize',
   // Cycling (702.29) and basic land typecycling (702.29e) are read by the Oracle text parser as
   // abilities activated from the hand; a hand script uses `cycling` and `typecycling`.
@@ -119,6 +127,9 @@ export const SUPPORTED_KEYWORDS = [
   'job select',
   // Prowess (702.108) is read by the Oracle text parser; a hand script uses `prowess` below.
   'prowess',
+  // Exalted (702.83) and riot (702.136) by the engine, from the keyword however the permanent has it.
+  'exalted',
+  'riot',
   // Airbend (701.65), plot (702.170) and warp (702.185) by the engine; escape printed on a card
   // (702.138), spree (702.172), overload (702.96), evoke (702.74) and convoke (702.51) by the
   // engine with the card's script; adapt (701.46), reconfigure (702.151), persist (702.79) and
@@ -146,10 +157,16 @@ export const SUPPORTED_KEYWORDS = [
   // Dredge (702.52) and mayhem (702.187) by the engine, from the card's own text (`dredgeOf`, `mayhemCost`).
   'dredge',
   'mayhem',
+  // Decayed (702.147) by the engine: it can't block, and its attack trigger sacrifices it at end of combat.
+  'decayed',
   // Shadow (702.28) and landwalk (702.14) are evasion abilities the engine checks as blockers are declared.
   'shadow',
   'landwalk',
   ...Object.keys(LANDWALKS),
+  // Discover (701.57) by the engine with the card's script (`discover`).
+  'discover',
+  // Protection (702.16) is enforced by the engine from "protection from [quality]" keywords, which the card's script gives it.
+  'protection',
 ];
 
 // ---------- card queries ----------
@@ -192,9 +209,11 @@ function copyData(copy: CopyInfo): CardData {
     const subtypes = [...kept, ...copy.subtypes.filter((t) => !kept.includes(t))];
     // A characteristic-defining ability that would define a characteristic the copy effect sets isn't copied (707.9d).
     const defined = [...(copy.creatureTypes ? ['Changeling'] : []), ...(copy.colors ? ['Devoid'] : [])];
+    // "Except it isn't legendary" (707.9b): without the legendary supertype.
+    const front = copy.nonlegendary ? types.split(' ').filter((t) => t !== 'Legendary').join(' ') : types;
     d = {
       ...base,
-      typeLine: subtypes.length ? `${types} — ${subtypes.join(' ')}` : types,
+      typeLine: subtypes.length ? `${front} — ${subtypes.join(' ')}` : front,
       keywords: [...base.keywords.filter((k) => !defined.includes(k)), ...copy.keywords.filter((k) => !base.keywords.includes(k))],
       ...(copy.power !== undefined ? { power: String(copy.power) } : {}),
       ...(copy.toughness !== undefined ? { toughness: String(copy.toughness) } : {}),
@@ -487,6 +506,13 @@ export const CANT_BLOCK = "can't block";
 export const CANT_BE_BLOCKED = "can't be blocked";
 /** "Attacks each combat if able" (508.1d), given the same way. */
 export const MUST_ATTACK = 'attacks each combat if able';
+/**
+ * "Can attack as though it didn't have defender" (Arcades, Felothar), given the same way: an
+ * effect on the creature, not an ability of its own (so it isn't lost with its abilities).
+ */
+export const ATTACKS_DESPITE_DEFENDER = "can attack as though it didn't have defender";
+/** "Assigns combat damage equal to its toughness rather than its power" (Arcades, Felothar), given the same way. */
+export const ASSIGNS_TOUGHNESS = 'assigns combat damage equal to its toughness';
 
 /** The `Delayed.key` of dash's return to hand (702.109a). Its `data` names the permanent: `id` and `moves`. */
 export const RETURN_TO_HAND = '@return';
@@ -494,16 +520,39 @@ export const RETURN_TO_HAND = '@return';
 export function canAttack(g: Game, c: Card): boolean {
   if (c.zone !== 'battlefield' || !isCreature(g, c) || c.tapped) return false;
   const kw = stats(g, c).keywords;
-  return !kw.has('defender') && !kw.has(CANT_ATTACK) && (!c.sick || kw.has('haste'));
+  // Defender stops it attacking (702.3b) unless an effect lets it attack as though it didn't have defender.
+  return (!kw.has('defender') || kw.has(ATTACKS_DESPITE_DEFENDER)) && !kw.has(CANT_ATTACK) && (!c.sick || kw.has('haste'));
+}
+
+/**
+ * The combat damage creature `c` assigns (510.1a): its power, or its toughness under an effect
+ * like Arcades's "assigns combat damage equal to its toughness rather than its power". A
+ * creature that would assign 0 or less this way assigns none at all.
+ */
+export function combatDamageOf(g: Game, c: Card): number {
+  const s = stats(g, c);
+  return s.keywords.has(ASSIGNS_TOUGHNESS) ? s.toughness : s.power;
+}
+
+/**
+ * Does a restriction stop creature `c` attacking `defender`, or the planeswalker or battle
+ * `target` (508.1c)? "Each creature that's enchanted by an Aura you control can't attack you or
+ * planeswalkers you control" (Eriette). `canAttack` is whether it can attack at all.
+ */
+export function attackForbidden(g: Game, c: Card, defender: PlayerId, target: string | null): boolean {
+  return battlefield(g).some((src) => mayHaveScript(src, 'forbidsAttack') && !!abilitiesOf(g, src).forbidsAttack?.(g, src, c, defender, target));
 }
 
 export function canBlock(g: Game, blocker: Card, attacker: Card): boolean {
   if (blocker.zone !== 'battlefield' || !isCreature(g, blocker) || blocker.tapped) return false;
-  if (has(g, blocker, CANT_BLOCK)) return false;
+  // Decayed: "This creature can't block" (702.147a).
+  if (has(g, blocker, CANT_BLOCK) || has(g, blocker, 'decayed')) return false;
   const kw = stats(g, attacker).keywords;
   if (kw.has(CANT_BE_BLOCKED)) return false;
   // An attacker with protection can't be blocked by creatures with the stated quality (702.16f).
   if (protectedFrom(g, attacker, blocker)) return false;
+  // The Ring: "Your Ring-bearer ... can't be blocked by creatures with greater power" (701.54c).
+  if (isRingBearer(g, attacker) && stats(g, blocker).power > stats(g, attacker).power) return false;
   // Shadow: it can't be blocked by creatures without shadow, and one without shadow can't be blocked by creatures with it (702.28b).
   if (kw.has('shadow') !== has(g, blocker, 'shadow')) return false;
   // Landwalk: it can't be blocked while the defending player, who controls the blockers, controls a land of that type (702.14c).
@@ -922,7 +971,8 @@ export function paidCostText(g: Game, c: Card, choices: CastChoices = {}, pid = 
   const flashback = paysFlashback(g, c, choices) ? flashbackCost(g, c) : undefined;
   const fromExile = exileCast(c);
   const permit = permitFor(g, pid, c, choices);
-  if (freeCast(g, c) || fromExile === 'plotted' || permit?.p.free) return '';
+  // "You may play that card without paying its mana cost" (Urza) is an effect's permission to cast it for nothing too.
+  if (freeCast(g, c) || fromExile === 'plotted' || permit?.p.free || permission(g, pid, c)?.free) return '';
   if (fromExile === 'airbent') return '{2}';
   const escape = choices.escape && c.zone === 'graveyard' ? escapeFor(g, c, choices.escape.length)?.mana : undefined;
   return flashback ?? escape ?? permit?.p.cost ?? (alt ? alt.mana : data(spell).manaCost);
@@ -1001,7 +1051,22 @@ export function anyColor(cost: Cost): Cost {
 /** What `pid` pays to activate ability `ab` of `c`: its cost, paid with mana of any colour if something lets them (Agatha's Soul Cauldron). */
 export function activationCost(g: Game, pid: PlayerId, c: Card, ab: ActivatedAbility, x = 0): Cost {
   const cost = abilityCost(ab, g, c, x);
+  const change = abilityCostChange(g, c, pid);
+  // A reduction takes off generic mana only, never below {0} (601.2f, 602.2b).
+  if (change) cost.generic = Math.max(0, cost.generic + change);
   return battlefield(g).some((src) => abilitiesOf(g, src).anyColorFor?.(g, src, pid, c)) ? anyColor(cost) : cost;
+}
+
+/**
+ * How much more (positive) or less (negative) generic mana the activated abilities of
+ * permanent `c` cost `pid` to activate now (602.2b, 601.2f): every effect like "Activated
+ * abilities of Foods you control cost {1} less to activate" together (`abilityCostModifier`).
+ */
+export function abilityCostChange(g: Game, c: Card, pid: PlayerId): number {
+  if (c.zone !== 'battlefield') return 0;
+  let n = 0;
+  for (const src of battlefield(g)) if (mayHaveScript(src, 'abilityCostModifier')) n += abilitiesOf(g, src).abilityCostModifier?.(g, src, c, pid) ?? 0;
+  return n;
 }
 
 const BASIC_MANA: Record<string, ManaSym> = { Plains: 'W', Island: 'U', Swamp: 'B', Mountain: 'R', Forest: 'G' };
@@ -1086,10 +1151,47 @@ export function landColors(g: Game, c: Card): ManaSym[] {
   return result;
 }
 
+/** Where `Card.once` notes that the mana ability at `index` was activated this turn ("Activate only once each turn"). */
+const onceKey = (index: number) => `@mana${index}`;
+
+/**
+ * Every list of `n` mana made of `colors` in any combination, each list sorted in the order
+ * of `colors`: "Add X mana in any combination of {U} and/or {R}" (Vivi Ornitier, 106.1).
+ */
+export function combinations(colors: ManaSym[], n: number): ManaSym[][] {
+  if (n <= 0) return [];
+  const out: ManaSym[][] = [];
+  const grow = (made: ManaSym[], from: number) => {
+    if (made.length === n) return void out.push(made);
+    for (let i = from; i < colors.length; i++) grow([...made, colors[i]], i);
+  };
+  grow([], 0);
+  return out;
+}
+
+/** The colours among permanents `pid` controls (105.2): each colour at least one of them is, every effect applied (613.1e). */
+export function colorsAmong(g: Game, pid: PlayerId, which: (c: Card) => boolean = () => true): Color[] {
+  const found = new Set<Color>();
+  for (const c of g.players[pid].battlefield) if (which(c)) for (const x of colorsOf(g, c)) found.add(x);
+  return (WUBRG as Color[]).filter((x) => found.has(x));
+}
+
 /** The mana abilities of `c` whose conditions are met now (605.1a), with their colours worked out. */
 export function manaAbilities(g: Game, c: Card): ManaUse[] {
   return allManaAbilities(g, c).flatMap((ab, index) => {
     if (ab.when && !ab.when(g, c)) return [];
+    // "Activate only once each turn" (602.5b): this object has already this turn (400.7).
+    if (ab.activateOncePerTurn && c.once[onceKey(index)] === g.turn) return [];
+    // How much it adds, and exactly what, worked out now: it resolves as soon as it is activated (605.3b).
+    if (ab.amountOf || ab.producesOf) {
+      const amount = ab.amountOf ? ab.amountOf(g, c) : ab.amount;
+      const produces = ab.producesOf ? ab.producesOf(g, c).filter((o) => o.length) : undefined;
+      // One that would add no mana now is still a mana ability (605.1a, 605.2): it may be
+      // activated for nothing, by hand (auto-pay leaves it alone), and that uses up "once each turn".
+      if (amount <= 0 || (produces && !produces.length)) return [{ ...ab, index, amount: 0, colors: [], produces: [[]] }];
+      const colors = produces ? [...new Set(produces.flat())] : typeof ab.colors === 'function' ? ab.colors(g, c) : ab.colors === 'any' ? WUBRG : ab.colors === 'identity' ? g.players[c.controller].colors : ab.colors;
+      return colors.length ? [{ ...ab, index, amount: produces ? Math.max(...produces.map((o) => o.length)) : amount, colors, ...(produces ? { produces } : {}) }] : [];
+    }
     let colors: ManaSym[];
     if (typeof ab.colors === 'function') colors = ab.colors(g, c);
     else if (ab.colors === 'any') colors = WUBRG;
@@ -1098,7 +1200,16 @@ export function manaAbilities(g: Game, c: Card): ManaUse[] {
     else if (ab.colors === 'identity') colors = g.players[c.controller].colors;
     else colors = ab.colors;
     // "Any colour that a land an opponent controls could produce" may be no colour at all.
-    return colors.length ? [{ ...ab, index, colors }] : [];
+    if (!colors.length) return [];
+    // A mana ability with mana in its cost is an activated ability too, so effects that
+    // change what activated abilities cost change it (602.2b, 605.1a): generic mana only.
+    const change = ab.cost ? abilityCostChange(g, c, c.controller) : 0;
+    if (change) {
+      const cost = parseCost(ab.cost!);
+      cost.generic = Math.max(0, cost.generic + change);
+      return [{ ...ab, index, colors, cost: costText(cost) === '{0}' ? undefined : costText(cost) }];
+    }
+    return [{ ...ab, index, colors }];
   });
 }
 
@@ -1141,6 +1252,8 @@ interface Source {
   taps: string[];
   /** The creature tapped for that cost, if it has one. */
   creature?: string;
+  /** Every permanent tapped for that cost, when it taps more than one (Baylen's two tokens). */
+  tapped?: string[];
   amount: number;
   colors: ManaSym[];
   /** Sacrificed to make its mana, like a Treasure: auto-pay uses it last. */
@@ -1154,6 +1267,13 @@ interface Source {
   legendary?: boolean;
   /** Its mana can be spent only on spells with one of these card types (106.6, Tablet of Discovery). */
   types?: string[];
+  /** Its mana can be spent only on spells with at least this mana value, or with {X} with `orX` (106.6, Helga). */
+  minMv?: number;
+  orX?: boolean;
+  /** The exact lists of mana it can make, when it doesn't just make `amount` of one of `colors` (Faeburrow Elder, Vivi Ornitier). */
+  produces?: ManaSym[][];
+  /** Its mana can be spent only on spells with this subtype (106.6, Giada's "an Angel spell"). */
+  subtype?: string;
   /** Not a mana ability: a creature tapped to pay for one mana of a spell with convoke (702.51a). */
   convoke?: boolean;
   /** A spell its mana is spent on can't be countered (106.6). */
@@ -1180,25 +1300,70 @@ function usable(g: Game, pid: PlayerId, c: Card, ab: ManaUse): boolean {
   if (ab.instant && (g.priority !== pid || g.decision || g.resolving)) return false;
   // "Spend this mana only to cast a creature spell of the chosen type": no type chosen, no use.
   if (ab.chosenType && !c.chosen) return false;
-  if (ab.tapCreature && !tapCandidates(g, pid, ab).length) return false;
+  if (ab.tapCreature && tapCandidates(g, pid, ab, c).length < (ab.tapCreature.count ?? 1)) return false;
   return !forbidden(g, pid, 'activate', c);
 }
 
-/** The creatures `pid` could tap for a mana ability's "Tap an untapped [legendary] creature you control" cost. */
-export const tapCandidates = (g: Game, pid: PlayerId, ab: Pick<ManaAbility, 'tapCreature'>): Card[] =>
-  ab.tapCreature ? creaturesOf(g, pid).filter((x) => !x.tapped && (!ab.tapCreature!.legendary || hasType(g, x, 'Legendary'))) : [];
+/**
+ * The permanents `pid` could tap for a "Tap an untapped [legendary] creature / artifact / N
+ * tokens you control" cost (`TapUntapped`). Not `source` itself if its own {T} is part of the
+ * same cost: it can't be untapped for both (Springleaf Drum).
+ */
+export function untappedFor(g: Game, pid: PlayerId, t: TapUntapped, source?: Card, ownTap = false): Card[] {
+  const type = t.type ?? 'Creature';
+  return g.players[pid].battlefield.filter(
+    (x) =>
+      !x.tapped &&
+      !(ownTap && x.id === source?.id) &&
+      (!type || hasType(g, x, type)) &&
+      (!t.subtype || hasType(g, x, t.subtype)) &&
+      (!t.token || x.isToken) &&
+      (!t.legendary || hasType(g, x, 'Legendary')),
+  );
+}
+
+/** The permanents `pid` could tap for a mana ability's "Tap an untapped [legendary] creature you control" cost, or the like (`TapUntapped`). */
+export const tapCandidates = (g: Game, pid: PlayerId, ab: Pick<ManaAbility, 'tapCreature' | 'noTap' | 'fromHand'>, source?: Card): Card[] =>
+  ab.tapCreature ? untappedFor(g, pid, ab.tapCreature, source, !ab.noTap && !ab.fromHand) : [];
+
+/**
+ * The `n` of `options` it costs least to tap: tokens and permanents with no mana ability or
+ * {T} ability of their own first, then those that aren't creatures (which could attack or block).
+ */
+export function cheapestToTap(g: Game, options: Card[], n: number): Card[] {
+  const cost = (x: Card) => (manaAbilities(g, x).length || activatedAbilities(g, x).some((a) => a.cost.tap) ? 4 : 0) + (isCreature(g, x) ? 2 : 0) + (x.isToken ? 0 : 1);
+  return [...options].sort((a, b) => cost(a) - cost(b)).slice(0, n);
+}
 
 /**
  * Can mana with these restrictions be spent on `spell` (106.6)? Restricted to creature
  * spells of type `only`, or to legendary spells.
  */
-const spendable = (g: Game, m: { only?: string; legendary?: boolean; types?: string[] }, spell?: Card) =>
+const spendable = (g: Game, m: Restriction, spell?: Card) =>
   (!m.only || (!!spell && isCreature(g, spell) && subtypesOf(g, spell).includes(m.only))) &&
   (!m.legendary || (!!spell && hasType(g, spell, 'Legendary'))) &&
-  (!m.types || (!!spell && m.types.some((t) => hasType(g, spell, t))));
+  (!m.types || (!!spell && m.types.some((t) => hasType(g, spell, t)))) &&
+  // "An Angel spell": any spell with that subtype, a creature or a kindred one (205.3d).
+  (!m.subtype || (!!spell && subtypesOf(g, spell).includes(m.subtype))) &&
+  // "... with mana value 4 or greater or ... with {X} in their mana costs" (Helga). On the stack its X counts (202.3e).
+  (m.minMv === undefined || (!!spell && (manaValue(spell) >= m.minMv || (!!m.orX && parseCost(data(spell).manaCost).x > 0))));
+
+/** What mana may be spent on (106.6), as `Mana`, `ManaAbility` and `Source` carry it. */
+type Restriction = { only?: string; legendary?: boolean; types?: string[]; subtype?: string; minMv?: number; orX?: boolean };
 
 /** Mana that can be spent only on some spells (106.6). */
-const restricted = (m: { only?: string; legendary?: boolean; types?: string[] }) => !!(m.only || m.legendary || m.types);
+const restricted = (m: Restriction) => !!(m.only || m.legendary || m.types || m.subtype || m.minMv !== undefined);
+
+/** The restrictions on mana a mana ability makes (106.6), to put on each mana. */
+const restrictionsOf = (ab: Restriction & { uncounterable?: boolean; chosenType?: boolean }, chosen?: string | null): Partial<Mana> => ({
+  ...(ab.chosenType ? (chosen ? { only: chosen } : {}) : ab.only ? { only: ab.only } : {}),
+  // "... and that spell can't be countered" (106.6), whatever else the mana is restricted to (Cavern of Souls, Delighted Halfling).
+  ...(ab.uncounterable ? { uncounterable: true } : {}),
+  ...(ab.legendary ? { legendary: true } : {}),
+  ...(ab.types ? { types: ab.types } : {}),
+  ...(ab.subtype ? { subtype: ab.subtype } : {}),
+  ...(ab.minMv !== undefined ? { minMv: ab.minMv, ...(ab.orX ? { orX: true } : {}) } : {}),
+});
 
 /**
  * The mana abilities `pid` could use now, one entry per ability. `manual` adds the ones
@@ -1214,32 +1379,40 @@ function findManaSources(g: Game, pid: PlayerId, manual: boolean): Source[] {
   for (const c of [...p.battlefield, ...(manual ? p.hand : [])]) {
     for (const ab of manaAbilities(g, c)) {
       // Auto-pay never discards a card for mana (Skirge Familiar): it costs a card.
-      // Nor does it sacrifice a creature for mana (Phyrexian Tower).
-      if ((ab.manual || ab.fromHand || ab.discard || ab.sacrificeCreature) && !manual) continue;
+      // Nor does it sacrifice a creature for mana (Phyrexian Tower), or use one that makes no mana now.
+      if ((ab.manual || ab.fromHand || ab.discard || ab.sacrificeCreature || ab.amount <= 0) && !manual) continue;
       if (!usable(g, pid, c, ab)) continue;
       // One with a mana cost (a Signet) isn't a plain source: auto-pay works it in with
       // `planWithCosted`. By hand it can be used when its cost can be paid without it.
       if (ab.cost && (!manual || !planPayment(g, pid, parseCost(ab.cost), undefined, [c.id]))) continue;
       // One that taps a creature as well is a source once for each creature that could pay
-      // (Relic of Legends, Springleaf Drum). The creature can't make mana too once it is tapped.
+      // (Relic of Legends, Springleaf Drum, Urza's artifacts). The creature can't make mana too
+      // once it is tapped. One that taps several (Baylen's two tokens) is a source once, tapping
+      // the ones that cost least to tap.
       const self = ab.noTap && !ab.fromHand ? [] : [c.id];
-      const creatures: (string | undefined)[] = ab.tapCreature ? tapCandidates(g, pid, ab).map((x) => x.id) : [undefined];
+      const candidates = ab.tapCreature ? tapCandidates(g, pid, ab, c) : [];
+      const several = (ab.tapCreature?.count ?? 1) > 1;
+      const creatures: (string[] | undefined)[] = !ab.tapCreature ? [undefined] : several ? [cheapestToTap(g, candidates, ab.tapCreature.count!).map((x) => x.id)] : candidates.map((x) => [x.id]);
       for (const creature of creatures) {
         out.push({
           id: c.id,
           ability: ab.index,
-          taps: creature ? [...self, creature] : [c.id],
-          ...(creature ? { creature } : {}),
+          taps: creature ? [...self, ...creature] : [c.id],
+          ...(creature ? { creature: creature[0], ...(several ? { tapped: creature } : {}) } : {}),
           amount: ab.amount,
           colors: ab.colors,
+          ...(ab.produces ? { produces: ab.produces } : {}),
           sacrifice: ab.sacrifice,
           pain: (ab.life ?? 0) + (ab.damage ?? 0),
           life: ab.life ?? 0,
           // Tapping a creature for it costs that creature's attack or block.
           busy: !!creature || (!ab.noTap && !ab.fromHand && (isCreature(g, c) || activatedAbilities(g, c).some((a) => a.cost.tap))),
-          ...(ab.chosenType ? { only: c.chosen ?? undefined, uncounterable: ab.uncounterable } : {}),
+          ...(ab.chosenType ? { only: c.chosen ?? undefined } : {}),
+          ...(ab.uncounterable ? { uncounterable: true } : {}),
           ...(ab.legendary ? { legendary: true } : {}),
           ...(ab.types ? { types: ab.types } : {}),
+          ...(ab.minMv !== undefined ? { minMv: ab.minMv, ...(ab.orX ? { orX: true } : {}) } : {}),
+          ...(ab.subtype ? { subtype: ab.subtype } : {}),
         });
       }
     }
@@ -1293,8 +1466,10 @@ function pickManaAbility(g: Game, pid: PlayerId, c: Card): number | undefined {
  * the mana: tapping, life (119.4), sacrificing or exiling it, the damage it deals, and
  * "whenever this becomes tapped".
  */
-function useManaAbility(g: Game, pid: PlayerId, c: Card, ab: ManaUse, tapId?: string, discardId?: string, sacrificeId?: string) {
+function useManaAbility(g: Game, pid: PlayerId, c: Card, ab: ManaUse, tapId?: string | string[], discardId?: string, sacrificeId?: string) {
   const p = g.players[pid];
+  // "Activate only once each turn" (602.5b).
+  if (ab.activateOncePerTurn) c.once[onceKey(ab.index)] = g.turn;
   if (ab.sacrificeCreature) {
     // "Sacrifice a creature" (Phyrexian Tower): the one the player chose.
     const creature = creaturesOf(g, pid).find((x) => x.id === sacrificeId);
@@ -1306,9 +1481,7 @@ function useManaAbility(g: Game, pid: PlayerId, c: Card, ab: ManaUse, tapId?: st
     if (card) discard(g, card);
   }
   if (ab.tapCreature) {
-    const options = tapCandidates(g, pid, ab);
-    const creature = options.find((x) => x.id === tapId) ?? options[0];
-    if (creature) {
+    for (const creature of tappedForCost(g, pid, c, ab, tapId)) {
       tap(g, creature);
       log(g, `${says(p, 'taps')} ${label(creature)} (${label(c)}).`, pid, [creature, c]);
     }
@@ -1328,6 +1501,68 @@ function useManaAbility(g: Game, pid: PlayerId, c: Card, ab: ManaUse, tapId?: st
   if (ab.sacrifice) dieMany(g, [c], 'is sacrificed');
 }
 
+/**
+ * The permanents mana ability `ab` of `c` taps for its "Tap an untapped ... you control" cost
+ * (`TapUntapped`): the ones named, as many as it taps, or else the ones it costs least to tap.
+ */
+function tappedForCost(g: Game, pid: PlayerId, c: Card, ab: ManaUse, named?: string | string[]): Card[] {
+  const options = tapCandidates(g, pid, ab, c);
+  const n = ab.tapCreature?.count ?? 1;
+  const ids = typeof named === 'string' ? [named] : (named ?? []);
+  const picked = [...new Set(ids)].map((id) => options.find((x) => x.id === id)).filter((x): x is Card => !!x);
+  return picked.length === n ? picked : n === 1 ? options.slice(0, 1) : cheapestToTap(g, options, n);
+}
+
+/**
+ * The triggered mana abilities (605.1b) of permanents on the battlefield when `pid` has just
+ * tapped `source` for mana with ability `ab`, which made `produced`: only a mana ability with
+ * {T} in its cost taps it for mana (106.12), and only if it made some (106.12a). Each resolves
+ * at once, without the stack (605.4a), and adds its mana to its player's pool; its controller
+ * chooses among the lists it offers (`picks`, in the order they trigger, or else the one their
+ * cards want most). Returns the mana added, so tapping by hand can be taken back with it.
+ */
+function tappedForManaTriggers(g: Game, pid: PlayerId, source: Card, ab: ManaUse, produced: ManaSym[], picks: ManaSym[][] = []): Mana[] {
+  const out: Mana[] = [];
+  tappedForManaOptions(g, pid, source, ab, produced).forEach((t, k) => {
+    const wanted = picks[k];
+    const pick = (wanted && t.mana.find((o) => sameMana(o, wanted))) ?? preferredMana(g, t.from.controller, t.mana);
+    const added = pick.map((sym): Mana => ({ sym, source: t.from.id }));
+    // Like the mana ability it rides on, it isn't logged (605.3b): nothing uses the stack.
+    g.players[t.player].pool.push(...added);
+    if (t.player === pid) out.push(...added);
+  });
+  return out;
+}
+
+const sameMana = (a: ManaSym[], b: ManaSym[]) => a.length === b.length && [...a].sort().join() === [...b].sort().join();
+
+/**
+ * The triggered mana abilities (605.1b) that would trigger if `pid` tapped `source` for mana
+ * with ability `ab`, making `produced` (see `tappedForManaTriggers`), in the order they resolve:
+ * the permanent each is of, who adds the mana, and the lists of mana to choose among. For the
+ * mana picker, which asks the player's choices first (`Action.triggered`).
+ */
+export function tappedForManaOptions(g: Game, pid: PlayerId, source: Card, ab: ManaUse, produced: ManaSym[]): { from: Card; player: PlayerId; mana: ManaSym[][] }[] {
+  // Only a mana ability with {T} in its cost taps its permanent for mana (106.12), and only one that made mana counts (106.12a).
+  if (ab.noTap || ab.fromHand || !produced.length) return [];
+  const out: { from: Card; player: PlayerId; mana: ManaSym[][] }[] = [];
+  for (const x of battlefield(g)) {
+    if (!mayHaveScript(x, 'tappedForMana')) continue;
+    const r = abilitiesOf(g, x).tappedForMana?.(g, x, { source, player: pid, produced });
+    if (!r || g.players[r.player].lost || !r.mana.length) continue;
+    // It triggers once more for each effect like Roaming Throne's (603.2d). It isn't an
+    // "enters" ability, which is all such effects tell apart.
+    for (let n = triggerTimes(g, x, 'onTapped'); n > 0; n--) out.push({ from: x, player: r.player, mana: r.mana });
+  }
+  return out;
+}
+
+/** Which of these lists of mana `pid` would make: the one their cards want most (`colorNeed`), else the first. */
+function preferredMana(g: Game, pid: PlayerId, options: ManaSym[][]): ManaSym[] {
+  const need = (o: ManaSym[]) => o.reduce((n, x) => n + (x === 'C' ? 0 : Math.max(0, colorNeed(g, pid, x))), 0);
+  return options.reduce((best, o) => (need(o) > need(best) ? o : best));
+}
+
 /** Is `mana` one of the lists of mana this ability can add (in any order)? */
 export const canProduce = (ab: ManaUse, mana: ManaSym[]) =>
   produceOptions(ab).some((o) => o.length === mana.length && [...o].sort().join() === [...mana].sort().join());
@@ -1337,7 +1572,18 @@ export const canProduce = (ab: ManaUse, mana: ManaSym[]) =>
  * `mana`: the exact mana to make, one of its choices; else `color`: a choice with that
  * colour; left out, one is picked.
  */
-export function tapForMana(g: Game, pid: PlayerId, c: Card, ability = pickManaAbility(g, pid, c), color?: ManaSym, tapId?: string, discardId?: string, sacrificeId?: string, mana?: ManaSym[]) {
+export function tapForMana(
+  g: Game,
+  pid: PlayerId,
+  c: Card,
+  ability = pickManaAbility(g, pid, c),
+  color?: ManaSym,
+  tapId?: string | string[],
+  discardId?: string,
+  sacrificeId?: string,
+  mana?: ManaSym[],
+  triggered?: ManaSym[][],
+) {
   const ab = manaAbilities(g, c).find((m) => m.index === ability);
   if (!ab) return;
   const p = g.players[pid];
@@ -1348,23 +1594,32 @@ export function tapForMana(g: Game, pid: PlayerId, c: Card, ability = pickManaAb
   if (ab.cost && !(plan = pay(g, pid, parseCost(ab.cost), undefined, [c.id]))) return;
   const sym = color && ab.colors.includes(color) ? color : ab.colors.length === 1 ? ab.colors[0] : pickColor(g, pid, ab.colors);
   const made = mana && canProduce(ab, mana) ? mana : ab.produces ? pickProduce(g, pid, ab, color) : Array.from({ length: ab.amount }, () => sym);
-  const only = ab.chosenType ? (c.chosen ?? undefined) : undefined;
-  const added: Mana[] = made.map((sym) => ({ sym, source: c.id, ability: ab.index, ...(only ? { only, uncounterable: ab.uncounterable } : {}), ...(ab.legendary ? { legendary: true } : {}), ...(ab.types ? { types: ab.types } : {}) }));
-  const options = tapCandidates(g, pid, ab);
-  const creature = ab.tapCreature ? (options.find((x) => x.id === tapId) ?? options[0]) : undefined;
-  useManaAbility(g, pid, c, ab, tapId, discardId, sacrificeId);
+  const added: Mana[] = made.map((sym) => ({ sym, source: c.id, ability: ab.index, ...restrictionsOf(ab, c.chosen) }));
+  const tappedFor = ab.tapCreature ? tappedForCost(g, pid, c, ab, tapId) : [];
+  const creature = tappedFor[0];
+  // A source sacrificed for its mana (a Treasure) is seen by its triggered mana abilities as it last was (603.10a).
+  const was = ab.sacrifice ? lastKnown(g, c) : c;
+  useManaAbility(g, pid, c, ab, tappedFor.map((x) => x.id), discardId, sacrificeId);
+  // Its triggered mana abilities resolve right after it (605.4a): Kinnan's extra mana.
+  const extra = tappedForManaTriggers(g, pid, was, ab, made, triggered);
   // It can be taken back if it changed nothing else: no life paid, no damage, nothing
   // sacrificed, discarded or exiled, nothing triggered, and the same for the sources that
-  // paid its mana cost.
-  const used = (plan?.uses ?? []).map((u) => manaAbilities(g, permanent(g, u.id)!).find((m) => m.index === u.ability));
-  const clean = (m: ManaUse | undefined) => !!m && !m.life && !m.damage && !m.sacrifice && !m.sacrificeCreature && !m.discardHand && !m.discard && !m.fromHand;
+  // paid its mana cost. Mana its triggered mana abilities added goes back with it.
+  // Every ability it has, used or not: one used once this turn isn't among those usable now.
+  const used = (plan?.uses ?? []).map((u) => {
+    const x = permanent(g, u.id);
+    return x ? allManaAbilities(g, x)[u.ability] : undefined;
+  });
+  const clean = (m: ManaAbility | undefined) => !!m && !m.life && !m.damage && !m.sacrifice && !m.sacrificeCreature && !m.discardHand && !m.discard && !m.fromHand;
   if (clean(ab) && used.every(clean) && !plan?.life && g.triggers.length === triggers) {
     const key = (m: Mana) => JSON.stringify(m);
     const spent = without(before, plan ? plan.pool : before, key);
     const left = without(plan ? plan.pool : before, before, key);
     for (const m of p.pool) if (left.some((x) => key(x) === key(m))) m.along = c.id;
-    const tapped = [...new Set([...(ab.noTap ? [] : [c.id]), ...(creature ? [creature.id] : []), ...(plan?.tap ?? [])])];
-    const undo: ManaUndo = { made: added.length, tapped, spent, left: left.length, ...(creature ? { creature: creature.id } : {}) };
+    const along = [...(plan?.extra ?? []), ...extra];
+    for (const m of along) m.along = c.id;
+    const tapped = [...new Set([...(ab.noTap ? [] : [c.id]), ...tappedFor.map((x) => x.id), ...(plan?.tap ?? [])])];
+    const undo: ManaUndo = { made: added.length, tapped, spent, left: left.length + along.length, ...(creature ? { creature: creature.id } : {}) };
     for (const m of added) m.undo = undo;
   }
   p.pool.push(...added);
@@ -1511,23 +1766,55 @@ interface Plan {
   wants: Map<ManaSym, number>;
 }
 
-/** Mana a source makes beyond the one it is tapped to pay for. It goes to the pool. */
-const extraMana = (s: Source, paying: ManaSym | null): Mana[] =>
-  Array.from({ length: s.amount - 1 }, () => ({
-    sym: s.colors.length === 1 ? s.colors[0] : (paying ?? s.colors[0]),
+/**
+ * The mana source `s` makes when used to pay for one mana of `paying` (null: generic), the
+ * one that pays first: one of its exact lists that has that mana (Faeburrow Elder's), or else
+ * `amount` of one of its colours.
+ */
+function madeBy(s: Source, paying: ManaSym | null, wants?: Map<ManaSym, number>): ManaSym[][] {
+  if (s.produces) {
+    const fits = paying ? s.produces.filter((o) => o.includes(paying)) : s.produces;
+    // For generic mana, the list other cards want least, so the rest is free for them.
+    const want = (o: ManaSym[]) => o.reduce((n, x) => n + (wants?.get(x) ?? 0), 0);
+    const options = paying ? fits : [...fits].sort((a, b) => want(a) - want(b)).slice(0, 1);
+    const seen = new Set<string>();
+    return options
+      .map((o) => (paying ? [paying, ...without(o, [paying], (x) => x)] : o))
+      .filter((o) => {
+        const k = [...o].sort().join();
+        return !seen.has(k) && !!seen.add(k);
+      });
+  }
+  const sym = paying ?? s.colors[0];
+  return [Array.from({ length: s.amount }, (_, i) => (i === 0 || s.colors.length !== 1 ? sym : s.colors[0]))];
+}
+
+/** Mana a source makes beyond the one it is tapped to pay for (the first of `made`). It goes to the pool. */
+const extraMana = (s: Source, made: ManaSym[]): Mana[] =>
+  made.slice(1).map((sym) => ({
+    sym,
     source: s.id,
     ability: s.ability,
-    ...(s.only ? { only: s.only, uncounterable: s.uncounterable } : {}),
+    ...(s.only ? { only: s.only } : {}),
+    ...(s.uncounterable ? { uncounterable: true } : {}),
     ...(s.legendary ? { legendary: true } : {}),
     ...(s.types ? { types: s.types } : {}),
+    ...(s.subtype ? { subtype: s.subtype } : {}),
+    ...(s.minMv !== undefined ? { minMv: s.minMv, ...(s.orX ? { orX: true } : {}) } : {}),
   }));
 
-/** Uses source `s` to pay one mana: the permanent's other mana abilities are gone with it (it is tapped, or sacrificed). */
-const useSource = (plan: Plan, s: Source, paying: ManaSym | null): Plan => ({
+/**
+ * Uses source `s` to pay one mana, making `made` (the first pays): the permanent's other mana
+ * abilities are gone with it (it is tapped, or sacrificed).
+ */
+const useSource = (plan: Plan, s: Source, made: ManaSym[]): Plan => ({
   ...plan,
-  pool: [...plan.pool, ...extraMana(s, paying)],
+  pool: [...plan.pool, ...extraMana(s, made)],
   sources: plan.sources.filter((x) => !x.taps.some((t) => s.taps.includes(t))),
-  uses: [...plan.uses, { id: s.id, ability: s.ability, ...(s.creature ? { creature: s.creature } : {}), ...(s.convoke ? { convoke: true } : {}), taps: s.taps }],
+  uses: [
+    ...plan.uses,
+    { id: s.id, ability: s.ability, ...(s.creature ? { creature: s.creature } : {}), ...(s.tapped ? { tapped: s.tapped } : {}), ...(s.convoke ? { convoke: true } : { made }), taps: s.taps },
+  ],
   abilityLife: plan.abilityLife + s.life,
   // A creature that convoked paid for the mana without it being spent (702.51a).
   spent: plan.spent + (s.convoke ? 0 : 1),
@@ -1557,10 +1844,11 @@ function payMana(sym: ManaSym, plan: Plan): Plan[] {
   const tried = new Set<string>(); // sources that make the same mana the same way are interchangeable
   const out: Plan[] = [];
   for (const s of options) {
-    const kind = `${s.amount}:${s.colors.join('')}:${s.pain}:${!!s.sacrifice}:${s.keep ?? 0}`;
+    const kind = `${s.amount}:${s.colors.join('')}:${s.produces?.map((o) => o.join('')).join('|') ?? ''}:${s.pain}:${!!s.sacrifice}:${s.keep ?? 0}`;
     if (tried.has(kind)) continue;
     tried.add(kind);
-    out.push(useSource(plan, s, sym));
+    // A source with exact lists of mana (Vivi Ornitier's any combination) can make each list with `sym` in it.
+    for (const made of madeBy(s, sym)) out.push(useSource(plan, s, made));
   }
   return out;
 }
@@ -1585,7 +1873,7 @@ function payGeneric(plan: Plan): Plan | null {
       (s.amount <= remaining ? 100 + s.amount * 10 : 50 - s.amount * 10) - (s.keep ?? 0) - s.pain * 30 - (s.sacrifice ? 500 : 0);
     const best = plan.sources.reduce((a, b) => (score(b) > score(a) ? b : a));
     // Its first mana pays for this; the rest goes to the pool and is spent next.
-    plan = useSource(plan, best, null);
+    plan = useSource(plan, best, madeBy(best, null, plan.wants)[0]);
     remaining--;
   }
   return { ...plan, generic: 0 };
@@ -1630,9 +1918,13 @@ export interface ManaUseRef {
   id: string;
   ability: number;
   creature?: string;
+  /** Every permanent tapped for its cost, when that taps more than one (Baylen's two tokens). */
+  tapped?: string[];
   /** Not a mana ability: creature `id` is tapped to pay for one mana of a spell with convoke (702.51a). */
   convoke?: boolean;
   taps: string[];
+  /** The mana the ability makes, for the triggered mana abilities it sets off (605.1b). */
+  made?: ManaSym[];
 }
 
 /** How a cost would be paid (see `planPayment`). */
@@ -1646,6 +1938,8 @@ export interface Payment {
   spent: number;
   /** Mana that makes the spell uncounterable is spent (106.6). */
   uncounterable: boolean;
+  /** Once paid: the mana that triggered mana abilities added to the payer's pool on top (605.1b, Kinnan). */
+  extra?: Mana[];
 }
 
 /**
@@ -1784,7 +2078,7 @@ function planWithCosted(
       if (!rest || act.life + rest.life + (ab.life ?? 0) > life) continue;
       return {
         tap: [...act.tap, c.id, ...rest.tap],
-        uses: [...act.uses, { id: c.id, ability: ab.index, taps: [c.id] }, ...rest.uses],
+        uses: [...act.uses, { id: c.id, ability: ab.index, taps: [c.id], made }, ...rest.uses],
         pool: rest.pool,
         life: act.life + rest.life,
         spent: rest.spent,
@@ -1915,8 +2209,16 @@ export function pay(g: Game, pid: PlayerId, cost: Cost, spell?: Card, keep: stri
     log(g, `${says(g.players[pid], 'taps')} ${label(c)} (convoke).`, pid, [c]);
   }
   // Every ability is activated before any of them is sacrificed or deals its damage.
-  const used = settled(g, () => plan.uses.filter((x) => !x.convoke).map((u) => ({ c: permanent(g, u.id)!, ab: manaAbilities(g, permanent(g, u.id)!).find((m) => m.index === u.ability)!, creature: u.creature })));
-  for (const { c, ab, creature } of used) useManaAbility(g, pid, c, { ...ab, sacrifice: false }, creature);
+  const used = settled(g, () =>
+    plan.uses.filter((x) => !x.convoke).map((u) => ({ c: permanent(g, u.id)!, ab: manaAbilities(g, permanent(g, u.id)!).find((m) => m.index === u.ability)!, creature: u.tapped ?? u.creature, made: u.made ?? [] })),
+  );
+  const extra: Mana[] = [];
+  for (const { c, ab, creature, made } of used) {
+    useManaAbility(g, pid, c, { ...ab, sacrifice: false }, creature);
+    // Its triggered mana abilities resolve right after it (605.4a): Kinnan's extra mana goes to the pool.
+    extra.push(...tappedForManaTriggers(g, pid, c, ab, made));
+  }
+  if (extra.length) plan.extra = extra;
   const spent = used.filter((u) => u.ab.sacrifice).map((u) => u.c);
   if (spent.length) dieMany(g, spent, 'is sacrificed');
   if (plan.life) {
@@ -2044,9 +2346,18 @@ export function spellTargets(c: Card, modes: number[] = [], gift = c.cast?.gift,
 /** The targets a spell or ability on the stack has to choose. */
 export function targetSpecs(_g: Game, item: StackItem): TargetSpec[] {
   const script = scriptFor(item.card);
-  if (item.kind === 'activated') return (item.ability === undefined ? itemActivated(item) : script.loyalty?.[item.ability])?.targets ?? [];
+  if (item.kind === 'activated') {
+    const ab = item.ability === undefined ? itemActivated(item) : script.loyalty?.[item.ability];
+    // A modal one: the targets of the modes chosen as it was activated, in printed order (700.2c).
+    if (ab && 'modes' in ab && ab.modes) return (item.modes ?? []).flatMap((i) => ab.modes!.modes[i]?.targets ?? []);
+    return ab?.targets ?? [];
+  }
   if (item.kind === 'triggered' && item.hook === 'onChapter') return script.chapters?.[(item.event as { chapter: number }).chapter - 1]?.targets ?? [];
-  if (item.kind === 'triggered' && item.hook === 'onReflexive') return itemScript(item).reflexive?.[(item.event as { key: string }).key]?.targets ?? [];
+  if (item.kind === 'triggered' && item.hook === 'onReflexive') {
+    const r = itemScript(item).reflexive?.[(item.event as { key: string }).key];
+    if (r?.modes) return (item.modes ?? []).flatMap((i) => r.modes!.modes[i]?.targets ?? []);
+    return r?.targets ?? [];
+  }
   if (item.kind === 'triggered' && (item.hook === 'onEvoked' || item.hook === 'onOffspring')) return [];
   // A lone "enters" ability uses the card's `targets`; one in a list names its own.
   if (item.kind === 'triggered' && item.hook === 'onEnter' && !item.granted && !Array.isArray(script.onEnter)) return script.targets ?? [];
@@ -2215,6 +2526,12 @@ const SECOND_PERSON: Record<string, string> = {
   looks: 'look',
   shuffles: 'shuffle',
   dredges: 'dredge',
+  discovers: 'discover',
+  gets: 'get',
+  taps: 'tap',
+  proliferates: 'proliferate',
+  blights: 'blight',
+  removes: 'remove',
 };
 
 /**
@@ -2332,8 +2649,13 @@ function shiftCard(g: Game, c: Card, to: Zone) {
   // As it last was on the battlefield, for leaves-the-battlefield abilities (603.10a).
   // Who is watching looks back in time too (603.10a): a permanent that left earlier in the same event still sees this one go.
   const last = from === 'battlefield' && watchingLeaves(g, batch?.before ?? battlefield(g)) ? lastKnown(g, c) : null;
-  if (last && batch && !batch.before) batch.before = battlefield(g).map((x) => rememberPermanent(g, x));
-  const before = last && !batch ? battlefield(g).map((x) => rememberPermanent(g, x)) : null;
+  // A card leaving a graveyard, for "whenever one or more cards leave your graveyard", which looks back in time too (603.10a).
+  const leftGraveyard = from === 'graveyard' && watchingGraveyard(g, batch?.before ?? battlefield(g));
+  if ((last || leftGraveyard) && batch && !batch.before) batch.before = battlefield(g).map((x) => rememberPermanent(g, x));
+  const before = (last || leftGraveyard) && !batch ? battlefield(g).map((x) => rememberPermanent(g, x)) : null;
+  // Was it an attacking creature (for "if it was attacking"), and what was it, as it left the battlefield?
+  const attacking = from === 'battlefield' && !!g.combat?.attacks.some((a) => a.id === c.id);
+  const wasPermanent = from === 'battlefield' ? (last ?? lastKnown(g, c)) : undefined;
   if (c.zone === 'stack') {
     g.stack = g.stack.filter((x) => x.kind !== 'spell' || x.card.id !== c.id);
   } else {
@@ -2385,24 +2707,37 @@ function shiftCard(g: Game, c: Card, to: Zone) {
   // A spell keeps what it was cast with as it becomes a permanent (107.3m), and loses it after.
   if (c.zone !== 'stack' || to !== 'battlefield') c.cast = null;
   c.mayReturn = c.isCommander && (to === 'graveyard' || to === 'exile');
+  c.arrived = { from, turn: g.turn };
   c.zone = to;
   c.ts = g.nextId++; // a new timestamp as it enters a zone (613.7d)
   if (c.isToken && to !== 'battlefield') {
-    if (last) leaves(g, { left: [{ card: last, to }], exiled: [], before });
+    if (last) leaves(g, { left: [{ card: last, to, attacking }], exiled: [], before });
     return;
   }
   const zone = g.players[to === 'battlefield' ? c.controller : c.owner][to];
   zone.push(c);
   const stored = zone[zone.length - 1];
-  if (to === 'graveyard') announce(g, 'onCardToGraveyard', { card: stored, player: c.owner });
+  if (to === 'graveyard') announce(g, 'onCardToGraveyard', { card: stored, player: c.owner, ...(wasPermanent ? { from: wasPermanent } : {}) });
   // Cards put into exile from a graveyard or the battlefield (Ketramose), which sees itself go (603.10a). Tokens aren't cards (108.2b).
   const exiled = to === 'exile' && (from === 'graveyard' || from === 'battlefield') && watchingExile(g, before ?? batch?.before ?? battlefield(g)) ? [stored] : [];
-  if (last || exiled.length) leaves(g, { left: last ? [{ card: last, to }] : [], exiled, before });
+  if (last || exiled.length || leftGraveyard) leaves(g, { left: last ? [{ card: last, to, attacking }] : [], exiled, fromGraveyard: leftGraveyard ? [stored] : [], before });
 }
+
+/**
+ * Cards that left a graveyard other than by moving to another zone of a player's, as a spell
+ * being cast from it does (601.2a): one event, for "whenever one or more cards leave your
+ * graveyard" (603.10a). `cards` are as they are now.
+ */
+export function leftGraveyards(g: Game, cards: Card[]) {
+  if (cards.length && watchingGraveyard(g, batch?.before ?? battlefield(g))) leaves(g, { left: [], exiled: [], fromGraveyard: cards, before: null });
+}
+
+/** Is anything among `permanents` listening for cards leaving a graveyard? */
+const watchingGraveyard = (g: Game, permanents: Card[]) => permanents.some((x) => mayHaveScript(x, 'onLeaveGraveyard') && abilitiesOf(g, x).onLeaveGraveyard);
 
 /** Is anything among `permanents` listening for permanents leaving the battlefield (so `moveCard` needs to remember them)? */
 const watchingLeaves = (g: Game, permanents: Card[]) =>
-  permanents.some((x) => {
+  [...permanents, ...emblemsOf(g)].some((x) => {
     const s = abilitiesOf(g, x);
     return s.onLeave || s.onPermanentLeaves || s.onExiled;
   });
@@ -2412,8 +2747,11 @@ const watchingExile = (g: Game, permanents: Card[]) => permanents.some((x) => ab
 
 /** Permanents that left the battlefield, and cards exiled from graveyards or the battlefield, in one event. */
 interface Leaving {
-  left: { card: Card; to: Zone }[];
+  /** `attacking`: it was an attacking creature as it left (for "if it was attacking", Zurgo Stormrender). */
+  left: { card: Card; to: Zone; attacking?: boolean }[];
   exiled: Card[];
+  /** Cards that left graveyards, as they are now (`onLeaveGraveyard`). */
+  fromGraveyard?: Card[];
   /** The battlefield just before the event, for abilities that look back in time (603.10a). */
   before: Card[] | null;
 }
@@ -2423,6 +2761,7 @@ function leaves(g: Game, l: Leaving) {
   if (batch) {
     batch.left.push(...l.left);
     batch.exiled.push(...l.exiled);
+    (batch.fromGraveyard ??= []).push(...(l.fromGraveyard ?? []));
     return;
   }
   fireLeaves(g, l);
@@ -2434,16 +2773,22 @@ function leaves(g: Game, l: Leaving) {
  * more cards are put into exile" once for the whole event.
  */
 function fireLeaves(g: Game, l: Leaving) {
-  if (!l.left.length && !l.exiled.length) return;
+  if (!l.left.length && !l.exiled.length && !l.fromGraveyard?.length) return;
   const was = lookBack;
   lookBack = l.before ?? was;
   try {
-    const watchers = lookBack ?? battlefield(g);
-    for (const { card, to } of l.left) {
+    const watchers = [...(lookBack ?? battlefield(g)), ...emblemsOf(g)];
+    for (const { card, to, attacking } of l.left) {
       trigger(g, card, 'onLeave', { to });
-      for (const w of watchers) if (abilitiesOf(g, w).onPermanentLeaves) trigger(g, w, 'onPermanentLeaves', { left: card, to });
+      for (const w of watchers) if (abilitiesOf(g, w).onPermanentLeaves) trigger(g, w, 'onPermanentLeaves', { left: card, to, attacking });
     }
     if (l.exiled.length) for (const w of watchers) if (abilitiesOf(g, w).onExiled) trigger(g, w, 'onExiled', { cards: l.exiled });
+    // "Whenever one or more cards leave your graveyard": once for the event, for each graveyard (603.2c).
+    const owners = [...new Set((l.fromGraveyard ?? []).map((c) => c.owner))];
+    for (const player of owners) {
+      const cards = l.fromGraveyard!.filter((c) => c.owner === player);
+      for (const w of watchers) if (abilitiesOf(g, w).onLeaveGraveyard) trigger(g, w, 'onLeaveGraveyard', { player, cards });
+    }
   } finally {
     lookBack = was;
   }
@@ -2457,7 +2802,7 @@ function fireLeaves(g: Game, l: Leaving) {
  * lose life" triggers once for the whole event.
  */
 type Dealt = TriggerEvents['onSourceDamage'];
-let batch: ({ events: [BroadcastHook, object][]; losses: { player: PlayerId; amount: number }[]; damage: Dealt[]; returns: { id: string; moves: number }[] } & Leaving) | null = null;
+let batch: ({ events: [BroadcastHook, object][]; losses: { player: PlayerId; amount: number }[]; damage: Dealt[]; returns: { id: string; moves: number }[]; milled: Card[] } & Leaving) | null = null;
 
 /** Broadcasts an event now, or once the event going on now is over (`simultaneously`). */
 function announce<H extends BroadcastHook>(g: Game, hook: H, event: TriggerEvents[H]) {
@@ -2471,7 +2816,7 @@ function announce<H extends BroadcastHook>(g: Game, hook: H, event: TriggerEvent
  */
 export function simultaneously(g: Game, fn: () => void) {
   if (batch) return fn();
-  batch = { events: [], losses: [], damage: [], returns: [], left: [], exiled: [], before: null };
+  batch = { events: [], losses: [], damage: [], returns: [], left: [], exiled: [], before: null, milled: [] };
   try {
     fn();
   } finally {
@@ -2481,6 +2826,7 @@ export function simultaneously(g: Game, fn: () => void) {
     for (const [hook, event] of done.events) broadcast(g, hook, event as never);
     if (done.losses.length) broadcast(g, 'onLifeLossTogether', { losses: done.losses });
     for (const d of done.damage) broadcast(g, 'onSourceDamage', d);
+    if (done.milled.length) broadcast(g, 'onMilled', { cards: done.milled });
     if (done.returns.length) release(g, done.returns);
   }
 }
@@ -2499,6 +2845,8 @@ export function gainControl(g: Game, c: Card, pid: PlayerId) {
   c.controller = pid;
   c.sick = true;
   g.players[pid].battlefield.push(c);
+  // A Ring-bearer stops being one when another player gains control of it (701.54a).
+  for (const o of g.players) if (o.id !== pid && o.ring?.bearer?.id === c.id) o.ring.bearer = null;
   log(g, `${says(g.players[pid], 'gains')} control of ${label(c)}.`, pid, [c]);
 }
 
@@ -2510,6 +2858,9 @@ export function tap(g: Game, c: Card) {
   if (c.tapped) return;
   c.tapped = true;
   trigger(g, c, 'onTapped', {});
+  // "Whenever a Dwarf you control becomes tapped" (Magda): every permanent hears it. Lands tap
+  // for mana all the time, so only when something on the battlefield may have such an ability.
+  if (anyGrantFor('onPermanentTapped') || [...battlefield(g), ...emblemsOf(g)].some((x) => mayHaveScript(x, 'onPermanentTapped'))) broadcast(g, 'onPermanentTapped', { tapped: c });
 }
 
 /** Untaps a permanent (701.26b), if it is still there. */
@@ -2535,9 +2886,15 @@ export const snapshot = (draft: Card): Card => {
  */
 function leaveAbilitiesBehind(g: Game, c: Card) {
   const mine = [...g.triggers, ...g.stack].filter((x) => x.kind !== 'spell' && x.card.id === c.id && x.card.moves === c.moves);
-  if (!mine.length) return;
+  // An ability about this permanent ("that creature's toughness", Pantlaza) uses it as it last was too (608.2h).
+  const about = [...g.triggers, ...g.stack].filter((x) => x.kind === 'triggered' && x.event && Object.values(x.event).some((v) => isCard(v) && v.id === c.id && v.moves === c.moves && !v.lki));
+  if (!mine.length && !about.length) return;
   const last = lastKnown(g, c);
   for (const x of mine) x.card = { ...last, ...(x.card.triggeredBy ? { triggeredBy: x.card.triggeredBy } : {}) };
+  for (const x of about) {
+    const event = x.event as Record<string, unknown>;
+    for (const [k, v] of Object.entries(event)) if (isCard(v) && v.id === c.id && v.moves === c.moves) event[k] = last;
+  }
 }
 
 /**
@@ -2573,10 +2930,18 @@ export function trigger<H extends TriggerHook>(g: Game, source: Card, hook: H, e
   let times: number | undefined;
   for (const { t, extra } of [...own, ...given]) {
     if (typeof t !== 'function' && t.when && !t.when(g, { self: source, ...event })) continue;
-    times ??= triggerTimes(g, source, hook);
+    // "This ability triggers only once each turn": not again this turn for this object.
+    const once = typeof t !== 'function' && t.oncePerTurn ? `${hook}:${'trigger' in extra ? extra.trigger : 'granted' in extra ? `${extra.granted.from}/${extra.granted.index}` : 0}` : null;
+    // Kept on the permanent itself, even when it is asked as it was before the event (603.10a).
+    const holder = once ? ((x) => (x && x.moves === source.moves ? x : source))(permanent(g, source.id)) : source;
+    if (once && holder.once[once] === g.turn) continue;
+    times ??= triggerTimes(g, source, hook, event);
     if (!times) return;
+    if (once) holder.once[once] = g.turn;
     const remembered = Object.fromEntries(Object.entries(event).map(([k, v]) => [k, isCard(v) ? snapshot(v) : v]));
-    for (let k = 0; k < times; k++) {
+    // An effect that makes it trigger an additional time (603.2d) would have it trigger again
+    // this turn, which "only once each turn" forbids: the "can't" wins (101.2), so just one.
+    for (let k = 0; k < (once ? 1 : times); k++) {
       g.triggers.push({ id: `s${g.nextId++}`, kind: 'triggered', controller: source.controller, card: { ...snapshot(source), triggeredBy: remembered }, hook, ...extra, event: remembered, targets: [] });
     }
   }
@@ -2587,10 +2952,10 @@ export function trigger<H extends TriggerHook>(g: Game, source: Card, hook: H, e
  * Roaming Throne's (603.2d), or not at all with an effect like Elesh Norn's "don't cause
  * abilities ... to trigger".
  */
-export function triggerTimes(g: Game, source: Card, hook: TriggerHook): number {
+export function triggerTimes(g: Game, source: Card, hook: TriggerHook, event: object = {}): number {
   const w = watchers?.() ?? watchersNow(g);
   if (w.suppressors.some((x) => abilitiesOf(g, x).suppressesTriggers!(g, x, source, hook))) return 0;
-  return 1 + w.doublers.filter((x) => abilitiesOf(g, x).doublesTriggers!(g, x, source, hook)).length;
+  return 1 + w.doublers.filter((x) => abilitiesOf(g, x).doublesTriggers!(g, x, source, hook, event)).length;
 }
 
 /**
@@ -2599,7 +2964,56 @@ export function triggerTimes(g: Game, source: Card, hook: TriggerHook): number {
  * abilities, keyword ones included, and every "whenever [a permanent] enters". Counters it
  * enters with are another event (122.6).
  */
-export const ENTERING_HOOKS: TriggerHook[] = ['onEnter', 'onCreatureEnters', 'onPermanentEnters', 'onLandfall', 'onEvoked', 'onOffspring'];
+export const ENTERING_HOOKS: TriggerHook[] = ['onEnter', 'onCreatureEnters', 'onPermanentEnters', 'onPermanentsEnter', 'onLandfall', 'onEvoked', 'onOffspring'];
+
+/** The permanents whose entering set off `source`'s ability on `hook` (one of `ENTERING_HOOKS`): the source itself, or the ones the event names ("whenever one or more ... enter" names several). */
+export function enteringPermanents(hook: TriggerHook, source: Card, event: object): Card[] {
+  const e = event as Partial<TriggerEvents['onCreatureEnters'] & TriggerEvents['onPermanentsEnter'] & TriggerEvents['onLandfall']>;
+  if (hook === 'onEnter' || hook === 'onEvoked' || hook === 'onOffspring') return [source];
+  if (hook === 'onCreatureEnters' || hook === 'onPermanentEnters') return e.entered ? [e.entered as Card] : [];
+  if (hook === 'onPermanentsEnter') return (e.entered as Card[] | undefined) ?? [];
+  if (hook === 'onLandfall') return e.land ? [e.land] : [];
+  return [];
+}
+
+/**
+ * The events that are a creature attacking, for "If a creature attacking causes a triggered
+ * ability ... to trigger" (Isshin, Two Heavens as One): "whenever this attacks" (mobilize's
+ * among them, 702.181a), "whenever a creature attacks", "whenever you attack" or "whenever
+ * one or more creatures attack", which trigger on attackers being declared (508.1m), and
+ * exalted's "whenever a creature you control attacks alone" (702.83a). A creature becoming
+ * tapped as it attacks is another event (508.1f).
+ */
+export const ATTACKING_HOOKS: TriggerHook[] = ['onAttack', 'onCreatureAttacks', 'onAttackersDeclared', 'onExalted'];
+
+/**
+ * Is `source`'s ability on `hook` for `event` one that a creature dying caused to trigger, for
+ * "If a creature dying causes a triggered ability ... to trigger" (Teysa Karlov)? Dying is
+ * being put into a graveyard from the battlefield (700.4): the creature's own "when this dies",
+ * "whenever a creature dies", a creature card put into a graveyard from the battlefield (an
+ * artifact creature for "whenever an artifact is put into a graveyard from the battlefield")
+ * and a creature leaving the battlefield for a graveyard, the creature as it last was on the
+ * battlefield, effects included (603.10a). An ability that triggers on an event that causes a
+ * creature to die, like "whenever you sacrifice a permanent", isn't caused by the dying (Teysa's rulings).
+ */
+export function causedByCreatureDying(g: Game, source: Card, hook: TriggerHook, event: object): boolean {
+  const e = event as Partial<TriggerEvents['onCardToGraveyard'] & TriggerEvents['onPermanentLeaves']>;
+  switch (hook) {
+    case 'onDies':
+      return isCreature(g, source);
+    case 'onCreatureDies':
+      return true;
+    case 'onCardToGraveyard':
+      // The card as it was before it moved, if it came from the battlefield (`from`).
+      return !!e.from && e.from.zone === 'battlefield' && isCreature(g, e.from);
+    case 'onLeave':
+      return e.to === 'graveyard' && isCreature(g, source);
+    case 'onPermanentLeaves':
+      return e.to === 'graveyard' && !!e.left && isCreature(g, e.left);
+    default:
+      return false;
+  }
+}
 
 /**
  * The permanents on the battlefield as they were just before an event that looks back in
@@ -2658,19 +3072,27 @@ export function triggerOf(item: StackItem): Trigger<object> | undefined {
   return Array.isArray(raw) ? raw[item.trigger ?? 0] : raw;
 }
 
+/** The modes of triggered ability `item`, if it is modal (603.3c): its own, or a reflexive ability's (`CardScript.reflexive`). */
+export function triggerModesOf(item: StackItem): TriggerModes | undefined {
+  if (item.kind !== 'triggered') return undefined;
+  if (item.hook === 'onReflexive') return itemScript(item).reflexive?.[(item.event as { key: string }).key]?.modes;
+  const t = triggerOf(item);
+  return t && typeof t !== 'function' ? t.modes : undefined;
+}
+
 /**
  * Which modes of modal triggered ability `item` can be chosen now (603.3c): not one with a
  * target that has no legal choice (700.2a). Null if it isn't modal.
  */
 export function triggerModeOptions(g: Game, item: StackItem): { min: number; max: number; legal: number[] } | null {
-  const t = triggerOf(item);
-  if (!t || typeof t === 'function' || !t.modes) return null;
+  const modes = triggerModesOf(item);
+  if (!modes) return null;
   const source = modeSource(g, item);
-  const legal = t.modes.modes
+  const legal = modes.modes
     .map((_, i) => i)
-    .filter((i) => !(t.modes!.oncePerTurn && source.once[`mode${i}`] === g.turn))
-    .filter((i) => (t.modes!.modes[i].targets ?? []).every((spec) => spec.optional || spec.any || legalTargets(g, item.controller, spec, item.card).length > 0));
-  return { min: t.modes.min, max: t.modes.max, legal };
+    .filter((i) => !(modes.oncePerTurn && source.once[`mode${i}`] === g.turn))
+    .filter((i) => (modes.modes[i].targets ?? []).every((spec) => spec.optional || spec.any || legalTargets(g, item.controller, spec, item.card).length > 0));
+  return { min: modes.min, max: modes.max, legal };
 }
 
 /** The source of modal triggered ability `item`: the permanent, if it is still the same object (400.7), else as it was. */
@@ -2681,8 +3103,7 @@ const modeSource = (g: Game, item: StackItem): Card => {
 
 /** Remembers the modes chosen for `item` as it goes on the stack, for "one that hasn't been chosen this turn". */
 export function rememberModes(g: Game, item: StackItem) {
-  const t = triggerOf(item);
-  if (!t || typeof t === 'function' || !t.modes?.oncePerTurn) return;
+  if (!triggerModesOf(item)?.oncePerTurn) return;
   const source = modeSource(g, item);
   for (const i of item.modes ?? []) source.once[`mode${i}`] = g.turn;
 }
@@ -2690,11 +3111,29 @@ export function rememberModes(g: Game, item: StackItem) {
 /** The text of a triggered ability that has one (for a card with several for one event), or undefined. */
 export function triggerText(item: StackItem): string | undefined {
   if (item.kind !== 'triggered' || !item.hook) return undefined;
+  if (item.hook === 'onExalted') return 'Exalted';
   const t = triggerOf(item);
   return t && typeof t !== 'function' ? t.text : undefined;
 }
 
-/** Offers an event to every permanent on the battlefield, and to cards with abilities that work from a graveyard. */
+/** Every emblem in the command zone (114), of the players still in the game (800.4a). */
+export const emblemsOf = (g: Game): Card[] => g.players.flatMap((p) => (p.lost ? [] : (p.emblems ?? [])));
+
+/**
+ * Player `pid` gets an emblem (114.2): emblem `name` (its data and script are registered
+ * under that name) goes into the command zone, owned and controlled by them. It has no other
+ * characteristics (114.3) and is neither a card nor a permanent (114.5).
+ */
+export function createEmblem(g: Game, pid: PlayerId, name: string): Card | undefined {
+  const p = g.players[pid];
+  if (p.lost) return undefined;
+  (p.emblems ??= []).push(makeCard(g, name, pid, 'command', { emblem: true }));
+  const made = p.emblems[p.emblems.length - 1];
+  log(g, `${says(p, 'gets')} an emblem (${label(made)}).`, pid, [made]);
+  return made;
+}
+
+/** Offers an event to every permanent on the battlefield, to cards with abilities that work from a graveyard, and to emblems. */
 export function broadcast<H extends BroadcastHook>(g: Game, hook: H, event: TriggerEvents[H]) {
   // Triggering only puts abilities in `Game.triggers`, which no characteristic depends on.
   settled(g, () => {
@@ -2705,6 +3144,8 @@ export function broadcast<H extends BroadcastHook>(g: Game, hook: H, event: Trig
     try {
       for (const c of battlefield(g)) trigger(g, c, hook, event);
       for (const p of g.players) for (const c of p.graveyard) if (scriptFor(c).fromGraveyard?.includes(hook)) trigger(g, c, hook, event);
+      // An emblem's abilities work in the command zone (114.4).
+      for (const c of emblemsOf(g)) trigger(g, c, hook, event);
     } finally {
       watchers = outer;
     }
@@ -2740,6 +3181,16 @@ export const canProtect = (g: Game, c: Card, pid: PlayerId) =>
 function arrive(g: Game, c: Card, opts: EnterOpts) {
   const counters = whileArriving([c.id], () => setUp(g, c, opts));
   entered(g, c, opts, counters);
+  enteredTogether(g, [c]);
+}
+
+/**
+ * "Whenever one or more [permanents] enter" (Marneus Calgar): triggers once for the whole
+ * event, after each permanent's own entering abilities, with every permanent that entered in
+ * it as it was then (603.2c, 603.6a, 603.10a).
+ */
+function enteredTogether(g: Game, cards: Card[]) {
+  if (cards.length) broadcast(g, 'onPermanentsEnter', { entered: cards.map(snapshot) });
 }
 
 /** The `Delayed.key` of warp's exile (702.185a). Its `data` names the permanent: `id` and `moves`. */
@@ -2760,8 +3211,10 @@ function setUp(g: Game, c: Card, opts: EnterOpts): Record<string, number> {
   // tapped", Blind Obedience), and with counters (its own "enters with", a planeswalker's
   // loyalty, the effect putting it there, like Ghost Vacuum's flying counter).
   const how = replace(g, { kind: 'enter', card: c, tapped: !!opts.tapped, counters: { ...(opts.counters ?? {}) } });
-  const enters = how.kind === 'enter' ? how : { tapped: !!opts.tapped, counters: {} };
+  const enters = how.kind === 'enter' ? how : { tapped: !!opts.tapped, counters: {}, keywords: undefined };
   c.tapped = enters.tapped;
+  // Abilities it gains as it enters, for as long as it stays: riot's "it gains haste" (702.136a).
+  if (enters.keywords?.length) addLasting(g, c, { keywords: [...new Set(enters.keywords)] });
   // Each kind is then put on it (122.6), which may be replaced in turn (616.1g, 614.16).
   const counters: Record<string, number> = {};
   for (const [kind, n] of Object.entries(enters.counters)) {
@@ -2782,7 +3235,29 @@ function setUp(g: Game, c: Card, opts: EnterOpts): Record<string, number> {
     c.protector = opts.protector !== undefined && canProtect(g, c, opts.protector) ? opts.protector : defaultProtector(g, c);
     if (c.protector !== null) log(g, `${g.players[c.protector].name} protects ${label(c)}.`, c.controller, [c]);
   }
+  if (opts.attacking) joinAttack(g, c, opts.attacking);
   return counters;
+}
+
+/**
+ * A creature put onto the battlefield attacking (508.4) is attacking as it enters, but it
+ * never "attacked", so nothing triggers on it attacking. It isn't attacking at all if it isn't
+ * a creature or is a battle (506.3a, 506.3f), if its controller isn't the attacking player
+ * (506.3b), or if the player it would attack has left the game or the planeswalker or battle
+ * is gone or no longer one a defending player controls or protects (506.3c, 508.4a). After
+ * blockers are declared it enters unblocked (508.4d).
+ */
+export function joinAttack(g: Game, c: Card, at: NonNullable<EnterOpts['attacking']>) {
+  const combat = g.combat;
+  if (!combat || c.controller !== g.active || !isCreature(g, c) || isBattle(g, c)) return;
+  const defender = g.players[at.defender];
+  if (!defender || defender.lost || at.defender === c.controller) return;
+  const target = at.target ?? null;
+  if (target) {
+    const t = permanent(g, target);
+    if (!t || !((isPlaneswalker(g, t) && t.controller === at.defender) || (isBattle(g, t) && t.protector === at.defender))) return;
+  }
+  combat.attacks.push({ id: c.id, defender: at.defender, target, blockers: [], blocked: false });
 }
 
 /** Triggers on a permanent having entered (603.6a): its own "enters" abilities, then everything watching. `counters`: what it entered with. */
@@ -2795,6 +3270,7 @@ function entered(g: Game, c: Card, opts: EnterOpts, counters: Record<string, num
   trigger(g, c, 'onEnter', {});
   // Entering with counters is having them put on it (122.6).
   for (const [kind, n] of Object.entries(counters)) trigger(g, c, 'onCounters', { kind, n });
+  for (const [kind, n] of Object.entries(counters)) broadcast(g, 'onCountersPut', { card: c, kind, n });
   if (isCreature(g, c)) broadcast(g, 'onCreatureEnters', { entered: c });
   if (isLand(g, c)) broadcast(g, 'onLandfall', { land: c });
   broadcast(g, 'onPermanentEnters', { entered: c });
@@ -2835,6 +3311,11 @@ export interface EnterOpts {
   group?: string;
   /** Its caller logs it already ("plays X" for a land played from a graveyard), so `logReturns` doesn't. */
   quiet?: boolean;
+  /**
+   * It is put onto the battlefield attacking (508.4): this player, or with `target` this
+   * planeswalker or battle, as the effect specifies. It never "attacked" (508.4).
+   */
+  attacking?: { defender: PlayerId; target?: string | null };
 }
 
 /**
@@ -3020,6 +3501,7 @@ function putTogether(g: Game, ready: { id: string; moves: number; opts: EnterOpt
     () => now.map(({ c, opts }) => setUp(g, c, opts)),
   );
   now.forEach(({ c, opts }, i) => entered(g, c, opts, counters[i]));
+  enteredTogether(g, now.map((x) => x.c));
 }
 
 /**
@@ -3055,7 +3537,7 @@ export function finishEnter(g: Game, c: Card, data: Record<string, unknown>, ext
  */
 export function copyOf(
   c: Card,
-  extra: { subtypes?: string[]; keywords?: string[]; activated?: CopyInfo['activated']; power?: number; toughness?: number; creatureTypes?: string[]; colors?: Color[] } = {},
+  extra: { subtypes?: string[]; keywords?: string[]; activated?: CopyInfo['activated']; power?: number; toughness?: number; creatureTypes?: string[]; colors?: Color[]; nonlegendary?: boolean } = {},
 ): CopyInfo {
   const base: CopyInfo = c.copy ?? { name: c.name, face: c.zone === 'battlefield' ? c.face : 0, subtypes: [], keywords: [] };
   const activated = [...(base.activated ?? []), ...(extra.activated ?? [])];
@@ -3068,6 +3550,7 @@ export function copyOf(
     ...(extra.toughness !== undefined ? { toughness: extra.toughness } : {}),
     ...(extra.creatureTypes ? { creatureTypes: extra.creatureTypes } : {}),
     ...(extra.colors ? { colors: extra.colors } : {}),
+    ...(extra.nonlegendary ? { nonlegendary: true } : {}),
   };
 }
 
@@ -3105,8 +3588,18 @@ export function becomeCopy(g: Game, c: Card, copy: CopyInfo) {
  * copies of (707.2), set before they enter.
  */
 export function createToken(g: Game, pid: PlayerId, key: string, count = 1, opts: { tapped?: boolean; copy?: CopyInfo | null; attachTo?: string } = {}): Card[] {
-  if (g.players[pid].lost || count <= 0) return [];
-  const happens = replace(g, { kind: 'tokens', player: pid, tokens: [{ key, count, copy: opts.copy ?? null }] });
+  return createTokens(g, pid, [{ key, count, copy: opts.copy ?? null }], opts);
+}
+
+/**
+ * Creates several kinds of token at once, as one event (111.2): "create a Treasure token and a
+ * Food token". Replacement effects see them all together (614.1a: Chatterfang's "that many"), and
+ * "whenever one or more tokens enter" triggers once (603.2c).
+ */
+export function createTokens(g: Game, pid: PlayerId, specs: (Omit<TokenSpec, 'copy'> & { copy?: TokenSpec['copy'] })[], opts: { tapped?: boolean; attachTo?: string } = {}): Card[] {
+  const tokens = specs.filter((t) => t.count > 0).map((t) => ({ ...t, copy: t.copy ?? null }));
+  if (g.players[pid].lost || !tokens.length) return [];
+  const happens = replace(g, { kind: 'tokens', player: pid, tokens });
   if (happens.kind !== 'tokens') return [];
   const owner = happens.player;
   if (g.players[owner].lost) return [];
@@ -3130,6 +3623,7 @@ export function createToken(g: Game, pid: PlayerId, key: string, count = 1, opts
     () => out.map((c) => setUp(g, c, enter)),
   );
   out.forEach((c, i) => entered(g, c, enter, counters[i]));
+  enteredTogether(g, out);
   return out;
 }
 
@@ -3172,7 +3666,7 @@ export function hasName(c: Card, name: string): boolean {
 export function dieMany(g: Game, cards: Card[], verb = 'dies') {
   const dying = cards.filter((c) => c.zone === 'battlefield');
   if (!dying.length) return;
-  const listeners = battlefield(g)
+  const listeners = [...battlefield(g), ...emblemsOf(g)]
     .filter((c) => abilitiesOf(g, c).onCreatureDies || abilitiesOf(g, c).onPlaneswalkerDies)
     .map((c) => rememberPermanent(g, c));
   // "Whenever a player sacrifices a permanent" looks back in time too, so a sacrificed Mayhem Devil sees itself.
@@ -3268,9 +3762,11 @@ function subtractLife(g: Game, pid: PlayerId, n: number) {
   // A life total that can't change doesn't, so no life is lost (119.8). Damage is
   // still dealt: lifelink and commander damage count it (120.3).
   if (n <= 0 || p.lost || lifeLocked(g, pid)) return;
+  // "Loses life for the first time during each of their turns" (Valgavoth): only the first loss this turn.
+  const firstThisTurn = p.lifeLost === 0;
   p.life -= n;
   p.lifeLost += n;
-  announce(g, 'onLifeLoss', { player: pid, amount: n });
+  announce(g, 'onLifeLoss', { player: pid, amount: n, ...(firstThisTurn ? { firstThisTurn } : {}) });
   if (batch) batch.losses.push({ player: pid, amount: n });
   else broadcast(g, 'onLifeLossTogether', { losses: [{ player: pid, amount: n }] });
 }
@@ -3320,6 +3816,7 @@ function drawOne(g: Game, pid: PlayerId) {
     return;
   }
   const first = p.drawn === 0;
+  const firstInDrawStep = firstDrawInDrawStep(g, pid);
   moveCard(g, top, 'hand');
   p.drawn++;
   // Miracle (702.94a): the first card drawn this turn may be revealed as it is drawn.
@@ -3328,7 +3825,7 @@ function drawOne(g: Game, pid: PlayerId) {
     const cost = [miracle.mana, miracle.life && `${miracle.life} life`].filter(Boolean).join(' and ');
     ask(g, pid, { text: `Reveal ${label(top)}? Then you may cast it for its miracle cost, ${cost}.`, yes: 'Reveal', no: "Don't Reveal", then: '@miracle', script: top.id, data: { id: top.id, moves: top.moves } });
   }
-  broadcast(g, 'onDraw', { player: pid });
+  broadcast(g, 'onDraw', { player: pid, firstInDrawStep });
 }
 
 /** The colours protection keywords name, like "protection from white" (702.16a). */
@@ -3378,6 +3875,8 @@ export function damagePlayer(g: Game, source: Card, pid: PlayerId, n: number, co
   if (has(g, source, 'lifelink')) gainLife(g, source.controller, n); // 702.15b
   if (combat && !g.combatDamaged.includes(pid)) g.combatDamaged.push(pid);
   if (combat) trigger(g, source, 'onCombatDamageToPlayer', { player: pid, amount: n });
+  // The Ring, tempted four or more times: "Whenever your Ring-bearer deals combat damage to a player, each opponent loses 3 life." (701.54c)
+  if (combat && isRingBearer(g, source)) ringTrigger(g, source.controller, 4, 'onCombatDamageToPlayer', { player: pid, amount: n });
   announce(g, 'onDamage', { source: snapshot(source), player: pid, card: null, amount: n, combat });
   dealt(g, source, pid, null, n, combat);
   return n;
@@ -3517,6 +4016,8 @@ export function addCounters(g: Game, c: Card | undefined, n = 1, kind = '+1/+1',
   putCounters(g, happens.card, happens.counter, happens.n);
   // "Whenever one or more counters are put on this" (122.6), and abilities that depend on its counters (Agatha's Soul Cauldron).
   trigger(g, happens.card, 'onCounters', { kind: happens.counter, n: happens.n });
+  // "Whenever one or more -1/-1 counters are put on a creature" (Auntie Ool).
+  announce(g, 'onCountersPut', { card: happens.card, kind: happens.counter, n: happens.n });
 }
 
 /** Puts counters on permanent `c` as they come, after replacement effects. */
@@ -3557,6 +4058,8 @@ export function transform(g: Game, c: Card | undefined, since?: Card) {
   c.face = 1 - c.face;
   c.ts = g.nextId++; // a new timestamp as it transforms (613.7g)
   log(g, `${before} transforms into ${label(c)}.`, c.owner, [c]);
+  // "As this creature transforms into [this face], ..." is applied while it transforms, not afterward (712.20).
+  abilitiesOf(g, c).asTransforms?.(g, c);
 }
 
 /** Removes up to `n` counters of `kind` from a permanent. */
@@ -3565,6 +4068,192 @@ export function removeCounters(c: Card, n: number, kind = '+1/+1') {
   if (left > 0) c.counters[kind] = left;
   else delete c.counters[kind];
 }
+
+// ---------- counters on players, proliferate, blight, moving a counter ----------
+
+/** How many counters of `kind` a player has (122.1): poison, experience, rad. */
+export const playerCounters = (p: Player, kind: string) => p.counters?.[kind] ?? 0;
+
+/** "a rad counter", "3 experience counters". */
+const counterWords = (n: number, kind: string) => `${n === 1 ? (/^[aeiou]/.test(kind) ? 'an' : 'a') : n} ${kind} counter${n === 1 ? '' : 's'}`;
+
+/**
+ * Player `pid` gets `n` counters of `kind` (122.1): "you get an experience counter", "each
+ * player gets a rad counter". No replacement effect in the game changes counters put on a
+ * player, so they are simply added.
+ */
+export function addPlayerCounters(g: Game, pid: PlayerId, n: number, kind: string) {
+  const p = g.players[pid];
+  if (n <= 0 || p.lost) return;
+  p.counters = { ...(p.counters ?? {}), [kind]: playerCounters(p, kind) + n };
+  log(g, `${says(p, 'gets')} ${counterWords(n, kind)} (${playerCounters(p, kind)} in all).`, pid);
+}
+
+/** Removes up to `n` counters of `kind` from a player. */
+export function removePlayerCounters(g: Game, pid: PlayerId, n: number, kind: string) {
+  const p = g.players[pid];
+  const left = playerCounters(p, kind) - n;
+  const rest = { ...(p.counters ?? {}) };
+  if (left > 0) rest[kind] = left;
+  else delete rest[kind];
+  p.counters = rest;
+}
+
+/** The kinds of counter on a permanent or player: each it has at least one of. */
+export const counterKinds = (counters: Record<string, number> | undefined): string[] =>
+  Object.entries(counters ?? {})
+    .filter(([, n]) => n > 0)
+    .map(([k]) => k);
+
+/** The permanents and players that could be chosen as someone proliferates: each one that has a counter (701.34a). */
+export function proliferateOptions(g: Game): { cards: Card[]; players: PlayerId[] } {
+  return {
+    cards: battlefield(g).filter((c) => counterKinds(c.counters).length > 0),
+    players: living(g)
+      .filter((p) => counterKinds(p.counters).length > 0)
+      .map((p) => p.id),
+  };
+}
+
+/**
+ * Proliferate (701.34a): "choose any number of permanents and/or players that have a counter,
+ * then give each one additional counter of each kind that permanent or player already has."
+ * Asks `pid` which; `then` (the engine's '@proliferate' if left out) gives them out with
+ * `proliferated`. Returns false if nothing has a counter, so nothing is asked.
+ */
+export function proliferate(g: Game, pid: PlayerId, q: { then?: string; data?: Record<string, unknown>; script?: string } = {}): boolean {
+  const p = g.players[pid];
+  if (p.lost) return false;
+  const { cards, players } = proliferateOptions(g);
+  if (!cards.length && !players.length) {
+    log(g, `${says(p, 'proliferates')}: nothing has a counter.`, pid);
+    return false;
+  }
+  queue(g, {
+    kind: 'pick',
+    player: pid,
+    source: q.script ? label(findCard(g, q.script)!) : sourceName(g),
+    cards: cards.map((c) => c.id),
+    min: 0,
+    max: cards.length,
+    players,
+    text: 'proliferate: choose any number of permanents and/or players with counters; each gets another counter of each kind it has',
+    button: 'Proliferate',
+    then: q.then ?? '@proliferate',
+    // A bot answers it as a proliferate choice, whoever's continuation it is.
+    data: { ...(q.data ?? {}), bot: 'proliferate' },
+    ...(q.script ? { script: q.script } : {}),
+  });
+  return true;
+}
+
+/**
+ * Gives each permanent and player chosen as `pid` proliferated one more counter of each kind
+ * it has (701.34a). A permanent that has left the battlefield since gets none (400.7).
+ */
+export function proliferated(g: Game, pid: PlayerId, cards: Card[], players: PlayerId[]) {
+  const p = g.players[pid];
+  const here = cards.map((x) => permanent(g, x.id)).filter((c): c is Card => !!c && cards.some((x) => x.id === c.id && x.moves === c.moves));
+  const who = players.filter((x) => !g.players[x].lost);
+  const names = [...here.map(label), ...who.map((x) => g.players[x].name)];
+  log(g, `${says(p, 'proliferates')}${names.length ? `: ${names.join(', ')}` : ''}.`, pid, here);
+  // Each kind each one has now, all given at the same time.
+  const kinds = here.map((c) => counterKinds(c.counters));
+  simultaneously(g, () => {
+    here.forEach((c, i) => kinds[i].forEach((kind) => addCounters(g, permanent(g, c.id), 1, kind)));
+    for (const x of who) for (const kind of counterKinds(g.players[x].counters)) addPlayerCounters(g, x, 1, kind);
+  });
+}
+
+/**
+ * Player `pid` blights `n` (701.68a): they put `n` -1/-1 counters on a creature they control,
+ * of their choice. With no creature they can't (701.68b), and nothing happens: false. `then`
+ * (the engine's '@blight' if left out) puts them on with `blighted`.
+ */
+export function blight(g: Game, pid: PlayerId, n: number, q: { then?: string; data?: Record<string, unknown>; optional?: boolean; text?: string } = {}): boolean {
+  const options = creaturesOf(g, pid);
+  if (n <= 0 || g.players[pid].lost || !options.length) return false;
+  pickCards(g, pid, options, {
+    // `optional`: they may choose not to, as when paying a cost (118.12a).
+    min: q.optional ? 0 : 1,
+    max: 1,
+    text: q.text ?? `blight ${n}: put ${counterWords(n, '-1/-1')} on a creature you control`,
+    button: `Blight ${n}`,
+    then: q.then ?? '@blight',
+    data: { ...(q.data ?? {}), blight: n, bot: 'blight' },
+  });
+  return true;
+}
+
+/**
+ * Puts the `n` -1/-1 counters of `pid`'s blight on the creature they chose (701.68a), if it is
+ * still a creature they control. `by: 'cost'`: blighting to pay a cost, like ward's (702.21a).
+ */
+export function blighted(g: Game, pid: PlayerId, chosen: Card | undefined, n: number, opts: { by?: 'cost' } = {}) {
+  const c = chosen && permanent(g, chosen.id);
+  if (!c || c.moves !== chosen!.moves || c.controller !== pid || !isCreature(g, c)) return;
+  log(g, `${says(g.players[pid], 'blights')} ${n}: ${label(c)}.`, pid, [c]);
+  addCounters(g, c, n, '-1/-1', opts);
+}
+
+/** "Each opponent blights 1": each of these players blights `n`, choosing in APNAP order (101.4). */
+export function eachBlights(g: Game, pids: PlayerId[], n: number) {
+  for (const pid of turnOrder(g, g.active)) if (pids.includes(pid)) blight(g, pid, n);
+}
+
+/**
+ * Moves a counter of `kind` from permanent `from` onto permanent `to` (122.5): it is removed
+ * from the first and put on the second, as any counter is put on (614.1). If either can't
+ * happen, neither does: the same object, no such counter, or one of them gone from the
+ * battlefield. True if it moved.
+ */
+export function moveCounter(g: Game, from: Card | undefined, to: Card | undefined, kind: string): boolean {
+  if (!from || !to || from.id === to.id || from.zone !== 'battlefield' || to.zone !== 'battlefield' || counterCount(from, kind) < 1) return false;
+  removeCounters(from, 1, kind);
+  log(g, `${label(from)}'s ${kind} counter moves onto ${label(to)}.`, from.controller, [from, to]);
+  addCounters(g, to, 1, kind);
+  return true;
+}
+
+/**
+ * What the rad counters' triggered ability is shown as on the stack: it has no source (728.1),
+ * so this stands in for one, under the active player's control.
+ */
+export const RAD_COUNTERS = 'Rad counters';
+registerToken(RAD_COUNTERS, {
+  name: RAD_COUNTERS,
+  manaCost: '',
+  cmc: 0,
+  colors: [],
+  colorIdentity: [],
+  typeLine: 'Rad counters',
+  oracleText:
+    "At the beginning of each player's precombat main phase, if that player has one or more rad counters, that player mills a number of cards equal to the number of rad counters they have. For each nonland card milled this way, that player loses 1 life and removes one rad counter from themselves.",
+  keywords: [],
+  image: '',
+  art: '',
+});
+
+/**
+ * The rad counters' triggered ability resolves (728.1): "that player mills a number of cards
+ * equal to the number of rad counters they have. For each nonland card milled this way, that
+ * player loses 1 life and removes one rad counter from themselves." Its "if that player has one
+ * or more rad counters" is checked again now (603.4).
+ */
+export function radiation(g: Game, pid: PlayerId) {
+  const p = g.players[pid];
+  const n = playerCounters(p, 'rad');
+  if (n <= 0 || p.lost) return;
+  const milled = mill(g, pid, n);
+  const nonland = milled.filter((c) => !hasType(g, findCard(g, c.id) ?? c, 'Land')).length;
+  if (!nonland) return;
+  loseLife(g, pid, nonland);
+  removePlayerCounters(g, pid, nonland, 'rad');
+  log(g, `${says(p, 'removes')} ${counterWords(nonland, 'rad')} (${playerCounters(p, 'rad')} left).`, pid);
+}
+
+/** The `Delayed.key` of decayed's sacrifice at end of combat (702.147a). Its `data` names the creature: `id` and `moves`. */
+export const DECAYED = '@decayed';
 
 /**
  * The enchant abilities Aura `aura` has (702.5): its own, unless it lost it, then any that
@@ -3753,6 +4442,40 @@ export const attachedBonus =
 export const resolvingItem = (g: Game) => g.stack.find((x) => x.id === g.resolving);
 
 /**
+ * Which ability of which object a stack item is, for counting how many times "this ability has
+ * resolved this turn": its source as the object it was (400.7: one that changed zones is a
+ * new object, with new abilities) and the ability among that face's (an activated one by its
+ * index, a triggered one by its hook and place in it, one another card gave it by that card).
+ * A copy of an ability has the same source and counts as that ability (707.10b).
+ */
+export function resolutionKey(item: StackItem): string {
+  const which =
+    item.kind === 'activated'
+      ? `a${item.ability !== undefined ? `l${item.ability}` : (item.scriptIndex ?? item.activated ?? 0)}${item.borrowed ? `@${item.borrowed}` : ''}`
+      : `t${item.hook}:${item.trigger ?? 0}${item.granted ? `@${item.granted.from}#${item.granted.index}` : ''}`;
+  return `${item.card.id}/${item.card.moves}/${scriptName(item.card)}/${which}`;
+}
+
+/** Ability `item` resolves (608.2): one more time this turn for "if this is the second time this ability has resolved this turn". */
+export function countResolution(g: Game, item: StackItem) {
+  // An ability whose targets had all gone did nothing (608.2b): it didn't resolve.
+  if (item.fizzled) return;
+  if (g.resolutions?.turn !== g.turn) g.resolutions = { turn: g.turn, counts: {} };
+  const key = resolutionKey(item);
+  g.resolutions.counts[key] = (g.resolutions.counts[key] ?? 0) + 1;
+}
+
+/**
+ * How many times the ability resolving now has resolved this turn, this time included: 2 is
+ * "the second time this ability has resolved this turn". 0 if no ability is resolving.
+ */
+export function timesResolved(g: Game): number {
+  const item = resolvingItem(g);
+  if (!item || item.kind === 'spell' || g.resolutions?.turn !== g.turn) return 0;
+  return g.resolutions.counts[resolutionKey(item)] ?? 0;
+}
+
+/**
  * The source of the ability resolving now, if it is still the same permanent it was when
  * the ability was activated or triggered (400.7): "this artifact" means only that object.
  */
@@ -3830,13 +4553,16 @@ export function searchable(g: Game, c: Card, find?: Find): boolean {
   if (find.maxToughness !== undefined && stats(g, c).toughness > find.maxToughness) return false;
   const d = data(c);
   if (find.basic && !hasType(g, c, 'Basic Land')) return false;
+  if (find.legendary && !hasType(g, c, 'Legendary')) return false;
   // "An instant card or a card with flash": a card type or a keyword, either will do.
   const typed = !!find.types?.some((x) => hasType(g, c, x));
   const keyworded = !!find.keywords?.some((k) => d.keywords.some((x) => x.toLowerCase() === k));
   if ((find.types || find.keywords) && !typed && !keyworded) return false;
   // Its subtypes as they are in that zone: a changeling card is every creature type there too (702.73a).
   if (find.subtypes && !find.subtypes.some((x) => subtypesOf(g, c).includes(x))) return false;
+  if (find.kinds && !find.kinds.types.some((x) => hasType(g, c, x)) && !find.kinds.subtypes.some((x) => subtypesOf(g, c).includes(x))) return false;
   if (find.costs && !find.costs.includes(d.manaCost)) return false;
+  if (find.name && !hasName(c, find.name)) return false;
   return find.maxMv === undefined || d.cmc <= find.maxMv;
 }
 
@@ -3848,10 +4574,12 @@ export function pickCards(
   g: Game,
   pid: PlayerId,
   cards: Card[],
-  opts: { min?: number; max?: number; text: string; button: string; then: string; data?: Record<string, unknown>; script?: string; pickable?: Card[]; ordered?: boolean },
+  opts: { min?: number; max?: number; text: string; button: string; then: string; data?: Record<string, unknown>; script?: string; pickable?: Card[]; ordered?: boolean; decline?: string },
 ) {
   queue(g, {
     ...(opts.ordered ? { ordered: true } : {}),
+    // A button for picking none, when that means declining ("Don't Pay" for ward's sacrifice).
+    ...(opts.decline ? { decline: opts.decline } : {}),
     ...(opts.pickable ? { pickable: opts.pickable.map((c) => c.id) } : {}),
     kind: 'pick',
     player: pid,
@@ -3985,9 +4713,85 @@ export function putOnBottomRandomly(g: Game, cards: Card[]) {
 export function mill(g: Game, pid: PlayerId, n: number): Card[] {
   const p = g.players[pid];
   const milled = p.library.slice(0, n);
-  simultaneously(g, () => milled.forEach((c) => moveCard(g, c, 'graveyard')));
+  simultaneously(g, () => {
+    milled.forEach((c) => moveCard(g, c, 'graveyard'));
+    // "Whenever one or more cards are milled": once for the whole event, with every player's
+    // cards where they went (701.17c), when several players mill at once ("each opponent mills").
+    batch!.milled.push(...milled.map((c) => snapshot(findCard(g, c.id) ?? c)));
+  });
   if (milled.length) log(g, `${says(p, 'mills')} ${milled.map(label).join(', ')}.`, pid, milled);
   return milled;
+}
+
+/**
+ * "Reveal cards from the top of your library until you reveal a [quality] card" (701.20a):
+ * the cards revealed, top first, which stay in the library for the effect to move. `hit` is
+ * the last of them, the one that fits; with none, the whole library was revealed. Everyone
+ * sees them (701.20a). `what` names the quality for the log ("a creature card").
+ */
+export function revealUntil(g: Game, pid: PlayerId, fits: (c: Card) => boolean, what: string): { hit: Card | undefined; revealed: Card[] } {
+  const p = g.players[pid];
+  const i = p.library.findIndex(fits);
+  const revealed = i >= 0 ? p.library.slice(0, i + 1) : [...p.library];
+  if (revealed.length) log(g, `${says(p, 'reveals')} ${revealed.map(label).join(', ')}${i >= 0 ? '' : ` (no ${what.replace(/^an? /, '')})`}.`, pid, revealed);
+  return { hit: i >= 0 ? p.library[i] : undefined, revealed };
+}
+
+/**
+ * "Exile cards from the top of your library until you exile a [quality] card" (discover,
+ * 701.57a; Jodah): one at a time from the top, face up, until one fits or the library runs
+ * out. Returns the cards in exile: `hit`, the one that fits, and `rest`, the others.
+ */
+export function exileUntil(g: Game, pid: PlayerId, fits: (c: Card) => boolean): { hit: Card | undefined; rest: Card[] } {
+  const p = g.players[pid];
+  const i = p.library.findIndex(fits);
+  const taking = i >= 0 ? p.library.slice(0, i + 1) : [...p.library];
+  const exiled = exileAll(g, taking, `${says(p, 'exiles')} ${taking.map(label).join(', ')} from the top of ${their(p)} library.`, pid);
+  const hit = i >= 0 ? exiled.find((c) => c.id === taking[i].id) : undefined;
+  return { hit, rest: exiled.filter((c) => c !== hit) };
+}
+
+/** The `then` key of `castFromExiled`'s choice (engine.ts runs it). */
+export const EXILED_CAST = '@exiledCast';
+
+/**
+ * After `exileUntil`: "You may cast that card without paying its mana cost" (608.2g), and
+ * then "put the rest on the bottom of your library in a random order". `maxMv`: only if the
+ * resulting spell's mana value is that or less (discover, 701.57a). `toHand`: if it isn't
+ * cast it goes into its owner's hand (discover); otherwise it stays in exile, and can't be
+ * cast later (Jodah's rulings). With no card found, every exiled card goes back to the
+ * library in a random order.
+ */
+export function castFromExiled(g: Game, pid: PlayerId, hit: Card | undefined, rest: Card[], opts: { maxMv?: number; toHand?: boolean; text: string }) {
+  const keep = (c: Card) => ({ id: c.id, moves: c.moves });
+  if (!hit) return putOnBottomRandomly(g, rest);
+  if (g.players[pid].lost) return;
+  offerCast(g, pid, hit, { free: true, ...(opts.maxMv !== undefined ? { maxMv: opts.maxMv } : {}), text: opts.text, then: EXILED_CAST, data: { hit: keep(hit), rest: rest.map(keep), toHand: !!opts.toHand } });
+}
+
+/** `castFromExiled`'s continuation: the card not cast goes into its owner's hand or stays in exile, and the rest go on the bottom in a random order. */
+export function finishExiledCast(g: Game, yes: boolean, data: Record<string, unknown>) {
+  const inExile = (ref: { id: string; moves: number }) => g.players.flatMap((p) => p.exile).find((c) => sameCard(c, ref));
+  const hit = yes ? undefined : inExile(data.hit as { id: string; moves: number });
+  const rest = (data.rest as { id: string; moves: number }[]).map(inExile).filter((c): c is Card => !!c);
+  if (hit && data.toHand) {
+    log(g, `${says(g.players[hit.owner], 'puts')} ${label(hit)} into ${their(g.players[hit.owner])} hand.`, hit.owner, [hit]);
+    moveCard(g, hit, 'hand');
+  }
+  if (rest.length) log(g, `${rest.length === 1 ? 'The other card goes' : `The other ${rest.length} cards go`} on the bottom of ${their(g.players[rest[0].owner])} library in a random order.`, rest[0].owner);
+  putOnBottomRandomly(g, rest);
+}
+
+/**
+ * Discover N (701.57a): "Exile cards from the top of your library until you exile a nonland
+ * card with mana value N or less. You may cast that card without paying its mana cost if the
+ * resulting spell's mana value is less than or equal to N. If you don't cast it, put that card
+ * into your hand. Put the remaining exiled cards on the bottom of your library in a random order."
+ */
+export function discover(g: Game, pid: PlayerId, n: number) {
+  log(g, `${says(g.players[pid], 'discovers')} ${n}.`, pid);
+  const { hit, rest } = exileUntil(g, pid, (c) => !isLand(g, c) && manaValue(c) <= n);
+  castFromExiled(g, pid, hit, rest, { maxMv: n, toHand: true, text: hit ? `Discover ${n}: cast ${label(hit)} without paying its mana cost, or put it into your hand.` : '' });
 }
 
 /** The player discards a card from their hand (701.9a). "Whenever you discard" abilities trigger. */
@@ -4110,6 +4914,211 @@ export function surveil(g: Game, pid: PlayerId, n: number, script?: string) {
   const top = g.players[pid].library.slice(0, n);
   if (!top.length) return;
   pickCards(g, pid, top, { max: top.length, text: `surveil ${n}: put any into your graveyard`, button: 'Done', then: '@surveil', ...(script ? { script } : {}) });
+}
+
+// ---------- amass (701.47) ----------
+
+/** The Army creatures `pid` controls (701.47a). */
+const armiesOf = (g: Game, pid: PlayerId) => creaturesOf(g, pid).filter((c) => subtypesOf(g, c).includes('Army'));
+
+/** Plurals that aren't the subtype plus "s", for "amass Elves 2". */
+const PLURAL_SUBTYPE: Record<string, string> = { Elf: 'Elves', Dwarf: 'Dwarves', Wolf: 'Wolves' };
+const pluralOf = (subtype: string) => PLURAL_SUBTYPE[subtype] ?? `${subtype}s`;
+
+/** The key of the 0/0 black [subtype] Army creature token amass makes (701.47a), added the first time it is needed. */
+function armyToken(subtype: string): string {
+  const key = `${subtype} Army`;
+  registerToken(key, { name: key, manaCost: '', cmc: 0, colors: ['B'], colorIdentity: ['B'], typeLine: `Token Creature — ${subtype} Army`, oracleText: '', power: '0', toughness: '0', keywords: [], image: '', art: '' });
+  return key;
+}
+
+/**
+ * The player amasses [subtype] N (701.47a): "If you don't control an Army creature, create a
+ * 0/0 black [subtype] Army creature token. Choose an Army creature you control. Put N +1/+1
+ * counters on that creature. If it isn't a [subtype], it becomes a [subtype] in addition to
+ * its other types." With several Armies the player chooses, and this returns true: the
+ * engine's `@amass` finishes it with the Army picked, then runs the resolving script's
+ * continuation `then`, if given, for whatever the effect does next. With one Army or none it
+ * is done now, and this returns false. The player has amassed even if some of it was
+ * impossible (701.47b).
+ */
+export function amass(g: Game, pid: PlayerId, subtype: string, n: number, then?: string, data: Record<string, unknown> = {}): boolean {
+  if (g.players[pid].lost) return false;
+  log(g, `${says(g.players[pid], 'amasses')} ${pluralOf(subtype)} ${n}.`, pid);
+  if (!armiesOf(g, pid).length) createToken(g, pid, armyToken(subtype));
+  const armies = armiesOf(g, pid);
+  if (armies.length > 1) {
+    pickCards(g, pid, armies, { min: 1, max: 1, text: `amass ${pluralOf(subtype)} ${n}: choose an Army you control`, button: 'Choose', then: '@amass', data: { ...data, ...(then ? { next: then } : {}), amass: { subtype, n }, bot: 'amass' } });
+    return true;
+  }
+  amassOnto(g, armies[0], subtype, n);
+  return false;
+}
+
+/** The rest of amass (701.47a) once the Army is chosen: its counters, then the subtype it becomes. */
+export function amassOnto(g: Game, army: Card | undefined, subtype: string, n: number) {
+  if (!army || army.zone !== 'battlefield') return;
+  addCounters(g, army, n);
+  if (!subtypesOf(g, army).includes(subtype)) {
+    addLasting(g, army, { subtypes: [subtype] });
+    log(g, `${label(army)} becomes ${/^[AEIOU]/.test(subtype) ? 'an' : 'a'} ${subtype} in addition to its other types.`, army.controller, [army]);
+  }
+}
+
+// ---------- the Ring tempts you (701.54) ----------
+
+/** The emblem named The Ring (701.54c), and the name its abilities' script is under. */
+export const THE_RING = 'The Ring';
+registerToken(THE_RING, {
+  name: THE_RING,
+  manaCost: '',
+  cmc: 0,
+  colors: [],
+  colorIdentity: [],
+  typeLine: 'Emblem',
+  oracleText: [
+    "Your Ring-bearer is legendary and can't be blocked by creatures with greater power.",
+    'As long as the Ring has tempted you two or more times, it has "Whenever your Ring-bearer attacks, draw a card, then discard a card."',
+    'As long as the Ring has tempted you three or more times, it has "Whenever your Ring-bearer becomes blocked by a creature, the blocking creature\'s controller sacrifices it at end of combat."',
+    'As long as the Ring has tempted you four or more times, it has "Whenever your Ring-bearer deals combat damage to a player, each opponent loses 3 life."',
+  ].join('\n'),
+  keywords: [],
+  image: '',
+  art: '',
+});
+
+/** How many times the Ring has tempted `pid` this game (701.54c): "the Ring has tempted you two or more times". */
+export const timesTempted = (g: Game, pid: PlayerId) => g.players[pid].ring?.tempted ?? 0;
+
+/**
+ * Is `c` player `pid`'s Ring-bearer (701.54e)? Only while it is on the battlefield under their
+ * control and is still the object that was chosen (400.7).
+ */
+export function isRingBearer(g: Game, c: Card, pid: PlayerId = c.controller): boolean {
+  const b = g.players[pid]?.ring?.bearer;
+  return !!b && c.zone === 'battlefield' && c.id === b.id && c.moves === b.moves && c.controller === pid;
+}
+
+/** Player `pid`'s Ring-bearer, if they have one now (701.54e). */
+export function ringBearerOf(g: Game, pid: PlayerId): Card | undefined {
+  const b = g.players[pid].ring?.bearer;
+  const c = b ? permanent(g, b.id) : undefined;
+  return c && isRingBearer(g, c, pid) ? c : undefined;
+}
+
+/**
+ * The Ring tempts player `pid` (701.54a): they get the emblem named The Ring if they don't
+ * have it (701.54c), then choose a creature they control, which becomes their Ring-bearer.
+ * With two or more creatures that is a choice, and this returns true: the engine's
+ * `@ringBearer` finishes the tempting with the creature picked, then runs the resolving
+ * script's continuation `then`, if given, for whatever the effect does next ("Then if Frodo is
+ * your Ring-bearer ..."). With one creature or none it is done now, and this returns false.
+ */
+export function temptWithRing(g: Game, pid: PlayerId, then?: string, data: Record<string, unknown> = {}): boolean {
+  const p = g.players[pid];
+  if (p.lost) return false;
+  if (!p.ring) {
+    // An emblem in the command zone, like any other (114.2).
+    const emblem = createEmblem(g, pid, THE_RING)!;
+    p.ring = { tempted: 0, bearer: null, ts: emblem.ts };
+  }
+  const creatures = creaturesOf(g, pid);
+  if (creatures.length > 1) {
+    pickCards(g, pid, creatures, { min: 1, max: 1, text: 'the Ring tempts you: choose your Ring-bearer', button: 'Ring-bearer', then: '@ringBearer', data: { ...data, ...(then ? { next: then } : {}), bot: 'ringBearer' } });
+    return true;
+  }
+  finishTempting(g, pid, creatures[0]);
+  return false;
+}
+
+/**
+ * The end of the Ring tempting `pid` (701.54a, 701.54d): `chosen`, if any, becomes their
+ * Ring-bearer, the count goes up, and "whenever the Ring tempts you" triggers.
+ */
+export function finishTempting(g: Game, pid: PlayerId, chosen: Card | undefined) {
+  const p = g.players[pid];
+  if (!p.ring) return;
+  const bearer = chosen && chosen.zone === 'battlefield' && chosen.controller === pid ? chosen : undefined;
+  if (bearer) p.ring.bearer = { id: bearer.id, moves: bearer.moves };
+  p.ring.tempted++;
+  const n = p.ring.tempted;
+  log(g, `The Ring tempts ${p.you ? 'you' : p.name} (${n === 1 ? 'once' : n === 2 ? 'twice' : `${n} times`})${bearer ? `: ${label(bearer)} is ${their(p)} Ring-bearer` : ''}.`, pid, bearer ? [bearer] : []);
+  broadcast(g, 'onRingTempts', { player: pid });
+}
+
+/**
+ * One of the Ring's triggered abilities triggers for player `pid` (701.54c): its emblem is the
+ * source (114.4), and its script (`THE_RING`) says what it does. `times`: how many times the
+ * Ring must have tempted them for the emblem to have the ability.
+ */
+export function ringTrigger<H extends 'onAttack' | 'onBecomesBlocked' | 'onCombatDamageToPlayer'>(g: Game, pid: PlayerId, times: number, hook: H, event: TriggerEvents[H]) {
+  const ring = g.players[pid].ring;
+  const emblem = g.players[pid].emblems?.find((e) => e.name === THE_RING);
+  if (!ring || !emblem || ring.tempted < times || g.players[pid].lost) return;
+  const remembered = Object.fromEntries(Object.entries(event).map(([k, v]) => [k, isCard(v) ? snapshot(v) : v]));
+  g.triggers.push({ id: `s${g.nextId++}`, kind: 'triggered', controller: pid, card: snapshot(emblem), hook, event: remembered, targets: [] });
+}
+
+registerScripts({
+  [THE_RING]: {
+    // "Whenever your Ring-bearer attacks, draw a card, then discard a card."
+    onAttack: {
+      text: 'Whenever your Ring-bearer attacks, draw a card, then discard a card.',
+      resolve: (g, { you }) => {
+        draw(g, you);
+        chooseToDiscard(g, you, 1);
+      },
+    },
+    // "Whenever your Ring-bearer becomes blocked by a creature, the blocking creature's controller sacrifices it at end of combat." (511.2)
+    onBecomesBlocked: {
+      text: "Whenever your Ring-bearer becomes blocked by a creature, the blocking creature's controller sacrifices it at end of combat.",
+      resolve: (g, { self, you, blocker }) => delay(g, self, you, { key: 'sacrificeBlocker', step: 'endCombat', turn: g.turn, data: { id: blocker.id, moves: blocker.moves } }),
+    },
+    // "Whenever your Ring-bearer deals combat damage to a player, each opponent loses 3 life."
+    onCombatDamageToPlayer: {
+      text: 'Whenever your Ring-bearer deals combat damage to a player, each opponent loses 3 life.',
+      resolve: (g, { you }) =>
+        simultaneously(g, () => {
+          for (const o of opponentsOf(g, you)) loseLife(g, o.id, 3);
+        }),
+    },
+    delayed: {
+      // "The blocking creature's controller sacrifices it": if it is still the same object (400.7). Its controller then is the one who sacrifices it (701.21a).
+      sacrificeBlocker: (g, { data }) => {
+        const c = permanent(g, data.id as string);
+        if (c && c.moves === data.moves) sacrifice(g, c);
+      },
+    },
+  },
+});
+
+// ---------- partner with (702.124j) ----------
+
+/**
+ * Partner with [name]'s second ability (702.124j): "When this permanent enters, target player
+ * may search their library for a card named [name], reveal it, put it into their hand, then
+ * shuffle." The target player chooses whether to search (608.2d); a search for a named card
+ * may find nothing (701.23b). Spread into the card's script (its `onEnter` and `targets`).
+ */
+export function partnerWith(name: string): Required<Pick<CardScript, 'onEnter' | 'targets' | 'then' | 'botChoice'>> {
+  return {
+    targets: [{ type: 'player', label: 'target player' }],
+    onEnter: {
+      text: `Partner with ${name}`,
+      resolve: (g, { targets }) => {
+        const who = refPlayer(g, targets[0]);
+        if (!who) return;
+        ask(g, who.id, { text: `Search your library for a card named ${name}, reveal it, put it into your hand, then shuffle?`, yes: 'Search', no: "Don't Search", then: 'partnerSearch' });
+      },
+    },
+    then: {
+      partnerSearch: (g, { yes, chooser }) => {
+        if (yes) search(g, chooser, 'hand', { name, label: `a card named ${name}` }, { reveal: true });
+      },
+    },
+    // A player searches when the card is in their library.
+    botChoice: { partnerSearch: (g, pid) => ({ type: 'answer', yes: g.players[pid].library.some((c) => hasName(c, name)) }) },
+  };
 }
 
 /** The player discards a card at random (701.9b). */
@@ -4362,6 +5371,8 @@ function eliminate(g: Game, p: Player, reason: string) {
   p.graveyard = [];
   p.exile = [];
   p.command = [];
+  // Their emblems leave the game too (800.4a, 114.2).
+  if (p.emblems) p.emblems = [];
   p.pool = [];
   if (held.length) release(g, held);
 }
@@ -4377,7 +5388,7 @@ export function sbaPending(g: Game): boolean {
   return settled(g, () => {
     for (const p of g.players) {
       if (p.lost) continue;
-      if (p.loses || p.life <= 0 || p.commanderDamage.some((from) => from.some((d) => d >= COMMANDER_DAMAGE)) || p.drewFromEmpty) return true;
+      if (p.loses || p.life <= 0 || p.commanderDamage.some((from) => from.some((d) => d >= COMMANDER_DAMAGE)) || p.drewFromEmpty || playerCounters(p, 'poison') >= POISON) return true;
     }
     const kinds = permanentKinds(g);
     for (const { c, creature, walker, battle, siege, saga, aura } of kinds) {
@@ -4449,7 +5460,9 @@ export function checkState(g: Game): boolean {
             ? `${COMMANDER_DAMAGE} commander damage` // 903.10a
             : p.drewFromEmpty
               ? 'drew from an empty library' // 704.5b
-              : null;
+              : playerCounters(p, 'poison') >= POISON
+                ? `${POISON} poison counters` // 704.5c
+                : null;
       if (reason) {
         eliminate(g, p, reason);
         changed = true;
