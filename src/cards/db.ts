@@ -158,11 +158,15 @@ export function deckLibrary(deck: DeckDef): string[] {
 }
 
 /**
- * Can this card be a commander? A legendary creature (Vehicles and Spacecraft aren't
- * supported yet), or a card that says it can be your commander, like some planeswalkers
- * (903.3, 903.3a).
+ * Can this card be a commander (903.3)? A legendary creature card, a legendary Vehicle card,
+ * a legendary Spacecraft card with a power/toughness box, or a card that says it can be your
+ * commander, like some planeswalkers (903.3a).
  */
-export const canBeCommander = (c: CardData) => c.typeLine.includes('Legendary Creature') || c.oracleText.includes('can be your commander');
+export const canBeCommander = (c: CardData) =>
+  c.typeLine.includes('Legendary Creature') ||
+  (c.typeLine.startsWith('Legendary') && c.typeLine.includes('Vehicle')) ||
+  (c.typeLine.startsWith('Legendary') && c.typeLine.includes('Spacecraft') && c.power !== undefined) ||
+  c.oracleText.includes('can be your commander');
 
 /** Can these two cards be commanders together? Plain partner (702.124h) or partner with (702.124j). */
 function partners(a: CardData, b: CardData): boolean {

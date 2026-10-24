@@ -424,7 +424,10 @@ fetched card too, since the card is matched to it by name.
   `onBecomesBlocked` (once for each creature blocking it, 509.3d) and `onChapterResolved` (a
   Saga's chapter ability resolved; `final` for its final chapter, 714.2e). `onLifeLoss` tells
   `firstThisTurn` for the first life a player loses in a turn, and `onDraw` `firstInDrawStep`
-  for the first card a player draws in their own draw step (504.1).
+  for the first card a player draws in their own draw step (504.1). `onBend` is "whenever you
+  waterbend, earthbend, firebend, or airbend", and `onRoll` "whenever you roll a 4 or higher"
+  (with the die's `result`).
+- Firebending N (702.189a) is `onAttack: firebending(2)`; the parser reads the keyword line.
 - "If this is the second time this ability has resolved this turn": `timesResolved(g)` in the
   resolve, this resolution counted (707.10b, 400.7). An ability that did nothing because its
   targets had gone (`StackItem.fizzled`, 608.2b) didn't resolve and isn't counted.
@@ -434,7 +437,7 @@ fetched card too, since the card is matched to it by name.
 - "One or more" hooks, once for each event (603.2c): `onMilled` (the cards milled, every
   player's in one event), `onCountersPut` (a permanent and a kind of counter put on it, as it
   enters too), `onPlayerDealtCombatDamage` (a player and the creatures that dealt them
-  combat damage in that step), `onPermanentsEnter` ("whenever one or more tokens you control
+  combat damage in that step; Alela's "one or more Faeries you control"), `onPermanentsEnter` ("whenever one or more tokens you control
   enter", with every permanent that entered) and `onLeaveGraveyard` ("whenever one or more
   cards leave your graveyard": once for each event and graveyard, looking back in time, 603.10a).
 - `oncePerTurn: true` on a `{ when, resolve }` trigger is "This ability triggers only once
@@ -475,7 +478,8 @@ fetched card too, since the card is matched to it by name.
 | Aura | `enchant` and `static: attachedBonus({...})` |
 | Aura on a graveyard card | `enchant: { type: 'graveyard card', ... }`; an effect gives it a new enchant ability with `addLasting(g, aura, { lose: ['enchant'], enchantOf: name })` and the script's `givesEnchant` (Animate Dead) |
 | Equipment | `attachedBonus` with `activated: equip('{2}')` |
-| Vehicle | `activated: crew(3)` |
+| Vehicle | `activated: crew(3)`; a creature that "crews Vehicles as though its power were 2 greater" has `crewBonus: () => 2` |
+| Spacecraft | `activated: station()` (702.184a: the tapped creature is `ctx.stationed`); each "N+ \|" line is a `static` on itself while `counterCount(self, 'charge') >= N` (721.2): types, keywords and base P/T directly, an activated ability through `activatedOf` naming a script registered for that ability alone (Hearthhull) |
 | Impending | spread `...impending(4, '{1}{U}{U}')` into the script: its alternative cost and end-step trigger; the engine adds the time counters and "isn't a creature" |
 | Several activated abilities | list them in printed order (`activated: [ab1, equip('{1}')]`); an `activate` action and its stack item name one by `activated` (its index) |
 | Activated ability options | `fromHand`, `when`, `reduction`; costs `discard`, `discardSelf`, `counters`, or `sacrificeOne` permanent that fits a spec ("Sacrifice a creature:"), `sacrificeCount` of them ("Sacrifice two ...", or `'x'` for "Sacrifice X Squirrels", read as `ctx.x`), `tapUntapped` ("Tap three untapped Elves you control", picked like a crew; with `tap` too, the source isn't one of them, Lathril) |
@@ -516,7 +520,11 @@ sacrifice cost (ability or spell) sees `sacrificed` and `sacrificedPower` (as it
   on a permanent being tapped for mana: it returns who adds the mana and the lists to choose
   among, or null. It resolves at once, by hand and in auto-pay.
 - `addMana(g, pid, ['B', 'B', 'B'], self)` for rituals; `addMana(..., { keep: true })`
-  lasts the turn.
+  lasts the turn, `{ untilEndOfCombat: true }` until the combat phase ends (500.5a).
+- An activated ability's resolve sees the mana spent on it by source as `ctx.spentFrom`
+  ("for each mana from Treasures spent to activate this ability").
+- `reducesColoredCost: (g, self, spell, caster) => ({ colors: ['W', 'U', 'B', 'R', 'G'] })`
+  reduces a cost by coloured mana (118.7b-f, Morophon, Aang); `costModifier` stays for generic changes.
 - `noUntap: true` for "doesn't untap".
 
 **Choices while resolving**
@@ -595,7 +603,8 @@ gives haste; any optional `Replacement` can carry one.
 **Other static hooks**
 
 `forbids` ("can't cast"/"can't activate"), `grantsFlash`, `uncounterable`,
-`protectsSpell`, `ward`, `grantsEscape`, `delayedIf`, `forbidsAttack` ("can't attack you or
+`protectsSpell`, `ward`, `grantsEscape`, `delayedIf`, `extraLands` ("you may play an
+additional land on each of your turns", 305.2b), `forbidsAttack` ("can't attack you or
 planeswalkers you control", 508.1c; checked by `attackForbidden`), and `abilityCostModifier` ("activated
 abilities of Foods you control cost {1} less", generic mana only, mana abilities included).
 `ward` is mana, life, or `sacrifice` (a `TargetSpec` the payer's permanent must fit:
@@ -630,6 +639,12 @@ ability already on the stack, which exists apart from its source (113.7a).
 | `addCounters(g, card, n, kind)` | adds counters |
 | `createToken(g, pid, 'Treasure')` | makes a predefined token (`'Food'`, `'Clue'` too) |
 | `createTokens(g, pid, [{ key, count }, ...])` | several kinds of token at once, as one event (111.2) |
+| `becomeMonarch(g, pid)` | the player becomes the monarch (725); `g.monarch` says who it is |
+| `goad(g, card, by)` | goads a creature (701.15); `isGoaded`, `goadedBy` read it |
+| `rollDice(g, pid, 6, n)` | rolls dice (706), triggering `onRoll` for each |
+| `earthbend(g, land, n, you)` | earthbend N (701.66a), with its return trigger |
+| `bend(g, pid, kind)` | notes a bend and triggers `onBend` (what `earthbend`, `firebending` and `airbend(g, cards, by)` do themselves) |
+| `extraLand(g, pid)` | "you may play an additional land this turn" (305.2b) |
 | `addEffect` | an effect until end of turn; `{ kind: 'mayCast', card, moves, play: true, free: true }` is "you may play that card without paying its mana cost" (Urza) |
 | `delay` with `delayed[key]` | a delayed trigger (603.7); `step: 'main'` is "your next main phase", precombat or postcombat |
 | `extraTurn`, `winGame`, `loseGame` | as named |
