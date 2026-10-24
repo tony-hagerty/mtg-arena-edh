@@ -35,7 +35,7 @@
 import { current, isDraft, original } from 'immer';
 import { CREATURE_TYPES, SUBTYPES, cardData } from '../cards/db';
 import { anyRemovingScript, hasRemovingScript, hasStaticScript, scriptHas } from './registry';
-import { CANT_ATTACK, CANT_BLOCK, MUST_ATTACK, SUPPORTED_KEYWORDS, battlefield, counterCount, data, hasReconfigure, permanent, scriptFor } from './rules';
+import { CANT_ATTACK, CANT_BLOCK, MUST_ATTACK, SUPPORTED_KEYWORDS, battlefield, counterCount, data, hasReconfigure, isRingBearer, permanent, scriptFor } from './rules';
 import type { Card, CardScript, Characteristics, ContinuousEffect, Game, LayerParts } from './types';
 
 /** The layers that change characteristics this engine has effects for, in order (613.1, 613.4). Layers 1-3 come first: see `LayerParts`. */
@@ -232,8 +232,14 @@ const LISTED = ['flying', 'reach', 'deathtouch', 'lifelink', 'trample', 'vigilan
 const SCRIPTED = ['ward', 'enchant'];
 
 const addAll = (to: string[], xs: string[] | undefined) => {
-  for (const x of xs ?? []) if (!to.includes(x)) to.push(x);
+  for (const x of xs ?? []) if (!to.includes(x) || STACKING.includes(x)) to.push(x);
 };
+
+/**
+ * Keyword abilities whose every instance works separately, so each one given is listed again:
+ * exalted (702.83b) and riot (702.136b). The engine reads the others as there or not.
+ */
+const STACKING = ['exalted', 'riot'];
 
 /** Does entry `e`, with parts `p`, apply in layer `l`? */
 const appliesAt = (e: Entry, p: LayerParts, l: Layer) =>
@@ -400,6 +406,9 @@ function entries(g: Game, c: Card, temporary: boolean): Entry[] {
   if (c.cast?.impending && counterCount(c, 'time') > 0 && data(c).keywords.includes('Impending')) out.push({ ts: c.ts, seq: seq++, parts: { notTypes: ['Creature'] } });
   // A permanent whose dash cost was paid has haste (702.109a).
   if (c.cast?.dash) out.push({ ts: c.ts, seq: seq++, parts: { keywords: ['haste'] } });
+  // The Ring: "Your Ring-bearer is legendary" (701.54c), a static ability of the emblem, with its timestamp (613.7a).
+  const ring = g.players[c.controller]?.ring;
+  if (ring?.bearer?.id === c.id && isRingBearer(g, c)) out.push({ ts: ring.ts, seq: seq++, parts: { types: ['Legendary'] } });
   // A creature spell cast with suspend has haste until its caster loses control of it (702.62a).
   if (c.cast?.suspend && !c.gained.length && data(c).typeLine.includes('Creature')) out.push({ ts: c.ts, seq: seq++, parts: { keywords: ['haste'] } });
   // +1/+1 and -1/-1 counters (122.1a, 613.4c), and keyword counters (122.1b, 613.1f), each kind from when it was last put on (613.7c).

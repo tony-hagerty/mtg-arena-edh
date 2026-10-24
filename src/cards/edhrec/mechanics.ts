@@ -242,7 +242,7 @@ registerScripts({
     // "Whenever one or more Faeries you control deal combat damage to a player, goad target
     // creature that player controls." Once for each player dealt combat damage (603.2c, and the
     // card's rulings); the Faeries are looked at as the damage is dealt.
-    onPlayerCombatDamaged: {
+    onPlayerDealtCombatDamage: {
       when: (g, { self, sources }) => sources.some((s) => s.controller === self.controller && subtypesOf(g, permanent(g, s.id) ?? s).includes('Faerie')),
       targets: [{ type: 'creature', who: 'any', filter: (_g, c, source) => c.controller === (source.triggeredBy as { player?: PlayerId } | undefined)?.player, label: 'creature that player controls' }],
       text: 'Whenever one or more Faeries you control deal combat damage to a player, goad target creature that player controls.',

@@ -7,7 +7,7 @@ import './fixtures';
 import { hoverHandCard, leaveHandCard, useStore } from '../src/ui/store';
 import { hoverProps } from '../src/ui/util';
 import { activateFromHand, buildView, clickGroup, chooseEscape, chooseGraveyardTarget, clickPermanent, clickPlayer, clickStackItem, exileForMana, manaOptions, pickAbility, pickMana, pickManaSacrifice, pickFace, pickMode, playHandCard, setAbilityX, setChoices, stackTucked, undo } from '../src/ui/view';
-import { applyAction, canCast, data, isCreature, scriptOf } from '../src/engine';
+import { applyAction, canCast, createToken, data, isCreature, scriptOf } from '../src/engine';
 import { registerScripts } from '../src/engine/registry';
 import { parseCard } from '../src/cards/oracle';
 import { cardData } from '../src/cards/db';
@@ -256,13 +256,16 @@ describe('Auras, Equipment and crew in the UI', () => {
     });
     clickPermanent(byName(game(), 0, 'Hearthhull, the Worldseed')!);
     const v = buildView();
-    expect(v.prompt).toContain('Station');
+    expect(v.prompt).toContain('another untapped creature you control');
     expect(v.primary?.disabled).toBe(true);
     expect(v.glow.get(byName(game(), 0, 'Serra Angel')!.id)).toBe('target');
     expect(v.glow.get(byName(game(), 1, 'Serra Angel')!.id)).toBeUndefined();
+    expect(v.glow.get(byName(game(), 0, 'Hearthhull, the Worldseed')!.id)).toBe('picked'); // never itself
     clickPermanent(byName(game(), 1, 'Serra Angel')!); // an opponent's creature: nothing happens
-    expect(buildView().prompt).toContain('Station');
-    clickPermanent(byName(game(), 0, 'Serra Angel')!); // one pick is the whole cost: it goes straight on the stack and resolves
+    expect(buildView().primary?.disabled).toBe(true);
+    clickPermanent(byName(game(), 0, 'Serra Angel')!);
+    expect(buildView().primary?.disabled).toBe(false);
+    press(); // Tap: the cost is nothing but the tap, so it goes straight on the stack and resolves
     expect(byName(game(), 0, 'Serra Angel')!.tapped).toBe(true);
     expect(byName(game(), 0, 'Hearthhull, the Worldseed')!.counters.charge).toBe(4);
     expect(isCreature(game(), byName(game(), 0, 'Hearthhull, the Worldseed')!)).toBe(false);
@@ -711,6 +714,32 @@ describe('X in ability costs in the UI (107.3a)', () => {
     expect(useStore.getState().targeting).toBe(null);
     expect(byName(game(), 0, 'Chandra Nalaar')!.counters.loyalty).toBe(4);
     expect(byName(game(), 1, 'Shivan Dragon')!.damage).toBe(2);
+  });
+});
+
+describe('"Sacrifice X" in the UI (107.3a)', () => {
+  it('Chatterfang: announce X, then the target, then X Squirrels to sacrifice', () => {
+    play((d) => {
+      put(d, 0, 'Chatterfang, Squirrel General');
+      put(d, 0, 'Swamp');
+      put(d, 1, 'Shivan Dragon');
+    });
+    // Two Squirrels come with a Treasure: Chatterfang's replacement effect (614.1a).
+    useStore.setState({ game: produce(game(), (d) => void createToken(d, 0, 'Treasure', 2)) });
+    clickPermanent(byName(game(), 0, 'Chatterfang, Squirrel General')!);
+    // Chatterfang is a Squirrel too: three in all.
+    expect(buildView().abilityX).toMatchObject({ x: 3, max: 3 });
+    setAbilityX(2);
+    press(); // Continue
+    clickPermanent(byName(game(), 1, 'Shivan Dragon')!);
+    const squirrels = game().players[0].battlefield.filter((c) => c.name === 'Squirrel 1/1 G');
+    expect(buildView().glow.get(squirrels[0].id)).toBe('target');
+    clickPermanent(squirrels[0]);
+    clickPermanent(squirrels[1]);
+    press(); // Pay {B}; the bots pass and it resolves
+    expect(game().players[0].battlefield.filter((c) => c.name === 'Squirrel 1/1 G')).toHaveLength(0);
+    expect(game().players[1].battlefield.some((c) => c.name === 'Shivan Dragon')).toBe(true);
+    expect(game().log.some((l) => l.text.includes('Shivan Dragon gets +2/-2'))).toBe(true);
   });
 });
 
@@ -1349,5 +1378,39 @@ describe('undo (Ctrl+Z)', () => {
     useStore.setState({ game: produce(game(), (d) => void (d.priority = 0)) });
     expect(undo()).toBe(false);
     expect(tapped()).toEqual(['Mountain']);
+  });
+});
+
+describe('tapping permanents for a cost, and proliferating, in the UI', () => {
+  it('picks exactly three untapped Elves for High Perfect Morcant, then chooses what to proliferate, players too (701.34a)', () => {
+    play((d) => {
+      put(d, 0, 'High Perfect Morcant').sick = true;
+      put(d, 0, 'Llanowar Elves');
+      put(d, 0, 'Elvish Mystic').counters = { '+1/+1': 1 };
+      put(d, 0, 'Walking Corpse');
+      d.players[1].counters = { poison: 2 };
+    });
+    const morcant = byName(game(), 0, 'High Perfect Morcant')!;
+    clickPermanent(morcant);
+    let v = buildView();
+    expect(v.prompt).toContain('three untapped Elves you control (0 of 3 chosen)');
+    // A Zombie isn't an Elf.
+    expect(v.glow.get(byName(game(), 0, 'Walking Corpse')!.id)).toBeUndefined();
+    clickPermanent(byName(game(), 0, 'Walking Corpse')!);
+    clickPermanent(morcant);
+    clickPermanent(byName(game(), 0, 'Llanowar Elves')!);
+    expect(buildView().primary?.disabled).toBe(true);
+    clickPermanent(byName(game(), 0, 'Elvish Mystic')!);
+    v = buildView();
+    expect(v.prompt).toContain('(3 of 3 chosen)');
+    press(); // Tap: no mana to pay, so it goes on the stack and resolves
+    expect(game().players[0].battlefield.filter((c) => c.tapped).length).toBe(3);
+    const d = game().decision;
+    expect(d?.type).toBe('chooseCards');
+    const choice = (d as { choice: { players?: number[]; cards: string[] } }).choice;
+    expect(choice.players).toEqual([1]);
+    useStore.getState().act({ type: 'chooseCards', cards: choice.cards, players: [1] });
+    expect(byName(game(), 0, 'Elvish Mystic')!.counters['+1/+1']).toBe(2);
+    expect(game().players[1].counters?.poison).toBe(3);
   });
 });

@@ -338,16 +338,18 @@ describe('Hearthhull, the Worldseed: station and its thresholds', () => {
     const hull = byName(g, 0, 'Hearthhull, the Worldseed')!;
     const angel = byName(g, 0, 'Serra Angel')!;
     // Not with an opponent's creature, nor without naming one.
-    expect(applyAction(g, { type: 'activate', card: hull.id, activated: 0, station: byName(g, 1, 'Serra Angel')!.id }, OPTS)).toBe(g);
+    expect(applyAction(g, { type: 'activate', card: hull.id, activated: 0, crew: [byName(g, 1, 'Serra Angel')!.id] }, OPTS)).toBe(g);
     expect(applyAction(g, { type: 'activate', card: hull.id, activated: 0 }, OPTS)).toBe(g);
-    g = run(g, { type: 'activate', card: hull.id, activated: 0, station: angel.id });
+    // Nor two creatures: "another untapped creature" is one.
+    expect(applyAction(g, { type: 'activate', card: hull.id, activated: 0, crew: [angel.id, byName(g, 0, 'Elite Vanguard')!.id] }, OPTS)).toBe(g);
+    g = run(g, { type: 'activate', card: hull.id, activated: 0, crew: [angel.id] });
     expect(byName(g, 0, 'Serra Angel')!.tapped).toBe(true);
     g = settle(g);
     expect(counterCount(byName(g, 0, 'Hearthhull, the Worldseed')!, 'charge')).toBe(4);
     expect(isCreature(g, byName(g, 0, 'Hearthhull, the Worldseed')!)).toBe(false);
     // Station is sorcery-speed: not in combat.
     g = until(g, (x) => x.step === 'beginCombat' && x.priority === 0 && !x.decision);
-    expect(applyAction(g, { type: 'activate', card: hull.id, activated: 0, station: byName(g, 0, 'Elite Vanguard')!.id }, OPTS)).toBe(g);
+    expect(applyAction(g, { type: 'activate', card: hull.id, activated: 0, crew: [byName(g, 0, 'Elite Vanguard')!.id] }, OPTS)).toBe(g);
   });
 
   it('has the 2+ ability only with two or more charge counters: sacrifice a land to draw two and play an extra land, and opponents lose 2 life', () => {
