@@ -9,7 +9,7 @@ import type { CardData } from '../engine/types';
 import { isLabelWord, refusalOf } from './oracle';
 
 /** Ability words and keyword actions: they label a rule that the card's script implements. */
-export const ABILITY_WORDS = ['landfall', 'treasure', 'mill', 'threshold', 'metalcraft', 'recruit', "scions' secretary", 'delirium', 'surveil', 'imprint', 'channel', 'ferocious', 'bloodrush', 'populate', 'food', 'throw wide the gates', 'flare star', 'double', 'magecraft', 'role token', 'sell contraband', 'buy information', 'hire a mercenary', 'connive', 'medicus ministorum', 'monstrosity', 'madness', 'miracle', 'amass', 'proliferate', 'blight', 'cheer', 'scry'];
+export const ABILITY_WORDS = ['landfall', 'treasure', 'mill', 'threshold', 'metalcraft', 'recruit', "scions' secretary", 'delirium', 'surveil', 'imprint', 'channel', 'ferocious', 'bloodrush', 'populate', 'food', 'throw wide the gates', 'flare star', 'double', 'magecraft', 'role token', 'sell contraband', 'buy information', 'hire a mercenary', 'connive', 'medicus ministorum', 'monstrosity', 'madness', 'miracle', 'trance', 'goblin formula', 'explore', 'amass', 'proliferate', 'blight', 'cheer', 'scry'];
 
 /**
  * Is keyword `k` (lower case) only a label at the front of one of the card's lines: an ability

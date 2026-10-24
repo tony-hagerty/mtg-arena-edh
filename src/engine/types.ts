@@ -273,6 +273,8 @@ export interface CastInfo {
   offspring?: boolean;
   /** How its damage is divided among its targets, by target index (601.2d). */
   divide?: number[];
+  /** Cast by a permanent's permission to play it from a graveyard, exile or the top of a library (`CardScript.playPermission`): that permanent's id. */
+  permit?: string;
   /**
    * Its blitz cost was paid (702.152a): the permanent has haste and "When this permanent is put
    * into a graveyard from the battlefield, draw a card", and is sacrificed at the next end step.
@@ -343,6 +345,16 @@ export interface CastChoices {
    * Left out, the front face or normal characteristics.
    */
   face?: number;
+  /**
+   * Cast by a permanent's permission to play it from where it is (`CardScript.playPermission`,
+   * Muldrotha, Glarb): that permanent's id, and `slot` the permission's use when it has
+   * several ("choose one [permanent type] as you play it"). Left out, the engine picks the
+   * only permission that applies, or none if it can be cast on its own; null names the card's
+   * own right to be cast or played from there (Muldrotha's rulings: "you must announce which
+   * permission you're using").
+   */
+  permit?: string | null;
+  slot?: string;
 }
 
 /** One physical card (or token) in a game. `name` is the key into the card database. */
@@ -454,8 +466,10 @@ export interface Card {
   suspend?: boolean;
   /** Cards it exiled "until this leaves the battlefield" (Hostage Taker): they return when it does (610.3). */
   holds?: { id: string; moves: number }[];
-  /** Cards an ability of it exiled, for the ability linked to it (607), like Chrome Mox's. */
-  linked: { id: string; moves: number }[];
+  /** Cards an ability of it exiled, for the ability linked to it (607), like Chrome Mox's. `turn`: the turn it exiled them ("exiled with this this turn", Maralen). */
+  linked: { id: string; moves: number; turn?: number }[];
+  /** In a graveyard: the turn it was discarded into it ("if you discarded it this turn", mayhem 702.187). */
+  discarded?: number;
   /**
    * On a triggered ability's remembered source only: the event it triggered on, so a target
    * spec can name something from it, like "target creature that player controls".
@@ -959,6 +973,8 @@ export interface CastChoice extends Then {
   source: string;
   text: string;
   card: string;
+  /** "You may cast any number of spells from among them" (Kotis, Etali): every card on offer, `card` the first. The player casts one, and is offered the rest again. */
+  cards?: string[];
   free: boolean;
   /** "If that spell's mana value is N or less" (Beseech the Mirror). */
   maxMv?: number;
@@ -1052,6 +1068,8 @@ export type ReplaceEvent =
   /** `keywords`: abilities it gains as it enters, for as long as it stays: riot's haste (702.136a). */
   | { kind: 'enter'; card: Card; tapped: boolean; counters: Record<string, number>; keywords?: string[] }
   | { kind: 'begin'; player: PlayerId; what: 'extraTurn' | 'drawStep' }
+  /** Dredge (702.52a): instead of drawing, `player` mills `n` cards and returns `card` from their graveyard to their hand. */
+  | { kind: 'dredge'; player: PlayerId; card: Card; n: number }
   | { kind: 'none'; was: ReplaceEvent };
 
 /**
@@ -1238,11 +1256,53 @@ export interface Game {
    * one ability of one object (400.7), copies counted as the ability (707.10b).
    */
   resolutions?: { turn: number; counts: Record<string, number> };
+  /**
+   * Uses of permanents' permissions to play cards from other zones this turn (`CardScript.playPermission`):
+   * the turn each slot was last used, keyed `<id>:<moves>:<slot>` (Muldrotha's "a land and a
+   * permanent spell of each permanent type", Maralen's "once each turn").
+   */
+  permits?: Record<string, number>;
+  /**
+   * Additional steps an effect added to this turn (500.9), each directly after a phase: Obeka's
+   * "you get that many additional upkeep steps after this phase". The most recently added
+   * comes first. `extraStep` is set while one is under way, with the phase it follows.
+   */
+  extraSteps?: { step: 'upkeep'; after: Phase }[];
+  extraStep?: { after: Phase };
+}
+
+/** The phases of a turn (500.1): the beginning phase (untap, upkeep, draw), the main phases, combat and the ending phase. */
+export type Phase = 'beginning' | 'main1' | 'combat' | 'main2' | 'ending';
+
+/**
+ * A permission a permanent's static ability gives to play a card from a zone other than the
+ * hand (601.3, 305.1): "You may play lands and cast spells with mana value 4 or greater from
+ * the top of your library" (Glarb), "you may play a land and cast a permanent spell of each
+ * permanent type from your graveyard" (Muldrotha), mayhem (702.187). `cast`: it may be cast
+ * as a spell; `land`: it may be played as a land. `free`: "without paying its mana cost", an
+ * alternative cost of nothing (118.9). `cost`: another cost paid rather than its mana cost
+ * (mayhem's). `slots`: the uses the permission has left this turn, when it is limited
+ * ("once each turn", a permanent type the card may be cast as): the player picks one as they
+ * play the card (`CastChoices.slot`), and the engine marks it used (`Game.permits`).
+ */
+export interface PlayPermission {
+  cast?: boolean;
+  land?: boolean;
+  free?: boolean;
+  cost?: string;
+  slots?: string[];
+  /**
+   * "Spells with mana value N or greater": the spell's mana value with its X as announced must
+   * be at least this (Glarb's rulings). A card with {X} may begin to be cast whatever its printed
+   * mana value, since X can make it qualify (601.3a).
+   */
+  minMv?: number;
 }
 
 export type Action =
   /** `face`: the land face of a modal double-faced card to put onto the battlefield (712.12). */
-  | { type: 'playLand'; card: string; face?: number }
+  /** `permit`: which permission the land is played by when several apply (Muldrotha's rulings): a permanent's id, or null for the player's own right to play it. */
+  | { type: 'playLand'; card: string; face?: number; permit?: string | null }
   /** Plot (702.170a): a special action, paying the card's plot cost and exiling it from the hand. */
   | { type: 'plot'; card: string }
   /** `hold`: keep priority afterwards instead of letting auto-pass pass it (117.3c). */
@@ -1542,6 +1602,10 @@ export interface TriggerEvents {
   onEvoked: object;
   /** Offspring's "When this permanent enters, if its offspring cost was paid, create a 1/1 token copy of it" (702.175a). */
   onOffspring: object;
+  /** "Whenever you play a land" (305.1): `land` is the land, on the battlefield. Not a land put there by an effect (305.4). */
+  onLandPlayed: { player: PlayerId; land: Card };
+  /** "Whenever a creature you control explores" (701.44b): `card` is the permanent that explored, as it was (701.44c), `player` who controlled it. */
+  onExplore: { card: Card; player: PlayerId };
   /**
    * "Whenever you waterbend, earthbend, firebend, or airbend" (Avatar Aang): a player bent, as
    * each keyword says it triggers (701.65b, 701.66b, 701.67c, 702.189b).
@@ -2201,6 +2265,18 @@ export interface CardScript extends Triggers {
   fromGraveyard?: BroadcastHook[];
   /** Bot hint: should a bot activate this permanent's `activated` ability now? The look-ahead can't see what it is worth. */
   botActivate?: (g: Game, pid: PlayerId, self: Card, activated: number) => boolean;
+  /**
+   * While this permanent is on the battlefield: may `pid` play card `c` from where it is (a
+   * graveyard, exile, or the top of a library), and how (see `PlayPermission`)? Null if not.
+   * Timing is the card's own (601.3, 305.1): a sorcery still waits for a main phase.
+   */
+  playPermission?: (g: Game, self: Card, pid: PlayerId, c: Card) => PlayPermission | null;
+  /** While this permanent is on the battlefield: may `pid` look at the top card of their library any time (Glarb, Bolas's Citadel)? */
+  looksAtTop?: (g: Game, self: Card, pid: PlayerId) => boolean;
+  /** While this permanent is on the battlefield: is the top card of `pid`'s library revealed to everyone ("Play with the top card of your library revealed", Oracle of Mul Daya)? */
+  revealsTop?: (g: Game, self: Card, pid: PlayerId) => boolean;
+  /** While this permanent is on the battlefield: the dredge N card `c` in a graveyard has from it (702.52), or null: "Land cards in your graveyard have dredge 2". */
+  grantsDredge?: (g: Game, self: Card, c: Card) => number | null;
 }
 
 /** Hooks that every permanent on the battlefield hears, not only the card the event is about. */

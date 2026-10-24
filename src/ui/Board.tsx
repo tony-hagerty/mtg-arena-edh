@@ -2,7 +2,7 @@ import { memo, useEffect, useRef, useState } from 'react';
 import type { CSSProperties } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import { cardData } from '../cards/db';
-import { COMMANDER_DAMAGE, attachmentsOf, creaturesOf, data, isCreature, isHidden, isLand, permanent } from '../engine';
+import { COMMANDER_DAMAGE, attachmentsOf, canLookAtTop, creaturesOf, data, isCreature, isHidden, isLand, permanent } from '../engine';
 import type { Card, Game, ManaSym, Player } from '../engine';
 import { HandCard, HiddenHandCard } from './Card';
 import { CardImage } from './TextCard';
@@ -11,7 +11,7 @@ import { useStore } from './store';
 import { HAND_VISIBLE, handPills, handWindow } from './table-layout';
 import type { Pt } from './table-layout';
 import { cx, deckColor, faceUp, hoverProps, seatClass, seatOf } from './util';
-import { clickCrown, clickPlayer, useView } from './view';
+import { clickCrown, clickPlayer, playHandCard, useView } from './view';
 import type { View } from './view';
 
 const vars = (v: Record<string, string | number>) => v as CSSProperties;
@@ -253,16 +253,29 @@ export function FaceUpPile({ player, zone }: { player: Player; zone: 'graveyard'
   );
 }
 
-/** The library, face down. The deck's edges thicken with its size (--depth). The back stays when it is empty: draws measure it. */
+/**
+ * The library, face down. The deck's edges thicken with its size (--depth). The back stays when
+ * it is empty: draws measure it. When its owner may look at its top card any time (Glarb), they
+ * see it face up on the pile, and click it to play or cast it from there when they may.
+ */
 export function Library({ player }: { player: Player }) {
+  const v = useView();
+  const top = player.library[0];
+  const shown = top && !isHidden(top) && canLookAtTop(v.g, v.me, player.id) ? top : undefined;
+  const castable = !!shown && v.glow.get(shown.id) === 'play';
   return (
     <div
-      className={cx('pile', 'library', !player.library.length && 'empty')}
+      className={cx('pile', 'library', !player.library.length && 'empty', castable && 'glow-play')}
       data-library={player.id}
-      title={`Library: ${player.library.length} cards`}
+      title={shown ? `Library: ${player.library.length} cards. Top: ${data(shown).name}${castable ? ' (click to play it)' : ''}` : `Library: ${player.library.length} cards`}
       style={vars({ '--depth': Math.min(1, player.library.length / 60).toFixed(2) })}
+      onClick={(e) => {
+        if (!castable) return;
+        e.stopPropagation();
+        playHandCard(shown);
+      }}
     >
-      <div className="card-back" />
+      {shown ? <CardImage key={shown.id} d={data(shown)} alt="" draggable={false} data-card={shown.id} {...hoverProps(data(shown))} /> : <div className="card-back" />}
       <i className="ms ms-library" />
       <span className="count">{player.library.length}</span>
     </div>

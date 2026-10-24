@@ -525,17 +525,25 @@ function ReplacementPanel({ choice }: { choice: ReplacementChoice }) {
  * Mirror found. Casting it goes through the usual steps: targets, costs, paying.
  */
 function CastNowPanel({ g, choice }: { g: Game; choice: CastChoice }) {
-  const card = findCard(g, choice.card);
-  const can = !!card && canCast(g, choice.player, card);
+  // One card, or several to choose from ("you may cast any number of spells from among them", Kotis): pick one, then cast it.
+  const cards = (choice.cards ?? [choice.card]).map((id) => findCard(g, id)).filter((c): c is Card => !!c);
+  const castable = (c: Card) => canCast(g, choice.player, c);
+  const several = cards.length > 1;
   return (
     <CardPicker
       title={choice.source}
       hint={choice.text}
-      cards={card ? [card] : []}
-      buttons={() => [
-        { label: "Don't Cast", tone: 'plain', onClick: () => act({ type: 'answer', yes: false }) },
-        { label: 'Cast', sub: can ? undefined : "It can't be cast", tone: 'go', disabled: !can, onClick: () => card && playHandCard(card) },
-      ]}
+      cards={cards}
+      selectable={several ? castable : undefined}
+      max={several ? 1 : 0}
+      buttons={(picked) => {
+        const card = several ? cards.find((c) => c.id === picked[0]) : cards[0];
+        const can = !!card && castable(card);
+        return [
+          { label: "Don't Cast", tone: 'plain', onClick: () => act({ type: 'answer', yes: false }) },
+          { label: 'Cast', sub: can ? undefined : several ? 'Pick a card to cast' : "It can't be cast", tone: 'go', disabled: !can, onClick: () => card && playHandCard(card) },
+        ];
+      }}
     />
   );
 }

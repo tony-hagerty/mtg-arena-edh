@@ -355,10 +355,10 @@ function CastOptions() {
           <span className="cast-label">Cost</span>
           {a.costs.map((c) => (
             <button
-              key={c.escape ? `escape${c.escape}` : (c.alt ?? 'mana')}
-              className={cx('chip', choices.alt === c.alt && (choices.escape?.length ?? 0) === (c.escape ?? 0) && 'on')}
+              key={c.permit ? `permit${c.permit}:${c.slot ?? ''}` : c.escape ? `escape${c.escape}` : (c.alt ?? 'mana')}
+              className={cx('chip', choices.alt === c.alt && (choices.escape?.length ?? 0) === (c.escape ?? 0) && choices.permit === c.permit && choices.slot === c.slot && 'on')}
               disabled={!c.payable}
-              onClick={() => setChoices({ alt: c.alt, escape: c.escape ? Array.from({ length: c.escape }, () => '') : undefined })}
+              onClick={() => setChoices({ alt: c.alt, escape: c.escape ? Array.from({ length: c.escape }, () => '') : undefined, permit: c.permit, slot: c.slot })}
             >
               {c.label.startsWith('{') ? <ManaCost cost={c.label} /> : c.label}
             </button>

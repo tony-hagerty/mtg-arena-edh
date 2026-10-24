@@ -115,6 +115,8 @@ import {
   isRingBearer,
   tokenCopy,
   SUPPORTED_KEYWORDS,
+  explore,
+  exploreEach,
 } from '../engine/rules';
 import type {
   Action,
@@ -219,6 +221,8 @@ const ABILITY_WORDS = [
   'heroic', 'imprint', 'infusion', 'inspired', 'join forces', 'kinship', 'landfall', 'lieutenant', 'magecraft', 'metalcraft', 'morbid', 'opus', 'pack tactics', 'paradox', 'parley',
   'radiance', 'raid', 'rally', 'renew', 'repartee', 'revolt', 'secret council', 'spell mastery', 'strive', 'survival', 'sweep', 'tempting offer', 'threshold', 'undergrowth', 'valiant',
   'vivid', 'void', 'will of the council',
+  // Newer ability words and flavor words (207.2c, 207.2d): Final Fantasy's trance, Spider-Man's Goblin Formula, The Wandering Minstrel's ballad.
+  'trance', 'goblin formula', "the minstrel's ballad",
 ];
 /**
  * Keywords with rules meaning that are written "[Keyword] — [ability]", so they aren't labels to
@@ -675,9 +679,11 @@ function tokenList(text: string, x: Num | null, clause: string): { key: string; 
   }
   const parts = text.split(/,? and (?=(?:a|an|one|two|three|four|five|x|\d+) )|, (?=(?:a|an|one|two|three|four|five|x|\d+) )/);
   return parts.map((part) => {
-    const m = new RegExp(`^${NUM} (.+?) tokens?( with .+)?$`).exec(part) ?? new RegExp(`^${NUM} (.+?) tokens?$`).exec(part);
+    const m = new RegExp(`^${NUM} (.+?) tokens?( with .+| that's all colors)?$`).exec(part) ?? new RegExp(`^${NUM} (.+?) tokens?$`).exec(part);
     if (!m) return refuse(clause, `"${part}" isn't a token`);
-    return { key: tokenFor(m[2] + (m[3] ?? ''), clause), n: count(m[1], x, clause) };
+    // "A 2/2 Elemental creature token that's all colors" (105.2c, The Wandering Minstrel).
+    const desc = m[3] === " that's all colors" ? m[2].replace(/^(\d+\/\d+) /, '$1 white, blue, black, red, and green ') : m[2] + (m[3] ?? '');
+    return { key: tokenFor(desc, clause), n: count(m[1], x, clause) };
   });
 }
 
@@ -800,6 +806,8 @@ const CONDITIONS: [RegExp, (m: RegExpExecArray) => Cond | null][] = [
       return (g, _self, you) => g.players[you].battlefield.some((c) => types.some((t) => hasType(g, c, t!)));
     },
   ],
+  // "If you control seven or more lands with different names" (Field of the Dead, The Necrobloom): names as the lands are now.
+  [new RegExp(`^you control ${NUM} or more lands with different names$`), (m) => (g, _s, you) => new Set(g.players[you].battlefield.filter((c) => isLand(g, c)).map((c) => cardData(c.name).name)).size >= (NUMBERS[m[1]] ?? parseInt(m[1], 10))],
   [
     new RegExp(`^you control ${NUM} or more (.+)$`),
     (m) => {
@@ -1404,6 +1412,22 @@ function effect(clause0: string, env: Env, st: State): Read {
 /** What "you" do, or a clause with no subject: an instruction to the ability's controller. */
 function youEffect(rest: string, env: Env, st: State, clause: string): Read {
   let m: RegExpExecArray | null;
+  // Explore (701.44): "this creature explores", "it explores", "target creature explores", "each Merfolk creature you control explores" (701.44d).
+  if ((m = /^(.+?) explores?$/.exec(rest))) {
+    const who = m[1];
+    if (who === '~' || ((who === 'it' || who === 'that creature') && !st.last)) {
+      if (!env.permanent) return refuse(clause, 'a spell exploring');
+      return { targets: [], run: (g, ctx) => explore(g, permanent(g, ctx.self.id) ?? ctx.self) };
+    }
+    const o = objects(who, env, st, clause);
+    if (!o || o.zone !== 'battlefield') return refuse(clause, `"${who}" isn't a permanent the parser knows`);
+    // Several at once explore one after another, in the order their controllers choose (701.44d).
+    return { targets: o.targets, ...(o.reuse ? { reuse: true } : {}), run: (g, ctx, i, memo) => {
+      const cards = actOn(g, ctx, i, memo, o);
+      if (o.group) exploreEach(g, cards);
+      else for (const c of cards) explore(g, permanent(g, c.id) ?? c);
+    } };
+  }
   // Scry N (701.22), surveil N (701.25).
   if ((m = new RegExp(`^scry ${NUM}$`).exec(rest))) return { targets: [], ...scryEffect(count(m[1], env.x, clause)) };
   if ((m = new RegExp(`^surveil ${NUM}$`).exec(rest))) {
@@ -2040,7 +2064,10 @@ function effects(text: string, env: Env): Effect[] {
       sentences.splice(k, 2, `${next.replace(/^if (?:the player|they|that player) (?:doesn't|don't), /, '')} unless ${pay[1]} pays ${pay[2]}`);
     }
   }
+  /** Where the effects of the sentence before began in `out`, for "If [condition], [effect] instead". */
+  let previous = 0;
   for (const raw of sentences) {
+    const start = out.length;
     const read = whereX(raw, env, raw);
     let sentence = read.sentence;
     // "If you control four or more lands, untap that land": checked as it resolves (608.2c). Only a condition the parser reads.
@@ -2060,6 +2087,21 @@ function effects(text: string, env: Env): Effect[] {
       onlyIf = condition(iff[1])!;
       sentence = iff[2];
     }
+    // "Create a 0/1 Plant token. If you control seven or more lands with different names, create a
+    // 2/2 Zombie token instead" (The Necrobloom): the sentence before happens only if the condition
+    // doesn't hold as it resolves, and this one only if it does (608.2c). Not a replacement effect (614.1a).
+    let instead: Cond | undefined;
+    if (iff && condition(iff[1]) && / instead$/.test(iff[2])) {
+      if (start === 0 || previous === start) refuse(raw, '"instead" with no effect before it');
+      const cond = condition(iff[1])!;
+      for (const e of out.slice(previous, start)) {
+        const was = e.onlyIf;
+        e.onlyIf = (g, self, you) => !cond(g, self, you) && (!was || was(g, self, you));
+      }
+      instead = cond;
+      sentence = iff[2].replace(/ instead$/, '');
+    }
+    previous = start;
     if (nth) {
       if (!env.permanent) refuse(raw, 'a spell counting how many times "this ability" has resolved');
       counting = true;
@@ -2137,7 +2179,7 @@ function effects(text: string, env: Env): Effect[] {
         return;
       }
       const e = effect(c, read.env, st);
-      out.push({ ...e, text: clause, ...mayPart, ...(onlyIf ? { onlyIf } : {}) });
+      out.push({ ...e, text: clause, ...mayPart, ...(onlyIf ? { onlyIf } : {}), ...(instead ? { onlyIf: instead } : {}) });
     });
   }
   return out;
@@ -2708,6 +2750,16 @@ function cardLine(text: string, original: string, d: CardData, script: CardScrip
     }
     return true;
   }
+  // "Lands you control enter untapped." (The Wandering Minstrel): a replacement effect (614.1c) that applies to
+  // each such permanent entering, whether an effect would have it enter tapped or not, so with the land's own
+  // "enters tapped" the player chooses the order they apply in and may have it enter either way (616.1, its
+  // rulings); one simply put onto the battlefield tapped enters untapped. Not for permanents entering with it (614.12).
+  if ((m = /^(.+?) you control enter untapped\.$/.exec(text))) {
+    const o = object(`${m[1]} you control`, 'many', null);
+    if (!o || o.zone !== 'battlefield') return refuse(original, `no template for "${m[1]} you control"`);
+    addReplacement(script, (g, self, ev) => (ev.kind === 'enter' && ev.card.controller === self.controller && o.test(g, ev.card, self, 0) ? { instead: { ...ev, tapped: false } } : null));
+    return true;
+  }
   // "This land enters tapped." (614.1c)
   if (text === '~ enters tapped.') {
     script.entersTapped = true;
@@ -2758,6 +2810,52 @@ function cardLine(text: string, original: string, d: CardData, script: CardScrip
   // "You have no maximum hand size." (402.2)
   if (text === 'you have no maximum hand size.') {
     script.noMaxHandSize = true;
+    return true;
+  }
+  // "You may look at the top card of your library any time." (Glarb, Mystic Forge, Bolas's Citadel)
+  if (text === 'you may look at the top card of your library any time.') {
+    script.looksAtTop = (_g, self, pid) => pid === self.controller;
+    return true;
+  }
+  // "Play with the top card of your library revealed." (Oracle of Mul Daya): everyone sees it.
+  if (text === 'play with the top card of your library revealed.') {
+    script.revealsTop = (_g, self, pid) => pid === self.controller;
+    return true;
+  }
+  // "You may play lands and cast spells [with mana value N or greater] from the top of your library",
+  // "You may play lands from the top of your library" (Oracle of Mul Daya), "You may cast artifact spells
+  // and colorless spells from the top of your library" (Mystic Forge): a permission (601.3, 305.1).
+  // Glarb's rulings: a spell with {X} may be cast with an X that makes its mana value 4 or greater.
+  if ((m = /^you may (play lands and cast spells|play lands|cast (.+?) spells)(?: with mana value (\d+) or greater)? from the top of your library\.$/.exec(text))) {
+    const land = m[1].startsWith('play lands');
+    const kinds = m[1] === 'play lands' ? null : (m[2] ?? '').split(' spells and ').map((k) => spellKind(k));
+    if (kinds?.some((k) => !k)) return refuse(original, `no template for "${m[2]} spells"`);
+    const minMv = m[3] ? parseInt(m[3], 10) : undefined;
+    script.playPermission = (g, self, pid, c) => {
+      if (pid !== self.controller || c.zone !== 'library' || c.owner !== pid || g.players[pid].library[0]?.id !== c.id) return null;
+      const cast = !!kinds && !isLand(g, c) && kinds.some((k) => k!(g, c));
+      return cast || (land && isLand(g, c)) ? { ...(cast ? { cast: true } : {}), ...(land ? { land: true } : {}), ...(minMv !== undefined ? { minMv } : {}) } : null;
+    };
+    return true;
+  }
+  // "Land cards in your graveyard have dredge 2." (The Necrobloom, 702.52)
+  if ((m = /^([a-z]+) cards in your graveyard have dredge (\d+)\.$/.exec(text))) {
+    const kind = modifier(m[1]);
+    if (!kind) return refuse(original, `no template for "${m[1]} cards"`);
+    const n = parseInt(m[2], 10);
+    script.grantsDredge = (g, self, c) => (c.zone === 'graveyard' && c.owner === self.controller && kind(g, c, self, 0) ? n : null);
+    return true;
+  }
+  // "Each nonland card in your graveyard has mayhem. The mayhem cost is equal to its mana cost." (Green Goblin, 702.187b)
+  if (text === 'each nonland card in your graveyard has mayhem. the mayhem cost is equal to its mana cost.') {
+    script.playPermission = (g, self, pid, c) =>
+      pid === self.controller && c.zone === 'graveyard' && c.owner === pid && !isLand(g, c) && c.discarded === g.turn ? { cast: true, cost: cardData(c.name).manaCost } : null;
+    return true;
+  }
+  // "Spells you cast from your graveyard cost {2} less to cast." (Green Goblin, 601.2f): generic mana only.
+  if ((m = /^spells you cast from your graveyard cost \{(\d+)\} less to cast\.$/.exec(text))) {
+    const n = -parseInt(m[1], 10);
+    script.costModifier = (_g, self, _spell, caster, from) => (caster === self.controller && from === 'graveyard' ? n : 0);
     return true;
   }
   // "This spell can't be countered." (101.2)
@@ -3204,6 +3302,28 @@ const TRIGGERS: [RegExp, (m: RegExpExecArray) => TrigEvent[] | null][] = [
     },
   ],
   [/^whenever a land you control enters$/, () => [{ hook: 'onLandfall', when: (_g, e) => (e.land as Card).controller === e.self.controller, ev: objectEv('land'), env: { object: true } }]],
+  // "Whenever this land or another land you control enters" (Field of the Dead): itself included; others only when it is on the battlefield to see them (603.6a).
+  [
+    /^whenever ~ or another (.+?) enters$/,
+    (m) => {
+      const about = aboutObject(`another ${m[1]}`);
+      if (!about) return null;
+      const when = (g: Game, e: Record<string, unknown> & { self: Card }, entered: Card) => entered.id === e.self.id || about(g, entered, e.self);
+      if (/^land(?: you control)?$/.test(m[1])) return [{ hook: 'onLandfall', when: (g, e) => when(g, e, e.land as Card), ev: objectEv('land'), env: { object: true } }];
+      if (/creature/.test(m[1])) return [{ hook: 'onCreatureEnters', when: (g, e) => when(g, e, e.entered as Card), ev: objectEv('entered'), env: { object: true, player: true } }];
+      return [{ hook: 'onPermanentEnters', when: (g, e) => when(g, e, e.entered as Card), ev: objectEv('entered'), env: { object: true, player: true } }];
+    },
+  ],
+  // "Whenever you play a land" (305.1): not a land an effect puts onto the battlefield (305.4).
+  [/^whenever you play a land$/, () => [{ hook: 'onLandPlayed', when: yours((e) => e.player), ev: objectEv('land'), env: { object: true } }]],
+  // "Whenever a creature you control explores" (701.44b): the permanent as it was, its last controller if it left (701.44c).
+  [
+    /^whenever (a|an|another) (.+?) explores$/,
+    (m) => {
+      const about = aboutObject(`${m[1]} ${m[2]}`);
+      return about && [{ hook: 'onExplore', when: (g, e) => about(g, { ...(e.card as Card), controller: e.player as PlayerId }, e.self), ev: objectEv('card'), env: { object: true, player: true } }];
+    },
+  ],
   // "Whenever a Food is put into a graveyard from the battlefield": a leaves-the-battlefield ability, so it looks back in time (603.6c, 603.10a). Tokens go there too before they cease to exist (111.7).
   [
     /^whenever (a|an|another) (.+?) is put into a graveyard from the battlefield$/,
@@ -3507,8 +3627,9 @@ function readCard(d: CardData): CardScript {
       script.ward = { mana: parts[wardAt].slice('ward '.length) };
       continue;
     }
-    // Casting rules the engine applies itself: delve (702.66), rebound (702.88), paradigm (702.192).
-    if (CAST_KEYWORDS.includes(text)) continue;
+    // Casting rules the engine applies itself: delve (702.66), rebound (702.88), paradigm (702.192),
+    // dredge N (702.52) and mayhem [cost] (702.187).
+    if (CAST_KEYWORDS.includes(text) || /^dredge \d+$/.test(text) || /^mayhem (?:\{[^}]+\})+$/.test(text)) continue;
     // Extort (702.101a) and job select (702.182a) are triggered abilities.
     if (text === 'extort') {
       addTrigger(script, 'onCast', { ...(extort.onCast as AnyTrigger), text: 'Extort' });

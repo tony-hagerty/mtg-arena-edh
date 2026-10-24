@@ -1,6 +1,6 @@
 // Queries and effect primitives. Everything here either reads a Game or mutates an
 // Immer draft of one; turn structure and action handling live in engine.ts.
-import { CREATURE_TYPES, cardData, registerToken } from '../cards/db';
+import { CREATURE_TYPES, cardData, isCardName, registerToken } from '../cards/db';
 import { current, isDraft } from 'immer';
 import { NO_SCRIPT, anyGrantFor, anyScriptHas, registerScripts, scriptOf } from './registry';
 import { anyGrantingStatic, characteristics, hasOwnAbilities, heldMemo, inBase, mayHaveScript, mayLoseAbilities, settled, staticRemoval, typesOf, untouched } from './layers';
@@ -48,6 +48,9 @@ import type {
   TurnEffect,
   TriggerHook,
   Zone,
+  Phase,
+  PlayPermission,
+  Step,
 } from './types';
 
 export const STARTING_LIFE = 40;
@@ -153,6 +156,9 @@ export const SUPPORTED_KEYWORDS = [
   'changeling',
   'devoid',
   'impending',
+  // Dredge (702.52) and mayhem (702.187) by the engine, from the card's own text (`dredgeOf`, `mayhemCost`).
+  'dredge',
+  'mayhem',
   // Decayed (702.147) by the engine: it can't block, and its attack trigger sacrifices it at end of combat.
   'decayed',
   // Shadow (702.28) and landwalk (702.14) are evasion abilities the engine checks as blockers are declared.
@@ -721,8 +727,11 @@ export const commanderDamageFrom = (g: Game, victim: Player, commander: Card) =>
 export function altCostsOf(g: Game, c: Card, face = 0, pid = c.owner): number[] {
   // Flashback and escape are already alternative costs, and so is casting it without
   // paying its mana cost, for {2} after being airbent, or as a plotted card: only one can be
-  // paid (118.9a, 702.34a, 702.138a, 701.65a, 702.170d).
-  if (c.zone === 'graveyard' || freeCast(g, c) || exileCast(c)) return [];
+  // paid (118.9a, 702.34a, 702.138a, 701.65a, 702.170d). From a graveyard, a card's own
+  // alternative costs are open only through a permanent's permission that pays its costs as
+  // usual (Muldrotha's rulings: "If it has an alternative cost, you may cast it for that cost instead").
+  if (freeCast(g, c) || exileCast(c)) return [];
+  if (c.zone === 'graveyard' && !playPermissions(g, pid, c).some((x) => x.p.cast && !x.p.free && x.p.cost === undefined)) return [];
   // Warp is cast only from the hand (702.185a). A madness or miracle cost is paid only when
   // that ability's trigger lets its owner cast it, and then nothing else can be (702.35a, 702.94a).
   const via = castVia(g, c);
@@ -759,7 +768,7 @@ export function fitsSpec(g: Game, c: Card, spec: TargetSpec, source: Card): bool
 }
 
 /** Is `c` the card a resolving spell or ability lets its player cast now (608.2g)? */
-export const castingNow = (g: Game, c: Card) => g.decision?.type === 'cast' && g.decision.choice.card === c.id;
+export const castingNow = (g: Game, c: Card) => offeredNow(g, c);
 
 /** Is face `face` of `c` an aftermath half (702.127a)? It can be cast only from a graveyard. */
 export const isAftermath = (c: Card, face: number) => !!cardData(c.name).faces?.[face]?.keywords.includes('Aftermath');
@@ -770,7 +779,7 @@ export const isAftermath = (c: Card, face: number) => !!cardData(c.name).faces?.
  * (Emet-Selch), which pays its mana cost.
  */
 export const paysFlashback = (g: Game, c: Card, choices: CastChoices) =>
-  c.zone === 'graveyard' && !choices.escape && !castingNow(g, c) && !permission(g, null, c) && !isAftermath(c, choices.face ?? 0) && !!flashbackCost(g, c);
+  c.zone === 'graveyard' && !choices.escape && choices.permit === undefined && !castingNow(g, c) && !permission(g, null, c) && !isAftermath(c, choices.face ?? 0) && !!flashbackCost(g, c);
 
 /**
  * The flashback cost card `c` in a graveyard has (702.34a): its own, or its mana cost while an
@@ -794,9 +803,9 @@ export const hasSuspend = (c: Card) => !!c.suspend || cardData(c.name).keywords.
 export const isSuspended = (c: Card) => c.zone === 'exile' && hasSuspend(c) && counterCount(c, 'time') > 0;
 
 /** If `c` is the card its madness, miracle or suspend ability lets its owner cast now, which (702.35a, 702.94a, 702.62a). */
-export const castVia = (g: Game, c: Card): CastVia | undefined => (g.decision?.type === 'cast' && g.decision.choice.card === c.id ? g.decision.choice.via : undefined);
+export const castVia = (g: Game, c: Card): CastVia | undefined => (g.decision?.type === 'cast' && offeredNow(g, c) ? g.decision.choice.via : undefined);
 
-export const freeCast = (g: Game, c: Card) => g.decision?.type === 'cast' && g.decision.choice.card === c.id && g.decision.choice.free;
+export const freeCast = (g: Game, c: Card) => g.decision?.type === 'cast' && offeredNow(g, c) && g.decision.choice.free;
 
 /**
  * The permission an effect gives `pid` to cast or play card `c` this turn, if there is one
@@ -810,6 +819,150 @@ export function permission(g: Game, pid: PlayerId | null, c: Card) {
     return e;
   }
   return undefined;
+}
+
+/** Is `c` the top card of `pid`'s library? "From the top of your library" means only that card. */
+export const topOfLibrary = (g: Game, pid: PlayerId, c: Card) => c.zone === 'library' && c.owner === pid && g.players[pid].library[0]?.id === c.id;
+
+/** Is `c` the card (or one of the cards) a resolving spell or ability lets its player cast now (608.2g)? */
+export const offeredNow = (g: Game, c: Card) => g.decision?.type === 'cast' && (g.decision.choice.card === c.id || !!g.decision.choice.cards?.includes(c.id));
+
+/**
+ * The permissions permanents' static abilities give `pid` to play card `c` from where it is
+ * (601.3, 305.1; `CardScript.playPermission`): from a graveyard, from exile, or as the top
+ * card of their library. One with every slot used this turn is left out. A card's own mayhem
+ * (702.187b) is a permission of its own: "you may cast it from your graveyard by paying [its
+ * mayhem cost] rather than paying its mana cost" if its owner discarded it this turn.
+ */
+export function playPermissions(g: Game, pid: PlayerId, c: Card): { source: Card; p: PlayPermission }[] {
+  // A stand-in for a card a player's view hides (`isHidden` in view.ts) is nothing anyone can play.
+  if (c.name === '' || (c.zone !== 'graveyard' && c.zone !== 'exile' && !topOfLibrary(g, pid, c))) return [];
+  const out: { source: Card; p: PlayPermission }[] = [];
+  for (const x of battlefield(g)) {
+    if (!mayHaveScript(x, 'playPermission')) continue;
+    const p = abilitiesOf(g, x).playPermission?.(g, x, pid, c);
+    if (!p || !(p.cast || p.land) || (p.slots && !p.slots.length)) continue;
+    // "With mana value N or greater": a spell below it can't be cast this way unless an X could lift it (601.3a).
+    if (p.cast && p.minMv !== undefined && !isLand(g, c) && manaValue(c) < p.minMv && !parseCost(data(c).manaCost).x) out.push({ source: x, p: { ...p, cast: false } });
+    else out.push({ source: x, p });
+  }
+  const mayhem = mayhemCost(c);
+  if (mayhem !== undefined && c.zone === 'graveyard' && c.owner === pid && c.discarded === g.turn) out.push({ source: c, p: { cast: true, cost: mayhem } });
+  return out;
+}
+
+/** The printed mayhem cost of card `c` (702.187b), if it has mayhem: "Mayhem {1}{R}". */
+export function mayhemCost(c: Card): string | undefined {
+  const m = /^Mayhem ((?:\{[^}]+\})+)/m.exec(cardData(c.name).oracleText);
+  return m ? m[1] : undefined;
+}
+
+/**
+ * The permission `pid` uses to cast `c` with these choices, if any: the one `choices.permit`
+ * names, or else the only one that applies when the card can't be cast from there on its own.
+ */
+export function permitFor(g: Game, pid: PlayerId, c: Card, choices: Pick<CastChoices, 'permit' | 'slot' | 'x'>): { source: Card; p: PlayPermission } | undefined {
+  const all = playPermissions(g, pid, c).filter((x) => x.p.cast);
+  // Null names the card's own right to be cast from there (`ownRightToCast`): no permission.
+  if (choices.permit === null) return undefined;
+  if (choices.permit !== undefined) {
+    const found = all.find((x) => x.source.id === choices.permit);
+    if (!found) return undefined;
+    // "With mana value N or greater" counts the X announced (202.3e, Glarb's rulings).
+    if (found.p.minMv !== undefined && manaValue({ ...c, zone: 'stack', cast: { x: choices.x ?? 0, kicked: 0, modes: [] } }) < found.p.minMv) return undefined;
+    // A permission with several uses left needs the one chosen; with one, that one is used.
+    const slots = found.p.slots;
+    if (!slots) return choices.slot === undefined ? found : undefined;
+    if (choices.slot !== undefined) return slots.includes(choices.slot) ? found : undefined;
+    return slots.length === 1 ? found : undefined;
+  }
+  if (choices.slot !== undefined) return undefined;
+  // With no permission named, the card is cast on its own if it can be (flashback, escape, an
+  // effect's permission, 715.3d); otherwise by the only permission there is, if it has one use.
+  if (ownRightToCast(g, pid, c)) return undefined;
+  const only = all.length === 1 && (!all[0].p.slots || all[0].p.slots.length === 1) ? all[0] : undefined;
+  if (only?.p.minMv !== undefined && manaValue({ ...c, zone: 'stack', cast: { x: choices.x ?? 0, kicked: 0, modes: [] } }) < only.p.minMv) return undefined;
+  return only;
+}
+
+/**
+ * Can `pid` cast `c` from where it is without a permanent's permission: from their hand or
+ * command zone, from their graveyard with flashback (702.34a), escape (702.138a) or an
+ * aftermath half (702.127a), from exile after its Adventure (715.3d), airbent (701.65a),
+ * warped (702.185a) or plotted (702.170d), or by an effect's permission (Ragavan, Jeska's Will)?
+ */
+export function ownRightToCast(g: Game, pid: PlayerId, c: Card): boolean {
+  if (offeredNow(g, c) && g.decision?.type === 'cast' && g.decision.choice.player === pid) return true;
+  if (c.zone === 'hand' || c.zone === 'command') return c.owner === pid;
+  if (c.zone === 'graveyard') return (c.owner === pid && (!!flashbackCost(g, c) || hasEscape(g, c) || facesOf(c).some((f) => isAftermath(c, f)))) || !!permission(g, pid, c);
+  if (c.zone !== 'exile') return false;
+  const mine = c.owner === pid && (c.adventure || c.airbent || (c.warped !== undefined && g.turn > c.warped) || (c.plotted !== undefined && g.turn > c.plotted));
+  return mine || !!permission(g, pid, c);
+}
+
+/** The slot of permission `permit` a cast with these choices uses, if it has slots: the one chosen, or its only one. */
+export const permitSlot = (permit: { p: PlayPermission }, choices: Pick<CastChoices, 'slot'>): string | undefined => choices.slot ?? permit.p.slots?.[0];
+
+/** A permission's slot named for a person: "as an artifact", "as a creature", "as a land" (Muldrotha). */
+export const slotLabel = (slot: string) => `${/^[aeiou]/i.test(slot) ? 'an' : 'a'} ${slot.toLowerCase()}`;
+
+/** The key under which a use of a permission is recorded (`Game.permits`): the permanent as the same object (400.7), and the slot. */
+const permitKey = (self: Card, slot: string) => `${self.id}:${self.moves}:${slot}`;
+
+/** Has `slot` of permanent `self`'s permission been used this turn? */
+export const permitUsed = (g: Game, self: Card, slot: string) => g.permits?.[permitKey(self, slot)] === g.turn;
+
+/** Records that `slot` of permanent `self`'s permission was used this turn. */
+export function usePermit(g: Game, self: Card, slot: string) {
+  (g.permits ??= {})[permitKey(self, slot)] = g.turn;
+}
+
+/** The permanent types (110.4) card `c` has, as it is where it is: the ways Muldrotha may cast or play it. */
+export const permanentTypesOf = (g: Game, c: Card): string[] => ['Artifact', 'Battle', 'Creature', 'Enchantment', 'Land', 'Planeswalker'].filter((t) => hasType(g, c, t));
+
+/**
+ * May `viewer` see the top card of `owner`'s library: its owner may look at it any time (Glarb,
+ * Bolas's Citadel), or it is revealed to everyone (Oracle of Mul Daya)?
+ */
+export function canLookAtTop(g: Game, viewer: PlayerId | null, owner: PlayerId): boolean {
+  // Asked of every view of the game: a test's made-up permanent has no card data, and no script.
+  const known = battlefield(g).filter((x) => isCardName(x.name));
+  if (known.some((x) => mayHaveScript(x, 'revealsTop') && abilitiesOf(g, x).revealsTop?.(g, x, owner))) return true;
+  if (viewer === null || viewer !== owner) return false;
+  return known.some((x) => mayHaveScript(x, 'looksAtTop') && abilitiesOf(g, x).looksAtTop?.(g, x, viewer));
+}
+
+/**
+ * The dredge N card `c` in a graveyard has (702.52a), or null: printed ("Dredge 3"), or given
+ * by a permanent ("Land cards in your graveyard have dredge 2"). The largest, if several.
+ */
+export function dredgeOf(g: Game, c: Card): number | null {
+  if (c.zone !== 'graveyard') return null;
+  let n: number | null = null;
+  const printed = /^Dredge (\d+)$/m.exec(cardData(c.name).oracleText);
+  if (printed) n = parseInt(printed[1], 10);
+  for (const x of battlefield(g)) {
+    if (!mayHaveScript(x, 'grantsDredge')) continue;
+    const given = abilitiesOf(g, x).grantsDredge?.(g, x, c);
+    if (given && (n === null || given > n)) n = given;
+  }
+  return n;
+}
+
+/** The phase a step belongs to (500.1). */
+export const phaseOf = (step: Step): Phase =>
+  step === 'untap' || step === 'upkeep' || step === 'draw' ? 'beginning' : step === 'main1' ? 'main1' : step === 'main2' ? 'main2' : step === 'end' || step === 'cleanup' || step === 'gameOver' ? 'ending' : 'combat';
+
+/**
+ * Adds `n` steps of kind `step` to this turn, directly after the phase going on now (500.9):
+ * Obeka's "you get that many additional upkeep steps after this phase". The most recently
+ * added come first.
+ */
+export function addExtraSteps(g: Game, step: 'upkeep', n: number) {
+  if (n <= 0 || g.step === 'gameOver') return;
+  const after = g.extraStep?.after ?? phaseOf(g.step);
+  (g.extraSteps ??= []).push(...Array.from({ length: n }, () => ({ step, after })));
+  log(g, `${n} additional ${step} step${n === 1 ? '' : 's'} ${n === 1 ? 'comes' : 'come'} after this phase.`, g.active);
 }
 
 /**
@@ -845,6 +998,29 @@ export const discardsFor = (script: CardScript, extra?: number) =>
   (script.additionalCost?.discard ?? 0) + (extra === undefined ? 0 : (script.additionalCost?.oneOf?.[extra]?.discard ?? 0));
 
 /**
+ * The cost `c` pays instead of or as its mana cost with these choices, as written (601.2b,
+ * 118.9): cast from a graveyard, its flashback cost (702.34a) or, with escape, its escape cost
+ * (702.138a; escape given by Underworld Breach is its mana cost); "without paying its mana
+ * cost" is a cost of nothing (601.2f), and so is a plotted card's (702.170d) or a permanent's
+ * free permission to cast it (Maralen); an airbent card costs {2} (701.65a); a permission with a
+ * cost of its own, like mayhem's (702.187b), pays that; a chosen alternative cost pays that; or
+ * else its mana cost. A cost without {X} makes X 0 (107.3b).
+ */
+export function paidCostText(g: Game, c: Card, choices: CastChoices = {}, pid = c.owner): string {
+  const spell = asSpell(c, choices.face ?? 0);
+  // The card's own alternative costs, and ones permanents give it (Henzie's blitz, Ashling's evoke).
+  const alt = alternativeCostAt(g, c, choices.face ?? 0, choices.alt, pid);
+  const flashback = paysFlashback(g, c, choices) ? flashbackCost(g, c) : undefined;
+  const fromExile = exileCast(c);
+  const permit = permitFor(g, pid, c, choices);
+  // "You may play that card without paying its mana cost" (Urza) is an effect's permission to cast it for nothing too.
+  if (freeCast(g, c) || fromExile === 'plotted' || permit?.p.free || permission(g, pid, c)?.free) return '';
+  if (fromExile === 'airbent') return '{2}';
+  const escape = choices.escape && c.zone === 'graveyard' ? escapeFor(g, c, choices.escape.length)?.mana : undefined;
+  return flashback ?? escape ?? permit?.p.cost ?? (alt ? alt.mana : data(spell).manaCost);
+}
+
+/**
  * What it costs `c` to be cast right now with these choices (601.2f): the mana cost, or
  * the chosen alternative cost (118.9), with X filled in, plus kicker and commander tax,
  * plus cost increases, minus reductions. Reductions only take off generic mana, and
@@ -855,18 +1031,7 @@ export function castCost(g: Game, c: Card, choices: CastChoices = {}, pid = c.ow
   const spell = asSpell(c, choices.face ?? 0);
   const script = scriptFor(spell);
   const alt = alternativeCostAt(g, c, choices.face ?? 0, choices.alt, pid);
-  // Cast from a graveyard, a card pays its flashback cost (702.34a) or, with escape, its
-  // mana cost plus exiling three other cards from that graveyard (702.138a).
-  const flashback = paysFlashback(g, c, choices) ? flashbackCost(g, c) : undefined;
-  // "Without paying its mana cost" is an alternative cost of nothing (118.9, 601.2f), and so
-  // is casting a plotted card (702.170d). An airbent card costs {2} instead (701.65a). A card
-  // with its own escape pays its escape cost (702.138a); escape given by Underworld Breach is
-  // its mana cost.
-  const fromExile = exileCast(c);
-  // "You may play that card without paying its mana cost" (Urza) is a permission to cast it for nothing too.
-  const free = freeCast(g, c) || fromExile === 'plotted' || !!permission(g, pid, c)?.free;
-  const escape = choices.escape && c.zone === 'graveyard' ? escapeFor(g, c, choices.escape.length)?.mana : undefined;
-  let cost = parseCost(free ? '' : fromExile === 'airbent' ? '{2}' : (flashback ?? escape ?? (alt ? alt.mana : data(spell).manaCost)));
+  let cost = parseCost(paidCostText(g, c, choices, pid));
   // "Mana of any type can be spent to cast them" (Mnemonic Betrayal).
   if (permission(g, pid, c)?.anyMana) cost = anyType(cost);
   cost.life += alt?.life ?? 0;
@@ -2633,6 +2798,8 @@ const SECOND_PERSON: Record<string, string> = {
   has: 'have',
   looks: 'look',
   shuffles: 'shuffle',
+  dredges: 'dredge',
+  explores: 'explore',
   earthbends: 'earthbend',
   rolls: 'roll',
   becomes: 'become',
@@ -2816,6 +2983,7 @@ function shiftCard(g: Game, c: Card, to: Zone) {
   c.airbent = undefined;
   c.warped = undefined;
   c.phasedWith = undefined;
+  c.discarded = undefined;
   delete c.goaded; // a designation of the permanent, gone with it (701.15b, 400.7)
   delete c.earthbent;
   // A permanent spell enters with the face it had on the stack up (712.13). Anywhere else,
@@ -3924,6 +4092,14 @@ export function draw(g: Game, pid: PlayerId, n = 1) {
     if (p.lost) return;
     const happens = replace(g, { kind: 'draw', player: pid, firstInDrawStep: firstDrawInDrawStep(g, pid) });
     if (happens.kind === 'draw') drawOne(g, happens.player);
+    // Dredge (702.52a): the player mills N and returns the card from their graveyard to their hand instead.
+    else if (happens.kind === 'dredge') {
+      const owner = g.players[happens.player];
+      const card = owner.graveyard.find((x) => x.id === happens.card.id && x.moves === happens.card.moves);
+      log(g, `${says(owner, 'dredges')} ${label(happens.card)} instead of drawing.`, happens.player, [happens.card]);
+      mill(g, happens.player, happens.n);
+      if (card) moveCard(g, card, 'hand');
+    }
   }
 }
 
@@ -4815,6 +4991,18 @@ export function offerCast(
 }
 
 /**
+ * "You may cast any number of spells [with mana value N or less] from among them without
+ * paying their mana costs" (Kotis, Etali): offers the player the cards they could cast now,
+ * one cast at a time while the ability resolves (608.2g); after each, the rest are offered
+ * again until they decline or none is left. The cards not cast stay where they are.
+ */
+export function offerCastAny(g: Game, pid: PlayerId, cards: Card[], q: { free: boolean; maxMv?: number; text: string }) {
+  const ids = cards.filter((c) => !isLand(g, c)).map((c) => c.id);
+  if (!ids.length) return;
+  queue(g, { kind: 'cast', player: pid, source: sourceName(g), card: ids[0], cards: ids, ...q, then: '@castAny', data: { cards: ids, ...q } });
+}
+
+/**
  * Lets a player choose new targets for spell or ability `item` (115.7d), or with `change`,
  * change its targets (115.7a). Nothing happens if it has no targets.
  */
@@ -4998,7 +5186,12 @@ const hasMadness = (c: Card) => !!scriptFor(c).alternativeCosts?.some((a) => a.v
  * where "When this card is exiled this way" triggers (702.35a).
  */
 function discardTo(g: Game, c: Card) {
-  if (!hasMadness(c)) return moveCard(g, c, 'graveyard');
+  if (!hasMadness(c)) {
+    moveCard(g, c, 'graveyard');
+    // "If you discarded it this turn" (mayhem, 702.187b): the card as it now is in the graveyard.
+    if (c.zone === 'graveyard') c.discarded = g.turn;
+    return;
+  }
   moveCard(g, c, 'exile');
   if (c.zone === 'exile') g.triggers.push({ id: `s${g.nextId++}`, kind: 'triggered', controller: c.owner, card: snapshot(c), hook: 'onMadness', event: {}, targets: [] });
 }
@@ -5060,6 +5253,57 @@ export function connive(g: Game, c: Card, n = 1) {
     then: '@connive',
     data: { id: c.id, moves: c.moves, bot: 'discard' },
   });
+}
+
+/**
+ * Permanent `c` explores (701.44a): its controller reveals the top card of their library; a land
+ * goes into their hand; otherwise a +1/+1 counter goes on the permanent, if it is still the same
+ * object (701.44c: one that left still explores, as it last was, and gets no counter), and they
+ * may put the revealed card into their graveyard. With no card to reveal the counter is still
+ * put on (its rulings). "Whenever a creature explores" triggers once the process is complete
+ * (701.44b, `onExplore`).
+ */
+export function explore(g: Game, c: Card) {
+  const pid = c.controller;
+  const p = g.players[pid];
+  if (p.lost) return;
+  const top = p.library[0];
+  const it = permanent(g, c.id);
+  const same = it && it.moves === c.moves ? it : undefined;
+  log(g, top ? `${label(c)} explores: ${says(p, 'reveals')} ${label(top)}.` : `${label(c)} explores with no card to reveal.`, pid, top ? [c, top] : [c]);
+  if (top && isLand(g, top)) {
+    moveCard(g, top, 'hand');
+    log(g, `${says(p, 'puts')} ${label(top)} into ${their(p)} hand.`, pid, [top]);
+    explored(g, c, pid);
+    return;
+  }
+  addCounters(g, same, 1);
+  if (!top) return explored(g, c, pid);
+  ask(g, pid, { text: `Explore: put ${label(top)} into your graveyard, or leave it on top of your library?`, yes: 'Graveyard', no: 'Leave on Top', then: '@explored', data: { id: top.id, moves: top.moves, explorer: snapshot(c) } });
+}
+
+/** The explore is complete (701.44b): "whenever a creature you control explores". */
+export function explored(g: Game, c: Card, pid: PlayerId) {
+  broadcast(g, 'onExplore', { card: c, player: pid });
+}
+
+/**
+ * Several permanents explore at once (701.44d): the first player in APNAP order who controls one
+ * of them chooses which of theirs explores first, and so on until each has explored. Each
+ * explore finishes, its choice included, before the next begins (Hakbal's rulings).
+ */
+export function exploreEach(g: Game, cards: Card[]) {
+  const left = cards.filter((c) => permanent(g, c.id)?.moves === c.moves);
+  if (!left.length) return;
+  const order = turnOrder(g, g.active);
+  const first = order.find((pid) => left.some((c) => c.controller === pid))!;
+  const mine = left.filter((c) => c.controller === first);
+  if (mine.length === 1) {
+    explore(g, mine[0]);
+    exploreEach(g, left.filter((c) => c.id !== mine[0].id));
+    return;
+  }
+  pickCards(g, first, mine, { min: 1, max: 1, text: 'choose which explores next', button: 'Explore', then: '@exploreNext', data: { rest: left.map((c) => c.id) } });
 }
 
 /** The player creates a token that's a copy of creature token `token` (701.36a, 707.2). */
@@ -5455,7 +5699,7 @@ export function exileLinked(g: Game, source: { id: string; moves: number }, card
   moveCard(g, card, 'exile');
   if (zoneOf(card) !== 'exile' || card.isToken) return undefined;
   const src = permanent(g, source.id);
-  if (src && src.moves === source.moves) src.linked.push({ id: card.id, moves: card.moves });
+  if (src && src.moves === source.moves) src.linked.push({ id: card.id, moves: card.moves, turn: g.turn });
   return card;
 }
 

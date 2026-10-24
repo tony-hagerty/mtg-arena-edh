@@ -22,6 +22,8 @@ import {
   canMulligan,
   canSayYes,
   canPlayLand,
+  landCandidates,
+  landPlayOptions,
   castTargets,
   choiceOptions,
   crewOptions,
@@ -87,6 +89,8 @@ import {
   unblockedAttackers,
   alternativeCostAt,
   triggerModesOf,
+  playPermissions,
+  ownRightToCast,
 } from './rules';
 import type { ApplyOptions, AttackOption } from './engine';
 import { produce } from 'immer';
@@ -295,12 +299,24 @@ function castChoices(g: Game, pid: PlayerId, c: Card): CastChoices[] {
     const cheapest = (cards: Card[]) => [...cards].sort((a, b) => sacrificeWorth(g, a) - sacrificeWorth(g, b));
     // How the cost is paid: the mana cost or an alternative cost, with what it exiles or sacrifices.
     const ways: CastChoices[] = [];
+    // A permanent's permission to cast it from where it is (Muldrotha, Glarb, Maralen): each use it has left.
+    const permits = playPermissions(g, pid, c)
+      .filter((x) => x.p.cast)
+      .flatMap((x): CastChoices[] => (x.p.slots ? x.p.slots.map((slot) => ({ permit: x.source.id, slot })) : [{ permit: x.source.id }]))
+      // A permission that pays the card's costs as usual opens its own alternative costs too (Muldrotha's rulings).
+      .flatMap((r): CastChoices[] => {
+        const p = playPermissions(g, pid, c).find((x) => x.source.id === r.permit)!.p;
+        return p.free || p.cost !== undefined ? [r] : [r, ...altCostsOf(g, c, face, pid).map((alt) => ({ ...r, alt }))];
+      });
     if (c.zone === 'graveyard') {
       ways.push({}); // flashback
       // Escape exiles the other cards the bot wants least, as many as each escape ability asks (702.138a).
       const others = escapeOptions(g, c).sort((a, b) => cardWant(g, pid, a) - cardWant(g, pid, b));
       for (const e of escapes(g, c)) if (others.length >= e.exile) ways.push({ escape: others.slice(0, e.exile).map((x) => x.id) });
-    } else {
+      ways.push(...permits);
+    } else if (!ownRightToCast(g, pid, c)) ways.push(...permits);
+    else {
+      ways.push(...permits);
       for (const alt of [undefined, ...altCostsOf(g, c, face, pid)]) {
         // An alternative cost that exiles a card from the hand gives up the one the bot wants least.
         const pitch = alt === undefined ? [] : exileOptions(g, pid, c, face, alt).sort((a, b) => cardWant(g, pid, a) - cardWant(g, pid, b));
@@ -889,8 +905,14 @@ function bestLand(g: Game, pid: PlayerId, lands: Card[]): Action | null {
   };
   const best = options.reduce((a, b) => (score(b) > score(a) ? b : a));
   if (score(best) < -50) return null;
-  return { type: 'playLand', card: best.card.id, ...(best.face ? { face: best.face } : {}) };
+  // With several ways to play it (Muldrotha's rulings), the bot names one: its own right, else a permission with no limited use, else the first.
+  const ways = landPlayOptions(g, pid, best.card);
+  const permit = ways.length > 1 ? (ways.find((w) => w.permit === null) ?? ways.find((w) => !playPermissionSlots(g, pid, best.card, w.permit)) ?? ways[0]).permit : undefined;
+  return { type: 'playLand', card: best.card.id, ...(best.face ? { face: best.face } : {}), ...(permit !== undefined ? { permit } : {}) };
 }
+
+/** Does the permission of permanent `permit` to play `c` have limited uses (`PlayPermission.slots`)? */
+const playPermissionSlots = (g: Game, pid: PlayerId, c: Card, permit: string | null) => !!playPermissions(g, pid, c).find((x) => x.source.id === permit)?.p.slots;
 
 /** Would land `c` enter tapped for `pid` now (614.1c)? */
 function entersTappedFor(g: Game, c: Card, pid: PlayerId): boolean {
@@ -900,8 +922,9 @@ function entersTappedFor(g: Game, c: Card, pid: PlayerId): boolean {
 
 function mainAction(g: Game, pid: PlayerId): Action {
   const p = g.players[pid];
-  // Lands in the hand, or in exile with an effect that lets the bot play them (Jeska's Will).
-  const lands = [...p.hand, ...p.exile].filter((c) => canPlayLand(g, pid, c));
+  // Lands in the hand, in exile or a graveyard with an effect that lets the bot play them (Jeska's
+  // Will, Muldrotha), or on top of its library (Glarb).
+  const lands = landCandidates(g, pid).filter((c) => canPlayLand(g, pid, c));
   const land = lands.length ? bestLand(g, pid, lands) : null;
   if (land) return land;
   const combo = comboAction(g, pid);
@@ -1135,6 +1158,11 @@ function choiceAnswer(g: Game, pid: PlayerId): Action {
     return { type: 'name', name: lib.length ? cardData(lib[0].name).name : 'Island' };
   }
   const q = d.choice;
+  // Explore (701.44a): the revealed card goes to the graveyard unless the bot would want to draw it.
+  if (q.then === '@explored') {
+    const revealed = findCard(g, q.data?.id as string);
+    return { type: 'answer', yes: !revealed || cardWant(g, pid, revealed) < 3 };
+  }
   if (!canSayYes(g, q)) return { type: 'answer', yes: false };
   const me = g.players[pid];
   if (q.life && me.life - q.life < 15) return { type: 'answer', yes: false };
@@ -1151,11 +1179,14 @@ function choiceAnswer(g: Game, pid: PlayerId): Action {
  */
 function castNow(g: Game, pid: PlayerId, quick = false): Action {
   if (g.decision?.type !== 'cast') return PASS;
-  const c = findCard(g, g.decision.choice.card);
+  // One card, or any of several ("you may cast any number of spells from among them", Kotis).
+  const cards = (g.decision.choice.cards ?? [g.decision.choice.card]).map((id) => findCard(g, id)).filter((c): c is Card => !!c && canCast(g, pid, c));
   const decline: Action = { type: 'answer', yes: false };
-  if (!c || !canCast(g, pid, c)) return decline;
-  const options = castChoices(g, pid, c).flatMap((choices) =>
-    targetChoices(g, pid, castTargets(c, choices.modes, choices.face, choices.gift, choices.alt), c).map((targets): Action => ({ type: 'cast', card: c.id, targets, ...choices })),
+  if (!cards.length) return decline;
+  const options = cards.flatMap((c) =>
+    castChoices(g, pid, c).flatMap((choices) =>
+      targetChoices(g, pid, castTargets(c, choices.modes, choices.face, choices.gift, choices.alt), c).map((targets): Action => ({ type: 'cast', card: c.id, targets, ...choices })),
+    ),
   );
   if (quick) return options[0] ?? decline;
   let best: Action = decline;

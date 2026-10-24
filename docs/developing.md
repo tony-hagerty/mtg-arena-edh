@@ -418,7 +418,9 @@ fetched card too, since the card is matched to it by name.
   (`onCreatureEnters: [a, b]`, Dragon Tempest). Then each names its own `targets`
   (`onEnter` ones too) and a short `text`, and `when` may be left out for one that
   triggers on every event.
-- Other trigger hooks: `onPostcombatMain`, `onDrawStep`, `onTapped`, `onDiscard`,
+- Other trigger hooks: `onExplore` ("whenever a creature you control explores", 701.44b),
+  `onLandPlayed` ("whenever you play a land", 305.1, not a land an
+  effect puts onto the battlefield), `onPostcombatMain`, `onDrawStep`, `onTapped`, `onDiscard`,
   `onSacrifice`, `onPlaneswalkerDies`, `onBeginCombat`, `onPermanentTapped` ("whenever a Dwarf
   you control becomes tapped"), `onRingTempts` ("whenever the Ring tempts you", 701.54d),
   `onBecomesBlocked` (once for each creature blocking it, 509.3d) and `onChapterResolved` (a
@@ -614,6 +616,23 @@ A static ability that gives other permanents an activated ability ("have '{2}, {
 Sacrifice this permanent: You gain 3 life'") names a script registered for that ability alone
 in `activatedOf`; the parser registers it under "[card] (ability N)".
 
+Also `grantsDredge` ("land cards in your graveyard have dredge 2", 702.52), `looksAtTop` ("you may look at the top card of your
+library any time") and `revealsTop` ("play with the top card of your library revealed"),
+which `canLookAtTop` and `viewFor` read.
+
+**Playing cards from other zones**
+
+`playPermission: (g, self, pid, c) => PlayPermission | null` says whether this permanent lets
+`pid` play card `c` from a graveyard, exile or the top of their library (601.3, 305.1): `cast`
+and/or `land`, `free` ("without paying its mana cost"), `cost` (paid rather than its mana cost,
+mayhem's), `minMv` ("with mana value 4 or greater", counting the X announced) and `slots`, the
+uses it has left this turn when they are limited: Muldrotha's are the card's permanent types
+(`permanentTypesOf`), Maralen's `['once']`. The engine lists the permissions as ways of
+casting (`playPermissions`, `permitFor`), lets the player name one and its slot
+(`CastChoices.permit`, `slot`; the cast panel's cost chips), and records the use
+(`usePermit`; a script checks `permitUsed(g, self, slot)`). A land played this way counts as
+the turn's land (305.2a); `landsAllowed` says how many a player may play. Printed mayhem
+(702.187) and dredge (702.52) need no script: `mayhemCost` and `dredgeOf` read the card.
 **Costs from other permanents, and abilities from the command zone**
 
 | Card | Script |
@@ -648,6 +667,9 @@ ability already on the stack, which exists apart from its source (113.7a).
 | `addEffect` | an effect until end of turn; `{ kind: 'mayCast', card, moves, play: true, free: true }` is "you may play that card without paying its mana cost" (Urza) |
 | `delay` with `delayed[key]` | a delayed trigger (603.7); `step: 'main'` is "your next main phase", precombat or postcombat |
 | `extraTurn`, `winGame`, `loseGame` | as named |
+| `addExtraSteps(g, 'upkeep', n)` | additional steps directly after the phase going on (500.9, Obeka) |
+| `offerCastAny(g, pid, cards, { free, maxMv, text })` | "you may cast any number of spells from among them": offers the cards one cast at a time while the ability resolves (608.2g, Kotis) |
+| `explore(g, c)`, `exploreEach(g, cards)` | explore (701.44a), and several at once in the order their controllers choose (701.44d) |
 | `mill`, `discard`, `discardHand`, `surveil` | as named |
 | `discover(g, pid, n)` | discover N (701.57a), the cast-or-hand choice included |
 | `revealUntil(g, pid, fits, what)` | "reveal cards from the top until you reveal a ... card" (701.20a): the cards revealed, still in the library, and the one that fits |
