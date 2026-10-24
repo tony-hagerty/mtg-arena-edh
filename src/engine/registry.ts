@@ -40,6 +40,8 @@ export const hasStaticScript = (name: string) => STATIC.has(name);
 export const hasRemovingScript = (name: string) => REMOVING.has(name);
 /** Does the script registered under `name` have property `key` (a trigger hook, `doublesTriggers`, ...)? */
 export const scriptHas = (name: string, key: string) => HAVING.get(key)?.has(name) ?? false;
+/** Does any registered script have property `key` (`fromCommandZone`, `lifeForMana`, ...)? */
+export const anyScriptHas = (key: string) => (HAVING.get(key)?.size ?? 0) > 0;
 /** Can any script give a permanent a triggered ability on `hook`? */
 export const anyGrantFor = (hook: string) => (GRANTED.get(hook)?.size ?? 0) > 0;
 /** Can any script take abilities away? */

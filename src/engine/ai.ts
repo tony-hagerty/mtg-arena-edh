@@ -84,6 +84,8 @@ import {
   escapes,
   changeOptions,
   triggerModeOptions,
+  unblockedAttackers,
+  alternativeCostAt,
   triggerModesOf,
   playPermissions,
   ownRightToCast,
@@ -364,7 +366,9 @@ function castChoices(g: Game, pid: PlayerId, c: Card): CastChoices[] {
               for (const offspring of offsprings) {
                 const most = maxX(g, pid, c, { ...base, gift, kicked, offspring });
                 // X damage divided among targets: X follows from the targets (`divisions`).
-                const xs = script.divide === 'x' ? [0] : lifeX ? lifeXChoices(g, pid, most) : [most, Math.floor(most / 2)];
+                // An alternative cost with a least X (Henzie's blitz, 202.3e): that X too, and none below it.
+                const minX = alternativeCostAt(g, c, face, base.alt, pid)?.minX ?? 0;
+                const xs = script.divide === 'x' ? [0] : lifeX ? lifeXChoices(g, pid, most) : [most, Math.floor(most / 2), minX].filter((k) => k >= minX);
                 for (const x of new Set(xs)) {
                   const choices: CastChoices = { ...base, x, kicked, ...(gift !== undefined ? { gift } : {}), ...(offspring ? { offspring } : {}) };
                   if (x >= 0 && canCast(g, pid, c, choices)) out.push(choices);
@@ -438,13 +442,13 @@ function candidateActions(g: Game, pid: PlayerId): { action: Action; spendsCard:
   }
   // Plotting a card to cast it free on a later turn (702.170a).
   for (const c of p.hand) if (canPlot(g, pid, c)) out.push({ action: { type: 'plot', card: c.id }, spendsCard: true });
-  // Abilities of permanents, and of cards in the hand that work from there (channel).
-  for (const c of [...p.battlefield, ...p.hand]) {
+  // Abilities of permanents, and of cards in the hand (channel) or command zone (commander ninjutsu) that work from there.
+  for (const c of [...p.battlefield, ...p.hand, ...p.command]) {
     for (const ref of activatable(g, pid, c)) {
       const script = scriptFor(c);
       // An ability with its own rule for when to use it is left to that rule.
       if (ref.ability === undefined && script.botActivate) continue;
-      out.push(...activations(g, pid, c, ref).map((action) => ({ action, spendsCard: c.zone === 'hand' })));
+      out.push(...activations(g, pid, c, ref).map((action) => ({ action, spendsCard: c.zone === 'hand' || c.zone === 'command' })));
     }
   }
   return out;
@@ -501,6 +505,9 @@ function activations(g: Game, pid: PlayerId, c: Card, ref: AbilityRef): Action[]
   // "Exile two cards from your graveyard": the ones the bot wants least.
   const k = ab?.cost.exileGraveyard ?? 0;
   const graveyard = k ? [...g.players[pid].graveyard].sort((a, b) => cardWant(g, pid, a) - cardWant(g, pid, b)).slice(0, k).map((x) => x.id) : undefined;
+  // Ninjutsu (702.49a): return the unblocked attacker worth least.
+  const returned = ab?.cost.returnAttacker ? [...unblockedAttackers(g, pid)].sort((a, b) => sacrificeWorth(g, a) - sacrificeWorth(g, b))[0] : undefined;
+  if (ab?.cost.returnAttacker && !returned) return [];
   // A modal ability (700.2a): the card's preferred modes, else every legal choice of modes.
   const modeSets: (number[] | undefined)[] = ab?.modes ? abilityModeSets(g, pid, c, activated) : [undefined];
   return modeSets.flatMap((modes) => {
@@ -519,6 +526,7 @@ function activations(g: Game, pid: PlayerId, c: Card, ref: AbilityRef): Action[]
         ...(exiled ? { exile: [exiled.id] } : {}),
         ...(graveyard ? { graveyard } : {}),
         ...(modes ? { modes } : {}),
+        ...(returned ? { returnAttacker: returned.id } : {}),
       })),
     );
   });

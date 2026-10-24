@@ -406,6 +406,8 @@ function entries(g: Game, c: Card, temporary: boolean): Entry[] {
   if (c.cast?.impending && counterCount(c, 'time') > 0 && data(c).keywords.includes('Impending')) out.push({ ts: c.ts, seq: seq++, parts: { notTypes: ['Creature'] } });
   // A permanent whose dash cost was paid has haste (702.109a).
   if (c.cast?.dash) out.push({ ts: c.ts, seq: seq++, parts: { keywords: ['haste'] } });
+  // "As long as this permanent's blitz cost was paid, it has haste" (702.152a).
+  if (c.cast?.blitz) out.push({ ts: c.ts, seq: seq++, parts: { keywords: ['haste'] } });
   // The Ring: "Your Ring-bearer is legendary" (701.54c), a static ability of the emblem, with its timestamp (613.7a).
   const ring = g.players[c.controller]?.ring;
   if (ring?.bearer?.id === c.id && isRingBearer(g, c)) out.push({ ts: ring.ts, seq: seq++, parts: { types: ['Legendary'] } });

@@ -239,7 +239,7 @@ export interface CastInfo {
   delved?: number;
   /** The zone it was cast from ("if this spell was cast from a graveyard"). */
   from?: Zone;
-  /** Which alternative cost was paid, by index into the script's `alternativeCosts` (118.9). */
+  /** Which alternative cost was paid, by index into the script's `alternativeCosts` followed by the ones permanents gave it (`alternativeCostsOf`, 118.9). */
   alt?: number;
   /** Cast for its dash cost (702.109a). */
   dash?: boolean;
@@ -271,6 +271,15 @@ export interface CastInfo {
   divide?: number[];
   /** Cast by a permanent's permission to play it from a graveyard, exile or the top of a library (`CardScript.playPermission`): that permanent's id. */
   permit?: string;
+  /**
+   * Its blitz cost was paid (702.152a): the permanent has haste and "When this permanent is put
+   * into a graveyard from the battlefield, draw a card", and is sacrificed at the next end step.
+   * Kept here, not read off the alternative cost by index, since blitz may be given by another
+   * permanent (Henzie "Toolbox" Torre) that can leave before the spell resolves.
+   */
+  blitz?: boolean;
+  /** Its evoke cost was paid (702.74a), printed or given as it was cast (Ashling, the Limitless). */
+  evoke?: boolean;
 }
 
 /**
@@ -320,6 +329,12 @@ export interface CastChoices {
    * of its colour. Left out, auto-pay decides which creatures, if any, convoke.
    */
   convoke?: string[];
+  /**
+   * How many of the cost's mana symbols that may be paid with 2 life instead (Phyrexian mana,
+   * 107.4f; K'rrik's {B}) are paid with life, the rest with mana (601.2b: announced before
+   * paying). Left out, auto-pay pays mana first and life only for symbols the mana isn't there for.
+   */
+  payLife?: number;
   /**
    * Which face to cast, by index into `CardData.faces`: a split card's half (709.3), an
    * adventurer's Adventure (1, 715.3), or a modal double-faced card's face (712.11b).
@@ -805,6 +820,8 @@ export interface StackItem {
   /** Permanents sacrificed to pay its costs, as they last were on the battlefield, and their power then. */
   sacrificed?: Card[];
   sacrificedPower?: number[];
+  /** A ninjutsu ability: what the creature returned to its owner's hand for its cost was attacking (702.49c). */
+  returned?: { defender: PlayerId; target: string | null };
   /** Every target had become illegal as it began to resolve, so it does nothing: it doesn't resolve (608.2b). */
   fizzled?: boolean;
 }
@@ -1272,8 +1289,10 @@ export type Action =
   /** `x`: the value of X, for an ability with {X} or −X in its cost (107.3a). */
   /** `exile`: the permanent for an "Exile a creature you control" cost (The Soul Stone). */
   /** `graveyard`: the cards in its controller's graveyard exiled for an "Exile two cards from your graveyard" cost (Matoc). */
+  /** `returnAttacker`: the unblocked attacking creature returned to its owner's hand for a ninjutsu cost (702.49a). */
+  /** `payLife`: how many of the cost's symbols payable with 2 life are paid with life (see `CastChoices.payLife`). */
   /** `modes`: a modal ability's modes, as indexes in printed order (700.2a). */
-  | { type: 'activate'; card: string; ability?: number; activated?: number; x?: number; targets?: (TargetRef | null)[]; hold?: boolean; crew?: string[]; discard?: string[]; sacrifice?: string[]; exile?: string[]; graveyard?: string[]; modes?: number[] }
+  | { type: 'activate'; card: string; ability?: number; activated?: number; x?: number; targets?: (TargetRef | null)[]; hold?: boolean; crew?: string[]; discard?: string[]; sacrifice?: string[]; exile?: string[]; graveyard?: string[]; returnAttacker?: string; payLife?: number; modes?: number[] }
   /**
    * `ability`: which of its mana abilities (`manaAbilities`). Left out, the one that suits
    * the player best. `color`: the colour to make, for an ability with a choice. `mana`: the
@@ -1321,8 +1340,8 @@ export type Action =
   | { type: 'commanderZone'; toCommand: boolean }
   /** Answers `assignDamage`: one assignment for each attacker it lists (510.1, 510.1e). */
   | { type: 'assignDamage'; assignments: DamageAssignment[] }
-  /** Pass priority, or finish declaring attackers or blockers. */
-  | { type: 'pass' };
+  /** Pass priority, or finish declaring attackers or blockers. `payLife`: finishing attackers, how many symbols of the attacks' cost payable with 2 life are paid with life (see `CastChoices.payLife`). */
+  | { type: 'pass'; payLife?: number };
 
 // ---------- card scripts ----------
 
@@ -1554,6 +1573,10 @@ export interface TriggerEvents {
   onOffspring: object;
   /** "Whenever you play a land" (305.1): `land` is the land, on the battlefield. Not a land put there by an effect (305.4). */
   onLandPlayed: { player: PlayerId; land: Card };
+  /** Cascade's "When you cast this spell, exile cards from the top of your library until ..." (702.85a). `mv`: the spell's mana value as it was cast. */
+  onCascade: { mv: number };
+  /** Blitz's "When this permanent is put into a graveyard from the battlefield, draw a card" (702.152a). */
+  onBlitzDies: object;
   /** Exalted (702.83a), which the engine triggers and resolves: "that creature", as it was when it attacked alone. */
   onExalted: { attacker: Card };
   /** "Whenever the Ring tempts you" (701.54d): once the player has finished being tempted. */
@@ -1788,6 +1811,12 @@ export interface ActivatedAbility {
     /** "Exile two cards from your graveyard" (Matoc): that many cards from its controller's graveyard, chosen as it is activated. */
     exileGraveyard?: number;
     /**
+     * Ninjutsu's "Return an unblocked attacking creature you control to its owner's hand"
+     * (702.49a): one, chosen as it is activated (`Action.returnAttacker`). What it was attacking
+     * is kept on the stack item (`StackItem.returned`, 702.49c).
+     */
+    returnAttacker?: boolean;
+    /**
      * "Tap three untapped tokens you control" (Baylen), "Tap three untapped Elves you control"
      * (High Perfect Morcant): that many untapped permanents its controller controls that fit,
      * chosen as it is activated (the action's `crew`). Not {T}, so summoning sickness doesn't
@@ -1805,6 +1834,8 @@ export interface ActivatedAbility {
   sorcery?: boolean;
   /** Activated from its owner's hand rather than the battlefield, like channel. */
   fromHand?: boolean;
+  /** Also activated from its owner's command zone, like commander ninjutsu (702.49d). Needs `fromHand`. */
+  fromCommand?: boolean;
   /** "Activate only if ..." / "Activate only during your turn." */
   when?: (g: Game, self: Card) => boolean;
   /** Generic mana its cost is reduced by. */
@@ -1818,6 +1849,41 @@ export interface ActivatedAbility {
 export interface AbilityRef {
   ability?: number;
   activated?: number;
+}
+
+/** An alternative cost a spell may be cast for (118.9): its own (`CardScript.alternativeCosts`) or one a permanent gives it (`grantsAlternativeCosts`). */
+export interface AlternativeCost {
+  label: string;
+  mana: string;
+  life?: number;
+  when?: (g: Game, self: Card) => boolean;
+  /** Exile another card from your hand that fits, like Force of Will's blue card. */
+  exile?: { label: string; filter: (g: Game, c: Card, self: Card) => boolean };
+  /** Sacrifice a permanent that fits, like Flare of Duplication's red creature. */
+  sacrifice?: TargetSpec;
+  /** Dash (702.109a): the permanent has haste and returns to its owner's hand at the next end step. */
+  dash?: boolean;
+  /** Overload (702.96a): "target" becomes "each", so the spell has no targets (702.96b). */
+  overload?: boolean;
+  /** Evoke (702.74a): its controller sacrifices the permanent when it enters. */
+  evoke?: boolean;
+  /** Warp (702.185a): only from the hand; the permanent is exiled at the next end step. */
+  warp?: boolean;
+  /** Impending N (702.176a): the permanent enters with N time counters and isn't a creature while it has one. See `impending`. */
+  impending?: number;
+  /** Madness or miracle (702.35a, 702.94a): only when that ability's trigger lets its owner cast it. See `madness`, `miracle`. */
+  via?: CastVia;
+  /**
+   * Blitz (702.152a): the permanent has haste and "When this permanent is put into a graveyard
+   * from the battlefield, draw a card", and is sacrificed at the beginning of the next end step.
+   */
+  blitz?: boolean;
+  /**
+   * It can be paid only with X at least this (announced together with the cost, 601.2b): Henzie's
+   * blitz for a creature spell with {X} in its cost, which has blitz only if its mana value with
+   * that X is 4 or more (202.3e).
+   */
+  minX?: number;
 }
 
 /** Behaviour for one card name. Anything a card does beyond its printed keywords lives here. */
@@ -1852,9 +1918,45 @@ export interface CardScript extends Triggers {
   costReduction?: (g: Game, self: Card) => number;
   /**
    * While this permanent is on the battlefield, generic mana that `spell` costs more
-   * (positive) or less (negative), e.g. "noncreature spells cost {1} more" (601.2f).
+   * (positive) or less (negative), e.g. "noncreature spells cost {1} more" (601.2f). `alt` is
+   * the alternative cost being paid, if one is ("Blitz costs you pay cost {1} less", Henzie).
    */
-  costModifier?: (g: Game, self: Card, spell: Card, caster: PlayerId, from: Zone | 'stack') => number;
+  costModifier?: (g: Game, self: Card, spell: Card, caster: PlayerId, from: Zone | 'stack', alt?: AlternativeCost) => number;
+  /**
+   * While this permanent is on the battlefield: coloured mana `spell` costs less (118.7b-f),
+   * one symbol of each colour listed, e.g. Morophon's "cost {W}{U}{B}{R}{G} less". Each takes a
+   * symbol of its colour, a Phyrexian one included (118.7f), or one half of a hybrid symbol
+   * (118.7e), choosing so as many symbols as possible are paid for; a colour the cost has no
+   * symbol of reduces generic mana instead (118.7b-c), unless `coloredOnly` ("This effect
+   * reduces only the amount of colored mana you pay"). Null if it doesn't apply.
+   */
+  reducesColoredCost?: (g: Game, self: Card, spell: Card, caster: PlayerId, from: Zone | 'stack') => { colors: Color[]; coloredOnly?: boolean } | null;
+  /**
+   * While this permanent is on the battlefield: colours whose mana symbols `pid` may pay 2 life
+   * for instead of the mana, in any cost (K'rrik's "For each {B} in a cost, you may pay 2 life
+   * rather than pay that mana"). Each such symbol is paid like a Phyrexian one.
+   */
+  lifeForMana?: (g: Game, self: Card, pid: PlayerId) => Color[];
+  /**
+   * Alternative costs this permanent gives `spell` as `caster` casts it from `from` (118.9):
+   * blitz for Henzie's "Each creature spell you cast with mana value 4 or greater has blitz",
+   * evoke for Ashling's "Elemental permanent spells you cast from your hand gain evoke {4} as
+   * you cast them". They follow the spell's own in `alternativeCostsOf`.
+   */
+  grantsAlternativeCosts?: (g: Game, self: Card, spell: Card, caster: PlayerId, from: Zone | 'stack') => AlternativeCost[];
+  /**
+   * While this permanent is on the battlefield: how many instances of cascade `spell`, cast by
+   * `caster` from `from`, has from it (702.85c): "Sliver spells you cast have cascade" (one),
+   * Zhulodok's "have 'Cascade, cascade.'" (two). 0 for none.
+   */
+  grantsCascade?: (g: Game, self: Card, spell: Card, caster: PlayerId, from: Zone | 'stack') => number;
+  /**
+   * Abilities of this card that function while it is in its owner's command zone (113.6b):
+   * eminence's "if [this] is in the command zone or on the battlefield" triggers (Edgar Markov's
+   * `onCast`) and cost changes (The Ur-Dragon's `costModifier`), and Oloro's upkeep ability.
+   * The script's `when` checks the zone where the ability says to.
+   */
+  fromCommandZone?: (BroadcastHook | 'costModifier')[];
   /**
    * While this permanent is on the battlefield: generic mana that the activated abilities of
    * permanent `source` cost `pid` more (positive) or less (negative) to activate, mana
@@ -1903,28 +2005,7 @@ export interface CardScript extends Triggers {
    * Costs the caster may pay rather than the mana cost (118.9), such as "you may cast this
    * spell without paying its mana cost" (`mana: ''`). `when` says if it is available now.
    */
-  alternativeCosts?: {
-    label: string;
-    mana: string;
-    life?: number;
-    when?: (g: Game, self: Card) => boolean;
-    /** Exile another card from your hand that fits, like Force of Will's blue card. */
-    exile?: { label: string; filter: (g: Game, c: Card, self: Card) => boolean };
-    /** Sacrifice a permanent that fits, like Flare of Duplication's red creature. */
-    sacrifice?: TargetSpec;
-    /** Dash (702.109a): the permanent has haste and returns to its owner's hand at the next end step. */
-    dash?: boolean;
-    /** Overload (702.96a): "target" becomes "each", so the spell has no targets (702.96b). */
-    overload?: boolean;
-    /** Evoke (702.74a): its controller sacrifices the permanent when it enters. */
-    evoke?: boolean;
-    /** Warp (702.185a): only from the hand; the permanent is exiled at the next end step. */
-    warp?: boolean;
-    /** Impending N (702.176a): the permanent enters with N time counters and isn't a creature while it has one. See `impending`. */
-    impending?: number;
-    /** Madness or miracle (702.35a, 702.94a): only when that ability's trigger lets its owner cast it. See `madness`, `miracle`. */
-    via?: CastVia;
-  }[];
+  alternativeCosts?: AlternativeCost[];
   /**
    * While this permanent is on the battlefield: a replacement effect that changes how much
    * damage `source` would deal to a player or permanent (614.1a): it deals double (`times: 2`,
@@ -2137,5 +2218,5 @@ export interface CardScript extends Triggers {
 /** Hooks that every permanent on the battlefield hears, not only the card the event is about. */
 export type BroadcastHook = Exclude<
   TriggerHook,
-  'onEnter' | 'onDies' | 'onAttack' | 'onBlock' | 'onCombatDamageToPlayer' | 'onDefeat' | 'onChapter' | 'onLevel' | 'onStorm' | 'onDelayed' | 'onTapped' | 'onWard' | 'onMadness' | 'onMiracle' | 'onSuspendUpkeep' | 'onSuspendCast' | 'onLeave' | 'onCounters' | 'onReflexive' | 'onEvoked' | 'onOffspring' | 'onExalted' | 'onRad' | 'onDecayed' | 'onBecomesBlocked'
+  'onEnter' | 'onDies' | 'onAttack' | 'onBlock' | 'onCombatDamageToPlayer' | 'onDefeat' | 'onChapter' | 'onLevel' | 'onStorm' | 'onDelayed' | 'onTapped' | 'onWard' | 'onMadness' | 'onMiracle' | 'onSuspendUpkeep' | 'onSuspendCast' | 'onLeave' | 'onCounters' | 'onReflexive' | 'onEvoked' | 'onOffspring' | 'onCascade' | 'onBlitzDies' | 'onExalted' | 'onRad' | 'onDecayed' | 'onBecomesBlocked'
 >;

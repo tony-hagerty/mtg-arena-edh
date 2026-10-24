@@ -12,7 +12,7 @@ import { MusicControl, SoundControl } from './SoundControl';
 import { useStore } from './store';
 import type { Hover } from './store';
 import { type Seat, cx, deckColor, faceUp, hoverProps, seatOf } from './util';
-import { STEP_NAMES, activateFromHand, cancel, clickStackItem, stackTucked, pickAbility, pickAbilityMode, pickMana, pickTapCreature, pickTriggeredMana, useForMana, pickManaDiscard, pickManaSacrifice, pickFace, pickMode, playHandCard, setAbilityX, setChoices, shiftDivision, undo, exileForMana, plotCard, useView } from './view';
+import { STEP_NAMES, activateFromHand, cancel, clickStackItem, stackTucked, pickAbility, pickAbilityMode, pickMana, pickTapCreature, pickTriggeredMana, useForMana, pickManaDiscard, pickManaSacrifice, pickFace, pickMode, playHandCard, setAbilityX, setChoices, setPayLife, shiftDivision, undo, exileForMana, plotCard, useView } from './view';
 import type { AbilityOption, Btn } from './view';
 import { leftStack, newGame } from './zone-moves';
 
@@ -303,11 +303,12 @@ export function ActionBar() {
  * times to pay kicker (702.33), and the mana cost or an alternative cost (118.9).
  */
 function CastOptions() {
-  const { announce: a, loyalty, abilityX, abilityModes, divide } = useView();
+  const { announce: a, loyalty, abilityX, abilityModes, divide, payLife } = useView();
   if (loyalty) return <LoyaltyOptions options={loyalty.options} />;
   if (abilityModes) return <AbilityModes modes={abilityModes.modes} min={abilityModes.min} max={abilityModes.max} />;
   if (abilityX) return <AbilityX x={abilityX.x} max={abilityX.max} />;
   if (divide) return <DivideOptions rows={divide.rows} />;
+  if (payLife) return <PayLifeOptions n={payLife.n} max={payLife.max} auto={payLife.auto} />;
   if (!a) return null;
   const { choices } = a;
   const x = choices.x ?? 0;
@@ -390,7 +391,7 @@ function CastOptions() {
       {a.maxX !== null && (
         <div className="cast-row">
           <span className="cast-label">{a.xLife ? 'X life' : 'X'}</span>
-          <button className="chip" disabled={x <= 0} onClick={() => setChoices({ x: x - 1 })} aria-label="Less">
+          <button className="chip" disabled={x <= a.minX} onClick={() => setChoices({ x: x - 1 })} aria-label="Less">
             −
           </button>
           <b className="cast-x">{x}</b>
@@ -484,6 +485,31 @@ function AbilityX({ x, max }: { x: number; max: number }) {
         <button className="chip" disabled={x === max} onClick={() => setAbilityX(max)}>
           Max
         </button>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * How many mana symbols that may be paid with 2 life instead (Phyrexian mana, 107.4f; K'rrik's
+ * {B}) the human pays with life (601.2b). "Auto" leaves it to auto-pay: life only where the mana isn't there.
+ */
+function PayLifeOptions({ n, max, auto }: { n: number; max: number; auto: boolean }) {
+  return (
+    <div className="cast-options">
+      <div className="cast-row">
+        <span className="cast-label">Pay with life</span>
+        <button className="chip" disabled={n <= 0} onClick={() => setPayLife(n - 1)} aria-label="Fewer with life">
+          −
+        </button>
+        <b className="cast-x">{n}</b>
+        <button className="chip" disabled={n >= max} onClick={() => setPayLife(n + 1)} aria-label="More with life">
+          +
+        </button>
+        <button className={cx('chip', auto && 'on')} onClick={() => setPayLife(null)} title="Pay mana where it is there, 2 life where it isn't">
+          Auto
+        </button>
+        <span className="cast-label">{n ? `${2 * n} life` : ''}</span>
       </div>
     </div>
   );
@@ -622,10 +648,10 @@ function LoyaltyOptions({ options }: { options: AbilityOption[] }) {
  */
 export function Prompt() {
   const v = useView();
-  const { prompt, announce: a, loyalty, abilityX, abilityModes, divide } = v;
+  const { prompt, announce: a, loyalty, abilityX, abilityModes, divide, payLife } = v;
   const pick = useStore((s) => s.manaPick);
   const picking = !!pick && !!findCard(v.g, pick.cardId);
-  const options = !!(a || loyalty || abilityX || abilityModes || divide);
+  const options = !!(a || loyalty || abilityX || abilityModes || divide || payLife);
   // One band for the whole decision: its words change as choices are made, but it stays put.
   const key = a ? `announce:${a.card.id}` : loyalty ? `ability:${loyalty.card.id}` : abilityModes ? `modes:${abilityModes.card.id}` : abilityX ? `x:${abilityX.card.id}` : divide ? `divide:${divide.card.id}` : (prompt ?? `mana:${pick?.cardId}`);
   return (
