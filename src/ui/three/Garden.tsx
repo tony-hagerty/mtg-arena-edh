@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useFrame } from '@react-three/fiber';
 import type { ThreeEvent } from '@react-three/fiber';
-import { AdditiveBlending, BoxGeometry, CanvasTexture, DataTexture, EquirectangularReflectionMapping, Group, LinearFilter, LinearMipmapLinearFilter, Mesh, MeshStandardMaterial, RGBAFormat, RepeatWrapping, SRGBColorSpace, UnsignedByteType, Vector2 } from 'three';
+import { AdditiveBlending, BoxGeometry, BufferGeometry, CanvasTexture, DataTexture, EquirectangularReflectionMapping, Group, LinearFilter, LinearMipmapLinearFilter, Mesh, MeshStandardMaterial, RGBAFormat, RepeatWrapping, SRGBColorSpace, UnsignedByteType, Vector2 } from 'three';
 import { Bursts, burst } from './effects';
 import { MATERIAL, bedDistance, bedMaps, wellSwirl } from './board';
 import type { Bed, BedMaps, Garden as Plan } from './board';
@@ -321,6 +321,9 @@ const STONE_LOOKS = ['#8a8274', '#978e7f', '#7b7468', '#a0968a'].map((color) => 
 function Well({ plan, exiled, at, onExile }: { plan: Plan; exiled: Floating[]; at: (e: ThreeEvent<MouseEvent>) => { x: number; y: number }; onExile: () => void }) {
   const { x, y, r } = plan.pond;
   const swirl = useMemo(() => wellSwirl(exiled.length, r), [exiled.length, r]);
+  // One shape for all the floating cards, made again only when their size changes.
+  const floatShape = useMemo(() => cardGeometry(swirl.w, swirl.w * 1.4, 0.08), [swirl.w]);
+  useEffect(() => () => floatShape.dispose(), [floatShape]);
   const swell = useRef(rippleTexture(17));
   const chop = useMemo(() => {
     const t = rippleTexture(29).clone();
@@ -426,7 +429,7 @@ function Well({ plan, exiled, at, onExile }: { plan: Plan; exiled: Floating[]; a
         <meshBasicMaterial map={foamTexture()} color="#e9f3ef" transparent opacity={0.5} depthWrite={false} />
       </mesh>
       {exiled.map((f, i) => (
-        <FloatingCard key={f.id} f={f} index={i} count={exiled.length} slot={swirl.slots[i]} w={swirl.w} />
+        <FloatingCard key={f.id} f={f} index={i} count={exiled.length} slot={swirl.slots[i]} shape={floatShape} />
       ))}
     </group>
   );
@@ -441,13 +444,15 @@ const SWIRL_EASE = 2.5;
  * (`.pile.exile`). The newer ones float a little higher, over the older. When another card
  * comes in, each glides to its new place. It takes no clicks: a right-click on it is the well's.
  */
-function FloatingCard({ f, index, count, slot, w }: { f: Floating; index: number; count: number; slot: { r: number; a: number }; w: number }) {
+function FloatingCard({ f, index, count, slot, shape }: { f: Floating; index: number; count: number; slot: { r: number; a: number }; shape: BufferGeometry }) {
   const face = useCardTexture(f.image);
-  const shape = useMemo(() => cardGeometry(w, w * 1.4, 0.08), [w]);
-  useEffect(() => () => shape.dispose(), [shape]);
   const ref = useRef<Group>(null);
+  // Its own bob, from its id, so a card coming in doesn't shift everyone's.
+  const phase = useMemo(() => [...f.id].reduce((h, ch) => (h * 31 + ch.charCodeAt(0)) % 997, 7) / 997 * Math.PI * 2, [f.id]);
+  // The newer ones float a little higher, over the older.
+  const height = 0.015 * (count - index);
   // Where it is now, gliding toward its slot.
-  const at = useRef({ r: slot.r, a: slot.a });
+  const at = useRef({ r: slot.r, a: slot.a, z: height });
   useFrame((state, dt) => {
     const o = ref.current;
     if (!o) return;
@@ -457,9 +462,10 @@ function FloatingCard({ f, index, count, slot, w }: { f: Floating; index: number
     const turn = ((((slot.a - at.current.a) % (2 * Math.PI)) + 3 * Math.PI) % (2 * Math.PI)) - Math.PI;
     at.current.a += turn * k;
     at.current.r += (slot.r - at.current.r) * k;
+    at.current.z += (height - at.current.z) * k;
     const a = at.current.a - t * 0.18;
-    const rr = at.current.r * (1 + 0.06 * Math.sin(t * 0.4 + index * 2));
-    o.position.set(Math.cos(a) * rr, Math.sin(a) * rr, WATER_Z + 0.08 + 0.015 * (count - index) + 0.02 * Math.sin(t * 1.3 + index));
+    const rr = at.current.r * (1 + 0.06 * Math.sin(t * 0.4 + phase));
+    o.position.set(Math.cos(a) * rr, Math.sin(a) * rr, WATER_Z + 0.08 + at.current.z + 0.02 * Math.sin(t * 1.3 + phase));
     // Nose along the current, tipped a little toward the eye.
     o.rotation.set(0.05 * Math.cos(a), 0.05 * Math.sin(a), a - Math.PI / 2);
   });

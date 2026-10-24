@@ -428,16 +428,14 @@ export const useStore = create<Store>()((set, get) => ({
   },
 
   setPassTurn: (on) => {
-    const { game: g, human, server, targeting } = get();
+    const { game: g, human } = get();
     if (!g || human === null) return;
     const passTurn = { ...get().passTurn };
     if (on) passTurn[human] = g.turn;
     else delete passTurn[human];
     set({ passTurn });
-    sendPrefs();
-    // The game server passes for them itself as it hears (`GameHost.setPrefs`). Here, pass now
-    // if the game is waiting on them to; a spell being cast is left to finish or cancel first.
-    if (on && !server && g.priority === human && !g.decision && !targeting && g.step !== 'gameOver') get().act({ type: 'pass' });
+    if (on) startPassing();
+    else sendPrefs();
   },
 
   setFullControl: (on) => {
@@ -721,12 +719,34 @@ function fetchedCardsOf(decks: DeckDef[]) {
   return [...names].filter(isFetched).map((n) => cardData(n));
 }
 
-/** Tells the server each person's stops and settings, when there is a server. */
+/**
+ * Tells the server each person's stops and settings, when there is a server. Passing to the
+ * end of the turn (F6) waits while a spell or ability is being cast or activated here: the
+ * server would pass at once, and the cast would be left behind (`startPassing`).
+ */
 function sendPrefs() {
-  const { server, game, humans, stops, settings, fullControl, passTurn } = useStore.getState();
+  const { server, game, humans, stops, settings, fullControl, passTurn, targeting } = useStore.getState();
   if (!server || !game) return;
-  for (const h of humans) server.prefs({ seat: h, prefs: { stops: absoluteStops(stops, h, game.players.length), manualDamage: settings.manualDamage, fullControl, passTurn: passTurn[h] ?? null } });
+  for (const h of humans) server.prefs({ seat: h, prefs: { stops: absoluteStops(stops, h, game.players.length), manualDamage: settings.manualDamage, fullControl, passTurn: targeting ? null : (passTurn[h] ?? null) } });
 }
+
+/**
+ * Starts passing to the end of the turn (F6) for the person at the screen, unless a spell or
+ * ability is being cast or activated, which finishes or is cancelled first (then this runs
+ * again). The game server passes for them itself as it hears (`GameHost.setPrefs`); here,
+ * pass if the game is waiting on them.
+ */
+function startPassing() {
+  const { game: g, human, server, passTurn, targeting } = useStore.getState();
+  if (!g || human === null || passTurn[human] !== g.turn || targeting) return;
+  if (server) return sendPrefs();
+  if (g.priority === human && !g.decision && g.step !== 'gameOver') useStore.getState().act({ type: 'pass' });
+}
+
+// A cast or activation finished or cancelled: F6 turned on during it starts now.
+useStore.subscribe((s, prev) => {
+  if (prev.targeting && !s.targeting) startPassing();
+});
 
 /**
  * Runs a move on this seat's view of the game, to refuse an illegal one at once. Priority

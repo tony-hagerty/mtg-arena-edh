@@ -143,6 +143,15 @@ describe('the game host', () => {
     expect(host.full!.turn).toBeGreaterThan(turn);
   });
 
+  it('starts a loaded game with nobody passing to the end of the turn', () => {
+    const host = new GameHost(() => () => {});
+    const g = emptyGame((d) => void (d.players[0].isBot = false));
+    host.load(g, { 0: { passTurn: g.turn } });
+    // Player 0 still has priority in main 1: it would have passed at once.
+    expect(host.act(0, 1, { type: 'pass' })).toBe(true);
+    expect(host.full!.turn).toBe(g.turn);
+  });
+
   it('starts each game with a new id, and says when there is none', () => {
     const { host } = setup();
     const got: ViewMessage[] = [];

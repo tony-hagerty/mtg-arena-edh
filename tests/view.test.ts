@@ -6,7 +6,7 @@ import { describe, expect, it } from 'vitest';
 import './fixtures';
 import { hoverHandCard, leaveHandCard, useStore } from '../src/ui/store';
 import { arrowsFrom, edgeToward, hoverProps, stackLoop } from '../src/ui/util';
-import { activateFromHand, buildView, clickGroup, chooseEscape, chooseGraveyardTarget, clickPermanent, clickPlayer, clickStackItem, exileForMana, manaOptions, pickAbility, pickMana, pickManaSacrifice, pickFace, pickMode, playHandCard, setAbilityX, setChoices, stackTucked, undo, setPayLife, useForMana } from '../src/ui/view';
+import { activateFromHand, buildView, clickGroup, chooseEscape, chooseGraveyardTarget, clickPermanent, clickPlayer, clickStackItem, exileForMana, manaOptions, pickAbility, pickMana, pickManaSacrifice, pickFace, pickMode, playHandCard, setAbilityX, setChoices, stackTucked, undo, setPayLife, useForMana, cancel } from '../src/ui/view';
 import { applyAction, canCast, createToken, data, defaultStops, isCreature, isLand, makeCard, scriptOf } from '../src/engine';
 import { registerScripts } from '../src/engine/registry';
 import { parseCard, scriptCards } from '../src/cards/oracle';
@@ -962,6 +962,28 @@ describe('passing to the end of the turn (F6) and resetting the stops', () => {
     useStore.getState().setPassTurn(false);
     expect(useStore.getState().passTurn).toEqual({});
     expect([game().active, game().step]).toEqual([1, 'upkeep']);
+  });
+
+  it('turned on while casting, waits for the cast: mana made by hand keeps priority (605.3a), and cancelling starts it', () => {
+    play((d) => {
+      put(d, 0, 'Plains', 'battlefield', 5);
+      put(d, 0, 'Serra Angel', 'hand');
+    });
+    const turn = game().turn;
+    try {
+      playHandCard(byName(game(), 0, 'Serra Angel', 'hand')!);
+      useStore.getState().setPassTurn(true);
+      expect([game().step, game().priority]).toEqual(['main1', 0]);
+      clickPermanent(byName(game(), 0, 'Plains')!);
+      expect([game().step, game().priority, game().players[0].pool.length]).toEqual(['main1', 0, 1]);
+      expect(useStore.getState().targeting).not.toBe(null);
+      cancel();
+      // The Plains untapped, and the rest of the turn passed: nothing stops player 0 on the next one either.
+      expect(game().players[0].battlefield.filter((c) => c.tapped)).toEqual([]);
+      expect([game().turn, game().active]).toEqual([turn + 1, 1]);
+    } finally {
+      useStore.setState({ passTurn: {} });
+    }
   });
 
   it('puts the stops back to the defaults', () => {
