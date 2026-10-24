@@ -1229,7 +1229,8 @@ export type Action =
   /** `graveyard`: the cards in its controller's graveyard exiled for an "Exile two cards from your graveyard" cost (Matoc). */
   /** `returnAttacker`: the unblocked attacking creature returned to its owner's hand for a ninjutsu cost (702.49a). */
   /** `payLife`: how many of the cost's symbols payable with 2 life are paid with life (see `CastChoices.payLife`). */
-  | { type: 'activate'; card: string; ability?: number; activated?: number; x?: number; targets?: (TargetRef | null)[]; hold?: boolean; crew?: string[]; discard?: string[]; sacrifice?: string[]; exile?: string[]; graveyard?: string[]; returnAttacker?: string; payLife?: number }
+  /** `modes`: a modal ability's modes, as indexes in printed order (700.2a). */
+  | { type: 'activate'; card: string; ability?: number; activated?: number; x?: number; targets?: (TargetRef | null)[]; hold?: boolean; crew?: string[]; discard?: string[]; sacrifice?: string[]; exile?: string[]; graveyard?: string[]; returnAttacker?: string; payLife?: number; modes?: number[] }
   /**
    * `ability`: which of its mana abilities (`manaAbilities`). Left out, the one that suits
    * the player best. `color`: the colour to make, for an ability with a choice. `mana`: the
@@ -1393,8 +1394,9 @@ export interface TriggerEvents {
   /**
    * A card (not a token or a copy of a spell) is put into its owner's graveyard from
    * anywhere. Not a leaves-the-battlefield ability, so it doesn't look back in time (603.6c).
+   * `from`: the permanent as it last was, if it came from the battlefield (for "a creature dying causes", Teysa Karlov).
    */
-  onCardToGraveyard: { card: Card; player: PlayerId };
+  onCardToGraveyard: { card: Card; player: PlayerId; from?: Card };
   onLandfall: { land: Card };
   onUpkeep: { player: PlayerId };
   onEndStep: { player: PlayerId };
@@ -1453,8 +1455,8 @@ export interface TriggerEvents {
   onExiled: { cards: Card[] };
   /** "When this leaves the battlefield" (603.6c): it looks back in time (603.10a). `to`: the zone it went to. */
   onLeave: { to: Zone };
-  /** "Whenever [a permanent] leaves the battlefield": `left` is as it last was there (603.10a). */
-  onPermanentLeaves: { left: Card; to: Zone };
+  /** "Whenever [a permanent] leaves the battlefield": `left` is as it last was there (603.10a). `attacking`: it was an attacking creature as it left (Zurgo Stormrender's "if it was attacking"). */
+  onPermanentLeaves: { left: Card; to: Zone; attacking?: boolean };
   /** "Whenever a player searches their library" (701.23): once for each search, however many cards it finds. */
   onSearch: { player: PlayerId };
   /**
@@ -1559,15 +1561,18 @@ export type Trigger<E> =
        * chosen as it goes on the stack (603.3c), each with its own targets. `resolve` reads
        * `ctx.modes`. `bot`: the modes a bot chooses.
        */
-      modes?: {
-        min: number;
-        max: number;
-        modes: Mode[];
-        bot?: (g: Game, pid: PlayerId, self: Card) => number[];
-        /** "Choose one that hasn't been chosen this turn" (Monument to Endurance): a mode its source chose this turn can't be chosen again. */
-        oncePerTurn?: boolean;
-      };
+      modes?: TriggerModes;
     };
+
+/** The modes of a modal triggered ability (603.3c), its own or a reflexive one's (`CardScript.reflexive`). */
+export interface TriggerModes {
+  min: number;
+  max: number;
+  modes: Mode[];
+  bot?: (g: Game, pid: PlayerId, self: Card) => number[];
+  /** "Choose one that hasn't been chosen this turn" (Monument to Endurance): a mode its source chose this turn can't be chosen again. */
+  oncePerTurn?: boolean;
+}
 
 /**
  * A hook holds one triggered ability, or a list when the card has several for the same
@@ -1755,6 +1760,13 @@ export interface ActivatedAbility {
      */
     tapUntapped?: TapUntapped;
   };
+  /**
+   * A modal activated ability, "Choose one —" (700.2a): its controller chooses `min` to `max`
+   * modes as it is activated, each with its own targets (700.2c), and the chosen ones run in
+   * printed order. Use instead of `targets` and `resolve` (which is then never called). `bot`:
+   * the modes a bot prefers, in order; left out, it tries each legal choice.
+   */
+  modes?: { min: number; max: number; modes: Mode[]; bot?: (g: Game, pid: PlayerId, self: Card) => number[] };
   sorcery?: boolean;
   /** Activated from its owner's hand rather than the battlefield, like channel. */
   fromHand?: boolean;
@@ -1972,7 +1984,7 @@ export interface CardScript extends Triggers {
    */
   then?: Record<string, (g: Game, ctx: ThenCtx) => void>;
   /** Reflexive triggered abilities this card creates (603.12), by key: their targets and what they do. */
-  reflexive?: Record<string, { targets?: TargetSpec[]; text?: string; resolve: (g: Game, ctx: Ctx & { data: Record<string, unknown> }) => void }>;
+  reflexive?: Record<string, { targets?: TargetSpec[]; text?: string; resolve: (g: Game, ctx: Ctx & { data: Record<string, unknown> }) => void; modes?: TriggerModes }>;
   /** Plot (702.170a): its plot cost. Its owner may pay it and exile the card from their hand, as a sorcery; it becomes plotted. */
   plot?: string;
   /** Escape (702.138a) printed on the card: cast from its owner's graveyard for `mana` plus exiling `exile` other cards from there. */
@@ -2072,8 +2084,9 @@ export interface CardScript extends Triggers {
   /**
    * While this permanent is on the battlefield: is it a Roaming Throne for `source`'s ability
    * on `hook`? "If a triggered ability of [a permanent] triggers, it triggers an additional time" (603.2d).
+   * `event` is what the ability was told, for "if a creature dying causes ..." (`causedByCreatureDying`).
    */
-  doublesTriggers?: (g: Game, self: Card, source: Card, hook: TriggerHook) => boolean;
+  doublesTriggers?: (g: Game, self: Card, source: Card, hook: TriggerHook, event: object) => boolean;
   /** While this permanent is on the battlefield: does `source`'s ability on `hook` not trigger at all? "Permanents entering don't cause abilities of permanents your opponents control to trigger." */
   suppressesTriggers?: (g: Game, self: Card, source: Card, hook: TriggerHook) => boolean;
   /** While this permanent is on the battlefield: does player `pid` have protection from `source` (702.16)? "You ... have protection from the chosen card type." */
