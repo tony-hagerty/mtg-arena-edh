@@ -1,14 +1,14 @@
-## What's new in v0.5.0
+## What's new in v0.6.0
 
-The table is now drawn in 3D, and it is the only table. You play in a torch-lit stone hall: each player has a mat, the exile is a well with a whirlpool in the middle, opponents hold their hands up behind their mats, and the camera pushes in during combat. A computer that can't draw 3D shows a message instead.
+Every one of EDHREC's top 100 cards and top 100 commanders from the past year is now playable: 105 new cards, including Atraxa, Kinnan, Korvold, Muldrotha, The Ur-Dragon, Yuriko and Edgar Markov. The rules they need came with them: ward costs, amass, the Ring, proliferate, discover, exalted, riot, eminence, ninjutsu, blitz, cascade, the monarch, goad, dredge, explore and more.
 
-- **Loading screen:** starting a game shows the logo, bouncing mana symbols and a loading bar instead of a blank screen.
-- **Hotkeys:** the gear menu has a Hotkeys button that lists every key and mouse control.
-- **Undo:** Ctrl+Z takes back the last step that can be undone, including a mana ability you used by hand.
-- **Mana choices** appear in the prompt band, and the library, graveyard and exile piles are bigger.
-- **Combat and target lines** go under the prompt, not over it.
-- **Taskbar icon:** the game window shows the program's icon.
-- **Playing with friends:** a broken or hostile message from another computer can no longer close your program or freeze a player's view, and a joining player's deck can't flood the host with made-up cards.
+- **Pass the turn (F6):** F6, or the gold ⏭ button by the seat arrows, passes priority for you until the turn ends, as on MTGO. Attackers, blockers and choices are still yours.
+- **Flip double-faced cards:** right-click one and use the Front / Back pill to see its other side.
+- **Clearer stack arrows:** only the hovered spell's arrows show (or the top spell's), and a counterspell's arrow loops round to the spell it targets.
+- **Exile whirlpool:** every exiled card now swirls in the well, newest on the outside.
+- **Searches put pickable cards first,** and so do the exile viewer and the "cast one of these" panel.
+- **Settings → Stops** has a Reset to default button.
+- **Fixes:** a mana permanent with another ability (Abandoned Air Temple) opens its ability menu and says why an ability can't be used; hybrid mana costs, Show Results and the "Back to:" pill sit where they should; the log sits over pop-up windows.
 
 ## Download
 
