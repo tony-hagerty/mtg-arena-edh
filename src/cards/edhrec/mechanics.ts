@@ -59,6 +59,9 @@ function stillHere(g: Game): { now: Card; since: Card } | null {
 
 const BENDS: Bend[] = ['waterbend', 'earthbend', 'firebend', 'airbend'];
 
+/** The script name of Hearthhull's "2+ |" ability, which a static ability gives it while it has the counters (721.2a). */
+const HEARTHHULL_2 = 'Hearthhull, the Worldseed (2+)';
+
 registerScripts({
   'Toph, the First Metalbender': {
     // "Nontoken artifacts you control are lands in addition to their other types." A type-changing
@@ -96,8 +99,9 @@ registerScripts({
 
   'Aang, Master of Elements': {
     // "Spells you cast cost {W}{U}{B}{R}{G} less to cast. (This can reduce generic costs.)"
-    // Each symbol takes one mana of its colour off, or one generic mana if the cost has none (118.7b-c).
-    reducesCost: (_g, self, _spell, caster) => (caster === self.controller ? '{W}{U}{B}{R}{G}' : null),
+    // Each symbol takes one mana of its colour off, a hybrid half chosen to pay for as many as
+    // possible (118.7e, as Morophon's rulings say), or one generic mana if the cost has none (118.7b-c).
+    reducesColoredCost: (_g, self, _spell, caster) => (caster === self.controller ? { colors: ['W', 'U', 'B', 'R', 'G'] } : null),
     // "At the beginning of each upkeep, you may transform Aang, Master of Elements. If you do,
     // you gain 4 life, draw four cards, put four +1/+1 counters on him, and he deals 4 damage to
     // each opponent." "You may" is the controller's choice as it resolves (608.2d).
@@ -172,27 +176,33 @@ registerScripts({
     crewBonus: () => 2,
   },
 
-  'Hearthhull, the Worldseed': {
-    activated: [
-      // "Station" (702.184a).
-      station(),
-      {
-        // "2+ | {1}, {T}, Sacrifice a land: Draw two cards. You may play an additional land this turn."
-        // It has the ability only while it has two or more charge counters (721.2a): `when` is
-        // where the engine asks whether an ability can be activated.
-        cost: { mana: '{1}', tap: true, sacrificeOne: { type: 'permanent', who: 'you', filter: (g, c) => isLand(g, c), label: 'a land' } },
-        when: (_g, self) => counterCount(self, 'charge') >= 2,
-        text: '2+ | {1}, {T}, Sacrifice a land: Draw two cards. You may play an additional land this turn.',
-        resolve: (g, { you }) => {
-          draw(g, you, 2);
-          extraLand(g, you); // cumulative with other such effects (305.2b)
-        },
+  // "2+ | {1}, {T}, Sacrifice a land: Draw two cards. You may play an additional land this turn."
+  // The ability Hearthhull has while it has two or more charge counters (721.2a), registered on
+  // its own so a static ability can give it (`LayerParts.activatedOf`, layer 6).
+  [HEARTHHULL_2]: {
+    activated: {
+      cost: { mana: '{1}', tap: true, sacrificeOne: { type: 'permanent', who: 'you', filter: (g, c) => isLand(g, c), label: 'a land' } },
+      text: '2+ | {1}, {T}, Sacrifice a land: Draw two cards. You may play an additional land this turn.',
+      resolve: (g, { you }) => {
+        draw(g, you, 2);
+        extraLand(g, you); // cumulative with other such effects (305.2b)
       },
-    ],
-    // "8+ | Flying, vigilance, haste" with its power/toughness box 6/7: "As long as this permanent
-    // has 8 or more charge counters on it, it has [abilities] and is a creature with base power
-    // and toughness 6/7 in addition to its other types." (721.2b)
-    static: (_g, self, c) => (c.id === self.id && counterCount(self, 'charge') >= 8 ? { types: ['Creature'], setPower: 6, setToughness: 7, keywords: ['flying', 'vigilance', 'haste'] } : null),
+    },
+  },
+  'Hearthhull, the Worldseed': {
+    // "Station" (702.184a). The 2+ ability comes from the static ability below while it has the counters.
+    activated: station(),
+    static: (_g, self, c) =>
+      c.id !== self.id
+        ? null
+        : [
+            // "2+ | [ability]": "As long as this permanent has 2 or more charge counters on it, it has [ability]." (721.2a)
+            counterCount(self, 'charge') >= 2 ? { activatedOf: [HEARTHHULL_2] } : null,
+            // "8+ | Flying, vigilance, haste" with its power/toughness box 6/7: "As long as this permanent
+            // has 8 or more charge counters on it, it has [abilities] and is a creature with base power
+            // and toughness 6/7 in addition to its other types." (721.2b)
+            counterCount(self, 'charge') >= 8 ? { types: ['Creature'], setPower: 6, setToughness: 7, keywords: ['flying', 'vigilance', 'haste'] } : null,
+          ],
     // "Whenever you sacrifice a land, each opponent loses 2 life." One event for all of them (603.2c).
     onSacrifice: {
       when: (g, { self, card, player }) => player === self.controller && isLand(g, card),

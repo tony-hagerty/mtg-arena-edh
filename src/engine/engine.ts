@@ -151,6 +151,14 @@ import {
   pickCards,
   rememberModes,
   CARD_TYPES,
+  alternativeCostAt,
+  cascadeCount,
+  unblockedAttackers,
+  BLITZ_SACRIFICE,
+  bounce,
+  exileUntil,
+  castFromExiled,
+  lifeChoices,
   amassOnto,
   finishTempting,
   isRingBearer,
@@ -825,7 +833,7 @@ export function modeChoices(g: Game, pid: PlayerId, c: Card, face = 0): number[]
 
 /** Cards in `pid`'s hand that alternative cost `alt` of `c` could exile, like Force of Will's blue card. */
 export function exileOptions(g: Game, pid: PlayerId, c: Card, face: number, alt: number): Card[] {
-  const spec = scriptFor(asSpell(c, face)).alternativeCosts?.[alt]?.exile;
+  const spec = alternativeCostAt(g, c, face, alt, pid)?.exile;
   return spec ? g.players[pid].hand.filter((x) => x.id !== c.id && spec.filter(g, x, c)) : [];
 }
 
@@ -835,7 +843,7 @@ export function exileOptions(g: Game, pid: PlayerId, c: Card, face: number, alt:
  */
 export function sacrificeOptions(g: Game, pid: PlayerId, c: Card, face = 0, alt?: number): Card[] {
   const script = scriptFor(asSpell(c, face));
-  const spec = alt === undefined ? script.additionalCost?.sacrifice : script.alternativeCosts?.[alt]?.sacrifice;
+  const spec = alt === undefined ? script.additionalCost?.sacrifice : alternativeCostAt(g, c, face, alt, pid)?.sacrifice;
   if (!spec) return [];
   const self = { ...c, controller: pid };
   return g.players[pid].battlefield.filter((p) => fitsSpec(g, p, spec, self));
@@ -890,7 +898,7 @@ function choicesOk(g: Game, pid: PlayerId, c: Card, ch: CastChoices): boolean {
   if (script.modal ? !modeChoices(g, pid, c, face).some((m) => m.join() === modes.join()) : modes.length) return false;
   // An alternative cost that exiles a card from the caster's hand names exactly one that fits it (118.9).
   const exile = ch.exile ?? [];
-  const alt = ch.alt === undefined ? undefined : script.alternativeCosts?.[ch.alt];
+  const alt = alternativeCostAt(g, c, face, ch.alt, pid);
   if (alt?.exile ? exile.length !== 1 || !exileOptions(g, pid, c, face, ch.alt!).some((x) => x.id === exile[0]) : exile.length) return false;
   // Sacrifices: one for an alternative cost that asks for it, then one for the additional
   // cost, which bargain makes optional (702.166a). Each names a different permanent that fits.
@@ -898,6 +906,10 @@ function choicesOk(g: Game, pid: PlayerId, c: Card, ch: CastChoices): boolean {
   const discard = ch.discard ?? [];
   const hand = new Set(discardOptions(g, pid, c).map((x) => x.id));
   if (discard.length !== discardsFor(script, ch.extra) || new Set(discard).size !== discard.length || discard.some((id) => !hand.has(id))) return false;
+  // Paying life for symbols that allow it (107.4f, K'rrik): whole, not negative, no more than there are.
+  if (ch.payLife !== undefined && (!Number.isInteger(ch.payLife) || ch.payLife < 0 || ch.payLife > lifeChoices(castCost(g, c, { ...ch, payLife: undefined }, pid)))) return false;
+  // An alternative cost that needs X at least so much, like Henzie's blitz for a creature with {X} (202.3e).
+  if (alt?.minX && x < alt.minX) return false;
   const sacrifice = ch.sacrifice ?? [];
   const needs = [...(alt?.sacrifice ? [{ alt: ch.alt, optional: false }] : []), ...(script.additionalCost?.sacrifice ? [{ alt: undefined, optional: !!script.additionalCost.optional }] : [])];
   if (sacrifice.length > needs.length || new Set(sacrifice).size !== sacrifice.length) return false;
@@ -949,7 +961,11 @@ export function canCastAs(g: Game, pid: PlayerId, c: Card, face: number, choices
     const ways = graveyardWays(g, c, face);
     const escaping = escapes(g, c).filter((e) => escapeOptions(g, c).length >= e.exile).map((e): CastChoices => ({ face, escape: Array.from({ length: e.exile }, () => '') }));
     routes = [...(ways.flashback || ways.aftermath || ways.permitted ? [{ face }] : []), ...escaping];
-  } else routes = [...(castsForAlt(g, c) ? [] : [undefined]), ...altCostsOf(g, c, face, pid)].map((alt) => ({ alt, face }));
+  } else {
+    // An alternative cost with a least X is tried with that X (Henzie's blitz, 202.3e).
+    const least = (alt: number | undefined) => alternativeCostAt(g, c, face, alt, pid)?.minX;
+    routes = [...(castsForAlt(g, c) ? [] : [undefined]), ...altCostsOf(g, c, face, pid)].map((alt) => ({ alt, face, ...(least(alt) ? { x: least(alt) } : {}) }));
+  }
   // Each of the additional costs it offers a choice of ("pay 5 life or pay {2}").
   const extras: (number | undefined)[] = script.additionalCost?.oneOf ? script.additionalCost.oneOf.map((_, i) => i) : [undefined];
   return routes.some((r) => modeSets.some((modes) => extras.some((extra) => {
@@ -992,9 +1008,12 @@ function hasTargetsFor(g: Game, pid: PlayerId, c: Card, activated: number, x: nu
 function canPayActivation(g: Game, pid: PlayerId, c: Card, activated: number, x: number): boolean {
   const ab = activatedAt(g, c, activated);
   if (!ab) return false;
-  // Its controller activates it from the battlefield; its owner from their hand, like channel.
-  if (ab.fromHand ? c.zone !== 'hand' || c.owner !== pid : c.zone !== 'battlefield' || c.controller !== pid) return false;
+  // Its controller activates it from the battlefield; its owner from their hand, like channel,
+  // or from their command zone too, like commander ninjutsu (702.49d).
+  if (ab.fromHand ? !(c.zone === 'hand' || (ab.fromCommand && c.zone === 'command')) || c.owner !== pid : c.zone !== 'battlefield' || c.controller !== pid) return false;
   if (!timingOk(g, pid, !ab.sorcery) || forbidden(g, pid, 'activate', c) || (ab.when && !ab.when(g, c))) return false;
+  // Ninjutsu: an unblocked attacking creature to return (702.49a).
+  if (ab.cost.returnAttacker && !unblockedAttackers(g, pid).length) return false;
   // A summoning-sick creature can't pay a tap cost (302.6).
   if (ab.cost.tap && (c.tapped || (isCreature(g, c) && c.sick && !has(g, c, 'haste')))) return false;
   if (ab.cost.crew && crewPower(g, pid, c, crewOptions(g, pid, c)) < ab.cost.crew) return false;
@@ -1276,7 +1295,7 @@ export function actionsFor(g: Game, pid: PlayerId): { cast: Card[]; play: Card[]
     return {
       cast: castableCards(g, pid).filter((c) => canCast(g, pid, c)),
       play: [...p.hand, ...g.players.flatMap((o) => o.exile)].filter((c) => canPlayLand(g, pid, c)),
-      activate: [...p.battlefield, ...p.hand].filter((c) => activatable(g, pid, c).length > 0),
+      activate: [...p.battlefield, ...p.hand, ...p.command].filter((c) => activatable(g, pid, c).length > 0),
     };
   });
 }
@@ -1286,7 +1305,7 @@ function canActNow(g: Game, pid: PlayerId): boolean {
   return (
     castableCards(g, pid).some((c) => canCast(g, pid, c)) ||
     [...p.hand, ...g.players.flatMap((o) => o.exile)].some((c) => canPlayLand(g, pid, c)) ||
-    [...p.battlefield, ...p.hand].some((c) => activatable(g, pid, c).length > 0)
+    [...p.battlefield, ...p.hand, ...p.command].some((c) => activatable(g, pid, c).length > 0)
   );
 }
 
@@ -1686,7 +1705,7 @@ function attackedRef(g: Game, id: string): TargetRef {
 }
 
 /** Locks in the chosen attackers: they tap, and "attacks" abilities trigger (508.1f, 508.1m). */
-function attackersDeclared(g: Game) {
+function attackersDeclared(g: Game, payLife?: number) {
   const combat = g.combat!;
   g.decision = null;
   g.priority = firstPriority(g); // 508.2
@@ -1702,6 +1721,7 @@ function attackersDeclared(g: Game) {
   }
   // Then the attacks' costs are paid (508.1g-i), with the attackers already tapped.
   const cost = attackCost(g, combat.attacks);
+  if (payLife !== undefined) cost.lifeSymbols = payLife;
   if (!isFree(cost)) {
     pay(g, g.active, cost);
     log(g, `${says(g.players[g.active], 'pays')} ${costText(cost)} to attack.`, g.active);
@@ -2150,6 +2170,10 @@ function resolveTop(g: Game) {
           log(g, `${label(c)} returns to its owner's hand.`, c.controller, [c]);
           moveCard(g, c, 'hand');
         }
+      } else if (key === BLITZ_SACRIFICE) {
+        // Blitz (702.152a): "sacrifice the permanent this spell becomes at the beginning of the next end step", if it is still the same object.
+        const c = permanent(g, extra.id as string);
+        if (c && c.moves === extra.moves) dieMany(g, [c], 'is sacrificed');
       } else script.delayed?.[key]?.(g, { ...ctx, data: extra });
     } else if (item.hook === 'onMonarch') {
       // The monarch's inherent triggered abilities (725.2).
@@ -2188,6 +2212,18 @@ function resolveTop(g: Game) {
       // battlefield, its last known copiable values are used (707.4, 608.2h).
       const c = permanent(g, card.id);
       tokenCopy(g, controller, c && c.moves === card.moves ? c : card, { power: 1, toughness: 1 });
+    } else if (item.hook === 'onBlitzDies') {
+      // Blitz (702.152a): "When this permanent is put into a graveyard from the battlefield, draw a card."
+      draw(g, controller, 1);
+    } else if (item.hook === 'onCascade') {
+      // Cascade (702.85a): "exile cards from the top of your library until you exile a nonland
+      // card whose mana value is less than this spell's mana value. You may cast that card
+      // without paying its mana cost if the resulting spell's mana value is less than this
+      // spell's mana value. Then put all cards exiled this way that weren't cast on the bottom
+      // of your library in a random order." The cards are exiled one at a time, face up.
+      const { mv } = item.event as TriggerEvents['onCascade'];
+      const { hit, rest } = exileUntil(g, controller, (c) => !isLand(g, c) && manaValue(c) < mv);
+      castFromExiled(g, controller, hit, rest, { maxMv: mv - 1, hitToBottom: true, text: hit ? `You may cast ${label(hit)} without paying its mana cost (cascade).` : '' });
     } else if (item.hook === 'onDefeat') {
       // A defeated Siege is exiled, then cast transformed without paying its mana cost
       // (310.12b). Casting it is optional, but always worth it, so it always happens.
@@ -2255,6 +2291,11 @@ function castDone(g: Game, pid: PlayerId, item: StackItem) {
   broadcast(g, 'onCast', { card: c, caster: pid, item: remembered });
   if (data(c).keywords.includes('Storm') && g.spellsCast > 1) {
     g.triggers.push({ id: `s${g.nextId++}`, kind: 'triggered', controller: pid, card: snapshot(c), hook: 'onStorm', event: { count: g.spellsCast - 1, item: remembered }, targets: [] });
+  }
+  // Cascade (702.85a): "When you cast this spell", once for each instance it has (702.85c),
+  // printed or given. Its mana value is as cast, X counted (202.3e).
+  for (let k = cascadeCount(g, c, pid, c.cast?.from ?? 'stack'); k > 0; k--) {
+    g.triggers.push({ id: `s${g.nextId++}`, kind: 'triggered', controller: pid, card: snapshot(c), hook: 'onCascade', event: { mv: manaValue(c) }, targets: [] });
   }
 }
 
@@ -2549,7 +2590,7 @@ function act(g: Game, a: Action): boolean {
       const exileOnLeave = from === 'graveyard' && isAftermath(c, face);
       // Cast from a graveyard with a permission that exiles it instead of putting it back (Vohar).
       const exileInstead = from === 'graveyard' && !flashback && !escaped && !!permission(g, pid, c)?.graveyardToExile;
-      const alt = choices.alt === undefined ? undefined : script.alternativeCosts![choices.alt];
+      const alt = alternativeCostAt(g, c, face, choices.alt, pid);
       // X is chosen only if the cost being paid has {X}: an alternative cost without it makes X 0 (107.3b).
       const escapeMana = escaped ? escapeFor(g, c, choices.escape!.length)?.mana : undefined;
       const paying = free || fromExile === 'plotted' ? '' : fromExile === 'airbent' ? '{2}' : flashback ? flashbackCost(g, c)! : (escapeMana ?? (alt ? alt.mana : data(spell).manaCost));
@@ -2592,6 +2633,9 @@ function act(g: Game, a: Action): boolean {
         from,
         alt: choices.alt,
         dash: !!alt?.dash,
+        // Blitz and evoke may be given by a permanent (118.9), so what was paid is kept with the spell.
+        ...(alt?.blitz ? { blitz: true } : {}),
+        ...(alt?.evoke ? { evoke: true } : {}),
         ...(during?.card === c.id && during.via === 'suspend' ? { suspend: true } : {}),
         ...(alt?.impending ? { impending: true } : {}),
         escaped,
@@ -2675,7 +2719,8 @@ function act(g: Game, a: Action): boolean {
     }
 
     case 'activate': {
-      const c = [...p.battlefield, ...p.hand].find((x) => x.id === a.card);
+      // From the battlefield, the hand (channel) or the command zone (commander ninjutsu, 702.49d).
+      const c = [...p.battlefield, ...p.hand, ...p.command].find((x) => x.id === a.card);
       const x = a.x ?? 0;
       if (!c || !canActivate(g, pid, c, a.ability, a.activated, x)) return false;
       if (a.ability !== undefined && abilitiesOf(g, c).levels) return activateLevel(g, pid, c, a.ability, a);
@@ -2713,6 +2758,11 @@ function act(g: Game, a: Action): boolean {
       // "Exile two cards from your graveyard": exactly that many different ones (Matoc).
       const fromGrave = (a.graveyard ?? []).map((id) => p.graveyard.find((x) => x.id === id));
       if (fromGrave.length !== (ab.cost.exileGraveyard ?? 0) || fromGrave.some((x) => !x) || new Set(a.graveyard).size !== fromGrave.length) return false;
+      // Ninjutsu: "Return an unblocked attacking creature you control to its owner's hand" (702.49a): exactly one, named.
+      const returning = ab.cost.returnAttacker ? unblockedAttackers(g, pid).find((x) => x.id === a.returnAttacker) : undefined;
+      if (ab.cost.returnAttacker ? !returning : a.returnAttacker !== undefined) return false;
+      // Paying life for symbols that allow it (107.4f, K'rrik): no more than the cost has.
+      if (a.payLife !== undefined && (!Number.isInteger(a.payLife) || a.payLife < 0 || a.payLife > lifeChoices(activationCost(g, pid, c, ab, x)))) return false;
       // The ability goes on the stack as its own object, apart from its source (602.2a).
       // X is announced as it is activated (107.3a, 602.2b), and kept with the ability on the stack.
       const hasX = abilityHasX(g, c, { activated: a.activated });
@@ -2724,12 +2774,19 @@ function act(g: Game, a: Action): boolean {
         item.sacrificedPower = sacrificing.map((x) => stats(g, x!).power);
       }
       // Nothing tapped or sacrificed for the rest of the cost makes mana for it.
-      const busy = [...(ab.cost.tap || ab.cost.sacrifice || ab.cost.exileSelf ? [c.id] : []), ...(a.sacrifice ?? []), ...(a.exile ?? []), ...(tapping ? (a.crew ?? []) : [])];
-      const paidMana = ab.cost.mana || ab.cost.life ? pay(g, pid, activationCost(g, pid, c, ab, x), undefined, busy) : null;
+      const busy = [...(ab.cost.tap || ab.cost.sacrifice || ab.cost.exileSelf ? [c.id] : []), ...(a.sacrifice ?? []), ...(a.exile ?? []), ...(returning ? [returning.id] : []), ...(tapping ? (a.crew ?? []) : [])];
+      const paidMana = ab.cost.mana || ab.cost.life ? pay(g, pid, activationCost(g, pid, c, ab, x, a.payLife), undefined, busy) : null;
       if ((ab.cost.mana || ab.cost.life) && !paidMana) return false;
       // What mana was spent on it, by source ("each mana from Treasures spent to activate this ability").
       if (paidMana?.paid?.length) item.spentFrom = paidMana.paid;
       if (ab.cost.tap) tap(g, c);
+      if (returning) {
+        // What it was attacking, for the creature put onto the battlefield attacking (702.49c); then it goes back to its owner's hand.
+        const attack = g.combat!.attacks.find((at) => at.id === returning.id)!;
+        item.returned = { defender: attack.defender, target: attack.target };
+        log(g, `${says(p, 'reveals')} ${label(c)} and ${verbFor(p, 'returns')} ${label(returning)} to its owner's hand (ninjutsu).`, pid, [c, returning]);
+        bounce(g, returning);
+      }
       if (ab.cost.counters) removeCounters(c, ab.cost.counters.n, ab.cost.counters.kind);
       // Station (702.184a): the creature tapped is remembered as it is now, for its power as the ability resolves (608.2h).
       if (ab.cost.station && crewing[0]) item.stationed = lastKnown(g, crewing[0]);
@@ -3071,9 +3128,9 @@ function act(g: Game, a: Action): boolean {
           passedOn = passPriority(g);
           return true;
         case 'attackers':
-          if (!canPayAttacks(g, pid, g.combat!.attacks)) return false;
+          if (!canPayAttacks(g, pid, g.combat!.attacks, a.payLife)) return false;
           mustAttack(g, pid);
-          attackersDeclared(g);
+          attackersDeclared(g, a.payLife);
           return true;
         case 'blockers': {
           const combat = g.combat!;

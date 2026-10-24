@@ -6,7 +6,7 @@ import { produce } from 'immer';
 import { describe, expect, it } from 'vitest';
 import { canBeCommander, cardData, deckProblems, registerCards } from '../src/cards/db';
 import { problemsOf } from '../src/cards/support';
-import { applyAction, applyBotAction, botAction, bounce, canPlayLand, castCost, counterCount, crewPower, dealDamage, earthbend, exile, has, hasType, isCreature, isLand, makeCard, rollDice, stats, subtypesOf } from '../src/engine';
+import { activatedAbilities, applyAction, applyBotAction, botAction, bounce, canPlayLand, castCost, counterCount, crewPower, dealDamage, earthbend, exile, has, hasType, isCreature, isLand, makeCard, rollDice, station, stats, subtypesOf } from '../src/engine';
 import type { Action, CardData, Game, PlayerId, TargetRef } from '../src/engine';
 import { registerScripts } from '../src/engine/registry';
 import { MANA_ROCKS, byName, emptyGame, put, runWith, twoCommanderDeck } from './helpers';
@@ -267,6 +267,17 @@ describe('Avatar Aang // Aang, Master of Elements', () => {
     expect(castCost(g, byName(g, 1, 'Serra Angel', 'hand')!, {}, 1)).toMatchObject({ generic: 3, pips: ['W', 'W'] });
   });
 
+  it('the back face reduces hybrid symbols too: a half is chosen before the total cost is worked out (118.7e, Morophon\'s rulings)', () => {
+    registerCards({ 'Test Hybrid Spell': fake('Test Hybrid Spell', 'Instant', '{2}{R/G}{R/G}', 4, 'Draw a card.') });
+    const g = emptyGame((d) => {
+      const aang = put(d, 0, 'Avatar Aang');
+      aang.face = 1;
+      put(d, 0, 'Test Hybrid Spell', 'hand');
+    });
+    // {R} pays one half as red and {G} the other as green; {W}{U}{B} take the {2} off and the excess is lost (118.7c).
+    expect(castCost(g, byName(g, 0, 'Test Hybrid Spell', 'hand')!, {}, 0)).toMatchObject({ generic: 0, pips: [], hybrid: [] });
+  });
+
   it('at each upkeep the back face may transform; if it does: 4 life, four cards, four counters and 4 damage to each opponent', () => {
     let g = humanGame((d) => {
       const aang = put(d, 0, 'Avatar Aang');
@@ -352,7 +363,7 @@ describe('Hearthhull, the Worldseed: station and its thresholds', () => {
     expect(applyAction(g, { type: 'activate', card: hull.id, activated: 0, crew: [byName(g, 0, 'Elite Vanguard')!.id] }, OPTS)).toBe(g);
   });
 
-  it('has the 2+ ability only with two or more charge counters: sacrifice a land to draw two and play an extra land, and opponents lose 2 life', () => {
+  it('has the 2+ ability only with two or more charge counters (721.2a): sacrifice a land to draw two and play an extra land, and opponents lose 2 life', () => {
     let g = humanGame((d) => {
       put(d, 0, 'Hearthhull, the Worldseed');
       put(d, 0, 'Mountain', 'battlefield', 2);
@@ -361,8 +372,13 @@ describe('Hearthhull, the Worldseed: station and its thresholds', () => {
     });
     const hull = byName(g, 0, 'Hearthhull, the Worldseed')!;
     const mountain = byName(g, 0, 'Mountain')!;
+    // With one charge counter it doesn't have the ability at all; with two it does.
+    expect(activatedAbilities(g, hull).map((a) => a.text)).toEqual([station().text]);
+    g = produce(g, (d) => void (byName(d, 0, 'Hearthhull, the Worldseed')!.counters.charge = 1));
+    expect(activatedAbilities(g, byName(g, 0, 'Hearthhull, the Worldseed')!)).toHaveLength(1);
     expect(applyAction(g, { type: 'activate', card: hull.id, activated: 1, sacrifice: [mountain.id] }, OPTS)).toBe(g);
     g = produce(g, (d) => void (byName(d, 0, 'Hearthhull, the Worldseed')!.counters.charge = 2));
+    expect(activatedAbilities(g, byName(g, 0, 'Hearthhull, the Worldseed')!).map((a) => a.text)).toEqual([station().text, '2+ | {1}, {T}, Sacrifice a land: Draw two cards. You may play an additional land this turn.']);
     // One land this turn already.
     g = run(g, { type: 'playLand', card: byName(g, 0, 'Forest', 'hand')!.id });
     expect(canPlayLand(g, 0, byName(g, 0, 'Forest', 'hand')!)).toBe(false);
