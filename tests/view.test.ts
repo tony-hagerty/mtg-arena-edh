@@ -6,7 +6,7 @@ import { describe, expect, it } from 'vitest';
 import './fixtures';
 import { hoverHandCard, leaveHandCard, useStore } from '../src/ui/store';
 import { arrowsFrom, edgeToward, hoverProps, stackLoop } from '../src/ui/util';
-import { activateFromHand, buildView, clickGroup, chooseEscape, chooseGraveyardTarget, clickPermanent, clickPlayer, clickStackItem, exileForMana, manaOptions, pickAbility, pickMana, pickManaSacrifice, pickFace, pickMode, playHandCard, setAbilityX, setChoices, stackTucked, undo, setPayLife } from '../src/ui/view';
+import { activateFromHand, buildView, clickGroup, chooseEscape, chooseGraveyardTarget, clickPermanent, clickPlayer, clickStackItem, exileForMana, manaOptions, pickAbility, pickMana, pickManaSacrifice, pickFace, pickMode, playHandCard, setAbilityX, setChoices, stackTucked, undo, setPayLife, useForMana } from '../src/ui/view';
 import { applyAction, canCast, createToken, data, defaultStops, isCreature, isLand, makeCard, scriptOf } from '../src/engine';
 import { registerScripts } from '../src/engine/registry';
 import { parseCard, scriptCards } from '../src/cards/oracle';
@@ -1577,5 +1577,39 @@ describe("a stack item's target arrows", () => {
     expect(c1x).toBeLessThan(100);
     expect(c2x).toBeLessThan(100);
     expect([c1y, c2y]).toEqual([210, 120]);
+  });
+});
+
+describe("a land with another ability that can't be paid for now (Abandoned Air Temple)", () => {
+  const temple = () => byName(game(), 0, 'Abandoned Air Temple')!;
+  const setup = () =>
+    play((d) => {
+      put(d, 0, 'Abandoned Air Temple');
+      put(d, 0, 'Plains', 'battlefield', 3);
+      put(d, 0, 'Elite Vanguard');
+      put(d, 0, 'Elite Vanguard', 'hand');
+    });
+
+  it('still shows the ability, dimmed with why: the land taps itself for the cost (602.2)', () => {
+    setup();
+    clickPermanent(temple());
+    const options = buildView().loyalty?.options ?? [];
+    expect(options.map((o) => [o.text.slice(0, 11), o.ok])).toEqual([
+      ['Add mana', true],
+      ['{3}{W}, {T}', false],
+    ]);
+    expect(options[1].why).toBe("Needs {3}{W} from other sources: this taps itself as part of the cost, so it can't make mana for it.");
+    // Add mana taps it as a click on a plain land would.
+    useForMana();
+    expect([temple().tapped, game().players[0].pool.length]).toEqual([true, 1]);
+  });
+
+  it('only makes mana while paying for a spell', () => {
+    setup();
+    playHandCard(byName(game(), 0, 'Elite Vanguard', 'hand')!);
+    clickPermanent(temple());
+    expect(buildView().loyalty).toBeFalsy();
+    // The Temple's {W} paid for it.
+    expect([temple().tapped, byName(game(), 0, 'Elite Vanguard', 'hand')]).toEqual([true, undefined]);
   });
 });
