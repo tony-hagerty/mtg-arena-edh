@@ -126,20 +126,33 @@ const SLOW_GAMES = ['hashaton-pair-94', 'kuja-71', 'counters-auras-22', 'starter
  * files by how long they took last time, longest first. With no timings from an earlier run
  * (a fresh checkout, CI) it would order them by size, and every game file is the same size,
  * so the games that were slowest when last measured go first.
+ *
+ * `--shard=i/n` (the release workflow's games jobs) deals the files out back and forth, the
+ * games first and slowest first, so each shard gets the same number of games and of slow ones.
+ * Vitest's own split hashes the paths, which can put most of the games in one shard.
  */
 class BotGamesFirst extends BaseSequencer {
   async sort(files: TestSpecification[]) {
     const sorted = await super.sort(files);
-    const name = (f: TestSpecification) => f.moduleId.replaceAll('\\', '/').split('/').pop()!.replace('.test.ts', '');
-    const game = (f: TestSpecification) => f.moduleId.replaceAll('\\', '/').includes('/tests/simulation/');
-    const games = sorted.filter(game);
-    if (games.some((f) => !this.ctx.cache.getTestSpecificationResult(f))) {
-      const rank = (f: TestSpecification) => (SLOW_GAMES.includes(name(f)) ? SLOW_GAMES.indexOf(name(f)) : SLOW_GAMES.length);
-      games.sort((a, b) => rank(a) - rank(b));
-    }
-    return [...games, ...sorted.filter((f) => !game(f))];
+    const games = sorted.filter(isGame);
+    if (games.some((f) => !this.ctx.cache.getTestSpecificationResult(f))) games.sort((a, b) => slowRank(a) - slowRank(b));
+    return [...games, ...sorted.filter((f) => !isGame(f))];
+  }
+
+  async shard(files: TestSpecification[]) {
+    const { index, count } = this.ctx.config.shard!;
+    const byPath = [...files].sort((a, b) => (modulePath(a) < modulePath(b) ? -1 : 1));
+    const games = byPath.filter(isGame).sort((a, b) => slowRank(a) - slowRank(b));
+    // Back and forth (1, 2, 3, 4, 4, 3, 2, 1, ...), so shard 1 doesn't take the slowest of every round.
+    const shardOf = (i: number) => (Math.floor(i / count) % 2 === 0 ? i % count : count - 1 - (i % count));
+    return [...games, ...byPath.filter((f) => !isGame(f))].filter((_, i) => shardOf(i) === index - 1);
   }
 }
+
+const modulePath = (f: TestSpecification) => f.moduleId.replaceAll('\\', '/');
+const testName = (f: TestSpecification) => modulePath(f).split('/').pop()!.replace('.test.ts', '');
+const isGame = (f: TestSpecification) => modulePath(f).includes('/tests/simulation/');
+const slowRank = (f: TestSpecification) => (SLOW_GAMES.includes(testName(f)) ? SLOW_GAMES.indexOf(testName(f)) : SLOW_GAMES.length);
 
 export default defineConfig(({ mode }) => ({
   // `--mode single` (npm run build:single) inlines all JS, CSS and fonts into one
