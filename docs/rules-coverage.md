@@ -194,6 +194,10 @@ are from the Comprehensive Rules in `docs/rules/`.
 - **Modal triggered abilities (603.3c):** "choose one or more —" is chosen as the ability
   goes on the stack, with the targets of the chosen modes (Black Market Connections). One
   with too few modes that can be chosen is removed from the stack.
+- **Modal activated abilities (700.2a):** "{2}, Sacrifice two artifacts: Choose one —"
+  (Breya, Etherium Shaper): the modes are chosen as the ability is activated, before its X
+  and targets (601.2b-c via 602.2b), in the prompt's band; each mode has its own targets, and
+  a mode with no legal target can't be chosen. Bots try each legal choice of modes.
 - **Choosing a number** partway through resolving: Electro's "you may pay {X}" and Mages'
   Contest's bidding, where you start at 1 and the two bidders top each other until the
   high bid stands.
@@ -635,7 +639,18 @@ are from the Comprehensive Rules in `docs/rules/`.
 - **Trigger doubling (603.2d):** Roaming Throne's "triggers an additional time", even for
   a creature that died alongside it (603.10a). Elesh Norn, Mother of Machines does it for
   abilities of your permanents that a permanent entering causes to trigger, and stops
-  such abilities of your opponents' permanents from triggering at all.
+  such abilities of your opponents' permanents from triggering at all. Annie Joins Up
+  does it for a legendary creature's own abilities, Isshin, Two Heavens as One for
+  abilities a creature attacking causes to trigger ("whenever this attacks", mobilize,
+  "whenever a creature attacks", "whenever you attack", exalted; a creature becoming tapped
+  as it attacks is another event), and Teysa Karlov for abilities a creature dying causes to
+  trigger ("when this dies", "whenever a creature dies", a creature leaving the
+  battlefield for a graveyard, and a creature card, an artifact creature's included, put
+  into a graveyard from the battlefield, 700.4, the creature as it last was, so a land made
+  a creature counts; "whenever you sacrifice a permanent" triggers on the sacrifice, not
+  the dying, so it doesn't double, as Teysa's rulings say). A creature dying together with
+  Teysa still counts, and each further Teysa adds one more. Delayed and reflexive triggered
+  abilities are never doubled (603.2d).
 - **Protection for a player (702.16):** Serra's Emissary's "You ... have protection from
   the chosen card type": damage from such sources is prevented and spells and abilities
   from them can't target you.
@@ -765,7 +780,9 @@ are from the Comprehensive Rules in `docs/rules/`.
   "whenever one or more [kind] counters are put on a creature" once for each creature and
   kind, entering with them included (122.6); "whenever one or more creatures you control
   deal combat damage to a player" once for each player dealt combat damage in a combat
-  damage step.
+  damage step, with every creature that hit them (Kutzil, Malamet Exemplar's "each with
+  power greater than its base power": base power is layer 7a-7b, 613.4a-b, before counters
+  and +N/+N effects).
 - **"Up to X target ..." with X from the event** (The Wise Mothman's "where X is the number
   of nonland cards milled this way"): at most X targets, chosen as the ability goes on the
   stack.
@@ -773,7 +790,8 @@ are from the Comprehensive Rules in `docs/rules/`.
   subtype, creature or kindred.
 - **"Tap N untapped [permanents] you control" as a cost** (High Perfect Morcant): exactly N
   untapped ones that fit, chosen as it is activated; the source may be one of them, and
-  summoning sickness doesn't matter (302.6).
+  summoning sickness doesn't matter (302.6). With {T} in the cost as well ("{T}, Tap ten
+  untapped Elves you control", Lathril, Blade of the Elves) the source isn't one of them.
 - **The amount of life you gained or lost this turn** (Hope Estheim, Betor), counted as
   the ability resolves.
 - **Populate (701.36):** you choose which creature token to copy, and a token that is
@@ -813,7 +831,11 @@ are from the Comprehensive Rules in `docs/rules/`.
   Pantlaza, whose "do this only once each turn" is 603.2h).
 - **Put onto the battlefield attacking (508.4):** the creature is attacking the player (or
   planeswalker or battle) the effect names, but it never "attacked", so nothing triggers on
-  it attacking (Kaalia's "tapped and attacking that opponent"). It isn't attacking if it
+  it attacking (Kaalia's "tapped and attacking that opponent"). When the effect doesn't say
+  what it attacks (mobilize, 702.181a, Zurgo Stormrender and Voice of Victory; Caesar's
+  Soldiers), its controller chooses which defending player, planeswalker or battle, every
+  opponent being a defending player (802.2); with one thing to attack, no question, and bots
+  attack the opponent with the least life. It isn't attacking if it
   isn't a creature, if its controller isn't the attacking player, or if that player has left
   the game or that planeswalker or battle is gone (506.3a-c, 506.3f, 508.4a); put there after
   blockers are declared, it is unblocked (508.4d).
@@ -834,7 +856,17 @@ are from the Comprehensive Rules in `docs/rules/`.
 - **An ability about a permanent that has left the battlefield** ("where X is that creature's
   toughness", Pantlaza) uses it as it last was there (608.2h), not as it entered.
 - **Reflexive triggers (603.12):** "When a creature card is exiled this way, ..." (Agatha's
-  Soul Cauldron).
+  Soul Cauldron), and "you may sacrifice another creature. When you do, choose two —"
+  (Caesar, Legion's Emperor): the sacrifice is chosen as the ability resolves, and the
+  reflexive ability's modes as it goes on the stack (603.3c).
+- **Combat damage from toughness (510.1a):** Arcades, the Strategist's creatures with
+  defender and Felothar the Steadfast's creatures assign combat damage equal to their
+  toughness, attacking or blocking, and may attack as though they didn't have defender
+  (702.3b). Both are effects on the creature, not abilities of its own (113.12), so losing
+  all abilities doesn't take them.
+- **"Whenever a creature token you control leaves the battlefield, draw a card if it was
+  attacking"** (Zurgo Stormrender): whether it was attacking is remembered with the event
+  (603.10a).
 - **More triggers:** "whenever an opponent searches their library" (once for each search,
   701.23h, Archivist of Oghma), "whenever two or more creatures attack" (Argent Dais),
   "becomes the target of a spell or ability" (Monk Gyatso), "draws their second card each
@@ -949,8 +981,7 @@ These are deliberate cuts for a prototype. The biggest ones come first.
   can block more than one. Trample over planeswalkers (702.19c) isn't supported.
 - **Targets:** "two target lands" can name the same land twice. Targets that exist only
   when kicked (702.33g) aren't supported.
-- **Modes and copies:** only spells can be modal: modal triggered and activated abilities
-  (700.2b) aren't supported. A copy's controller must pick legal new targets or keep all
+- **Modes and copies:** A copy's controller must pick legal new targets or keep all
   the old ones (707.10c allows keeping some). Copying abilities isn't supported yet.
 - **Layers (613) not built yet:** no card has
   a copy effect with a duration ("until end of turn") yet. In layer 6: "can't have
@@ -1061,6 +1092,8 @@ card, naming the clause: it never guesses. Hand scripts always win.
   means a creature, 205.3d). An intervening "if" (603.4) is checked as it triggers and as it resolves.
   "That player", "that much" and "that creature" are the event's; "it" in a trigger about
   another object is that object. Modal triggered abilities ("choose one —", 603.3c).
+  "Whenever one or more creatures you control deal combat damage to a player" (once for each
+  player hit, 603.2c).
 - **Activated abilities (602):** costs of {T}, mana with {X} (107.3a), "Pay N life" (119.4),
   "Discard a card", "Discard this card" (channel, bloodrush: from the hand), "Sacrifice this",
   "Sacrifice a / another / N [kind of permanent]", "Exile this", "Exile a creature you
@@ -1169,14 +1202,17 @@ card, naming the clause: it never guesses. Hand scripts always win.
   from the battlefield"; "when this enters and whenever an opponent draws a card except the
   first one they draw in each of their draw steps"; "create a token that's a copy of it,
   except the token isn't legendary"; "you may discard your hand. If you do, ..."; two
-  conditions joined by "and"; and flavor words (207.2d).
+  conditions joined by "and"; and flavor words (207.2d); trigger
+  doublers, "if an artifact or creature entering / a creature dying / a creature attacking
+  causes a triggered ability of a permanent you control to trigger, that ability triggers an
+  additional time" (603.2d: Panharmonicon, Teysa Karlov, Isshin).
 - **Refused:** anything else, including "instead" effects it has no template for, conditions it
   can't read, X outside a cost, and cards whose rules the engine doesn't have (playing lands
   from a graveyard, an extra land each turn, copies). A fetched card it refuses can't be
   played: it is never played as a stand-in.
 - `npm run parse-report` prints the cards it scripts on its own and every refusal: for the
   pool (327 of 519 cards with rules text, 63%) and for a corpus of the 600 most-played
-  Commander cards (`tests/parser-corpus.generated.json`: 419 of 590, 71%), whose refusals it
+  Commander cards (`tests/parser-corpus.generated.json`: 420 of 590, 71%), whose refusals it
   groups by opening words and by shape, biggest first. A test plays about 190 pool cards with
   the parsed script and with the hand script and checks the table ends the same; others play
   each template on a made-up card and check a near miss is refused.
