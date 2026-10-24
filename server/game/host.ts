@@ -139,13 +139,24 @@ export class GameHost implements GameService {
     return next !== g;
   }
 
-  /** A player's stops or settings changed. The game keeps `manualDamage` on their player. */
+  /**
+   * A player's stops or settings changed. The game keeps `manualDamage` on their player.
+   * Passing to the end of the turn (F6) starts at once if they have priority now.
+   */
   setPrefs(seat: PlayerId, prefs: SeatPrefs) {
     this.prefs[seat] = { ...this.prefs[seat], ...prefs };
     const g = this.game;
     if (g && prefs.manualDamage !== undefined && g.players[seat] && !g.players[seat].isBot) {
       this.game = { ...g, players: g.players.map((p) => (p.id === seat ? { ...p, manualDamage: prefs.manualDamage } : p)) };
       this.changed();
+    }
+    const now = this.game;
+    if (now && prefs.passTurn === now.turn && now.priority === seat && !now.decision && !this.paused && now.step !== 'gameOver' && !now.players[seat].isBot) {
+      const next = applyAction(now, { type: 'pass' }, this.options());
+      if (next !== now) {
+        this.game = next;
+        this.changed();
+      }
     }
   }
 
@@ -170,7 +181,8 @@ export class GameHost implements GameService {
   private options(): ApplyOptions {
     // Only people are in full control: a bot standing in for one plays as bots do.
     const fullControl = Object.entries(this.prefs).flatMap(([seat, p]) => (p?.fullControl && !this.game?.players[+seat]?.isBot ? [+seat] : []));
-    return { stops: this.stops(), fullControl };
+    const passTurn = Object.fromEntries(Object.entries(this.prefs).flatMap(([seat, p]) => (typeof p?.passTurn === 'number' && !this.game?.players[+seat]?.isBot ? [[seat, p.passTurn]] : [])));
+    return { stops: this.stops(), fullControl, passTurn };
   }
 
   private message({ seat, sent }: Watcher): ViewMessage {

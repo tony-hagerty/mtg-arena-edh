@@ -131,6 +131,18 @@ describe('the game host', () => {
     expect([host.full!.step, host.full!.priority]).toEqual(['main2', 0]);
   });
 
+  it('passes a person to the end of the turn (F6) as it hears, and only through that turn', () => {
+    const host = new GameHost(() => () => {});
+    host.load(emptyGame((d) => void (d.players[0].isBot = false)));
+    const turn = host.full!.turn;
+    // Player 0 has priority in their main 1: turning it on passes for them at once.
+    host.setPrefs(0, { passTurn: turn });
+    expect(host.full!.turn).toBeGreaterThan(turn);
+    // An old turn's number does nothing.
+    host.setPrefs(0, { passTurn: turn });
+    expect(host.full!.turn).toBeGreaterThan(turn);
+  });
+
   it('starts each game with a new id, and says when there is none', () => {
     const { host } = setup();
     const got: ViewMessage[] = [];

@@ -2,7 +2,7 @@ import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import type { CardData } from '../src/engine';
-import { CardImage, TextCard, symbolClass } from '../src/ui/TextCard';
+import { CardImage, ManaCost, TextCard, isHybrid, symbolClass } from '../src/ui/TextCard';
 
 const elf: CardData = {
   name: 'Elvish Mystic',
@@ -45,5 +45,10 @@ describe('text-only card', () => {
 
   it('names mana-font symbols', () => {
     expect(['T', 'Q', '2', 'R/W', 'W/P', 'X'].map(symbolClass)).toEqual(['ms-tap', 'ms-untap', 'ms-2', 'ms-rw', 'ms-wp', 'ms-x']);
+  });
+
+  it('marks hybrid symbols, whose two halves the hand\'s corner cost places itself', () => {
+    expect(['R/W', '2/G', 'C/U', 'W/U/P', 'W/P', 'W', 'X'].map(isHybrid)).toEqual([true, true, true, true, false, false, false]);
+    expect(renderToStaticMarkup(createElement(ManaCost, { cost: '{1}{R/W}' }))).toMatch(/ms-rw ms-hybrid/);
   });
 });

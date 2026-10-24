@@ -94,9 +94,11 @@ src/ui/         App.tsx               menu or game screen; GameScreen.tsx lays t
                                       battlefield (seatArea: its rows' box and its piles),
                                       where each opponent holds their hand, and the well
                                       that is the shared exile, with the mats' maps (pure
-                                      maths, tested); layout3d.ts also fans a held hand
+                                      maths, tested) and where the exiled cards float in
+                                      it (wellSwirl); layout3d.ts also fans a held hand
                                       (heldFan); Garden.tsx draws the mats and the well's
-                                      water and whirlpool; Hall.tsx the stone walls and
+                                      water and whirlpool, and the exile swirling in it;
+                                      Hall.tsx the stone walls and
                                       the torches; effects.tsx the bursts a click on the
                                       board makes; floor.ts the flagstones; noise.ts the
                                       noise they share; textures.ts card faces (a

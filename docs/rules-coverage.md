@@ -1081,7 +1081,11 @@ These are deliberate cuts for a prototype. The biggest ones come first.
   auto-pass follows your stops (`wantsPriority` in `engine.ts`; the UI passes them in
   `applyAction(g, a, { stops })`). Full control (`applyAction(g, a, { fullControl })`)
   stops for that person every time they get priority, stack or not, and lets it pass
-  after a spell or ability only when they cast it without `hold`. Bots always use the
+  after a spell or ability only when they cast it without `hold`. Passing to the end of
+  the turn (F6, `applyAction(g, a, { passTurn })`, a player's id to the turn's number)
+  passes for that person every time they would get priority in that turn, whatever is on
+  the stack, full control or not; decisions (attackers, blockers, choices) are still
+  theirs, and the next turn their stops apply again. Bots always use the
   defaults, never hold and are never in full control. The
   engine itself follows the rules: `applyAction(g, a, { autoPass: false })` asks every
   player every time.
