@@ -5,10 +5,11 @@ import { describe, expect, it } from 'vitest';
 import { cardData, registerCards } from '../src/cards/db';
 import { needsScript, parseCard, scriptCards } from '../src/cards/oracle';
 import { parseResults } from '../src/cards/oracle-report';
-import { activatedAt, applyAction, applyBotAction, botAction, canPlayLand, castCost, hasScript, isCreature, isLand, legalTargets, makeCard, manaAbilities, permanent, scriptOf, spellTargets, stats } from '../src/engine';
+import { activatedAt, activationCost, applyAction, applyBotAction, botAction, canPlayLand, castCost, colorsOf, createToken, destroy, draw, draw as drawCards, enterBattlefield, gainLife, hasScript, isCreature, isLand, legalTargets, makeCard, manaAbilities, permanent, scriptOf, spellTargets, stats, tap } from '../src/engine';
 import type { Action, ActivatedAbility, Card, CardData, CardScript, Ctx, Game, TargetRef, TargetSpec } from '../src/engine';
 import { registerScripts } from '../src/engine/registry';
 import fixtureData from './fixtures.generated.json';
+import corpus from './parser-corpus.generated.json';
 import { byName, emptyGame, put, run } from './helpers';
 
 /** A made-up card with this text, for trying the parser on wording the pool doesn't have. */
@@ -537,7 +538,7 @@ describe('more effects and static lines from Oracle text', () => {
     });
     // Player 0's Angel ({4}{W}) costs {1} less for its own Medallion, not for the opponent's.
     expect(castCost(g, byName(g, 0, 'Angel of Mercy', 'hand')!)).toMatchObject({ generic: 3, pips: ['W'] });
-    expect(refusal('Artifact', 'White spells you cast cost {1} less to cast for each artifact you control.')).not.toBeNull();
+    expect(refusal('Artifact', 'White spells you cast cost {1} less to cast for each color of mana spent to cast it.')).not.toBeNull();
     const rollick = parse('Instant', 'If you control a commander, you may cast this spell without paying its mana cost.\nExile target creature.');
     expect(rollick.ok && rollick.script.alternativeCosts).toMatchObject([{ label: 'free: you control a commander', mana: '' }]);
     const maneuver = parse('Instant', 'Creatures you control gain indestructible until end of turn.');
@@ -1311,6 +1312,551 @@ describe('conditions as it resolves, "that land", "that player", granted mana (6
     expect(manaAbilities(g, byName(g, 0, 'Plains')!).map((m) => m.colors.length)).toEqual([1, 5]);
     expect(manaAbilities(g, byName(g, 1, 'Plains')!).flatMap((m) => m.colors)).toEqual(['W']);
     expect(refusal('Artifact', 'Lands you control have "{T}: Add one mana of any color. Activate only as a sorcery."')).not.toBeNull();
+  });
+});
+
+/** `settle`, and triggered abilities waiting to go on the stack too (603.3). */
+function settleAll(g: Game): Game {
+  for (let i = 0; i < 60 && (g.decision || g.stack.length || g.triggers.length); i++) g = g.decision ? applyBotAction(g, botAction(g, g.priority)) : applyAction(g, { type: 'pass' });
+  return g;
+}
+
+describe("the tokens group's wordings (EDHREC)", () => {
+  it('"if this is the first time this ability has resolved this turn", then "if it\'s the second time" (Omnath): as it resolves (608.2)', () => {
+    teach('Test Tally', 'Creature — Human', "Whenever you gain life, draw a card if this is the first time this ability has resolved this turn. If it's the second time, you lose 3 life.");
+    let g = emptyGame((d) => void put(d, 0, 'Test Tally'));
+    const hand = g.players[0].hand.length;
+    g = settleAll(produce(g, (d) => void gainLife(d, 0, 1)));
+    expect([g.players[0].hand.length, g.players[0].life]).toEqual([hand + 1, 41]);
+    g = settleAll(produce(g, (d) => void gainLife(d, 0, 1)));
+    expect([g.players[0].hand.length, g.players[0].life]).toEqual([hand + 1, 39]);
+    g = settleAll(produce(g, (d) => void gainLife(d, 0, 1)));
+    expect([g.players[0].hand.length, g.players[0].life]).toEqual([hand + 1, 40]);
+    // A spell has no "this ability"; "if it's the second time" needs the first.
+    expect(refusal('Instant', 'Draw a card if this is the first time this ability has resolved this turn.')).toMatchObject({ reason: 'a spell counting how many times "this ability" has resolved' });
+    expect(refusal('Creature — Human', "Whenever you gain life, if it's the second time, draw a card.")).not.toBeNull();
+    expect(parse('Creature — Human', 'Whenever you gain life, you gain 1 life. If this is the second time this ability has resolved this turn, draw a card.').ok).toBe(true);
+  });
+
+  it('"[This] deals damage to any target equal to the number of Elves you control" (Rin and Seri)', () => {
+    teach('Test Pack Leader', 'Creature — Elf', '{T}: This creature deals damage to any target equal to the number of Elves you control.');
+    let g = emptyGame((d) => {
+      put(d, 0, 'Test Pack Leader');
+      put(d, 0, 'Llanowar Elves');
+      put(d, 1, 'Llanowar Elves');
+    });
+    g = settleAll(run(g, { type: 'activate', card: byName(g, 0, 'Test Pack Leader')!.id, targets: [p(1)] }));
+    expect(g.players[1].life).toBe(38);
+    expect(refusal('Creature — Elf', '{T}: This creature deals damage to any target equal to twice the number of Elves you control.')).not.toBeNull();
+  });
+
+  it('"Put target creature card from a graveyard onto the battlefield under its owner\'s control" (Kenrith, 110.2a)', () => {
+    teach('Test Recall', 'Sorcery', "Put target creature card from a graveyard onto the battlefield under its owner's control.");
+    let g = emptyGame((d) => {
+      put(d, 0, 'Test Recall', 'hand');
+      put(d, 0, 'Plains');
+      put(d, 1, 'Serra Angel', 'graveyard');
+    });
+    g = settleAll(run(g, { type: 'cast', card: byName(g, 0, 'Test Recall', 'hand')!.id, targets: [cardRef(byName(g, 1, 'Serra Angel', 'graveyard')!.id)] }));
+    expect(byName(g, 1, 'Serra Angel')).toBeDefined();
+    expect(refusal('Sorcery', "Put target creature card from a graveyard onto the battlefield under target player's control.")).not.toBeNull();
+  });
+
+  it('"Whenever this or another nontoken Shrine you control enters" (Go-Shintai): itself, and others', () => {
+    teach('Test Shrine Keeper', 'Enchantment Creature — Shrine', 'Whenever this creature or another nontoken Shrine you control enters, you gain 1 life.');
+    const enterOne = (g: Game, pid: number) =>
+      settleAll(
+        produce(g, (d) => {
+          d.players[pid].hand.push(makeCard(d, 'Test Shrine Keeper', pid, 'hand'));
+          enterBattlefield(d, d.players[pid].hand[d.players[pid].hand.length - 1]);
+        }),
+      );
+    let g = enterOne(emptyGame(), 0);
+    expect(g.players[0].life).toBe(41);
+    // The second sees itself enter, the first sees another: two triggers.
+    g = enterOne(g, 0);
+    expect(g.players[0].life).toBe(43);
+    // Not another player's.
+    g = enterOne(g, 1);
+    expect(g.players[0].life).toBe(43);
+    expect(refusal('Enchantment Creature — Shrine', 'Whenever this creature or a Shrine you control enters, you gain 1 life.')).not.toBeNull();
+  });
+
+  it('"Whenever one or more tokens you control enter" (Marneus Calgar): once for each event (603.2c)', () => {
+    teach('Test Tactician Muster', 'Creature — Human', 'Whenever one or more tokens you control enter, you gain 1 life.');
+    expect(parse('Creature — Human', 'Whenever one or more other creatures you control enter, you gain 1 life.').ok).toBe(true);
+    let g = emptyGame((d) => void put(d, 0, 'Test Tactician Muster'));
+    g = settleAll(produce(g, (d) => void createToken(d, 0, 'Soldier', 3)));
+    expect(g.players[0].life).toBe(41);
+    g = settleAll(produce(g, (d) => void createToken(d, 1, 'Soldier', 3)));
+    expect(g.players[0].life).toBe(41);
+    expect(refusal('Creature — Human', 'Whenever one or more tokens you control leave the battlefield, you gain 1 life.')).not.toBeNull();
+  });
+
+  it('"Whenever a Dwarf you control becomes tapped" (Magda)', () => {
+    teach('Test Forge Hand', 'Creature — Dwarf', 'Whenever a Dwarf you control becomes tapped, you gain 1 life.');
+    let g = emptyGame((d) => {
+      put(d, 0, 'Test Forge Hand');
+      put(d, 0, 'Llanowar Elves');
+    });
+    g = settleAll(produce(g, (d) => void tap(d, byName(d, 0, 'Test Forge Hand')!)));
+    g = settleAll(produce(g, (d) => void tap(d, byName(d, 0, 'Llanowar Elves')!)));
+    expect(g.players[0].life).toBe(41);
+    expect(refusal('Creature — Dwarf', 'Whenever a Dwarf you control becomes untapped, you gain 1 life.')).not.toBeNull();
+  });
+
+  it('"Sacrifice five Treasures:", and a search for "an artifact or Dragon card" (Magda, 701.23)', () => {
+    teach('Test Hoard', 'Artifact', 'Sacrifice five Treasures: Search your library for an artifact or Dragon card, put that card onto the battlefield, then shuffle.');
+    const ab = scriptOf('Test Hoard').activated as ActivatedAbility;
+    expect(ab.cost).toMatchObject({ sacrificeCount: 5, sacrificeOne: { label: 'five treasures' } });
+    expect(refusal('Artifact', 'Sacrifice five Treasures: Search your library for an artifact or Dragonling card, put that card onto the battlefield, then shuffle.')).not.toBeNull();
+  });
+
+  it('a token with an enchantment type: "a 1/1 colorless Shrine enchantment creature token" (205.3d)', () => {
+    expect(parse('Sorcery', 'Create a 1/1 colorless Shrine enchantment creature token.').ok).toBe(true);
+    expect(cardData('Shrine 1/1 C enchantment')).toMatchObject({ typeLine: 'Token Enchantment Creature — Shrine' });
+    // Shrine is an enchantment type: a token that isn't an enchantment can't be one.
+    expect(refusal('Sorcery', 'Create a 1/1 colorless Shrine creature token.')).toMatchObject({ reason: '"shrine" isn\'t a creature type' });
+  });
+
+  it('a flavor word (207.2d) is a label when the card lists it; a keyword written the same way (boast) isn\'t', () => {
+    const tactician = (keywords: string[], text = 'Master Tactician — Whenever you gain life, draw a card.') => parseCard(fake('Test Tactician', 'Creature — Human', text, { keywords }));
+    expect(tactician(['Master Tactician']).ok).toBe(true);
+    expect(tactician([]).ok).toBe(false);
+    expect(tactician(['Boast'], 'Boast — {1}: Draw a card.').ok).toBe(false);
+  });
+});
+
+describe('mana group templates: exalted, riot, colours among permanents, triggered mana, Leylines', () => {
+  it('exalted and riot are keyword lines the engine applies, and riot can be given (702.83, 702.136)', () => {
+    expect(parse('Creature — Elf', 'Exalted\n{T}: Add {G}.').ok).toBe(true);
+    teach('Test Riot Lord', 'Enchantment', 'Nontoken creatures you control have riot.');
+    let g = emptyGame((d) => {
+      put(d, 0, 'Test Riot Lord');
+      put(d, 0, 'Llanowar Elves', 'hand');
+      put(d, 0, 'Forest');
+      d.step = 'main2';
+    });
+    g = run(g, { type: 'cast', card: byName(g, 0, 'Llanowar Elves', 'hand')!.id });
+    for (let i = 0; i < 20 && (g.stack.length || g.decision); i++) g = g.decision ? applyBotAction(g, botAction(g, g.priority)) : applyAction(g, { type: 'pass' });
+    expect(byName(g, 0, 'Llanowar Elves')!.counters['+1/+1']).toBe(1);
+    // Near miss: a keyword the engine doesn't give this way.
+    expect(refusal('Enchantment', 'Nontoken creatures you control have riot and cascade.')).not.toBe(null);
+  });
+
+  it('"for each color among permanents you control": +1/+1 each, and one mana of each (105.2)', () => {
+    teach('Test Prism Elder', 'Creature — Treefolk', 'This creature gets +1/+1 for each color among permanents you control.\n{T}: For each color among permanents you control, add one mana of that color.', { colors: ['G', 'W'], power: '0', toughness: '0' });
+    let g = emptyGame((d) => {
+      put(d, 0, 'Test Prism Elder');
+      put(d, 0, 'Lightning Bolt', 'hand');
+      put(d, 0, 'Shivan Dragon');
+    });
+    const elder = byName(g, 0, 'Test Prism Elder')!;
+    expect(stats(g, elder).power).toBe(3);
+    g = run(g, { type: 'tapMana', card: elder.id });
+    expect(g.players[0].pool.map((m) => m.sym).sort().join('')).toBe('GRW');
+    expect(refusal('Creature — Treefolk', '{T}: For each color among permanents you control, add two mana of that color.')).not.toBe(null);
+  });
+
+  it('triggered mana abilities on tapping for mana (605.1b, 106.12): "you tap a Swamp", "enchanted land is tapped"', () => {
+    teach('Test Swamp Ghast', 'Creature — Spirit', 'Whenever you tap a Swamp for mana, add an additional {B}.');
+    teach('Test Wild Growth', 'Enchantment — Aura', 'Enchant land\nWhenever enchanted land is tapped for mana, its controller adds an additional {G}.');
+    let g = emptyGame((d) => {
+      put(d, 0, 'Test Swamp Ghast');
+      put(d, 0, 'Swamp');
+      put(d, 0, 'Plains');
+      const forest = put(d, 0, 'Forest');
+      put(d, 0, 'Test Wild Growth').attachedTo = forest.id;
+      put(d, 1, 'Swamp');
+    });
+    g = run(g, { type: 'tapMana', card: byName(g, 0, 'Swamp')!.id }, { type: 'tapMana', card: byName(g, 0, 'Plains')!.id }, { type: 'tapMana', card: byName(g, 0, 'Forest')!.id });
+    expect(g.players[0].pool.map((m) => m.sym).sort().join('')).toBe('BBGGW');
+    // Near miss: not a mana ability, and no template.
+    expect(refusal('Creature — Spirit', 'Whenever you tap a Swamp for mana, draw a card.')).not.toBe(null);
+  });
+
+  it('mana costs that tap other permanents: "an untapped artifact", "two untapped tokens"', () => {
+    const p = parse('Creature — Human', 'Tap an untapped artifact you control: Add {U}.');
+    expect(p.ok && p.script.mana).toMatchObject({ noTap: true, tapCreature: { type: 'Artifact' } });
+    const q = parse('Creature — Rabbit', 'Tap two untapped tokens you control: Add one mana of any color.');
+    expect(q.ok && q.script.mana).toMatchObject({ noTap: true, tapCreature: { type: '', token: true, count: 2 } });
+    // Without {T} in its cost, the source isn't tapped (Relic of Legends's wording).
+    const r = parse('Artifact', 'Tap an untapped legendary creature you control: Add one mana of any color.');
+    expect(r.ok && r.script.mana).toMatchObject({ noTap: true, tapCreature: { legendary: true } });
+    expect(refusal('Creature — Rabbit', 'Tap two untapped token you control: Add {G}.')).not.toBe(null);
+  });
+
+  it('a Leyline: from the opening hand (103.6a), all colours (layer 5), every basic land type (305.7)', () => {
+    teach('Test Leyline', 'Enchantment', 'If this card is in your opening hand, you may begin the game with it on the battlefield.\nEach nonland permanent you control is all colors.\nLands you control are every basic land type in addition to their other types.');
+    const g = emptyGame((d) => {
+      put(d, 0, 'Test Leyline');
+      put(d, 0, 'Llanowar Elves');
+      put(d, 0, 'Plains');
+    });
+    expect(scriptOf('Test Leyline').openingHand).toBeTypeOf('function');
+    expect(colorsOf(g, byName(g, 0, 'Llanowar Elves')!)).toHaveLength(5);
+    expect(manaAbilities(g, byName(g, 0, 'Plains')!)[0].colors).toHaveLength(5);
+    expect(refusal('Enchantment', 'Each nonland permanent you control is red.')).not.toBe(null);
+    expect(refusal('Enchantment', 'Lands you control are every basic land type.')).not.toBe(null);
+  });
+});
+
+describe('library templates (Nekusar, Xyris, Ureni, Atla Palani, Damn)', () => {
+  /** Plays on, bots answering everything, until nothing is waiting. */
+  const settle = (g: Game) => {
+    for (let i = 0; i < 200 && (g.decision || g.stack.length || g.triggers.length); i++) g = g.decision ? applyBotAction(g, botAction(g, g.priority)) : applyAction(g, { type: 'pass' });
+    return g;
+  };
+  const deck = (g: Game, pid: number, names: string[]) => (g.players[pid].library = names.map((n) => makeCard(g, n, pid, 'library')));
+
+  it('"At the beginning of each player\'s draw step, that player draws an additional card" (504.2)', () => {
+    teach('Test Mine', 'Artifact', "At the beginning of each player's draw step, that player draws an additional card.");
+    let g = emptyGame((d) => {
+      put(d, 0, 'Test Mine');
+      d.active = 1;
+      d.priority = 1;
+      d.step = 'upkeep';
+    });
+    for (let i = 0; i < 100 && !(g.step === 'main1' && !g.stack.length && !g.triggers.length && !g.decision); i++) g = g.decision ? applyBotAction(g, botAction(g, g.priority)) : applyAction(g, { type: 'pass' });
+    expect(g.players[1].hand).toHaveLength(2);
+    // Near misses: a draw step that isn't each player's, and a card that isn't "additional".
+    expect(refusal('Artifact', "At the beginning of each player's draw step, that player draws an extra card.")).not.toBeNull();
+    expect(refusal('Artifact', "At the beginning of each opponent's draw step, that player draws an additional card.")).not.toBeNull();
+  });
+
+  it('"Whenever an opponent draws a card except the first one they draw in each of their draw steps" (504.1)', () => {
+    teach('Test Watcher', 'Creature — Human', 'Whenever an opponent draws a card except the first one they draw in each of their draw steps, you gain 1 life.');
+    let g = emptyGame((d) => {
+      put(d, 0, 'Test Watcher');
+      d.active = 1;
+      d.priority = 1;
+      d.step = 'upkeep';
+    });
+    for (let i = 0; i < 100 && !(g.step === 'main1' && !g.stack.length && !g.triggers.length && !g.decision); i++) g = g.decision ? applyBotAction(g, botAction(g, g.priority)) : applyAction(g, { type: 'pass' });
+    expect(g.players[0].life).toBe(40);
+    g = settle(produce(g, (d) => draw(d, 1, 2)));
+    expect(g.players[0].life).toBe(42);
+    expect(refusal('Creature — Human', 'Whenever an opponent draws a card except the first one they draw each turn, you gain 1 life.')).not.toBeNull();
+  });
+
+  it('"You and that player each draw that many cards", "you and target opponent each draw a card" (121.2c)', () => {
+    teach('Test Storm', 'Creature — Snake', 'Whenever this creature deals combat damage to a player, you and that player each draw that many cards.', { power: '3' });
+    teach('Test Loran', 'Artifact', '{T}: You and target opponent each draw a card.');
+    let g = emptyGame((d) => {
+      put(d, 0, 'Test Storm');
+    });
+    g = run(g, { type: 'pass' }, { type: 'declareAttack', card: byName(g, 0, 'Test Storm')!.id, defender: 1 }, { type: 'pass' });
+    g = settle(g);
+    expect([g.players[0].hand.length, g.players[1].hand.length, g.players[2].hand.length]).toEqual([3, 3, 0]);
+    g = emptyGame((d) => void put(d, 0, 'Test Loran'));
+    g = settle(run(g, { type: 'activate', card: byName(g, 0, 'Test Loran')!.id, targets: [{ kind: 'player', id: 2 }] }));
+    expect([g.players[0].hand.length, g.players[1].hand.length, g.players[2].hand.length]).toEqual([1, 0, 1]);
+    // "That player" needs a player from the trigger; "and" another effect isn't one clause.
+    expect(refusal('Artifact', '{T}: You and that player each draw a card.')).toMatchObject({ reason: '"that player" without a player to refer to' });
+    expect(refusal('Creature — Snake', 'Whenever this creature deals combat damage to a player, you and that player each draw that many cards and lose that much life.')).not.toBeNull();
+  });
+
+  it('"That player mills that many cards" and "deals 1 damage to that player": the trigger\'s player and amount', () => {
+    teach('Test Horror', 'Creature — Horror', 'Whenever this creature deals combat damage to a player, that player mills that many cards.', { power: '2' });
+    teach('Test Razer', 'Creature — Zombie', 'Whenever an opponent draws a card, this creature deals 1 damage to that player.');
+    let g = emptyGame((d) => void put(d, 0, 'Test Horror'));
+    const lib = g.players[1].library.length;
+    g = settle(run(g, { type: 'pass' }, { type: 'declareAttack', card: byName(g, 0, 'Test Horror')!.id, defender: 1 }, { type: 'pass' }));
+    expect(g.players[1].library).toHaveLength(lib - 2);
+    expect(g.players[1].graveyard).toHaveLength(2);
+    g = emptyGame((d) => void put(d, 0, 'Test Razer'));
+    g = settle(produce(g, (d) => draw(d, 2, 2)));
+    expect(g.players[2].life).toBe(38);
+    // Without a player or an amount from the event, "that player" and "that many" mean nothing.
+    expect(refusal('Instant', 'Target player mills that many cards.')).not.toBeNull();
+    expect(refusal('Instant', 'Draw a card. Test Card deals 1 damage to that player.')).not.toBeNull();
+  });
+
+  it('"Look at the top N cards of your library. You may put a [quality] card from among them onto the battlefield. Put the rest ..."', () => {
+    teach('Test Ureni', 'Creature — Dragon', 'When this creature enters, look at the top three cards of your library. You may put a Dragon creature card from among them onto the battlefield. Put the rest on the bottom of your library in a random order.');
+    let g = emptyGame((d) => {
+      put(d, 0, 'Test Ureni', 'hand');
+      deck(d, 0, ['Plains', 'Shivan Dragon', 'Serra Angel', 'Island']);
+    });
+    g = settle(produce(g, (d) => enterBattlefield(d, byName(d, 0, 'Test Ureni', 'hand')!)));
+    expect(byName(g, 0, 'Shivan Dragon')).toBeDefined();
+    expect(g.players[0].library[0].name).toBe('Island');
+    // "Into your hand" is another template; "any number" isn't this one.
+    expect(refusal('Creature — Dragon', 'When this creature enters, look at the top three cards of your library. You may put any number of Dragon creature cards from among them onto the battlefield. Put the rest on the bottom of your library in a random order.')).not.toBeNull();
+  });
+
+  it('"Reveal cards from the top of your library until you reveal a creature card. Put that card onto the battlefield and the rest ..." (701.20a)', () => {
+    teach('Test Nest', 'Creature — Human', 'Whenever an Egg you control dies, reveal cards from the top of your library until you reveal a creature card. Put that card onto the battlefield and the rest on the bottom of your library in a random order.');
+    teach('Test Egg', 'Creature — Egg', 'Defender', { power: '0' });
+    teach('Test Seek', 'Sorcery', 'Reveal cards from the top of your library until you reveal an artifact card. Put that card into your hand and the rest on the bottom of your library in a random order.');
+    let g = emptyGame((d) => {
+      put(d, 0, 'Test Nest');
+      put(d, 0, 'Test Egg');
+      put(d, 0, 'Elite Vanguard');
+      deck(d, 0, ['Plains', 'Serra Angel', 'Sol Ring', 'Island']);
+    });
+    // Not an Egg: nothing.
+    g = settle(produce(g, (d) => destroy(d, byName(d, 0, 'Elite Vanguard'))));
+    expect(g.players[0].library).toHaveLength(4);
+    g = settle(produce(g, (d) => destroy(d, byName(d, 0, 'Test Egg'))));
+    expect(byName(g, 0, 'Serra Angel')).toBeDefined();
+    expect(g.players[0].library.map((c) => c.name)).toEqual(['Sol Ring', 'Island', 'Plains']);
+    g = produce(g, (d) => {
+      put(d, 0, 'Test Seek', 'hand');
+      put(d, 0, 'Plains', 'battlefield', 2);
+    });
+    g = settle(run(g, { type: 'cast', card: byName(g, 0, 'Test Seek', 'hand')!.id }));
+    expect(byName(g, 0, 'Sol Ring', 'hand')).toBeDefined();
+    // The order the rest go in is part of the template.
+    expect(refusal('Sorcery', 'Reveal cards from the top of your library until you reveal a creature card. Put that card onto the battlefield and the rest on the bottom of your library in any order.')).not.toBeNull();
+    // A word that isn't a creature type doesn't make a "dies" event.
+    expect(refusal('Creature — Human', 'Whenever a Gizmo you control dies, draw a card.')).not.toBeNull();
+  });
+
+  it('"A creature destroyed this way can\'t be regenerated" (701.19c), with overload (702.96b)', () => {
+    expect(refusal('Sorcery', "Destroy target creature. A creature destroyed this way can't be regenerated.\nOverload {2}{W}{W}")).toBeNull();
+    // Only after a destroy.
+    expect(refusal('Sorcery', "Exile target creature. A creature destroyed this way can't be regenerated.")).not.toBeNull();
+  });
+
+  it("reads a legendary card's shortened name (201.5c): \"Ureni\" for \"Ureni of the Unwritten\"", () => {
+    const p = parseCard(fake('Test of the Shortened', 'Legendary Creature — Human', 'When Test enters, draw a card.'));
+    expect(p.ok).toBe(true);
+    // Not for a card that isn't legendary.
+    expect(parseCard(fake('Gift of the Shortened', 'Creature — Human', 'When Gift enters, draw a card.')).ok).toBe(false);
+  });
+});
+
+describe('ward-ring templates: ward costs, amass, the Ring, partner with, types given with an ability', () => {
+  /** Registers a made-up card and the parser's script for it, for a game test. */
+  const useFake = (name: string, typeLine: string, text: string, extra: Partial<CardData> = {}) => {
+    const d = fake(name, typeLine, text, extra);
+    registerCards({ [name]: d });
+    const p = parseCard(d);
+    if (!p.ok) throw new Error(`${p.clause}: ${p.reason}`);
+    registerScripts({ [name]: p.script });
+    return p.script;
+  };
+  const settleAll = (g: Game) => {
+    for (let i = 0; i < 100 && (g.decision || g.stack.length || g.triggers.length); i++) g = g.decision ? applyBotAction(g, botAction(g, g.priority)) : applyAction(g, { type: 'pass' });
+    return g;
+  };
+
+  it('ward—sacrifice [object]: the object is read, and one with "you control" or no object is refused', () => {
+    expect(parse('Creature — Test', 'Ward—Sacrifice an artifact.')).toMatchObject({ ok: true, script: { ward: { sacrifice: { type: 'permanent', label: 'an artifact' } } } });
+    expect(parse('Creature — Test', 'Flying, ward {4}')).toMatchObject({ ok: true, script: { ward: { mana: '{4}' } } });
+    expect(refusal('Creature — Test', 'Ward—Sacrifice a creature you control.')).not.toBeNull();
+    expect(refusal('Creature — Test', 'Ward—Sacrifice two creatures.')).not.toBeNull();
+    expect(refusal('Creature — Test', 'Flying, ward—Pay 2 life.')).not.toBeNull();
+  });
+
+  it('"[group] are [types] in addition to their other types and have "[ability]"": layer 4 types and a layer 6 ability; near misses refused', () => {
+    useFake('Test Gilder', 'Creature — Human', 'Lands you control are Clue artifacts in addition to their other types and have "{1}, {T}: Draw a card."');
+    let g = emptyGame((d) => {
+      put(d, 0, 'Test Gilder');
+      put(d, 0, 'Plains', 'battlefield', 2);
+      put(d, 1, 'Plains');
+    });
+    const land = byName(g, 0, 'Plains')!;
+    expect(isLand(g, land)).toBe(true);
+    expect(activatedAt(g, land)?.text).toBe('{1}, {T}: Draw a card.');
+    expect(activatedAt(g, byName(g, 1, 'Plains')!)).toBeUndefined();
+    const hand = g.players[0].hand.length;
+    g = settleAll(run(g, { type: 'activate', card: land.id }));
+    expect(g.players[0].hand.length).toBe(hand + 1);
+    expect(parse('Creature — Human', 'Other creatures are Zombies in addition to their other types.').ok).toBe(true);
+    // Not read as "are [types] ... and have": Leyline of the Guildpact's line is a template of its own (305.7).
+    expect(parse('Creature — Human', 'Lands you control are every basic land type in addition to their other types.')).toMatchObject({ ok: true, script: { static: expect.any(Function) } });
+    expect(refusal('Creature — Human', 'Creatures you control are Frobs in addition to their other types.')).not.toBeNull();
+    expect(refusal('Creature — Human', 'Artifacts you control are Foods in addition to their other types and have "Whenever this artifact becomes tapped, draw a card."')).not.toBeNull();
+  });
+
+  it('"Activated abilities of [objects] you control cost {N} less to activate" (602.2b); a floor or "each player\'s" is refused', () => {
+    useFake('Test Discount', 'Creature — Human', 'Activated abilities of artifacts you control cost {1} less to activate.');
+    const g = emptyGame((d) => {
+      put(d, 0, 'Test Discount');
+      put(d, 0, 'Food');
+      put(d, 1, 'Food');
+    });
+    // A Food's {2} costs its controller {1}; an opponent's Food is untouched.
+    const mine = byName(g, 0, 'Food')!;
+    const theirs = byName(g, 1, 'Food')!;
+    expect(activationCost(g, 0, mine, activatedAt(g, mine)!).generic).toBe(1);
+    expect(activationCost(g, 1, theirs, activatedAt(g, theirs)!).generic).toBe(2);
+    expect(refusal('Creature — Human', 'Activated abilities of creatures you control cost {2} less to activate. This effect can\'t reduce the mana in that cost to less than one mana.')).not.toBeNull();
+    expect(refusal('Creature — Human', 'Activated abilities of artifacts cost {1} more to activate.')).not.toBeNull();
+  });
+
+  it('partner with [name] (702.124j): an "enters" ability whose target player may search for the named card', () => {
+    const s = useFake('Test Partner A', 'Legendary Creature — Human', 'Partner with Test Partner B');
+    expect(s.targets).toEqual([{ type: 'player', label: 'target player' }]);
+    expect(s.onEnter).toBeDefined();
+    expect(refusal('Creature — Human', 'Partner with Test Partner B')).not.toBeNull();
+  });
+
+  it('protection from colours on the card itself (702.16g), and given ("has protection from black and from green")', () => {
+    useFake('Test Warded Monk', 'Creature — Monk', 'Protection from red and from blue');
+    const g = emptyGame((d) => void put(d, 0, 'Test Warded Monk'));
+    const monk = byName(g, 0, 'Test Warded Monk')!;
+    expect([...stats(g, monk).keywords].filter((k) => k.startsWith('protection'))).toEqual(['protection from red', 'protection from blue']);
+    expect(parse('Artifact — Equipment', 'Equipped creature gets +2/+2 and has protection from black and from green.\nEquip {2}').ok).toBe(true);
+    expect(refusal('Creature — Monk', 'Protection from red and from Goblins')).not.toBeNull();
+    expect(refusal('Creature — Monk', 'Protection from black and green')).not.toBeNull();
+  });
+
+  it('amass, the Ring tempts you, and "whenever the Ring tempts you"; their near misses', () => {
+    useFake('Test Orcish', 'Creature — Orc', 'When this creature enters, amass Orcs 2. Then the Ring tempts you.\nWhenever the Ring tempts you, you gain 1 life.');
+    let g = emptyGame((d) => {
+      put(d, 0, 'Test Orcish', 'hand');
+    });
+    g = settleAll(produce(g, (d) => void enterBattlefieldOf(d, 'Test Orcish')));
+    const army = byName(g, 0, 'Orc Army')!;
+    expect(army.counters['+1/+1']).toBe(2);
+    expect(g.players[0].ring?.tempted).toBe(1);
+    expect(g.players[0].life).toBe(41);
+    expect(refusal('Creature — Orc', 'When this creature enters, amass Frobs 2.')).not.toBeNull();
+    expect(refusal('Creature — Orc', 'When this creature enters, the Ring tempts target opponent.')).not.toBeNull();
+    expect(refusal('Creature — Orc', 'Whenever the Ring tempts an opponent, draw a card.')).not.toBeNull();
+  });
+
+  it('first life lost each turn, "is put into a graveyard from the battlefield", gained life this turn, a copy that isn\'t legendary', () => {
+    expect(parse('Creature — Demon', 'Whenever an opponent loses life for the first time during each of their turns, draw a card.').ok).toBe(true);
+    expect(refusal('Creature — Demon', 'Whenever an opponent loses life for the first time each turn, draw a card.')).not.toBeNull();
+    expect(parse('Creature — Human', 'Whenever another creature or artifact you control is put into a graveyard from the battlefield, each opponent loses 1 life.').ok).toBe(true);
+    expect(refusal('Creature — Human', 'Whenever a creature card is put into a graveyard from anywhere, draw a card.')).not.toBeNull();
+    expect(parse('Creature — Human', 'At the beginning of your end step, if you gained 4 or more life this turn, draw a card.').ok).toBe(true);
+    expect(refusal('Creature — Human', 'At the beginning of your end step, if you gained life last turn, draw a card.')).not.toBeNull();
+    expect(parse('Creature — Dragon', 'Whenever another nontoken Dragon you control enters, create a token that\'s a copy of it, except the token isn\'t legendary.').ok).toBe(true);
+    expect(refusal('Creature — Dragon', 'Whenever another nontoken Dragon you control enters, create a token that\'s a copy of it, except it\'s a 1/1.')).not.toBeNull();
+    expect(parse('Creature — Elf', 'Creature spells you cast cost {1} less to cast for each +1/+1 counter on this creature.').ok).toBe(true);
+    expect(refusal('Creature — Elf', 'Creature spells you cast cost {1} less to cast for each +1/+1 counter on creatures you control.')).not.toBeNull();
+    expect(parse('Creature — Elf', 'Whenever you gain life, you may discard your hand. If you do, draw two cards.').ok).toBe(true);
+    expect(refusal('Creature — Elf', 'Whenever you gain life, you may discard a card. If you do, draw two cards.')).not.toBeNull();
+  });
+
+  it('corpus staples these read: Orcish Bowmasters (an opponent drawing, but not the first card of their draw step) and Sword of Feast and Famine', () => {
+    const corpusCard = (n: string) => ({ ...(corpus.cards as unknown as CardData[]).find((c) => c.name === n)!, image: '', art: '' });
+    for (const n of ['Orcish Bowmasters', 'Sword of Feast and Famine']) {
+      const d = corpusCard(n);
+      registerCards({ [n]: d });
+      const p = parseCard(d);
+      expect(p.ok, n).toBe(true);
+      if (p.ok) registerScripts({ [n]: p.script });
+    }
+    let g = emptyGame((d) => {
+      put(d, 0, 'Orcish Bowmasters');
+      d.players[1].library = [makeCard(d, 'Island', 1, 'library'), makeCard(d, 'Island', 1, 'library'), makeCard(d, 'Island', 1, 'library')];
+      d.active = 1;
+      d.priority = 1;
+    });
+    // An opponent's card drawn outside their draw step: 1 damage to any target, then amass Orcs 1.
+    g = settleAll(produce(g, (d) => void drawCards(d, 1, 1)));
+    expect(byName(g, 0, 'Orc Army')?.counters['+1/+1']).toBe(1);
+    // The first card of their draw step doesn't trigger it; a second one that step does.
+    g = produce(g, (d) => {
+      d.step = 'draw';
+      d.players[1].drawnBeforeDrawStep = d.players[1].drawn;
+    });
+    g = settleAll(produce(g, (d) => void drawCards(d, 1, 1)));
+    expect(byName(g, 0, 'Orc Army')?.counters['+1/+1']).toBe(1);
+    g = settleAll(produce(g, (d) => void drawCards(d, 1, 1)));
+    expect(byName(g, 0, 'Orc Army')?.counters['+1/+1']).toBe(2);
+    // The Sword: protection from black and from green.
+    const s = emptyGame((d) => {
+      put(d, 0, 'Elite Vanguard');
+      put(d, 0, 'Sword of Feast and Famine').attachedTo = d.players[0].battlefield[0].id;
+    });
+    const kw = stats(s, byName(s, 0, 'Elite Vanguard')!).keywords;
+    expect([kw.has('protection from black'), kw.has('protection from green'), kw.has('protection from red')]).toEqual([true, true, false]);
+  });
+
+  it('a flavor word (207.2d) is a label on the line, if the card lists it', () => {
+    expect(parseCard(fake('Test Flavor', 'Creature — Human', 'Big Hit — When this creature enters, draw a card.', { keywords: ['Big Hit'] })).ok).toBe(true);
+    expect(parseCard(fake('Test Flavor', 'Creature — Human', 'Big Hit — When this creature enters, draw a card.')).ok).toBe(false);
+    // Boast is a keyword written the same way (702.142a): taking it off would drop "activate only if this creature attacked this turn".
+    expect(parseCard(fake('Test Boast', 'Creature — Human', 'Boast — {1}: Draw a card.', { keywords: ['Boast'] })).ok).toBe(false);
+  });
+});
+
+/** Puts player 0's card of that name from their hand onto the battlefield. */
+function enterBattlefieldOf(d: Game, name: string) {
+  enterBattlefield(d, byName(d, 0, name, 'hand')!);
+}
+describe('proliferate, Ward—Blight and moving a counter from Oracle text', () => {
+  it('reads "proliferate" (701.34a) as a choice made as it resolves, in printed order', () => {
+    teach('Test Proliferator', 'Artifact', '{T}: Proliferate. Draw a card.');
+    let g = emptyGame((d) => {
+      d.players[0].isBot = false;
+      put(d, 0, 'Test Proliferator');
+      put(d, 0, 'Llanowar Elves').counters = { '+1/+1': 1 };
+      d.players[1].counters = { poison: 1 };
+      d.players[0].library = [makeCard(d, 'Plains', 0, 'library')];
+    });
+    g = run(g, { type: 'activate', card: byName(g, 0, 'Test Proliferator')!.id });
+    for (let i = 0; i < 10 && g.decision?.type !== 'chooseCards'; i++) g = applyAction(g, { type: 'pass' });
+    // The draw waits for the choice: it comes after the proliferate (608.2c).
+    expect(g.players[0].hand.length).toBe(0);
+    const choice = (g.decision as { choice: { players?: number[] } }).choice;
+    expect(choice.players).toEqual([1]);
+    g = run(g, { type: 'chooseCards', cards: [byName(g, 0, 'Llanowar Elves')!.id], players: [1] });
+    expect(byName(g, 0, 'Llanowar Elves')!.counters['+1/+1']).toBe(2);
+    expect(g.players[1].counters?.poison).toBe(2);
+    expect(g.players[0].hand.length).toBe(1);
+    // A bot answers it as a proliferate choice.
+    let h = emptyGame((d) => {
+      put(d, 0, 'Test Proliferator');
+      put(d, 0, 'Llanowar Elves').counters = { '+1/+1': 1 };
+      put(d, 1, 'Elvish Mystic').counters = { '+1/+1': 1 };
+      d.players[0].library = [makeCard(d, 'Plains', 0, 'library')];
+    });
+    h = settle(run(h, { type: 'activate', card: byName(h, 0, 'Test Proliferator')!.id }));
+    expect(byName(h, 0, 'Llanowar Elves')!.counters['+1/+1']).toBe(2);
+    expect(byName(h, 1, 'Elvish Mystic')!.counters['+1/+1']).toBe(1);
+    // Near misses aren't read as proliferate.
+    expect(refusal('Instant', 'Proliferate twice.')).not.toBeNull();
+    expect(refusal('Instant', 'Target player proliferates.')).not.toBeNull();
+  });
+
+  it('reads "Ward—Blight N." (702.21a, 701.68a), not other ward costs it does not know', () => {
+    expect(parse('Creature — Goblin', 'Ward—Blight 2. (To blight 2, a player puts two -1/-1 counters on a creature they control.)')).toMatchObject({ ok: true, script: { ward: { blight: 2 } } });
+    expect(refusal('Creature — Goblin', 'Ward—Blight X.')).not.toBeNull();
+    teach('Test Blight Warden', 'Creature — Goblin', 'Ward—Blight 1.');
+    let g = emptyGame((d) => {
+      put(d, 0, 'Test Blight Warden');
+      put(d, 1, 'Lightning Bolt', 'hand');
+      put(d, 1, 'Mountain');
+      put(d, 1, 'Serra Angel');
+      d.priority = 1;
+    });
+    g = run(g, { type: 'cast', card: byName(g, 1, 'Lightning Bolt', 'hand')!.id, targets: [cardRef(byName(g, 0, 'Test Blight Warden')!.id)] });
+    g = settle(g);
+    // The bot pays with its 4/4: it loses little.
+    expect(byName(g, 1, 'Serra Angel')!.counters['-1/-1']).toBe(1);
+    expect(byName(g, 0, 'Test Blight Warden')).toBeUndefined();
+  });
+
+  it('reads "move a counter from target ... onto a second target ..." (122.5)', () => {
+    teach('Test Nesting', 'Land', '{T}: Add {C}.\n{1}, {T}: Move a counter from target permanent you control onto a second target permanent. Activate only as a sorcery.');
+    const ab = [scriptOf('Test Nesting').activated].flat()[0];
+    expect(ab).toMatchObject({ sorcery: true, targets: [{ type: 'permanent', who: 'you' }, { type: 'permanent' }] });
+    let g = emptyGame((d) => {
+      d.players[0].isBot = false;
+      put(d, 0, 'Test Nesting');
+      put(d, 0, 'Plains');
+      put(d, 0, 'Llanowar Elves').counters = { '+1/+1': 1, charge: 2 };
+      put(d, 1, 'Serra Angel');
+    });
+    const elves = byName(g, 0, 'Llanowar Elves')!;
+    const angel = byName(g, 1, 'Serra Angel')!;
+    g = run(g, { type: 'activate', card: byName(g, 0, 'Test Nesting')!.id, targets: [cardRef(elves.id), cardRef(angel.id)] });
+    for (let i = 0; i < 10 && g.decision?.type !== 'name'; i++) g = applyAction(g, { type: 'pass' });
+    expect(g.decision).toMatchObject({ type: 'name', choice: { of: 'counter', options: ['+1/+1', 'charge'] } });
+    g = run(g, { type: 'name', name: 'charge' });
+    expect(byName(g, 0, 'Llanowar Elves')!.counters).toEqual({ '+1/+1': 1, charge: 1 });
+    expect(byName(g, 1, 'Serra Angel')!.counters).toEqual({ charge: 1 });
+    // Not between players, or with "another" instead of "a second".
+    expect(refusal('Instant', 'Move a counter from target player onto a second target player.')).not.toBeNull();
+    expect(refusal('Instant', 'Move a counter from target creature onto another target creature.')).not.toBeNull();
   });
 });
 

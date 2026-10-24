@@ -26,6 +26,9 @@ src/cards/      decklists.json        the decks and tokens
                 pairs.ts              what the two-colour starter decks' new cards do
                 kraum-tymna.ts, yshtola.ts, ketramose.ts, kuja.ts, hashaton.ts
                                       what each Commander deck's own cards do
+                edhrec/               hand scripts for EDHREC's most-played cards and
+                                      commanders the parser can't read, one file per group
+                                      of mechanics (counters, ward-ring, mana, ...)
 src/engine/     types.ts              game state, actions, card-script types
                 rules.ts              queries (stats, mana, targets) + effect primitives
                 layers.ts             continuous effects in layers and timestamp order (613)
@@ -141,7 +144,7 @@ decision:
 | Decision | Examples |
 | --- | --- |
 | Built-in | a mulligan, declaring attackers or blockers, discarding, choosing targets for a trigger, ordering their triggers |
-| `CardChoice` | picking cards from a list (the legend rule too) |
+| `CardChoice` | picking cards from a list (the legend rule too), and players with them for proliferate (`players`) |
 | `AskChoice` | answering yes or no |
 | `NameChoice` | naming a card or creature type |
 | `PlayerChoice` | choosing a player |
@@ -416,11 +419,32 @@ fetched card too, since the card is matched to it by name.
   (`onEnter` ones too) and a short `text`, and `when` may be left out for one that
   triggers on every event.
 - Other trigger hooks: `onPostcombatMain`, `onDrawStep`, `onTapped`, `onDiscard`,
-  `onSacrifice`, `onPlaneswalkerDies`, `onBeginCombat`, `onBend` ("whenever you
-  waterbend, earthbend, firebend, or airbend"), `onRoll` ("whenever you roll a 4 or
-  higher", with the die's `result`), `onPlayerCombatDamaged` ("whenever one or more
-  creatures deal combat damage to a player": once for each player hit, with the `sources`).
+  `onSacrifice`, `onPlaneswalkerDies`, `onBeginCombat`, `onPermanentTapped` ("whenever a Dwarf
+  you control becomes tapped"), `onRingTempts` ("whenever the Ring tempts you", 701.54d),
+  `onBecomesBlocked` (once for each creature blocking it, 509.3d) and `onChapterResolved` (a
+  Saga's chapter ability resolved; `final` for its final chapter, 714.2e). `onLifeLoss` tells
+  `firstThisTurn` for the first life a player loses in a turn, and `onDraw` `firstInDrawStep`
+  for the first card a player draws in their own draw step (504.1). `onBend` is "whenever you
+  waterbend, earthbend, firebend, or airbend", and `onRoll` "whenever you roll a 4 or higher"
+  (with the die's `result`).
 - Firebending N (702.189a) is `onAttack: firebending(2)`; the parser reads the keyword line.
+- "If this is the second time this ability has resolved this turn": `timesResolved(g)` in the
+  resolve, this resolution counted (707.10b, 400.7). An ability that did nothing because its
+  targets had gone (`StackItem.fizzled`, 608.2b) didn't resolve and isn't counted.
+- An emblem (114): register its data and script under a name, and `createEmblem(g, pid, name)`;
+  its abilities trigger from the command zone (`Player.emblems`). "As this transforms into
+  [this face], ..." (712.20) is the face's `asTransforms`.
+- "One or more" hooks, once for each event (603.2c): `onMilled` (the cards milled, every
+  player's in one event), `onCountersPut` (a permanent and a kind of counter put on it, as it
+  enters too), `onPlayerDealtCombatDamage` (a player and the creatures that dealt them
+  combat damage in that step; Alela's "one or more Faeries you control"), `onPermanentsEnter` ("whenever one or more tokens you control
+  enter", with every permanent that entered) and `onLeaveGraveyard` ("whenever one or more
+  cards leave your graveyard": once for each event and graveyard, looking back in time, 603.10a).
+- `oncePerTurn: true` on a `{ when, resolve }` trigger is "This ability triggers only once
+  each turn": one instance a turn, even with `doublesTriggers` (101.2). "Do this only once
+  each turn" (603.2h) is `didThisTurn` and `markDid`.
+- A target spec with `any` can have `most`: "up to X target creatures" with X worked out from
+  the source, a triggered ability's event included (`Card.triggeredBy`).
 
 **Spells and costs**
 
@@ -447,7 +471,8 @@ fetched card too, since the card is matched to it by name.
 | Spacecraft | `activated: [station(), ...]` (702.184a: the tapped creature is `ctx.stationed`); each "N+ \|" line is a `static` on itself while `counterCount(self, 'charge') >= N`, or an ability with `when` (721.2) |
 | Impending | spread `...impending(4, '{1}{U}{U}')` into the script: its alternative cost and end-step trigger; the engine adds the time counters and "isn't a creature" |
 | Several activated abilities | list them in printed order (`activated: [ab1, equip('{1}')]`); an `activate` action and its stack item name one by `activated` (its index) |
-| Activated ability options | `fromHand`, `when`, `reduction`; costs `discard`, `discardSelf`, `counters`, or `sacrificeOne` permanent that fits a spec ("Sacrifice a creature:"), `sacrificeCount` of them ("Sacrifice two ...") |
+| Activated ability options | `fromHand`, `when`, `reduction`; costs `discard`, `discardSelf`, `counters`, or `sacrificeOne` permanent that fits a spec ("Sacrifice a creature:"), `sacrificeCount` of them ("Sacrifice two ...", or `'x'` for "Sacrifice X Squirrels", read as `ctx.x`), `tapUntapped` ("Tap three untapped Elves you control", picked like a crew) |
+| Ward | `ward: { mana }`, `{ life }` or `{ blight }` ("Ward—Blight 2", 701.68a) |
 | Planeswalker | `loyalty` abilities: `{ cost: -2, text, targets, resolve }`, or `cost: '-X'` |
 | Siege | can add `onDefeat` |
 | Faces (double-faced, split, adventurer) | one script per face, under each face's name ("Delver of Secrets", "Insectile Aberration"); `transform(g, card)` turns one over. A deck may list it by its first face's name. |
@@ -463,7 +488,25 @@ sacrifice cost (ability or spell) sees `sacrificed` and `sacrificedPower` (as it
 
 - `mana` can be a list of abilities, each with `colors` (a list, `'any'`, `'identity'`
   or a function), and optionally `life`, `damage`, `sacrifice`, `when`, `fromHand`,
-  `manual`, `discardHand`, `instant` or `chosenType`.
+  `manual`, `discardHand`, `instant`, `chosenType` or `subtype` ("spend this mana only to
+  cast an Angel spell").
+- Worked out as it is used: `amountOf` ("X mana, where X is its power"), `producesOf` (the
+  exact lists it may make: `[colorsAmong(g, pid)]` for "one mana of each color among
+  permanents you control", `combinations(['U', 'R'], x)` for "any combination of {U} and/or
+  {R}"). `activateOncePerTurn` for "Activate only once each turn" (602.5b; a trigger's
+  `oncePerTurn` is the different "triggers only once each turn"); `types` with `minMv` and
+  `orX` for "Spend this mana only to cast creature spells with mana value 4 or greater or
+  creature spells with {X} in their mana costs".
+- `tapCreature` is a cost of tapping other untapped permanents (`TapUntapped`): `{ legendary }`
+  for Relic of Legends, `{ type: 'Artifact' }` for "an untapped artifact", `{ type: '', token:
+  true, count: 2 }` for "two untapped tokens". With `noTap` the source's own {T} isn't part
+  of it. An activated ability's `cost.tapUntapped` is the same `TapUntapped` (`{ type: '',
+  subtype: 'Elf', count: 3 }` for "three untapped Elves"); the action names the permanents in
+  `crew`, and `tapCostOptions` lists them: the source among them unless its own {T} is part
+  of the cost.
+- `tappedForMana(g, self, { source, player, produced })` is a triggered mana ability (605.1b)
+  on a permanent being tapped for mana: it returns who adds the mana and the lists to choose
+  among, or null. It resolves at once, by hand and in auto-pay.
 - `addMana(g, pid, ['B', 'B', 'B'], self)` for rituals; `addMana(..., { keep: true })`
   lasts the turn, `{ untilEndOfCombat: true }` until the combat phase ends (500.5a).
 - An activated ability's resolve sees the mana spent on it by source as `ctx.spentFrom`
@@ -476,9 +519,13 @@ sacrifice cost (ability or spell) sees `sacrificed` and `sacrificedPower` (as it
 
 `search(g, pid, to, find, { then })`, `ask(g, pid, { text, cost, yes, no, then })`,
 `pickCards(...)` and `nameCard(...)` (a card, or `of: 'creature type'` or `'color'`,
-answered as W, U, B, R or G) queue a question. The answer runs the script's `then[key]`
+answered as W, U, B, R or G, or `of: 'counter'` with `options`, a kind of counter) queue a question. The answer runs the script's `then[key]`
 with `picked`, `yes` or `name`. Also `chooseToSacrifice`, `chooseToDiscard`,
-`choosePlayer`, `offerCast` and `offerRetarget`.
+`choosePlayer`, `offerCast` and `offerRetarget`. `pickCards(..., { min: 0, decline: "Don't
+Pay" })` shows a button for picking none. A helper that asks through an engine continuation
+(`@amass`, `@ringBearer`) takes the script's own `then` key and runs it once the engine's is
+done (`data.next`), so the rest of the effect follows: "the Ring tempts you. Then if ...".
+A search can be for `{ name }`, a card with that name.
 
 **Static abilities and continuous effects**
 
@@ -536,11 +583,24 @@ partway through the action, which is then applied again with their answer (`Game
 are shorthand for common ones. A card's own way of entering stays `entersTapped`,
 `entersWith` or `replaceEnter`.
 
+Exalted (702.83) and riot (702.136) need no script: the engine reads them from the keyword,
+printed or given by a static ability (`keywords: ['riot']`), and counts each instance. Riot is a
+built-in optional replacement effect whose `otherwise` (what happens if it isn't applied)
+gives haste; any optional `Replacement` can carry one.
+
 **Other static hooks**
 
 `forbids` ("can't cast"/"can't activate"), `grantsFlash`, `uncounterable`,
 `protectsSpell`, `ward`, `grantsEscape`, `delayedIf`, `extraLands` ("you may play an
-additional land on each of your turns", 305.2b).
+additional land on each of your turns", 305.2b), `forbidsAttack` ("can't attack you or
+planeswalkers you control", 508.1c; checked by `attackForbidden`), and `abilityCostModifier` ("activated
+abilities of Foods you control cost {1} less", generic mana only, mana abilities included).
+`ward` is mana, life, or `sacrifice` (a `TargetSpec` the payer's permanent must fit:
+"Ward—Sacrifice a Food").
+
+A static ability that gives other permanents an activated ability ("have '{2}, {T},
+Sacrifice this permanent: You gain 3 life'") names a script registered for that ability alone
+in `activatedOf`; the parser registers it under "[card] (ability N)".
 
 **A permanent's abilities**
 
@@ -554,17 +614,24 @@ ability already on the stack, which exists apart from its source (113.7a).
 | Helper | Does |
 | --- | --- |
 | `addCounters(g, card, n, kind)` | adds counters |
-| `createToken(g, pid, 'Treasure')` | makes a predefined token (`'Food'`, `'Clue'` too); `createTokens(g, pid, [{ key, count }, ...])` makes several kinds as one event |
+| `createToken(g, pid, 'Treasure')` | makes a predefined token (`'Food'`, `'Clue'` too) |
+| `createTokens(g, pid, [{ key, count }, ...])` | several kinds of token at once, as one event (111.2) |
 | `becomeMonarch(g, pid)` | the player becomes the monarch (725); `g.monarch` says who it is |
 | `goad(g, card, by)` | goads a creature (701.15); `isGoaded`, `goadedBy` read it |
 | `rollDice(g, pid, 6, n)` | rolls dice (706), triggering `onRoll` for each |
 | `earthbend(g, land, n, you)` | earthbend N (701.66a), with its return trigger |
 | `bend(g, pid, kind)` | notes a bend and triggers `onBend` (what `earthbend`, `firebending` and `airbend(g, cards, by)` do themselves) |
 | `extraLand(g, pid)` | "you may play an additional land this turn" (305.2b) |
-| `addEffect` | an effect until end of turn |
-| `delay` with `delayed[key]` | a delayed trigger (603.7) |
+| `addEffect` | an effect until end of turn; `{ kind: 'mayCast', card, moves, play: true, free: true }` is "you may play that card without paying its mana cost" (Urza) |
+| `delay` with `delayed[key]` | a delayed trigger (603.7); `step: 'main'` is "your next main phase", precombat or postcombat |
 | `extraTurn`, `winGame`, `loseGame` | as named |
 | `mill`, `discard`, `discardHand`, `surveil` | as named |
+| `discover(g, pid, n)` | discover N (701.57a), the cast-or-hand choice included |
+| `revealUntil(g, pid, fits, what)` | "reveal cards from the top until you reveal a ... card" (701.20a): the cards revealed, still in the library, and the one that fits |
+| `exileUntil(g, pid, fits)` then `castFromExiled(g, pid, hit, rest, opts)` | "exile cards from the top until ...", "you may cast that card without paying its mana cost" (`maxMv`, `toHand` for discover), and the rest on the bottom in a random order |
+| `enterBattlefield(g, c, { attacking: { defender } })` | put onto the battlefield attacking (508.4) |
+| `leftGraveyards(g, cards)` | cards that left a graveyard other than by `moveCard` (cast from it), for `onLeaveGraveyard` |
+| `Card.arrived` | the zone a card came from into its zone and the turn ("put there from their library this turn") |
 | `exileAll(g, cards, text?, pid?)` | exiles several cards from anywhere as one event and logs once, so "whenever one or more cards are put into exile" triggers once (603.2c). Never `moveCard` cards into exile in a loop |
 | `toGraveyards(g, cards)`, `destroyMany`, `dieMany` | several cards to graveyards as one event |
 | `simultaneously(g, fn)` | runs `fn` as one event: "each opponent loses 1 life" in it triggers "whenever one or more players lose life" once |
@@ -572,8 +639,16 @@ ability already on the stack, which exists apart from its source (113.7a).
 | `copyOf` | copies a permanent |
 | `becomeCopy(g, card, copyOf(x))` | a permanent becomes a copy while it stays (707.4) |
 | `populate(g, pid)` | copies a creature token the player chooses |
+| `proliferate(g, pid)` | the player chooses permanents and/or players with counters, each gets another of each kind (701.34a); `proliferated` gives them out for a script's own continuation |
+| `blight(g, pid, n)`, `eachBlights(g, pids, n)` | the player puts n -1/-1 counters on a creature they control of their choice (701.68a); `blighted` puts them on |
+| `addPlayerCounters(g, pid, n, kind)`, `playerCounters(p, kind)` | counters on a player (122.1): poison, experience, rad |
+| `moveCounter(g, from, to, kind)` | moves a counter (122.5), or nothing if it can't |
 | `tap(g, card)` | taps a permanent and triggers `onTapped` |
 | `abilitySource` | the source, if it is still the same object |
+| `amass(g, pid, 'Orc', n, then?)` | amass (701.47); returns true if the player must choose an Army |
+| `temptWithRing(g, pid, then?)` | the Ring tempts the player (701.54); returns true if they must choose a Ring-bearer. `isRingBearer`, `ringBearerOf`, `timesTempted` read it |
+| `partnerWith(name)` | partner with's "enters" ability (702.124j), spread into the script |
+| `tokenCopy(g, pid, c, { nonlegendary: true })` | "except the token isn't legendary" (707.9b) |
 
 **Bot hints**
 
