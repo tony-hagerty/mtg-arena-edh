@@ -5,7 +5,7 @@ table. Two to four players: you play one deck, and bots or friends play the othe
 
 This is an unofficial fan prototype. Expect rough edges.
 
-![A four-player game mid-way through turn 20: each seat's battlefield on its own mat, life totals on the portraits, and a trigger shown full size in the middle](docs/images/table.webp)
+![A four-player game on turn 21: each seat's battlefield on its own mat, life totals on the portraits, two exiled cards swirling in the well in the middle, and the Next button with the seat arrows and the pass-the-turn button above it](docs/images/table.webp)
 
 ## Highlights
 
@@ -14,8 +14,10 @@ This is an unofficial fan prototype. Expect rough edges.
 - **Play your own deck.** Paste a list from Arena, Moxfield, Archidekt, MTGO, TappedOut
   or plain text. Cards the game doesn't know are fetched from
   [Scryfall](https://scryfall.com) and read from their rules text.
-- **A 3D table** in a torch-lit hall: each seat plays on its own mat, the shared exile is
-  the well in the middle, and any card can be hovered to read it full size.
+- **EDHREC's top 100 cards and top 100 commanders** from the past year are all playable,
+  Atraxa, Kinnan, Korvold, Muldrotha and The Ur-Dragon among them.
+- **A 3D table** in a torch-lit hall: each seat plays on its own mat, exiled cards swirl
+  in the well in the middle, and any card can be hovered to read it full size.
 - **Bots** fill any empty seat, so you can play alone, or **Watch the bots play** a whole
   game of four.
 - **Friends** can share your screen, or join from their own computer with a code.
@@ -28,8 +30,10 @@ This is an unofficial fan prototype. Expect rough edges.
 | --- | --- |
 | ![The menu: eight built-in decks with their art, and the table settings on the right](docs/images/menu.webp) | ![Pasting a deck list: 100 cards read, the commander picked, ready to save](docs/images/paste-deck.webp) |
 | **The menu.** Pick a deck and who sits in the other seats. | **Paste a deck list** from Arena, Moxfield, Archidekt, MTGO or TappedOut. |
-| ![The opening hand of seven cards, with Mulligan and Keep buttons](docs/images/mulligan.webp) | ![The Hotkeys window listing every keyboard and mouse control](docs/images/hotkeys.webp) |
-| **Keep or mulligan** your opening hand. Your first mulligan is free. | **Hotkeys**, on the gear menu, lists every control. |
+| ![The opening hand of seven cards, with Mulligan and Keep buttons](docs/images/mulligan.webp) | ![Casting Manalith: the card in the middle, "Pay 3 to cast Manalith", the lands that will be tapped glowing, and Cancel and Pay buttons](docs/images/cast.webp) |
+| **Keep or mulligan** your opening hand. Your first mulligan is free. | **Cast a spell** by dragging it onto the table. The lands auto-pay will tap glow: press **Pay**. |
+| ![Two abilities on the stack; hovering the lower one, Acidic Slime's trigger, draws a dotted arrow to the Sol Ring it targets](docs/images/stack.webp) | ![The Hotkeys window listing every keyboard and mouse control](docs/images/hotkeys.webp) |
+| **The stack** sits in the middle. Hover a spell or ability to see what it targets. | **Hotkeys**, on the gear menu, lists every control. |
 
 ## Getting the game
 
@@ -53,10 +57,13 @@ has it). On a slow machine, add `?quality=low` to the address to drop the shadow
    (shown in yellow), and press **Pay**. Mana is tapped for you.
 5. Press **Space** for the big button (Next, Resolve, Pass), **Esc** to cancel, and
    **Ctrl+Z** to take back the last step that can be undone.
+6. Press **F6** (or the gold ⏭ button) to pass priority until the turn ends, as on MTGO.
+   Attackers, blockers and choices are still yours.
 
 To cast your commander, click the **crown** on your portrait. Hover any card to see it
-full size, or right-click it for a bigger view that stays up. The gear at the top holds
-bot speed, sound and music, and the **Hotkeys** window with every control.
+full size, or right-click it for a bigger view that stays up; a double-faced card has a
+**Front** / **Back** pill to turn it over. The gear at the top holds bot speed, sound and
+music, and the **Hotkeys** window with every control.
 
 The full guide, covering combat, the stack, stops, special cards and every control, is in
 **[How to play](docs/how-to-play.md)**.
@@ -79,8 +86,8 @@ The biggest gaps are listed below. The full list is in
 - Some cards can't be read yet. The paste screen tells you which: swap them out, or play
   them as plain cards without their rules text, clearly marked. Each one is noted so it
   can be added later.
-- Bots play a simple game. They skip some combo lines and never hold priority to
-  respond to their own spells.
+- Bots play a simple game. They know a few combos (Thassa's Oracle with Demonic
+  Consultation, for one) but skip loops like Underworld Breach.
 - A few rules are simplified, mostly ones that rarely come up in play.
 
 ## For developers
@@ -96,6 +103,7 @@ npm run test:games     # only the whole games (tests/simulation/ and a few other
 npm run build          # type-check and build into dist/
 npm run build:single   # one self-contained dist-single/index.html to share
 npm run build:exe      # the Windows program, release/ArenaEDH.exe
+npm run launcher       # run the Windows program's launcher from source against dist/
 npm run fetch-cards    # pull card data from Scryfall after editing decklists.json
 npm run parse-report   # which cards the Oracle text parser can script, and why not the rest
 npm run fetch-corpus   # refresh the parse report's corpus: the 600 most-played Commander cards
