@@ -659,6 +659,12 @@ function LoyaltyOptions({ options }: { options: AbilityOption[] }) {
             <button className="chip mode" disabled={!o.ok} onClick={() => (o.mana ? useForMana() : pickAbility(o.ref))}>
               {o.cost && <b className="loyalty-cost">{o.cost.startsWith('{') ? <ManaCost cost={o.cost} /> : o.cost}</b>} {o.text}
             </button>
+            {/* Outside the dimmed button, so it reads clearly: why it can't be used now. */}
+            {o.why && (
+              <span className="ability-why">
+                <Symbols text={o.why} />
+              </span>
+            )}
           </div>
         ))}
       </div>

@@ -113,6 +113,8 @@ export interface AbilityOption {
   cost: string;
   text: string;
   ok: boolean;
+  /** Why it can't be activated now, when it can't (`cantActivate`). */
+  why?: string;
   /** Use its mana abilities instead (`useForMana`). */
   mana?: boolean;
 }
@@ -759,7 +761,12 @@ export function buildView(): View {
     const options: AbilityOption[] = [
       // Its mana abilities, as one choice that goes on to the mana picker if there is more to choose (605).
       ...(canTapForMana(g, me, card) ? [{ ref: {}, cost: '', text: 'Add mana', ok: true, mana: true }] : []),
-      ...activatedAbilities(g, card).map((ab, i) => ({ ref: { activated: i }, cost: '', text: ab.text, ok: can({ activated: i }) })),
+      // Not one that works only from the hand (channel): this card is on the battlefield.
+      ...activatedAbilities(g, card).flatMap((ab, i) => {
+        if (ab.fromHand) return [];
+        const ok = can({ activated: i });
+        return [{ ref: { activated: i }, cost: '', text: ab.text, ok, ...(ok ? {} : { why: cantActivate(g, me, card, i) }) }];
+      }),
       ...(script.levels
         ? script.levels.map((bar, i) => ({ ref: { ability: i }, cost: bar.cost, text: bar.text, ok: can({ ability: i }) }))
         : (script.loyalty ?? []).map((ab, i) => ({ ref: { ability: i }, cost: loyaltyCost(ab.cost), text: ab.text, ok: can({ ability: i }) }))),
@@ -2091,12 +2098,32 @@ export function clickPermanent(card: Card) {
   }
 
   if (deciding || card.controller !== me) return;
-  // A permanent with a mana ability and another ability that could be activated now (Urza,
-  // Baylen): choose which, the mana among them (`useForMana`).
-  if (canTapForMana(g, me, card) && activatable(g, me, card).length) propose('activate', card, true);
+  // A permanent with a mana ability and another ability (Urza, Baylen, Abandoned Air Temple):
+  // choose which, the mana among them (`useForMana`). One that can't be activated now is in
+  // the menu too, dimmed with the reason, so it can be found. While paying for a spell a
+  // click only makes mana (`payByHand`, above).
+  if (canTapForMana(g, me, card) && activatedAbilities(g, card).some((ab) => !ab.fromHand)) propose('activate', card, true);
   else if (canTapForMana(g, me, card)) tapForMana(g, me, card);
   else if (canUntapMana(g, me, card)) s.act({ type: 'untapMana', card: card.id });
   else if (activatable(g, me, card).length) propose('activate', card);
+}
+
+/**
+ * Why `card`'s activated ability `i` can't be activated now, for the ability menu. Most often
+ * it's the mana: a cost with {T} taps the source, so the source can't make mana toward it too
+ * (`canPayActivation`).
+ */
+function cantActivate(g: Game, me: PlayerId, card: Card, i: number): string {
+  const ab = activatedAt(g, card, i);
+  if (!ab) return '';
+  if (ab.cost.tap && card.tapped) return 'It is tapped.';
+  const self = ab.cost.tap || ab.cost.sacrifice || ab.cost.exileSelf;
+  if (ab.cost.mana && !planPayment(g, me, activationCost(g, me, card, ab), undefined, self ? [card.id] : [])) {
+    return ab.cost.tap && canTapForMana(g, me, card)
+      ? `Needs ${ab.cost.mana} from other sources: this taps itself as part of the cost, so it can't make mana for it.`
+      : `Not enough mana: needs ${ab.cost.mana}.`;
+  }
+  return "Can't be used now.";
 }
 
 /** From the ability menu: use the permanent for mana instead of activating another of its abilities. */

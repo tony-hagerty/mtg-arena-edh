@@ -1382,6 +1382,19 @@ button {
   gap: 0.8rem;
 }
 
+/* An ability that can't be used now: the reason, under its dimmed button. */
+.cast-row:has(.ability-why) {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.4rem;
+}
+
+.ability-why {
+  padding-left: 1rem;
+  font-size: 1.3rem;
+  color: var(--gold-light);
+}
+
 .cast-label {
   min-width: 6rem;
   font: 600 1.7rem var(--sans);
