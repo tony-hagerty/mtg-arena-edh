@@ -810,6 +810,13 @@ function Segmented<T>({ options, value, onChange, label }: { options: { value: T
   );
 }
 
+/** Two objects with the same keys and values, in any order. */
+const sameEntries = (a: object, b: object) => {
+  const x = Object.entries(a).filter(([, v]) => v !== undefined);
+  const y = new Map(Object.entries(b).filter(([, v]) => v !== undefined));
+  return x.length === y.size && x.every(([k, v]) => y.get(k) === v);
+};
+
 /** Puts the stops back to the defaults; says so for a moment after, and is dimmed while they already are. */
 function ResetStops() {
   const stops = useStore((s) => s.stops);
@@ -819,7 +826,9 @@ function ResetStops() {
     const t = setTimeout(() => setDone(false), 1500);
     return () => clearTimeout(t);
   }, [done]);
-  const same = JSON.stringify(stops) === JSON.stringify(defaultStops(0));
+  // The same stops whatever order they were set in.
+  const defaults = defaultStops(0);
+  const same = stops.length === defaults.length && stops.every((t, i) => sameEntries(t, defaults[i]));
   return (
     <button
       className="reset-stops"

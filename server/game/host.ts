@@ -68,7 +68,8 @@ export class GameHost implements GameService {
    */
   load(game: Game, prefs: Partial<Record<PlayerId, SeatPrefs>> = {}, cards: CardData[] = []) {
     this.addCards(cards);
-    this.prefs = { ...prefs };
+    // Passing to the end of the turn (F6) isn't carried over: the windows start with it off.
+    this.prefs = Object.fromEntries(Object.entries(prefs).map(([seat, p]) => [seat, { ...p, passTurn: null }]));
     this.acks.clear();
     this.paused = false;
     this.gameId = nextGameId(this.gameId);

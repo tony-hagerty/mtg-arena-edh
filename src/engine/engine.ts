@@ -1081,28 +1081,60 @@ function hasTargetsFor(g: Game, pid: PlayerId, c: Card, activated: number, x: nu
 
 /** Everything about activating `c`'s activated ability `activated` with this X but its targets: who, when, and its costs. */
 function canPayActivation(g: Game, pid: PlayerId, c: Card, activated: number, x: number): boolean {
+  return activationBlock(g, pid, c, activated, x) === null;
+}
+
+/** What stops an activated ability being activated, as `activationBlock` finds it first. */
+export type ActivationBlock =
+  | 'none' // no such ability
+  | 'zone' // not where it's activated from, or not theirs
+  | 'timing' // only as a sorcery (or not now)
+  | 'forbidden' // an effect says it can't be (Grand Abolisher, Pithing Needle)
+  | 'condition' // its own "Activate only if ..."
+  | 'unblocked' // ninjutsu with no unblocked attacker
+  | 'tapped' // {T} in the cost and it is tapped
+  | 'sick' // {T} in the cost of a summoning-sick creature (302.6)
+  | 'crew'
+  | 'tapUntapped'
+  | 'counters'
+  | 'discard'
+  | 'sacrifice'
+  | 'exile'
+  | 'graveyard'
+  | 'modes'
+  | 'mana'; // the mana or life can't be paid
+
+/**
+ * Why `pid` can't activate `c`'s activated ability `activated` with this X, leaving targets
+ * aside: the first of who, when and its costs that fails, or null if none does.
+ */
+export function activationBlock(g: Game, pid: PlayerId, c: Card, activated: number, x = 0): ActivationBlock | null {
   const ab = activatedAt(g, c, activated);
-  if (!ab) return false;
+  if (!ab) return 'none';
   // Its controller activates it from the battlefield; its owner from their hand, like channel,
   // or from their command zone too, like commander ninjutsu (702.49d).
-  if (ab.fromHand ? !(c.zone === 'hand' || (ab.fromCommand && c.zone === 'command')) || c.owner !== pid : c.zone !== 'battlefield' || c.controller !== pid) return false;
-  if (!timingOk(g, pid, !ab.sorcery) || forbidden(g, pid, 'activate', c) || (ab.when && !ab.when(g, c))) return false;
+  if (ab.fromHand ? !(c.zone === 'hand' || (ab.fromCommand && c.zone === 'command')) || c.owner !== pid : c.zone !== 'battlefield' || c.controller !== pid) return 'zone';
+  if (!timingOk(g, pid, !ab.sorcery)) return 'timing';
+  if (forbidden(g, pid, 'activate', c)) return 'forbidden';
+  if (ab.when && !ab.when(g, c)) return 'condition';
   // Ninjutsu: an unblocked attacking creature to return (702.49a).
-  if (ab.cost.returnAttacker && !unblockedAttackers(g, pid).length) return false;
+  if (ab.cost.returnAttacker && !unblockedAttackers(g, pid).length) return 'unblocked';
+  if (ab.cost.tap && c.tapped) return 'tapped';
   // A summoning-sick creature can't pay a tap cost (302.6).
-  if (ab.cost.tap && (c.tapped || (isCreature(g, c) && c.sick && !has(g, c, 'haste')))) return false;
-  if (ab.cost.crew && crewPower(g, pid, c, crewOptions(g, pid, c)) < ab.cost.crew) return false;
+  if (ab.cost.tap && isCreature(g, c) && c.sick && !has(g, c, 'haste')) return 'sick';
+  if (ab.cost.crew && crewPower(g, pid, c, crewOptions(g, pid, c)) < ab.cost.crew) return 'crew';
   // "Tap three untapped Elves you control": with {T} too, the source can't be one of them (`tapCostOptions`).
-  if (ab.cost.tapUntapped && tapCostOptions(g, pid, c, activated).length < (ab.cost.tapUntapped.count ?? 1)) return false;
-  if (ab.cost.counters && counterCount(c, ab.cost.counters.kind) < ab.cost.counters.n) return false;
-  if (ab.cost.discard && discardOptions(g, pid, c, ab.cost.discardFilter).length < ab.cost.discard) return false;
-  if (ab.cost.sacrificeOne && activationSacrificeOptions(g, pid, c, activated).length < sacrificesFor(ab, x)) return false;
-  if (ab.cost.exileOne && !activationExileOptions(g, pid, c, activated).length) return false;
-  if (ab.cost.exileGraveyard && g.players[pid].graveyard.length < ab.cost.exileGraveyard) return false;
+  if (ab.cost.tapUntapped && tapCostOptions(g, pid, c, activated).length < (ab.cost.tapUntapped.count ?? 1)) return 'tapUntapped';
+  if (ab.cost.counters && counterCount(c, ab.cost.counters.kind) < ab.cost.counters.n) return 'counters';
+  if (ab.cost.discard && discardOptions(g, pid, c, ab.cost.discardFilter).length < ab.cost.discard) return 'discard';
+  if (ab.cost.sacrificeOne && activationSacrificeOptions(g, pid, c, activated).length < sacrificesFor(ab, x)) return 'sacrifice';
+  if (ab.cost.exileOne && !activationExileOptions(g, pid, c, activated).length) return 'exile';
+  if (ab.cost.exileGraveyard && g.players[pid].graveyard.length < ab.cost.exileGraveyard) return 'graveyard';
   // A modal ability needs enough modes that can be chosen (700.2a).
-  if (ab.modes && activatedModeOptions(g, pid, c, activated).length < ab.modes.min) return false;
+  if (ab.modes && activatedModeOptions(g, pid, c, activated).length < ab.modes.min) return 'modes';
   // The source can't also make the mana if tapping, sacrificing or exiling it is part of the cost.
-  return !(ab.cost.mana || ab.cost.life) || !!planPayment(g, pid, activationCost(g, pid, c, ab, x), undefined, ab.cost.tap || ab.cost.sacrifice || ab.cost.exileSelf ? [c.id] : []);
+  const paid = !(ab.cost.mana || ab.cost.life) || !!planPayment(g, pid, activationCost(g, pid, c, ab, x), undefined, ab.cost.tap || ab.cost.sacrifice || ab.cost.exileSelf ? [c.id] : []);
+  return paid ? null : 'mana';
 }
 
 /** How many permanents an activated ability's "Sacrifice ..." cost takes with this X: one, "two", or X ("Sacrifice X Squirrels", 107.3a). */
@@ -3463,7 +3495,9 @@ function attempt(g: Game, a: Action, opts: Required<Pick<ApplyOptions, 'autoPass
       legal = act(draft, a);
     });
     if (!legal) return acted;
-    const { g: next, stable } = settle(acted, drafted, autoPass, stops, fullControl, released, checked && passedOn, passTurn);
+    // Mana made by hand is part of paying for what they do next (605.3a): passing to the end of the turn waits for that.
+    const passing = (a.type === 'tapMana' || a.type === 'untapMana') && passTurn?.[g.priority] !== undefined ? { ...passTurn, [g.priority]: undefined } : passTurn;
+    const { g: next, stable } = settle(acted, drafted, autoPass, stops, fullControl, released, checked && passedOn, passing);
     if (stable && next !== g) sbaChecked.add(next);
     return next;
   };
