@@ -718,18 +718,31 @@ export function canPlot(g: Game, pid: PlayerId, c: Card): boolean {
   return !!planPayment(g, pid, parseCost(cost));
 }
 
-export function canPlayLand(g: Game, pid: PlayerId, c: Card, face?: number): boolean {
+export function canPlayLand(g: Game, pid: PlayerId, c: Card, face?: number, permit?: string | null): boolean {
   // Asked of a draft nothing has changed in yet: the finished game it came from (`untouched`).
   const base = untouched(g);
-  if (base) return canPlayLand(base, pid, inBase(c), face);
+  if (base) return canPlayLand(base, pid, inBase(c), face, permit);
   const faces = landFaces(g, c);
   if (face !== undefined ? !faces.includes(face) : !faces.length) return false;
   // From a hand, or from exile with an effect that lets them play it (Jeska's Will), or from a
   // graveyard, exile or the top of their library by a permanent's permission (Muldrotha, Glarb).
-  // Either way it counts as one of their lands for the turn (305.2a).
-  // A land with an Adventure can be played from exile once its Adventure has resolved (715.3d).
-  const from = c.zone === 'hand' ? c.owner === pid : ownRightToPlayLand(g, pid, c) || playPermissions(g, pid, c).some((x) => x.p.land);
+  // Either way it counts as one of their lands for the turn (305.2a). With `permit`, that way.
+  const options = landPlayOptions(g, pid, c);
+  const from = permit === undefined ? options.length > 0 : options.some((o) => o.permit === permit);
   return from && g.players[pid].landsPlayed < landsAllowed(g, pid) && timingOk(g, pid, false);
+}
+
+/**
+ * The ways `pid` may play land `c` from where it is (305.1): their own right (`permit` null:
+ * from their hand, from exile after its Adventure, 715.3d, or by an effect's permission, Jeska's
+ * Will), and each permanent's permission (`permit` its id, Muldrotha, Glarb). With more than one,
+ * the player names the one they use as they play the land (Muldrotha's rulings).
+ */
+export function landPlayOptions(g: Game, pid: PlayerId, c: Card): { permit: string | null; source?: Card }[] {
+  const out: { permit: string | null; source?: Card }[] = [];
+  if (c.zone === 'hand' ? c.owner === pid : ownRightToPlayLand(g, pid, c)) out.push({ permit: null });
+  if (c.zone !== 'hand') for (const x of playPermissions(g, pid, c)) if (x.p.land) out.push({ permit: x.source.id, source: x.source });
+  return out;
 }
 
 /** May `pid` play land `c` from exile or a graveyard without a permanent's permission: after its Adventure (715.3d), or by an effect's permission? */
@@ -900,6 +913,8 @@ function choicesOk(g: Game, pid: PlayerId, c: Card, ch: CastChoices): boolean {
   if (x > 0 && !parseCost(paidCostText(g, c, ch, pid)).x && script.additionalCost?.life !== 'x') return false;
   if (permit && (permit.p.free || permit.p.cost !== undefined) && ch.alt !== undefined) return false;
   if (permit && ch.escape) return false;
+  // From a graveyard, the card's own alternative costs are open only through such a permission (Muldrotha's rulings).
+  if (ch.alt !== undefined && c.zone === 'graveyard' && !permit) return false;
   // From a graveyard: with escape, three other cards from it are exiled (702.138a); otherwise it needs flashback.
   const escape = ch.escape ?? [];
   if (c.zone === 'graveyard') {
@@ -978,7 +993,14 @@ export function canCastAs(g: Game, pid: PlayerId, c: Card, face: number, choices
   if (!modeSets.length) return false;
   let routes: CastChoices[];
   // By a permanent's permission (Muldrotha, Glarb, Maralen): each permission, and each use it has left.
-  const permits = playPermissions(g, pid, c).filter((x) => x.p.cast).flatMap((x): CastChoices[] => (x.p.slots ? x.p.slots.map((slot) => ({ face, permit: x.source.id, slot })) : [{ face, permit: x.source.id }]));
+  // A permission that pays the card's costs as usual opens its own alternative costs too (Muldrotha's rulings).
+  const permits = playPermissions(g, pid, c)
+    .filter((x) => x.p.cast)
+    .flatMap((x): CastChoices[] => (x.p.slots ? x.p.slots.map((slot) => ({ face, permit: x.source.id, slot })) : [{ face, permit: x.source.id }]))
+    .flatMap((r): CastChoices[] => {
+      const p = playPermissions(g, pid, c).find((x) => x.source.id === r.permit)!.p;
+      return p.free || p.cost !== undefined ? [r] : [r, ...altCostsOf(g, c, face, pid).map((alt) => ({ ...r, alt }))];
+    });
   if (c.zone === 'graveyard') {
     const ways = graveyardWays(g, c, face);
     const escaping = escapes(g, c).filter((e) => escapeOptions(g, c).length >= e.exile).map((e): CastChoices => ({ face, escape: Array.from({ length: e.exile }, () => '') }));
@@ -2535,14 +2557,16 @@ function act(g: Game, a: Action): boolean {
     case 'playLand': {
       // From the hand, or from exile with an effect that lets them play it (Jeska's Will).
       const c = findCard(g, a.card);
-      if (!c || !canPlayLand(g, pid, c, a.face)) return false;
-      p.landsPlayed++;
+      if (!c || !canPlayLand(g, pid, c, a.face, a.permit)) return false;
       // From a graveyard, exile or the top of the library by a permanent's permission (Muldrotha,
-      // Glarb): one with a limited use spends it. An effect's own permission (Jeska's Will) or the
-      // card's own right (715.3d) is used first, since it spends nothing.
+      // Glarb), or by the player's own right: with several ways, the player names the one they use
+      // (Muldrotha's rulings), and a permission with a limited use spends it.
+      const options = landPlayOptions(g, pid, c);
+      const way = a.permit !== undefined ? options.find((o) => o.permit === a.permit) : options.length === 1 ? options[0] : undefined;
+      if (!way) return false;
+      p.landsPlayed++;
       const from = c.zone;
-      const permits = c.zone === 'hand' || ownRightToPlayLand(g, pid, c) ? [] : playPermissions(g, pid, c).filter((x) => x.p.land);
-      const permit = permits.find((x) => !x.p.slots) ?? permits[0];
+      const permit = way.source && playPermissions(g, pid, c).find((x) => x.source.id === way.source!.id);
       if (permit?.p.slots) usePermit(g, permit.source, permit.p.slots.includes('Land') ? 'Land' : permit.p.slots[0]);
       // A modal double-faced card is played as one of its land faces (712.12).
       const face = a.face ?? landFaces(g, c)[0];

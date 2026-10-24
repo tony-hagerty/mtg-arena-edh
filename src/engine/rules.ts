@@ -698,8 +698,11 @@ export const commanderDamageFrom = (g: Game, victim: Player, commander: Card) =>
 export function altCostsOf(g: Game, c: Card, face = 0, pid = c.owner): number[] {
   // Flashback and escape are already alternative costs, and so is casting it without
   // paying its mana cost, for {2} after being airbent, or as a plotted card: only one can be
-  // paid (118.9a, 702.34a, 702.138a, 701.65a, 702.170d).
-  if (c.zone === 'graveyard' || freeCast(g, c) || exileCast(c)) return [];
+  // paid (118.9a, 702.34a, 702.138a, 701.65a, 702.170d). From a graveyard, a card's own
+  // alternative costs are open only through a permanent's permission that pays its costs as
+  // usual (Muldrotha's rulings: "If it has an alternative cost, you may cast it for that cost instead").
+  if (freeCast(g, c) || exileCast(c)) return [];
+  if (c.zone === 'graveyard' && !playPermissions(g, pid, c).some((x) => x.p.cast && !x.p.free && x.p.cost === undefined)) return [];
   // Warp is cast only from the hand (702.185a). A madness or miracle cost is paid only when
   // that ability's trigger lets its owner cast it, and then nothing else can be (702.35a, 702.94a).
   const via = castVia(g, c);
@@ -813,6 +816,8 @@ export function mayhemCost(c: Card): string | undefined {
  */
 export function permitFor(g: Game, pid: PlayerId, c: Card, choices: Pick<CastChoices, 'permit' | 'slot' | 'x'>): { source: Card; p: PlayPermission } | undefined {
   const all = playPermissions(g, pid, c).filter((x) => x.p.cast);
+  // Null names the card's own right to be cast from there (`ownRightToCast`): no permission.
+  if (choices.permit === null) return undefined;
   if (choices.permit !== undefined) {
     const found = all.find((x) => x.source.id === choices.permit);
     if (!found) return undefined;

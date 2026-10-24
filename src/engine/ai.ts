@@ -23,6 +23,7 @@ import {
   canSayYes,
   canPlayLand,
   landCandidates,
+  landPlayOptions,
   castTargets,
   choiceOptions,
   crewOptions,
@@ -295,7 +296,14 @@ function castChoices(g: Game, pid: PlayerId, c: Card): CastChoices[] {
     // How the cost is paid: the mana cost or an alternative cost, with what it exiles or sacrifices.
     const ways: CastChoices[] = [];
     // A permanent's permission to cast it from where it is (Muldrotha, Glarb, Maralen): each use it has left.
-    const permits = playPermissions(g, pid, c).filter((x) => x.p.cast).flatMap((x): CastChoices[] => (x.p.slots ? x.p.slots.map((slot) => ({ permit: x.source.id, slot })) : [{ permit: x.source.id }]));
+    const permits = playPermissions(g, pid, c)
+      .filter((x) => x.p.cast)
+      .flatMap((x): CastChoices[] => (x.p.slots ? x.p.slots.map((slot) => ({ permit: x.source.id, slot })) : [{ permit: x.source.id }]))
+      // A permission that pays the card's costs as usual opens its own alternative costs too (Muldrotha's rulings).
+      .flatMap((r): CastChoices[] => {
+        const p = playPermissions(g, pid, c).find((x) => x.source.id === r.permit)!.p;
+        return p.free || p.cost !== undefined ? [r] : [r, ...altCostsOf(g, c, face, pid).map((alt) => ({ ...r, alt }))];
+      });
     if (c.zone === 'graveyard') {
       ways.push({}); // flashback
       // Escape exiles the other cards the bot wants least, as many as each escape ability asks (702.138a).
@@ -881,8 +889,14 @@ function bestLand(g: Game, pid: PlayerId, lands: Card[]): Action | null {
   };
   const best = options.reduce((a, b) => (score(b) > score(a) ? b : a));
   if (score(best) < -50) return null;
-  return { type: 'playLand', card: best.card.id, ...(best.face ? { face: best.face } : {}) };
+  // With several ways to play it (Muldrotha's rulings), the bot names one: its own right, else a permission with no limited use, else the first.
+  const ways = landPlayOptions(g, pid, best.card);
+  const permit = ways.length > 1 ? (ways.find((w) => w.permit === null) ?? ways.find((w) => !playPermissionSlots(g, pid, best.card, w.permit)) ?? ways[0]).permit : undefined;
+  return { type: 'playLand', card: best.card.id, ...(best.face ? { face: best.face } : {}), ...(permit !== undefined ? { permit } : {}) };
 }
+
+/** Does the permission of permanent `permit` to play `c` have limited uses (`PlayPermission.slots`)? */
+const playPermissionSlots = (g: Game, pid: PlayerId, c: Card, permit: string | null) => !!playPermissions(g, pid, c).find((x) => x.source.id === permit)?.p.slots;
 
 /** Would land `c` enter tapped for `pid` now (614.1c)? */
 function entersTappedFor(g: Game, c: Card, pid: PlayerId): boolean {

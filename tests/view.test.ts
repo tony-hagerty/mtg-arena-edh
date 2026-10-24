@@ -7,10 +7,10 @@ import './fixtures';
 import { hoverHandCard, leaveHandCard, useStore } from '../src/ui/store';
 import { hoverProps } from '../src/ui/util';
 import { activateFromHand, buildView, clickGroup, chooseEscape, chooseGraveyardTarget, clickPermanent, clickPlayer, clickStackItem, exileForMana, manaOptions, pickAbility, pickMana, pickManaSacrifice, pickFace, pickMode, playHandCard, setAbilityX, setChoices, stackTucked, undo } from '../src/ui/view';
-import { applyAction, canCast, createToken, data, isCreature, makeCard, scriptOf } from '../src/engine';
+import { applyAction, canCast, createToken, data, isCreature, isLand, makeCard, scriptOf } from '../src/engine';
 import { registerScripts } from '../src/engine/registry';
 import { parseCard, scriptCards } from '../src/cards/oracle';
-import { cardData } from '../src/cards/db';
+import { cardData, registerCards } from '../src/cards/db';
 import type { Game } from '../src/engine';
 import { byName, emptyGame, put } from './helpers';
 import { REFUSED_CARDS } from './refused-cards';
@@ -1372,6 +1372,27 @@ describe('playing from the top of the library and from the graveyard by permissi
     expect(buildView().prompt).toContain('Pay {3}{W}{W}');
     press();
     expect(byName(game(), 0, 'Serra Angel')).toBeDefined();
+  });
+
+  it('asks which permission a land from the graveyard is played by when two apply (Muldrotha\'s rulings)', () => {
+    registerScripts({ 'Test Crucible UI': { playPermission: (g, self, pid, c) => (pid === self.controller && c.zone === 'graveyard' && c.owner === pid && isLand(g, c) ? { land: true } : null) } });
+    registerCards({ 'Test Crucible UI': { name: 'Test Crucible UI', manaCost: '{3}', cmc: 3, colors: [], colorIdentity: [], typeLine: 'Artifact', oracleText: 'You may play lands from your graveyard.', keywords: [], image: '', art: '' } });
+    play((d) => {
+      put(d, 0, 'Muldrotha, the Gravetide');
+      put(d, 0, 'Test Crucible UI');
+      put(d, 0, 'Forest', 'graveyard');
+    });
+    const forest = byName(game(), 0, 'Forest', 'graveyard')!;
+    expect(buildView().glow.get(forest.id)).toBe('play');
+    playHandCard(forest);
+    const a = buildView().announce!;
+    expect(a.costs.map((c) => c.label)).toEqual(['Muldrotha, the Gravetide', 'Test Crucible UI']);
+    expect(a.choices.permit).toBe(byName(game(), 0, 'Muldrotha, the Gravetide')!.id);
+    setChoices({ permit: a.costs[1].permit });
+    expect(buildView().prompt).toContain('Play Forest as a land');
+    press(); // Continue: the land is played by the Crucible's permission, leaving Muldrotha's land use free.
+    expect(byName(game(), 0, 'Forest')).toBeDefined();
+    expect(game().permits ?? {}).toEqual({});
   });
 
   it("offers Muldrotha's permanent types as cost chips for a card with two, and casts it as the one picked", () => {

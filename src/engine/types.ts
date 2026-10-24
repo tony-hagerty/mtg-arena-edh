@@ -330,9 +330,11 @@ export interface CastChoices {
    * Cast by a permanent's permission to play it from where it is (`CardScript.playPermission`,
    * Muldrotha, Glarb): that permanent's id, and `slot` the permission's use when it has
    * several ("choose one [permanent type] as you play it"). Left out, the engine picks the
-   * only permission that applies, or none if it can be cast on its own.
+   * only permission that applies, or none if it can be cast on its own; null names the card's
+   * own right to be cast or played from there (Muldrotha's rulings: "you must announce which
+   * permission you're using").
    */
-  permit?: string;
+  permit?: string | null;
   slot?: string;
 }
 
@@ -1255,7 +1257,8 @@ export interface PlayPermission {
 
 export type Action =
   /** `face`: the land face of a modal double-faced card to put onto the battlefield (712.12). */
-  | { type: 'playLand'; card: string; face?: number }
+  /** `permit`: which permission the land is played by when several apply (Muldrotha's rulings): a permanent's id, or null for the player's own right to play it. */
+  | { type: 'playLand'; card: string; face?: number; permit?: string | null }
   /** Plot (702.170a): a special action, paying the card's plot cost and exiling it from the hand. */
   | { type: 'plot'; card: string }
   /** `hold`: keep priority afterwards instead of letting auto-pass pass it (117.3c). */

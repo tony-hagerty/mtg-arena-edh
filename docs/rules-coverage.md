@@ -543,7 +543,13 @@ are from the Comprehensive Rules in `docs/rules/`.
   permanent type, Maralen's once a turn) is spent as the card is played, and a card with
   several permanent types is cast as the one you name (`CastChoices.slot`, chosen in the
   cast panel; Muldrotha's rulings), each use recorded for that permanent as the same
-  object (400.7). "With mana value N or greater" counts the X you announce (Glarb's
+  object (400.7). Through a permission that pays the card's costs as usual, the card's own
+  alternative costs are open too (Muldrotha's rulings: "If it has an alternative cost, you may
+  cast it for that cost instead"); a free permission or one with a cost of its own allows no
+  other (118.9a). When several ways allow a land to be played (your own right, Muldrotha,
+  another permission), you name the one you use as you play it (Muldrotha's rulings), in the
+  cast panel's **Cost** row; bots use their own right first, else a permission with no limited
+  use. "With mana value N or greater" counts the X you announce (Glarb's
   rulings), and a free permission makes X 0 (107.3b). Only the top card of your own
   library can be played from there, and only its owner sees it: "You may look at the top
   card of your library any time" shows it to its controller (Glarb, Bolas's Citadel), and

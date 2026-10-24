@@ -18,6 +18,7 @@ import {
   canCastAs,
   canPlayLand,
   landCandidates,
+  landPlayOptions,
   canTapForMana,
   canUntapMana,
   altCostsOf,
@@ -510,12 +511,16 @@ function announceOf(g: Game, me: PlayerId, card: Card, choices: CastChoices): An
   const permits = playPermissions(g, me, card)
     .filter((x) => x.p.cast)
     .flatMap((x): { permit: string; slot: string | undefined; x: (typeof x) }[] => (x.p.slots ? x.p.slots.map((slot) => ({ permit: x.source.id, slot, x })) : [{ permit: x.source.id, slot: undefined, x }]))
-    .map(({ permit, slot, x }) => {
-      const ch = { ...choices, alt: undefined, escape: undefined, permit, slot, x: 0 };
-      const how = x.p.free ? 'free' : costText(castCost(g, card, ch, me));
+    // A permission that pays the card's costs as usual opens its own alternative costs too (Muldrotha's rulings).
+    .flatMap(({ permit, slot, x }) => (x.p.free || x.p.cost !== undefined ? [undefined] : [undefined, ...altCostsOf(g, card, face, me)]).map((alt) => ({ permit, slot, x, alt })))
+    .map(({ permit, slot, x, alt }) => {
+      const ch = { ...choices, alt, escape: undefined, permit, slot, x: 0 };
+      const how = x.p.free ? 'free' : alt !== undefined ? script.alternativeCosts![alt].label : costText(castCost(g, card, ch, me));
       const as = slot !== undefined && (x.p.slots?.length ?? 0) > 1 ? ` as ${slotLabel(slot)}` : '';
-      return { alt: undefined, permit, slot, label: `${x.source.id === card.id ? 'Mayhem' : label(x.source)}${as}: ${how}`, payable: payable(ch) };
+      return { alt, permit, slot, label: `${x.source.id === card.id ? 'Mayhem' : label(x.source)}${as}: ${how}`, payable: payable(ch) };
     });
+  // A land with several ways to be played (its own right, Muldrotha): the player names one (Muldrotha's rulings).
+  const landWays = land ? landPlayOptions(g, me, card).map((w) => ({ alt: undefined, permit: w.permit, label: w.source ? label(w.source) : card.zone === 'hand' ? 'From your hand' : 'Your own right to play it', payable: canPlayLand(g, me, card, face, w.permit) })) : [];
   const handAb = handAbility(g, me, card);
   const modal = land ? undefined : script.modal;
   const sets = modal ? modeChoices(g, me, card, face) : [];
@@ -550,7 +555,9 @@ function announceOf(g: Game, me: PlayerId, card: Card, choices: CastChoices): An
     handMana: card.zone === 'hand' && canTapForMana(g, me, card),
     handAbility: handAb ? activatedAt(g, card, handAb.activated)!.text : null,
     gifts: script.gift && !land ? opponentsOf(g, me).map((o) => ({ id: o.id, name: o.name })) : null,
-    costs: ways
+    costs: landWays.length > 1
+      ? landWays
+      : ways
       ? [
           ...(ways.flashback ? [{ alt: undefined, label: `Flashback ${scriptFor(card).flashback}`, payable: payable({ ...choices, escape: undefined, x: 0 }) }] : []),
           // An aftermath half (702.127a), or a card an effect lets the player cast from there: its mana cost.
@@ -707,12 +714,13 @@ export function buildView(): View {
     view.glow.set(card.id, 'picked');
     view.announce = announceOf(g, me, card, t.choices);
     const face = t.choices.face ?? 0;
-    const playing = view.announce.faces?.find((f) => f.face === face)?.land;
+    // Played as a land: a modal card's land face (712.12), or a land with several ways to be played (Muldrotha).
+    const playing = landFaces(g, card).includes(face) && !castFaces(card).includes(face);
     const name = data(asSpell(card, face)).name;
     const plot = view.announce.plot;
     view.prompt = playing ? `Play ${name} as a land.` : plot ? `Cast ${name} for ${text}, or plot it for ${plot}?` : `Choose how to cast ${name}: ${text}.`;
     const ready = playing
-      ? canPlayLand(g, me, card, face)
+      ? canPlayLand(g, me, card, face, t.choices.permit) && (landPlayOptions(g, me, card).length <= 1 || t.choices.permit !== undefined)
       : !!planPayment(g, me, castCost(g, card, t.choices, me), asSpell(card, face, me)) && (!view.announce.modal || view.announce.modal.valid);
     view.primary = { label: 'Continue', sub: playing ? `Play ${name}` : `Cast ${name}`, tone: 'go', disabled: !ready, onClick: confirmAnnounce };
     view.secondary = { label: 'Cancel', tone: 'cancel', onClick: cancel };
@@ -1165,6 +1173,7 @@ function propose(mode: 'cast' | 'activate', card: Card, mana = false) {
   const announcing =
     mode === 'cast' &&
     (options.length > 1 ||
+      landPlayOptions(g, me, card).length > 1 ||
       hasX ||
       !!script.kicker ||
       !!script.offspring ||
@@ -1267,7 +1276,9 @@ function defaultChoices(g: Game, me: PlayerId, card: Card, face: number): CastCh
   const permit = !ownWay ? (permits.find((pm) => planPayment(g, me, castCost(g, card, { face, extra, permit: pm.permit, slot: pm.slot }, me), spell)) ?? permits[0]) : undefined;
   // An X paid in life ("pay X life", Toxic Deluge) starts at 0, not at all the player's life.
   const hasX = !paysFlashback(g, card, { face, escape }) && parseCost(data(asSpell(card, face)).manaCost).x > 0;
+  const landWays = landFaces(g, card).includes(face) && !castFaces(card).includes(face) ? landPlayOptions(g, me, card) : [];
   const choices: CastChoices = {
+    ...(landWays.length > 1 ? { permit: landWays[0].permit } : {}),
     alt: permit ? undefined : alt,
     x: hasX && alt === undefined && !permit ? Math.max(0, maxX(g, me, card, { alt, face, escape, extra })) : 0,
     kicked: 0,
@@ -1345,7 +1356,7 @@ function confirmAnnounce() {
   // A modal double-faced card's land face is played, not cast (712.12).
   if (landFaces(g, card).includes(face) && !castFaces(card).includes(face)) {
     useStore.setState({ targeting: null });
-    S().act({ type: 'playLand', card: card.id, face });
+    S().act({ type: 'playLand', card: card.id, face, ...(t.choices.permit !== undefined ? { permit: t.choices.permit } : {}) });
     return;
   }
   advance(stepFrom(t, { announcing: false, specs: castTargets(card, t.choices.modes, face, t.choices.gift, t.choices.alt) }));
@@ -1931,7 +1942,7 @@ export function playHandCard(card: Card) {
   const fromHand = !!handAbility(g, me, card);
   // A plain land is played; anything with a choice of faces, or a spell, is proposed. A card
   // that can't be cast but makes mana from the hand (Simian Spirit Guide) does that.
-  if (options.length === 1 && options[0].land && !fromHand) S().act({ type: 'playLand', card: card.id, face: options[0].face });
+  if (options.length === 1 && options[0].land && !fromHand && landPlayOptions(g, me, card).length <= 1) S().act({ type: 'playLand', card: card.id, face: options[0].face });
   else if (options.some((o) => o.ok)) propose('cast', card);
   else if (fromHand) propose('activate', card);
   // A card that can't be cast now but can be plotted (702.170a).
