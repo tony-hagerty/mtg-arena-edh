@@ -71,10 +71,23 @@ for (const [key, t] of Object.entries(lists.tokens as Record<string, TokenDef>))
  * name finds that face, so a log line or tile naming it can show it.
  */
 const faceNames = new Map<string, CardData>();
+/** Each face's name, and each whole card's, to the whole card it is part of. */
+const wholeCards = new Map<string, CardData>();
 function indexFaces(all: Record<string, CardData>) {
   for (const d of Object.values(all)) {
     d.faces?.forEach((f, i) => faceNames.set(f.name, i === 0 ? d : f));
+    if (d.faces) for (const n of [d.name, ...d.faces.map((f) => f.name)]) wholeCards.set(n, d);
   }
+}
+
+/**
+ * The two faces of a double-faced card (712.1: transforming or modal), front first, from the
+ * name of the card or of either face; null for any other card. Anyone who may look at a
+ * double-faced card may look at both its sides (712.6), so the preview turns it over.
+ */
+export function doubleFaces(name: string): [CardData, CardData] | null {
+  const d = wholeCards.get(name);
+  return d && (d.layout === 'transform' || d.layout === 'modal_dfc') && d.faces && d.faces.length >= 2 ? [d.faces[0], d.faces[1]] : null;
 }
 indexFaces(cards);
 

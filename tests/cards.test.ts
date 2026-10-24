@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ALL_CARD_NAMES, ALL_DECKS, DECKS, cardData, deckColors, deckProblems, isCardName } from '../src/cards/db';
+import { ALL_CARD_NAMES, ALL_DECKS, DECKS, cardData, deckColors, deckProblems, doubleFaces, isCardName } from '../src/cards/db';
 import type { DeckDef } from '../src/cards/db';
 import type { CardData } from '../src/engine';
 import { scriptOf } from '../src/engine';
@@ -82,6 +82,18 @@ function naya(): DeckDef {
     cards: [...mono('W'), ...mono('R'), ...mono('G'), ...MANA_ROCKS],
   };
 }
+
+describe('double-faced cards (712.6)', () => {
+  it('finds both faces, front first, from the card or either face, and nothing for other cards', () => {
+    const names = (n: string) => doubleFaces(n)?.map((f) => f.name);
+    const birgi = ['Birgi, God of Storytelling', 'Harnfel, Horn of Bounty'];
+    expect(names('Birgi, God of Storytelling // Harnfel, Horn of Bounty')).toEqual(birgi);
+    expect(names('Birgi, God of Storytelling')).toEqual(birgi);
+    expect(names('Harnfel, Horn of Bounty')).toEqual(birgi);
+    expect(doubleFaces('Harnfel, Horn of Bounty')![1].image).toContain('/back/');
+    expect(doubleFaces('Serra Angel')).toBe(null);
+  });
+});
 
 describe('Commander deck rules (903.5)', () => {
   it('accepts 100 singleton cards inside two partners\' colour identity', () => {

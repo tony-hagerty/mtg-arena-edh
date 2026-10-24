@@ -79,8 +79,9 @@ The full guide to the game's screens and controls. For a quick start, see the
   while a seat's rows have room and shrink as they fill up; a very crowded row overlaps
   its cards instead. A permanent shows its art and name; hover it for the whole card. The library and graveyard lie on the mat along the seat's
   own edge, the library nearest the middle (yours just above the bottom of the screen,
-  beside the controls; the far seats' against their mat's inner edge, by the middle path). Exile is shared, so it is the well in the middle of the table, with the top
-  card of each player's exile circling in its whirlpool and the count at its edge. The portrait sits
+  beside the controls; the far seats' against their mat's inner edge, by the middle path). Exile is shared, so it is the well in the middle of the table, with every exiled
+  card swirling in its whirlpool (the newest outermost, older ones drawn in toward the middle
+  along a spiral; the newest 40 when there are more) and the count at its edge. The portrait sits
   on the seat's side edge, and an opponent holds their hand up, fanned, face down, at the
   back of their mat beside their piles, with a count at its foot. Hover any card to see
   it full size. A tapped card is dimmed, turned a little, and marked with a large,
@@ -157,6 +158,11 @@ The full guide to the game's screens and controls. For a quick start, see the
   see the cards under it; click the chip (**Show**) to bring it back. It comes back by
   itself while you are paying for a spell or can target something on it, and once the
   stack empties the next spell shows it again.
+- **What a spell or ability targets:** a dotted yellow arrow runs from the card on the
+  stack to each of its targets, leaving the card on the side that faces the target. It
+  shows for the card your pointer is on, or else for the top of the stack, one card's
+  arrows at a time, and it is drawn over the big card view that opens beside the stack, so
+  hovering a card in the stack shows both what it says and what it aims at.
 - Cards fly to where they go: from a hand to the stack, from the stack to the battlefield
   or the graveyard, from the battlefield to a graveyard or exile pile, back to a hand or
   the command zone. A spell or ability that resolves glows gold as it leaves the stack, an
@@ -184,7 +190,15 @@ The full guide to the game's screens and controls. For a quick start, see the
   ringed. Click one to see and edit the stops for that player's turns; the tracker takes
   their deck colour. Click it again to go back to the current turn. Your turns show
   orange, everyone else's blue.
-- Default stops (your stops are saved in the browser):
+- **Pass the turn** (`F6`, or the gold ⏭ button right of the arrows, as on MTGO): the game
+  passes priority for you until the end of this turn, through your stops and over spells you
+  could respond to. You are still asked to declare attackers and blockers and to make any
+  choice a spell or ability gives you. The button is lit and a **Passing turn** tag shows
+  under the tracker while it is on; press `F6` again or click either to stop. It ends by
+  itself when the turn does, so the next turn your stops apply again. Turned on in the
+  middle of casting a spell, it starts once you have finished or cancelled.
+- Default stops (your stops are saved in the browser; **Stops: Reset to default** in the
+  settings puts them back):
   - **Your turn:** always in both main phases; if you can act, at beginning of combat
     and after blockers are declared.
   - **Other turns:** if you can act, in the upkeep, after attackers (only once something
@@ -252,7 +266,7 @@ The full guide to the game's screens and controls. For a quick start, see the
 | --- | --- |
 | **Planeswalker** | Click yours to see its loyalty abilities and pick one. It happens right away (after any target): loyalty abilities cost loyalty, not mana. A −X ability first asks for X, like an ability with {X} in its cost does. Loyalty is the shield in the corner. |
 | **Battle** | Its defense is the orange box. When you cast a Siege, the prompt asks which opponent protects it. |
-| **Two faces** (split, adventurer, modal double-faced) | The prompt has a **Face** row: pick the half, the Adventure, or the face to play. A modal card's land face says "(land)"; its button reads **Play** instead of **Cast**. |
+| **Two faces** (split, adventurer, modal double-faced) | The prompt has a **Face** row: pick the half, the Adventure, or the face to play. A modal card's land face says "(land)"; its button reads **Play** instead of **Cast**. Right-click a double-faced card (modal or transforming) and use the **Front** / **Back** pill under the big view to read its other face. |
 | **Class** | Click yours to see its level bars; pick the next one and pay for it. |
 | **Several abilities** (Deathrite Shaman) | Click the permanent to see every activated ability; the ones you can't use now are dimmed. With only one usable, clicking goes straight to it. A permanent that can also make mana now (Urza, Baylen) lists **Add mana** first. |
 | **Tapping other permanents for a cost** (Baylen's "Tap three untapped tokens") | After its targets, click the permanents to tap (they glow), then **Tap**. |
@@ -292,6 +306,11 @@ The full guide to the game's screens and controls. For a quick start, see the
   the one on the left resolves first. Use the arrows to move them.
 - These windows can't be closed, since the game is waiting on you, but **View table**
   folds one away so you can look at the board.
+- A search through your library and graveyard together (Delivery Moogle) lists each place
+  under its own heading, from the top, scrolling for the rest.
+- When the game ends, a window says who won, with **Play Again**, **View Board** and
+  **Menu**. **View Board** hides it to look over the final board; **Show Results**, just
+  under the log bar (under the log while it is open), brings it back.
 
 ## Controls
 
@@ -304,7 +323,8 @@ The full guide to the game's screens and controls. For a quick start, see the
 | `Ctrl+Shift` (the two alone, then let go) | full control on or off (see [The stack and your stops](#the-stack-and-your-stops)) |
 | `Alt+Enter` (`Option+Enter` on a Mac) | fullscreen on or off |
 | Hover a card | full-size view |
-| Right-click a card (in your hand, on the table, on the stack, or in a graveyard or exile window) | bigger view that stays up; left-click off it to close (over that window, the first click closes the view and the next the window) |
+| Right-click a card (in your hand, on the table, on the stack, or in a graveyard or exile window) | bigger view that stays up; left-click off it to close (over that window, the first click closes the view and the next the window). A double-faced card has a **Front** / **Back** pill under it: click to turn it over and read the other face |
+| `F6` | pass priority until the end of this turn, or stop passing (see [The stack and your stops](#the-stack-and-your-stops)) |
 | Right-click a graveyard | look through it, or see that it's empty; hovering the pile shows its top card |
 | Right-click the well | look through the exile: everyone's exiled cards, under each owner's name |
 | Click a mat, the well or a path | the board answers: a splash and a soft splash sound in the well, a puff of dust off the leather, chips off the wood, sparks off the slate, lint off the cloth, a little dust off the flagstones, each with its own soft sound. It does nothing in the game. |
@@ -313,12 +333,16 @@ The full guide to the game's screens and controls. For a quick start, see the
 
 The log is at the top of the screen, in the middle, under one bar; point at a button on it
 (or tab to it) for its name. **Log**, the bar's left half, folds the log open under the bar
-and away again (it starts folded). On the right:
+and away again (it starts folded). The bar and the open log sit over everything else,
+pop-up windows included, so you can read the log whatever is up; only the card preview
+and the cover that passes the screen go over it. On the right:
 
 - **Pause** (‖, a table's game only) pauses the game for everyone at the table.
 - **Settings** (the gear) opens a small panel: **Bot speed** (1×, 2×, 4×), **Sound** and
-  **Music** (each a mute button and a volume slider), and **Combat damage**, Auto or By
-  hand, for dividing an attacker's damage among its blockers or trampling over. `Esc` or a
+  **Music** (each a mute button and a volume slider), **Combat damage**, Auto or By
+  hand, for dividing an attacker's damage among its blockers or trampling over, and
+  **Stops: Reset to default**, which puts your stops back to the defaults (dimmed while
+  they already are). `Esc` or a
   click elsewhere closes it. **Hotkeys**, at the panel's foot, opens a window listing every
   key and mouse control in this table. The game takes no keys while it's open: `Esc`,
   **Close** or a click outside it closes it.
@@ -339,7 +363,7 @@ whole side instead, curving round the well. Each mat is a dark material with a b
 worked into it, in turn order from yours: worn leather with stitching, oak planks, slate
 slabs with a brass line, and a woven cloth with a gold trim. Where the paths between them
 cross is a well with a low cobblestone wall, which is the exile: its green-blue water, rippling
-and catching the torchlight, turns in a slow whirlpool with streaks of foam. Torches burn on the
+and catching the torchlight, turns in a slow whirlpool with streaks of foam, carrying the exiled cards round with it. Torches burn on the
 walls either side of the play area. Each opponent holds their hand up at the back of their mat,
 fanned out, backs to you, with its count at its foot. Everything plays the
 same: hover a card to read it, click it, drag from your hand, right-click a graveyard or the

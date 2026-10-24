@@ -5,9 +5,9 @@ import type { MouseEvent } from 'react';
 import { describe, expect, it } from 'vitest';
 import './fixtures';
 import { hoverHandCard, leaveHandCard, useStore } from '../src/ui/store';
-import { hoverProps } from '../src/ui/util';
+import { arrowsFrom, edgeToward, hoverProps } from '../src/ui/util';
 import { activateFromHand, buildView, clickGroup, chooseEscape, chooseGraveyardTarget, clickPermanent, clickPlayer, clickStackItem, exileForMana, manaOptions, pickAbility, pickMana, pickManaSacrifice, pickFace, pickMode, playHandCard, setAbilityX, setChoices, stackTucked, undo, setPayLife } from '../src/ui/view';
-import { applyAction, canCast, createToken, data, isCreature, isLand, makeCard, scriptOf } from '../src/engine';
+import { applyAction, canCast, createToken, data, defaultStops, isCreature, isLand, makeCard, scriptOf } from '../src/engine';
 import { registerScripts } from '../src/engine/registry';
 import { parseCard, scriptCards } from '../src/cards/oracle';
 import { cardData, registerCards } from '../src/cards/db';
@@ -947,6 +947,36 @@ describe('stops and full control in the UI (117.3)', () => {
   });
 });
 
+describe('passing to the end of the turn (F6) and resetting the stops', () => {
+  it('passes at once and through the turn, then the next turn stops as usual', () => {
+    play((d) => {
+      put(d, 0, 'Solitude', 'hand');
+      put(d, 0, 'Swords to Plowshares', 'hand');
+    });
+    const turn = game().turn;
+    useStore.getState().setPassTurn(true);
+    expect(useStore.getState().passTurn).toEqual({ 0: turn });
+    // Beginning of combat and main 2 would have stopped (Solitude can always be cast); the next player's upkeep does.
+    expect([game().active, game().step, game().priority]).toEqual([1, 'upkeep', 0]);
+    // Off again, it passes nothing by itself.
+    useStore.getState().setPassTurn(false);
+    expect(useStore.getState().passTurn).toEqual({});
+    expect([game().active, game().step]).toEqual([1, 'upkeep']);
+  });
+
+  it('puts the stops back to the defaults', () => {
+    const saved = useStore.getState().stops;
+    try {
+      useStore.getState().setStop(0, 'upkeep', 'always');
+      expect(useStore.getState().stops[0].upkeep).toBe('always');
+      useStore.getState().resetStops();
+      expect(useStore.getState().stops).toEqual(defaultStops(0));
+    } finally {
+      useStore.setState({ stops: saved });
+    }
+  });
+});
+
 describe('a fetch land in the main phase (117.3b)', () => {
   it.each(['hand script', 'Oracle template'])('after the search the human still has priority in main 1 (%s)', (source) => {
     const hand = scriptOf('Polluted Delta');
@@ -1512,5 +1542,29 @@ describe('tapping permanents for a cost, and proliferating, in the UI', () => {
     useStore.getState().act({ type: 'chooseCards', cards: choice.cards, players: [1] });
     expect(byName(game(), 0, 'Elvish Mystic')!.counters['+1/+1']).toBe(2);
     expect(game().players[1].counters?.poison).toBe(3);
+  });
+});
+
+describe("a stack item's target arrows", () => {
+  it('come from the stack item the pointer is on, or else the top of the stack', () => {
+    play((d) => {
+      d.stack.push({ id: 's1', kind: 'spell', controller: 1, card: makeCard(d, 'Shock', 1, 'hand'), targets: [{ kind: 'player', id: 0 }] });
+      d.stack.push({ id: 's2', kind: 'spell', controller: 2, card: makeCard(d, 'Shock', 2, 'hand'), targets: [{ kind: 'player', id: 1 }] });
+    });
+    expect(arrowsFrom(game(), null)).toBe('s2');
+    expect(arrowsFrom(game(), 's1')).toBe('s1');
+    // Something no longer on the stack: the top again.
+    expect(arrowsFrom(game(), 'gone')).toBe('s2');
+    play(() => {});
+    expect(arrowsFrom(game(), null)).toBe(null);
+  });
+
+  it('start on the side of the card that faces the target', () => {
+    const box = { left: 0, top: 0, width: 100, height: 140 };
+    expect(edgeToward(box, 300, 70)).toEqual({ x: 100, y: 70 });
+    expect(edgeToward(box, 50, -500)).toEqual({ x: 50, y: 0 });
+    expect(edgeToward(box, 50 - 200, 70 + 200)).toEqual({ x: 0, y: 120 });
+    // A target inside the card: from where it is.
+    expect(edgeToward(box, 60, 80)).toEqual({ x: 60, y: 80 });
   });
 });

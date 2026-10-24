@@ -1320,6 +1320,28 @@ button {
   line-height: 1;
 }
 
+/*
+  A hybrid symbol's two halves are placed by the mana font for its own taller line, so the
+  line above lifts the top half out of the round: place each half on its own side of the
+  diagonal again, in the halves' em (the round is about 2.36 of them across).
+*/
+.hand-cost .ms-hybrid::before,
+.hand-cost .ms-hybrid::after {
+  width: 1em;
+  line-height: 1;
+  text-align: center;
+}
+
+.hand-cost .ms-hybrid::before {
+  top: 0.3em;
+  left: 0.32em;
+}
+
+.hand-cost .ms-hybrid::after {
+  top: 1.08em;
+  left: 1.06em;
+}
+
 .hand-card :is(img, .text-card) {
   display: block;
   width: 100%;
@@ -1823,6 +1845,50 @@ button {
   filter: drop-shadow(0 0.1rem 0.5rem var(--deck));
 }
 
+/*
+  F6, after the arrows and set a little apart: pass priority until the end of this turn. Gold,
+  and lit while it is on; the key's name sits under the symbol.
+*/
+.seat-arrow.pass-turn {
+  --deck: var(--gold);
+  --turn: 0deg;
+  /* Beside the row, so the arrows stay centred over the plate. */
+  position: absolute;
+  left: calc(100% + 2.2rem);
+  top: 0;
+}
+
+.seat-arrow.pass-turn svg {
+  width: 2.6rem;
+  height: 2.6rem;
+  translate: 0 -0.5rem;
+}
+
+.pass-turn-key {
+  position: absolute;
+  bottom: 0.35rem;
+  left: 0;
+  right: 0;
+  font: 700 1rem var(--sans);
+  letter-spacing: 0.08rem;
+  color: color-mix(in srgb, var(--deck) 70%, #2a303b);
+}
+
+.seat-arrow.pass-turn.on {
+  box-shadow: 0 0 1.6rem var(--gold-glow);
+}
+
+.seat-arrow.pass-turn.on .pass-turn-key {
+  color: var(--gold-light);
+}
+
+/* Under the tracker while F6 is on, like the full control tag, in gold. */
+.full-control.passing {
+  color: #1a1406;
+  background: var(--gold-light);
+  box-shadow: 0 0 0.8rem var(--gold-glow);
+}
+
 /* A player who is out: their arrow stays, so the row keeps its order, but goes dark. */
 .seat-arrow:disabled svg {
   fill: #232831;
@@ -1924,7 +1990,9 @@ button {
 /*
   The top of the screen, in the middle, between the top seats' piles: one bar, with the log
   folding open under it. Its left half folds the log, its right half holds the game's
-  controls (pause, the settings with the sound, exit).
+  controls (pause, the settings with the sound, exit). It is over everything but the card
+  preview and the cover that passes the screen: the pop-up windows (150), the vote banner
+  (160) and the results, so the log can be opened and read whatever is up.
 */
 .log {
   position: absolute;
@@ -1932,7 +2000,7 @@ button {
   top: 1.3rem;
   translate: -50% 0;
   width: 25rem;
-  z-index: 20;
+  z-index: 170;
 }
 
 .log-bar {
@@ -2140,6 +2208,25 @@ button {
   background: var(--gold-light);
 }
 
+/* Puts the stops back to the defaults: one button in the segmented controls' well. */
+.reset-stops {
+  padding: 0.65rem 0.4rem;
+  font-size: 1.25rem;
+  color: var(--text-soft);
+  background: var(--sunken);
+  border: 0.1rem solid var(--edge);
+  border-radius: 0.7rem;
+}
+
+.reset-stops:hover:not(:disabled) {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.reset-stops:disabled {
+  opacity: 0.5;
+}
+
 /* ---------- sound ---------- */
 
 /* A mute button and volume slider: in the settings popover, and on the menu's top bar. */
@@ -2266,6 +2353,12 @@ button {
   height: 100%;
   pointer-events: none;
   z-index: 19;
+}
+
+/* A stack item's targets: over the card preview (200) that opens beside a hovered stack card. */
+.arrows.targets {
+  position: fixed;
+  z-index: 201;
 }
 
 .line-attack,
@@ -2599,6 +2692,60 @@ button {
   animation: appear 0.1s both;
 }
 
+/* A double-faced card turns over about its upright middle, seen in a little perspective. */
+.preview.pinned {
+  perspective: 120rem;
+}
+
+.preview-face {
+  backface-visibility: hidden;
+}
+
+/*
+  Under a pinned double-faced card: Front and Back, the face showing lit, to turn it over
+  (712.6). It hangs below the card, over the darkened table.
+*/
+.flip-pill {
+  position: absolute;
+  top: calc(100% + 1.4rem);
+  left: 50%;
+  translate: -50% 0;
+  display: flex;
+  padding: 0.3rem;
+  background: var(--panel);
+  border: 0.1rem solid var(--edge);
+  border-radius: 2.4rem;
+  box-shadow: var(--shadow-xl);
+}
+
+.flip-pill button {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.7rem 1.8rem;
+  font: 600 1.5rem var(--sans);
+  color: var(--text-soft);
+  background: none;
+  border: none;
+  border-radius: 2rem;
+  transition: background 0.15s, color 0.15s;
+}
+
+.flip-pill button:hover {
+  color: #fff;
+}
+
+.flip-pill button.on {
+  color: #1a1408;
+  background: var(--gold-light);
+}
+
+.flip-icon {
+  width: 1.6rem;
+  height: 1.6rem;
+  fill: currentColor;
+}
+
 .preview :is(img, .text-card) {
   display: block;
   width: 100%;
@@ -2730,7 +2877,13 @@ button {
   /* One column: wrapping would start a second column beside the first when the groups are taller than the window. */
   flex-wrap: nowrap;
   align-items: stretch;
+  /* From the top: centred, groups taller than the window would spill over the top, out of reach of the scroll. */
+  justify-content: flex-start;
   gap: 1.6rem;
+}
+
+.picker-cards.grouped > .picker-group {
+  flex-shrink: 0;
 }
 
 .picker-group h3 {
@@ -2951,15 +3104,24 @@ button {
   gap: 2rem;
 }
 
-/* Brings the game-over screen back after "View Board". Top centre, clear of every seat's controls. */
+/*
+  Brings the game-over screen back after "View Board". Top centre, clear of every seat's
+  controls, just under the log bar (1.3rem + 3.6rem), or under its lines (32.6rem more) while
+  the log is open.
+*/
 .results-show {
   position: absolute;
   left: 0;
   right: 0;
-  top: 2rem;
+  top: 6.3rem;
   width: fit-content;
   margin: 0 auto;
   z-index: 150;
+  transition: top 0.28s cubic-bezier(0.25, 1, 0.5, 1);
+}
+
+.results-show.under-log {
+  top: 38.9rem;
 }
 
 .confirm {

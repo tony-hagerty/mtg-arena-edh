@@ -1,6 +1,6 @@
 // The 3D table's board (src/ui/three/board.ts): four mats, each a seat's battlefield, around the well that is the exile.
 import { describe, expect, it } from 'vitest';
-import { PILE, POND_CLEAR, bedAt, bedDistance, bedMaps, gardenPlan, seatArea } from '../src/ui/three/board';
+import { PILE, POND_CLEAR, POND_R, SWIRL_MAX, bedAt, bedDistance, bedMaps, gardenPlan, seatArea, wellSwirl } from '../src/ui/three/board';
 import { camera, tableHeight, DEPTH } from '../src/ui/camera';
 import { floorMaps } from '../src/ui/three/floor';
 import type { Seat } from '../src/ui/util';
@@ -169,5 +169,30 @@ describe('floorMaps', () => {
     const share = dirt / (a.width * a.height);
     expect(share).toBeGreaterThan(0.03);
     expect(share).toBeLessThan(0.5);
+  });
+});
+
+describe('the exile swirling in the well (wellSwirl)', () => {
+  it('circles a few cards half way out, evenly round', () => {
+    const { w, slots } = wellSwirl(3, POND_R);
+    expect(w).toBe(5.5);
+    expect(slots.map((s) => s.r)).toEqual([POND_R / 2, POND_R / 2, POND_R / 2]);
+    expect(slots[1].a - slots[0].a).toBeCloseTo((2 * Math.PI) / 3);
+  });
+
+  it('winds more along a spiral from the wall in, newest outermost, every card inside the water', () => {
+    for (const n of [5, 12, 24, SWIRL_MAX]) {
+      const { w, slots } = wellSwirl(n, POND_R);
+      expect(slots).toHaveLength(n);
+      // Smaller as they crowd, never tiny.
+      expect(w).toBeGreaterThanOrEqual(3);
+      for (let i = 1; i < n; i++) {
+        expect(slots[i].r).toBeLessThan(slots[i - 1].r);
+        expect(slots[i].a).toBeGreaterThan(slots[i - 1].a);
+      }
+      // A card's far corner stays inside the water.
+      expect(slots[0].r + Math.hypot(w / 2, (w * 1.4) / 2)).toBeLessThanOrEqual(POND_R);
+      expect(slots[n - 1].r).toBeGreaterThan(0);
+    }
   });
 });

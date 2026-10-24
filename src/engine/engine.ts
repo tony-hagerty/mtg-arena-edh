@@ -3304,7 +3304,7 @@ const drafted: Update = (g, change) => produce(g, change);
  * changes are the same, in the same order. `stable`: it ended giving a player priority with
  * the state-based actions checked and nothing to do.
  */
-function settle(g: Game, update: Update, autoPass: boolean, stops: ApplyOptions['stops'] = {}, fullControl: PlayerId[] = [], released: PlayerId | null = null, checked = false): { g: Game; stable: boolean } {
+function settle(g: Game, update: Update, autoPass: boolean, stops: ApplyOptions['stops'] = {}, fullControl: PlayerId[] = [], released: PlayerId | null = null, checked = false, passTurn: ApplyOptions['passTurn'] = {}): { g: Game; stable: boolean } {
   for (let guard = 0; guard < 5000; guard++) {
     // A spell or ability is waiting on a choice partway through resolving. Nothing else
     // happens until it has finished, not even state-based actions (608.2).
@@ -3342,7 +3342,9 @@ function settle(g: Game, update: Update, autoPass: boolean, stops: ApplyOptions[
       });
     }
     const full = fullControl.includes(g.priority) && released !== g.priority;
-    if (!autoPass || wantsPriority(g, g.priority, stops[g.priority], full)) return { g, stable: checked };
+    // Passing to the end of the turn (F6) passes every time, stops, the stack and full control or not.
+    const passing = passTurn[g.priority] === g.turn;
+    if (!autoPass || (!passing && wantsPriority(g, g.priority, stops[g.priority], full))) return { g, stable: checked };
     let moved = false;
     g = update(g, (d) => {
       moved = passPriority(d);
@@ -3373,11 +3375,18 @@ export interface ApplyOptions {
    * `hold`. People only: a UI setting, like the stops.
    */
   fullControl?: PlayerId[];
+  /**
+   * Players passing priority until the end of a turn (F6, as on MTGO), by player id: the turn
+   * (`Game.turn`) they pass through. The game passes for them every time they would get
+   * priority in it, whatever is on the stack; decisions (attackers, blockers, choices) are
+   * still theirs. People only, like the stops.
+   */
+  passTurn?: Partial<Record<PlayerId, number>>;
   /** A bot is only trying the move out: auto-pay skips its lookahead to stay fast (see `pay`). */
   simulate?: boolean;
 }
 
-export function applyAction(g: Game, a: Action, { autoPass = true, stops, fullControl, simulate }: ApplyOptions = {}): Game {
+export function applyAction(g: Game, a: Action, { autoPass = true, stops, fullControl, passTurn, simulate }: ApplyOptions = {}): Game {
   // A person choosing about replacement effects (616.1): the action they stopped is applied
   // again from where it began, with their answer.
   if (g.decision?.type === 'replacement') {
@@ -3388,14 +3397,14 @@ export function applyAction(g: Game, a: Action, { autoPass = true, stops, fullCo
       d.priority = r.priority;
       delete d.replay;
     });
-    return attempt(before, r.action, { autoPass: r.autoPass, stops: r.stops as ApplyOptions['stops'], fullControl: r.fullControl }, [...r.answers, a.option], simulate);
+    return attempt(before, r.action, { autoPass: r.autoPass, stops: r.stops as ApplyOptions['stops'], fullControl: r.fullControl, passTurn: r.passTurn }, [...r.answers, a.option], simulate);
   }
   if (a.type === 'replacement') return g;
   if (a.type === 'untapMana') {
-    const back = rewindMana(g, a.card, { autoPass, stops, fullControl, simulate });
+    const back = rewindMana(g, a.card, { autoPass, stops, fullControl, passTurn, simulate });
     if (back) return back;
   }
-  return rememberMana(g, a, attempt(g, a, { autoPass, stops, fullControl }, [], simulate));
+  return rememberMana(g, a, attempt(g, a, { autoPass, stops, fullControl, passTurn }, [], simulate));
 }
 
 /**
@@ -3441,8 +3450,8 @@ function rewindMana(g: Game, card: string, opts: ApplyOptions): Game | null {
 }
 
 /** Applies `a`, with these answers to the replacement questions it asks (`NeedsChoice`); stops to ask the next one. */
-function attempt(g: Game, a: Action, opts: Required<Pick<ApplyOptions, 'autoPass'>> & Pick<ApplyOptions, 'stops' | 'fullControl'>, answers: number[], simulate?: boolean): Game {
-  const { autoPass, stops, fullControl } = opts;
+function attempt(g: Game, a: Action, opts: Required<Pick<ApplyOptions, 'autoPass'>> & Pick<ApplyOptions, 'stops' | 'fullControl' | 'passTurn'>, answers: number[], simulate?: boolean): Game {
+  const { autoPass, stops, fullControl, passTurn } = opts;
   // Casting or activating without `hold` lets priority pass on, even in full control (117.3c).
   const released = (a.type === 'cast' || a.type === 'activate') && !a.hold ? g.priority : null;
   const run = () => {
@@ -3454,7 +3463,7 @@ function attempt(g: Game, a: Action, opts: Required<Pick<ApplyOptions, 'autoPass
       legal = act(draft, a);
     });
     if (!legal) return acted;
-    const { g: next, stable } = settle(acted, drafted, autoPass, stops, fullControl, released, checked && passedOn);
+    const { g: next, stable } = settle(acted, drafted, autoPass, stops, fullControl, released, checked && passedOn, passTurn);
     if (stable && next !== g) sbaChecked.add(next);
     return next;
   };
@@ -3464,7 +3473,7 @@ function attempt(g: Game, a: Action, opts: Required<Pick<ApplyOptions, 'autoPass
   } catch (e) {
     if (!(e instanceof NeedsChoice)) throw e;
     return produce(g, (d) => {
-      d.replay = { action: a, autoPass, stops, ...(fullControl?.length ? { fullControl } : {}), answers, decision: g.decision, priority: g.priority };
+      d.replay = { action: a, autoPass, stops, ...(fullControl?.length ? { fullControl } : {}), ...(passTurn && Object.keys(passTurn).length ? { passTurn } : {}), answers, decision: g.decision, priority: g.priority };
       d.decision = { type: 'replacement', ask: e.choice };
       d.priority = e.choice.player;
     });

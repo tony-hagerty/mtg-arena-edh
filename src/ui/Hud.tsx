@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import type { CSSProperties, ReactNode } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
-import { cardData } from '../cards/db';
-import { data, findCard, label, triggerText } from '../engine';
+import { cardData, doubleFaces } from '../cards/db';
+import { data, defaultStops, findCard, label, triggerText } from '../engine';
 import type { CardData, Game, LogEntry, Player, PlayerId, Step, StopKind } from '../engine';
 import { CardImage, ManaCost, frameOf } from './TextCard';
 import { hotkeys } from './hotkeys';
@@ -11,7 +11,7 @@ import { play } from './sound';
 import { MusicControl, SoundControl } from './SoundControl';
 import { useStore } from './store';
 import type { Hover } from './store';
-import { type Seat, cx, deckColor, faceUp, hoverProps, seatOf } from './util';
+import { type Seat, arrowsFrom, cx, deckColor, edgeToward, faceUp, hoverProps, seatOf } from './util';
 import { STEP_NAMES, activateFromHand, cancel, clickStackItem, stackTucked, pickAbility, pickAbilityMode, pickMana, pickTapCreature, pickTriggeredMana, useForMana, pickManaDiscard, pickManaSacrifice, pickFace, pickMode, playHandCard, setAbilityX, setChoices, setPayLife, shiftDivision, undo, exileForMana, plotCard, useView } from './view';
 import type { AbilityOption, Btn } from './view';
 import { leftStack, newGame } from './zone-moves';
@@ -83,6 +83,7 @@ function PhaseTracker() {
   const stops = useStore((s) => s.stops);
   const setStop = useStore((s) => s.setStop);
   const fullControl = useStore((s) => s.fullControl);
+  const passing = useStore((s) => me !== null && s.passTurn[me] === g.turn && g.step !== 'gameOver');
   const [seat, setSeat] = useState<PlayerId | null>(null);
   const [open, setOpen] = useState<number | null>(null);
   const root = useRef<HTMLDivElement>(null);
@@ -128,6 +129,20 @@ function PhaseTracker() {
                 </svg>
               </button>
             ))}
+          {/* F6, as on MTGO: pass priority until the end of this turn. */}
+          <button
+            className={cx('seat-arrow pass-turn', passing && 'on')}
+            aria-pressed={passing}
+            disabled={g.step === 'gameOver' || g.players[me].lost}
+            title={passing ? 'Passing priority until the end of this turn. Click or F6 to stop.' : 'Pass priority until the end of this turn (F6). You are still asked to declare attackers and blockers and to make choices.'}
+            onClick={() => useStore.getState().setPassTurn(!passing)}
+          >
+            <svg viewBox="0 0 24 24">
+              <path d="M3 5.5v13L11.5 12Zm8.5 0v13L20 12Z" />
+              <rect x="19.5" y="5.5" width="2" height="13" rx="0.6" />
+            </svg>
+            <span className="pass-turn-key">F6</span>
+          </button>
         </div>
       )}
       <div className="phase-main">
@@ -168,6 +183,11 @@ function PhaseTracker() {
         </div>
         <div className="phase-label">
           {editing !== null ? `Stops on ${whose(editing)} turns` : `Turn ${g.turn} · ${g.players[g.active].name} · ${STEP_NAMES[g.step]}`}
+          {passing && (
+            <button className="full-control passing" title="Passing priority until the end of this turn (F6). Click or F6 to stop." onClick={() => useStore.getState().setPassTurn(false)}>
+              Passing turn
+            </button>
+          )}
           {fullControl && me !== null && (
             <button
               className="full-control"
@@ -236,6 +256,14 @@ export function ActionBar() {
         if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
         e.preventDefault();
         if (!e.repeat && undo()) play('cancel');
+        return;
+      }
+      // F6, as on MTGO: pass priority until the end of this turn, or stop passing.
+      if (e.code === 'F6') {
+        e.preventDefault();
+        const s = useStore.getState();
+        const { g, me } = latest.current;
+        if (!e.repeat && me !== null && g.step !== 'gameOver' && !g.players[me].lost) s.setPassTurn(s.passTurn[me] !== g.turn);
         return;
       }
       const { primary, secondary, paying } = latest.current;
@@ -776,6 +804,30 @@ function Segmented<T>({ options, value, onChange, label }: { options: { value: T
   );
 }
 
+/** Puts the stops back to the defaults; says so for a moment after, and is dimmed while they already are. */
+function ResetStops() {
+  const stops = useStore((s) => s.stops);
+  const [done, setDone] = useState(false);
+  useEffect(() => {
+    if (!done) return;
+    const t = setTimeout(() => setDone(false), 1500);
+    return () => clearTimeout(t);
+  }, [done]);
+  const same = JSON.stringify(stops) === JSON.stringify(defaultStops(0));
+  return (
+    <button
+      className="reset-stops"
+      disabled={same && !done}
+      onClick={() => {
+        useStore.getState().resetStops();
+        setDone(true);
+      }}
+    >
+      {done ? 'Stops reset' : 'Reset to default'}
+    </button>
+  );
+}
+
 const DAMAGE_TIP = 'When an attacker of yours is blocked by two or more creatures, or has trample, choose how its damage is divided';
 
 /**
@@ -847,6 +899,12 @@ function GameSettings() {
                   onChange={(v) => useStore.getState().setSetting({ manualDamage: v })}
                   label="Divide combat damage"
                 />
+              </div>
+            )}
+            {human !== null && (
+              <div className="setting" title="Put your stops back to how they start: on your turn, both main phases, and beginning of combat and after blockers if you can act; on other turns, upkeep, attackers, blockers and end step if you can act">
+                <span className="setting-name">Stops</span>
+                <ResetStops />
               </div>
             )}
             <button
@@ -1065,10 +1123,19 @@ function cardAt(game: Game | null, at: Element | null) {
   return el && card ? { name: card.name, d: data(card), el, ...(el.closest('.viewer') && { pinOnly: true }), ...(card.textless && { textless: true }) } : null;
 }
 
+/** Two arrows chasing each other round: turn the card over. */
+function FlipIcon() {
+  return (
+    <svg className="flip-icon" viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M12 4a8 8 0 0 1 7.4 5H22l-3.5 4L15 9h2.2A6 6 0 0 0 6.3 9.8L4.6 8.7A8 8 0 0 1 12 4Zm-7.4 7L8.1 15H5.8a6 6 0 0 0 10.9 1.2l1.7 1.1A8 8 0 0 1 3.6 15H1Z" />
+    </svg>
+  );
+}
+
 /**
  * Big readable copy of whatever card the pointer is over, placed beside it. Right-click a card
  * (one in the hand too) to keep a bigger copy up, over a darkened table, until a left click
- * anywhere off it.
+ * anywhere off it. A pinned double-faced card has a pill under it to turn it over (712.6).
  */
 export function Preview() {
   const hover = useStore((s) => s.hover);
@@ -1077,6 +1144,8 @@ export function Preview() {
   const [pinned, setPinned] = useState<CardData | null>(null);
   /** The pinned card is played without its rules text. */
   const [pinnedTextless, setPinnedTextless] = useState(false);
+  /** A pinned double-faced card turned over to its other face (712.6). */
+  const [flipped, setFlipped] = useState(false);
   const pointer = useRef({ x: -1, y: -1 });
   const shown = useRef<{ left: number; top: number; width: number } | null>(null);
 
@@ -1104,6 +1173,7 @@ export function Preview() {
       if (d) {
         setPinned(d);
         setPinnedTextless(!!hover?.textless);
+        setFlipped(false);
       }
       if (hover || (e.target as Element).closest('.preview-backdrop, .preview')) e.preventDefault();
     };
@@ -1118,8 +1188,12 @@ export function Preview() {
     useStore.setState({ hover: cardAt(game, document.elementFromPoint(pointer.current.x, pointer.current.y)) });
   }, [game, hover]);
 
+  // A pinned double-faced card can be turned over: the face it was pinned on, or the other.
+  const faces = pinned && doubleFaces(pinned.name);
+  const up = faces ? Math.max(0, faces.findIndex((f) => f.name === pinned!.name)) : 0;
+  const face = faces ? faces[flipped ? 1 - up : up] : null;
   // A hand card zooms itself, and the viewer's cards are big already: they only get the pinned preview.
-  const d = pinned ?? (hover && !hover.pinOnly ? hoverData(hover) : null);
+  const d = face ?? pinned ?? (hover && !hover.pinOnly ? hoverData(hover) : null);
   const rem = parseFloat(getComputedStyle(document.documentElement).fontSize);
   const gap = 1.5 * rem;
   if (pinned) {
@@ -1142,9 +1216,22 @@ export function Preview() {
       {/* Always there, so the table fades back in when the preview closes too. */}
       <div className={cx('preview-backdrop', pinned && 'on')} onClick={() => setPinned(null)} />
       {d && shown.current && (
-        <div className={cx('preview', pinned && 'pinned')} key={`${d.name}-${!!pinned}`} style={shown.current}>
-          <CardImage d={d} alt={d.name} />
+        <div className={cx('preview', pinned && 'pinned')} key={`${(pinned ?? d).name}-${!!pinned}`} style={shown.current}>
+          {/* Turning over: the new face swings in from edge-on. */}
+          <motion.div key={d.name} className="preview-face" initial={faces ? { rotateY: flipped ? -90 : 90 } : false} animate={{ rotateY: 0 }} transition={{ duration: 0.2, ease: 'easeOut' }}>
+            <CardImage d={d} alt={d.name} />
+          </motion.div>
           {(pinned ? pinnedTextless : hover?.textless) && <div className="preview-textless">No rules text here: the game can't read this card yet, so it plays as a plain card.</div>}
+          {faces && (
+            <div className="flip-pill" role="radiogroup" aria-label="Face">
+              {faces.map((f, i) => (
+                <button key={f.name} role="radio" aria-checked={d.name === f.name} className={cx(d.name === f.name && 'on')} title={f.name} onClick={() => setFlipped(i !== up)}>
+                  {i === 0 && <FlipIcon />}
+                  {i === 0 ? 'Front' : 'Back'}
+                </button>
+              ))}
+            </div>
+          )}
         </div>
       )}
     </>
@@ -1261,29 +1348,55 @@ export function SpellFlash() {
   );
 }
 
-/** Lines from attackers to the player they attack, from blockers to what they block, and from the stack to targets. */
+/**
+ * Lines from attackers to the player they attack and from blockers to what they block, and
+ * from one spell or ability on the stack to its targets: the one the pointer is on, or else
+ * the top of the stack (`arrowsFrom`).
+ */
 export function ArrowLayer() {
   const g = useView().g;
-  const svg = useRef<SVGSVGElement>(null);
-  const arrows = (g.combat?.attacks ?? []).flatMap((a) => [
+  const combat = (g.combat?.attacks ?? []).flatMap((a): Arrow[] => [
     {
       key: `a-${a.id}-${a.defender}-${a.target}`,
       from: `[data-card="${a.id}"]`,
       to: a.target ? `[data-card="${a.target}"]` : `[data-avatar="${a.defender}"]`,
       kind: 'attack',
     },
-    ...a.blockers.map((b) => ({ key: `b-${b}-${a.id}`, from: `[data-card="${b}"]`, to: `[data-card="${a.id}"]`, kind: 'block' })),
+    ...a.blockers.map((b): Arrow => ({ key: `b-${b}-${a.id}`, from: `[data-card="${b}"]`, to: `[data-card="${a.id}"]`, kind: 'block' })),
   ]);
-  for (const item of g.stack) {
-    for (const t of item.targets) {
-      if (!t) continue;
-      const to = t.kind === 'card' ? `[data-card="${t.id}"]` : t.kind === 'stack' ? `[data-stack="${t.id}"]` : `[data-avatar="${t.id}"]`;
-      arrows.push({ key: `t-${item.id}-${t.kind}-${t.id}`, from: `[data-stack="${item.id}"]`, to, kind: 'target' });
-    }
-  }
+  // What one spell or ability on the stack targets: the one the pointer is on, or else the top one.
+  const hovered = useStore((s) => s.hover?.el.closest<HTMLElement>('[data-stack]')?.dataset.stack ?? null);
+  const item = g.stack.find((x) => x.id === arrowsFrom(g, hovered));
+  const targets = (item?.targets ?? []).flatMap((t): Arrow[] => {
+    if (!t) return [];
+    const to = t.kind === 'card' ? `[data-card="${t.id}"]` : t.kind === 'stack' ? `[data-stack="${t.id}"]` : `[data-avatar="${t.id}"]`;
+    return [{ key: `t-${item!.id}-${t.kind}-${t.id}`, from: `[data-stack="${item!.id}"]`, to, kind: 'target', edge: true }];
+  });
+  return (
+    <>
+      <Arrows arrows={combat} />
+      {/* Over the card preview, which opens beside the hovered stack card: the arrows cross it to their targets. */}
+      <Arrows arrows={targets} className="targets" />
+    </>
+  );
+}
+
+interface Arrow {
+  key: string;
+  /** Selectors for the elements it joins. */
+  from: string;
+  to: string;
+  kind: 'attack' | 'block' | 'target';
+  /** It starts on the edge of `from` that faces its target (`edgeToward`), not in its middle. */
+  edge?: boolean;
+}
+
+/** Arrows between elements on the screen, following them as they move. */
+function Arrows({ arrows, className }: { arrows: Arrow[]; className?: string }) {
+  const svg = useRef<SVGSVGElement>(null);
   const signature = arrows.map((a) => a.key).join();
 
-  // Cards animate into place, so follow them every frame while combat is on screen.
+  // Cards animate into place, so follow them every frame while there are arrows.
   useEffect(() => {
     if (!signature) return;
     let raf = 0;
@@ -1295,10 +1408,10 @@ export function ArrowLayer() {
           const a = document.querySelector(p.dataset.from!)?.getBoundingClientRect();
           const b = document.querySelector(p.dataset.to!)?.getBoundingClientRect();
           if (!a || !b) return p.getAttribute('d') && p.setAttribute('d', '');
-          const x1 = a.left + a.width / 2 - box.left;
-          const y1 = a.top + a.height / 2 - box.top;
           const x2 = b.left + b.width / 2 - box.left;
           const y2 = b.top + b.height / 2 - box.top;
+          const start = p.dataset.edge ? edgeToward({ left: a.left - box.left, top: a.top - box.top, width: a.width, height: a.height }, x2, y2) : { x: a.left + a.width / 2 - box.left, y: a.top + a.height / 2 - box.top };
+          const { x: x1, y: y1 } = start;
           const len = Math.hypot(x2 - x1, y2 - y1) || 1;
           const trim = Math.min(b.width, b.height) * 0.5;
           const ex = x2 - ((x2 - x1) / len) * trim;
@@ -1316,16 +1429,16 @@ export function ArrowLayer() {
   }, [signature]);
 
   return (
-    <svg ref={svg} className="arrows">
+    <svg ref={svg} className={cx('arrows', className)}>
       <defs>
         {['attack', 'block', 'target'].map((kind) => (
-          <marker key={kind} id={`head-${kind}`} viewBox="0 0 10 10" refX="7" refY="5" markerWidth="4" markerHeight="4" orient="auto-start-reverse">
+          <marker key={kind} id={`head-${kind}${className ? `-${className}` : ''}`} viewBox="0 0 10 10" refX="7" refY="5" markerWidth="4" markerHeight="4" orient="auto-start-reverse">
             <path d="M0 0 10 5 0 10Z" className={`head-${kind}`} />
           </marker>
         ))}
       </defs>
       {arrows.map((a) => (
-        <path key={a.key} data-from={a.from} data-to={a.to} className={`line-${a.kind}`} markerEnd={`url(#head-${a.kind})`} />
+        <path key={a.key} data-from={a.from} data-to={a.to} data-edge={a.edge ? '1' : undefined} className={`line-${a.kind}`} markerEnd={`url(#head-${a.kind}${className ? `-${className}` : ''})`} />
       ))}
     </svg>
   );
@@ -1417,9 +1530,10 @@ function Results() {
   // At a table, only the host starts the next game, through the lobby; it arrives as a new view.
   const again = !tableGame ? () => start(deck) : table?.role === 'hosting' && lobby ? () => void lobby.start().catch((err) => console.warn('Lobby:', err)) : null;
   const [hidden, setHidden] = useState(false);
+  const logOpen = useStore((s) => s.showLog);
   if (hidden) {
     return (
-      <button className="btn btn-go small results-show" onClick={() => setHidden(false)}>
+      <button className={cx('btn btn-go small results-show', logOpen && 'under-log')} onClick={() => setHidden(false)}>
         <span className="btn-label">Show Results</span>
       </button>
     );
