@@ -2,6 +2,7 @@
 // fetch here, never the real API), scripting them from their Oracle text, refusing what
 // the parser can't read, and writing the refusals down for docs/card-requests.json.
 import { describe, expect, it } from 'vitest';
+import { readFileSync } from 'node:fs';
 import { DECKS, cardData } from '../src/cards/db';
 import type { DeckDef } from '../src/cards/db';
 import { checkList, poolName, savedDeckIssues } from '../src/cards/decklist';
@@ -266,5 +267,14 @@ describe('card requests (docs/card-requests.json)', () => {
     const file = readRequests(JSON.stringify({ cards: [entry('A', 1, 'd'), { name: 'B' }] }));
     expect(file.cards.map((c) => c.name)).toEqual(['A']);
     expect(removeRequests(file, ['A'])).toEqual({ cards: [] });
+  });
+
+  it('docs/card-requests.json is valid, and every entry in it is read', () => {
+    // readRequests drops what it can't read without a word, so a bad merge (conflict
+    // markers) would empty the file for /script-requested-cards unnoticed.
+    const text = readFileSync(new URL('../docs/card-requests.json', import.meta.url), 'utf8');
+    const raw = JSON.parse(text) as { cards: unknown[] };
+    expect(raw.cards.length).toBeGreaterThan(0);
+    expect(readRequests(text).cards).toHaveLength(raw.cards.length);
   });
 });
