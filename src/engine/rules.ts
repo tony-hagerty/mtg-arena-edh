@@ -802,6 +802,9 @@ export function ownRightToCast(g: Game, pid: PlayerId, c: Card): boolean {
 /** The slot of permission `permit` a cast with these choices uses, if it has slots: the one chosen, or its only one. */
 export const permitSlot = (permit: { p: PlayPermission }, choices: Pick<CastChoices, 'slot'>): string | undefined => choices.slot ?? permit.p.slots?.[0];
 
+/** A permission's slot named for a person: "as an artifact", "as a creature", "as a land" (Muldrotha). */
+export const slotLabel = (slot: string) => `${/^[aeiou]/i.test(slot) ? 'an' : 'a'} ${slot.toLowerCase()}`;
+
 /** The key under which a use of a permission is recorded (`Game.permits`): the permanent as the same object (400.7), and the slot. */
 const permitKey = (self: Card, slot: string) => `${self.id}:${self.moves}:${slot}`;
 

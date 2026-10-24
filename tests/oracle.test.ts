@@ -5,7 +5,7 @@ import { describe, expect, it } from 'vitest';
 import { cardData, registerCards } from '../src/cards/db';
 import { needsScript, parseCard, scriptCards } from '../src/cards/oracle';
 import { parseResults } from '../src/cards/oracle-report';
-import { activatedAt, applyAction, applyBotAction, botAction, castCost, hasScript, isCreature, isLand, legalTargets, makeCard, manaAbilities, permanent, scriptOf, spellTargets, stats } from '../src/engine';
+import { activatedAt, applyAction, applyBotAction, botAction, canCast, canLookAtTop, canPlayLand, castCost, discard, dredgeOf, enterBattlefield, hasScript, isCreature, isLand, landsAllowed, legalTargets, makeCard, manaAbilities, permanent, scriptOf, spellTargets, stats } from '../src/engine';
 import type { Action, ActivatedAbility, Card, CardData, CardScript, Ctx, Game, TargetRef, TargetSpec } from '../src/engine';
 import { registerScripts } from '../src/engine/registry';
 import fixtureData from './fixtures.generated.json';
@@ -1313,5 +1313,142 @@ describe('conditions as it resolves, "that land", "that player", granted mana (6
     expect(manaAbilities(g, byName(g, 0, 'Plains')!).map((m) => m.colors.length)).toEqual([1, 5]);
     expect(manaAbilities(g, byName(g, 1, 'Plains')!).flatMap((m) => m.colors)).toEqual(['W']);
     expect(refusal('Artifact', 'Lands you control have "{T}: Add one mana of any color. Activate only as a sorcery."')).not.toBeNull();
+  });
+});
+
+describe('playing from other zones, extra lands and dredge from Oracle text (601.3, 305.2, 702.52, 702.187)', () => {
+  it('"You may look at the top card of your library any time" shows its controller the top card', () => {
+    teach('Test Augur', 'Creature — Frog', 'You may look at the top card of your library any time.');
+    const g = emptyGame((d) => void put(d, 0, 'Test Augur'));
+    expect(canLookAtTop(g, 0, 0)).toBe(true);
+    expect(canLookAtTop(g, 1, 0)).toBe(false);
+    expect(canLookAtTop(g, 0, 1)).toBe(false);
+    expect(refusal('Creature — Frog', "You may look at the top card of target player's library any time.")).not.toBeNull();
+  });
+
+  it('"Play with the top card of your library revealed" shows it to everyone (Oracle of Mul Daya)', () => {
+    teach('Test Oracle', 'Creature — Elf', 'Play with the top card of your library revealed.');
+    const g = emptyGame((d) => void put(d, 0, 'Test Oracle'));
+    expect(canLookAtTop(g, 1, 0)).toBe(true);
+    expect(canLookAtTop(g, null, 0)).toBe(true);
+    expect(canLookAtTop(g, 0, 1)).toBe(false);
+  });
+
+  it('"You may play lands and cast spells from the top of your library" is a permission to play the top card (601.3, 305.1)', () => {
+    teach('Test Citadel', 'Artifact', 'You may play lands and cast spells from the top of your library.');
+    let g = emptyGame((d) => {
+      put(d, 0, 'Test Citadel');
+      put(d, 0, 'Plains', 'battlefield', 2);
+      d.players[0].library.unshift(makeCard(d, 'Forest', 0, 'library'), makeCard(d, 'Shock', 0, 'library'));
+    });
+    const forest = g.players[0].library[0];
+    expect(canPlayLand(g, 0, forest)).toBe(true);
+    // Only the top card.
+    expect(canCast(g, 0, g.players[0].library[1])).toBe(false);
+    g = run(g, { type: 'playLand', card: forest.id });
+    expect(canCast(g, 0, g.players[0].library[0])).toBe(false); // Shock needs {R}
+    g = produce(g, (d) => void put(d, 0, 'Mountain'));
+    expect(canCast(g, 0, g.players[0].library[0])).toBe(true);
+    expect(refusal('Artifact', "You may play lands and cast spells from the top of an opponent's library.")).not.toBeNull();
+  });
+
+  it('"You may cast artifact spells and colorless spells from the top of your library" casts only those (Mystic Forge)', () => {
+    teach('Test Forge', 'Artifact', 'You may cast artifact spells and colorless spells from the top of your library.');
+    const g = emptyGame((d) => {
+      put(d, 0, 'Test Forge');
+      put(d, 0, 'Plains', 'battlefield', 6);
+      d.players[0].library.unshift(makeCard(d, 'Sol Ring', 0, 'library'));
+    });
+    expect(canCast(g, 0, g.players[0].library[0])).toBe(true);
+    const h = produce(g, (d) => void d.players[0].library.unshift(makeCard(d, 'Serra Angel', 0, 'library')));
+    expect(canCast(h, 0, h.players[0].library[0])).toBe(false);
+    const k = produce(g, (d) => void d.players[0].library.unshift(makeCard(d, 'Forest', 0, 'library')));
+    expect(canPlayLand(k, 0, k.players[0].library[0])).toBe(false);
+  });
+
+  it('"You may play an additional land on each of your turns", "two additional lands", and "this turn" (305.2)', () => {
+    teach('Test Exploration', 'Enchantment', 'You may play an additional land on each of your turns.');
+    teach('Test Azusa', 'Creature — Human Monk', 'You may play two additional lands on each of your turns.');
+    teach('Test Explore', 'Sorcery', 'You may play an additional land this turn. Draw a card.');
+    let g = emptyGame((d) => {
+      put(d, 0, 'Test Exploration');
+      put(d, 0, 'Plains', 'hand', 4);
+      put(d, 0, 'Forest');
+    });
+    expect(landsAllowed(g, 0)).toBe(2);
+    expect(landsAllowed(g, 1)).toBe(1);
+    g = run(g, { type: 'playLand', card: byName(g, 0, 'Plains', 'hand')!.id });
+    g = run(g, { type: 'playLand', card: byName(g, 0, 'Plains', 'hand')!.id });
+    expect(canPlayLand(g, 0, byName(g, 0, 'Plains', 'hand')!)).toBe(false);
+    g = produce(g, (d) => void put(d, 0, 'Test Azusa'));
+    expect(landsAllowed(g, 0)).toBe(4);
+    const h = emptyGame((d) => {
+      put(d, 0, 'Test Explore', 'hand');
+      put(d, 0, 'Forest', 'battlefield', 2);
+      put(d, 0, 'Plains', 'hand', 2);
+    });
+    const after = settle(run(h, { type: 'cast', card: byName(h, 0, 'Test Explore', 'hand')!.id }));
+    expect(landsAllowed(after, 0)).toBe(2);
+    expect(after.players[0].hand.length).toBe(3);
+    expect(refusal('Enchantment', "You may play an additional land on each of an opponent's turns.")).not.toBeNull();
+  });
+
+  it('"Whenever you play a land" triggers on a land played, not one an effect puts onto the battlefield (305.4)', () => {
+    teach('Test Flubs', 'Creature — Frog', 'Whenever you play a land, draw a card.');
+    let g = emptyGame((d) => {
+      put(d, 0, 'Test Flubs');
+      put(d, 0, 'Plains', 'hand');
+    });
+    g = settle(run(g, { type: 'playLand', card: byName(g, 0, 'Plains', 'hand')!.id }));
+    expect(g.players[0].hand).toHaveLength(1);
+    g = produce(g, (d) => enterBattlefield(d, makeCard(d, 'Forest', 0, 'hand'), { controller: 0 }));
+    expect(g.triggers).toHaveLength(0);
+  });
+
+  it('"Whenever this land or another land you control enters, if you control seven or more lands with different names" (Field of the Dead)', () => {
+    teach('Test Field', 'Land', 'Test Field enters tapped.\nWhenever Test Field or another land you control enters, if you control seven or more lands with different names, create a 2/2 black Zombie creature token.\n{T}: Add {C}.');
+    const tokens = (names: string[]) => {
+      let g = emptyGame((d) => {
+        put(d, 0, 'Test Field', 'hand');
+        for (const n of names) put(d, 0, n);
+      });
+      g = settle(run(g, { type: 'playLand', card: byName(g, 0, 'Test Field', 'hand')!.id }));
+      return g.players[0].battlefield.filter((c) => c.isToken).length;
+    };
+    // Itself counts: six other names make seven.
+    expect(tokens(['Plains', 'Island', 'Swamp', 'Mountain', 'Forest', 'Command Tower'])).toBe(1);
+    expect(tokens(['Plains', 'Island', 'Swamp', 'Mountain', 'Forest', 'Forest'])).toBe(0);
+  });
+
+  it('"Land cards in your graveyard have dredge 2" gives dredge to those cards only (702.52a)', () => {
+    teach('Test Bloom', 'Creature — Plant', 'Land cards in your graveyard have dredge 2.');
+    const g = emptyGame((d) => {
+      put(d, 0, 'Test Bloom');
+      put(d, 0, 'Forest', 'graveyard');
+      put(d, 0, 'Serra Angel', 'graveyard');
+      put(d, 1, 'Forest', 'graveyard');
+    });
+    expect(dredgeOf(g, byName(g, 0, 'Forest', 'graveyard')!)).toBe(2);
+    expect(dredgeOf(g, byName(g, 0, 'Serra Angel', 'graveyard')!)).toBeNull();
+    expect(dredgeOf(g, byName(g, 1, 'Forest', 'graveyard')!)).toBeNull();
+    expect(refusal('Creature — Plant', 'Land cards in your graveyard have dredge.')).not.toBeNull();
+  });
+
+  it('"Each nonland card in your graveyard has mayhem" and "spells you cast from your graveyard cost {2} less" (702.187b, 601.2f)', () => {
+    teach('Test Goblin', 'Creature — Goblin', 'Spells you cast from your graveyard cost {2} less to cast.\nEach nonland card in your graveyard has mayhem. The mayhem cost is equal to its mana cost.');
+    let g = emptyGame((d) => {
+      put(d, 0, 'Test Goblin');
+      put(d, 0, 'Serra Angel', 'hand', 2);
+      put(d, 0, 'Plains', 'battlefield', 3);
+    });
+    g = produce(g, (d) => discard(d, d.players[0].hand[0]));
+    const angel = byName(g, 0, 'Serra Angel', 'graveyard')!;
+    expect(canCast(g, 0, angel)).toBe(true);
+    expect(castCost(g, angel, {}, 0)).toMatchObject({ generic: 1, pips: ['W', 'W'] });
+    // From the hand it costs the full {3}{W}{W}.
+    expect(castCost(g, byName(g, 0, 'Serra Angel', 'hand')!, {}, 0).generic).toBe(3);
+    // Next turn it has no mayhem.
+    g = produce(g, (d) => void (d.turn += 1));
+    expect(canCast(g, 0, byName(g, 0, 'Serra Angel', 'graveyard')!)).toBe(false);
   });
 });

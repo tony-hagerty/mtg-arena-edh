@@ -82,6 +82,7 @@ import {
   creaturesOf,
   ownRightToCast,
   playPermissions,
+  slotLabel,
 } from '../engine';
 import type { AbilityRef, Action, AttackOption, Card, CastChoices, Cost, Game, ManaSym, ManaUse, Payment, PlayerId, StackItem, Step, Stops, TargetRef, TargetSpec } from '../engine';
 import { absoluteStops, useStore } from './store';
@@ -482,7 +483,7 @@ function announceOf(g: Game, me: PlayerId, card: Card, choices: CastChoices): An
     .map(({ permit, slot, x }) => {
       const ch = { ...choices, alt: undefined, escape: undefined, permit, slot, x: 0 };
       const how = x.p.free ? 'free' : costText(castCost(g, card, ch, me));
-      const as = slot !== undefined && (x.p.slots?.length ?? 0) > 1 ? ` as ${slot === 'Land' ? 'a land' : `an ${slot.toLowerCase()}`}` : '';
+      const as = slot !== undefined && (x.p.slots?.length ?? 0) > 1 ? ` as ${slotLabel(slot)}` : '';
       return { alt: undefined, permit, slot, label: `${x.source.id === card.id ? 'Mayhem' : label(x.source)}${as}: ${how}`, payable: payable(ch) };
     });
   const handAb = handAbility(g, me, card);

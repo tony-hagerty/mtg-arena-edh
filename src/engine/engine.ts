@@ -147,6 +147,7 @@ import {
   landsAllowed,
   offerCastAny,
   paidCostText,
+  slotLabel,
 } from './rules';
 import type { EnterOpts } from './rules';
 import { inBase, settled, untouched } from './layers';
@@ -2396,7 +2397,7 @@ function act(g: Game, a: Action): boolean {
         from === 'exile' && 'from exile',
         from === 'library' && `from the top of ${their(p)} library`,
         from === 'graveyard' && !flashback && !escaped && !exileOnLeave && `from ${their(p)} graveyard`,
-        permit && permit.source.id !== c.id && `with ${label(permit.source)}${slot !== undefined && permit.p.slots!.length > 1 ? ` as ${slot === 'Land' ? 'a land' : `an ${slot.toLowerCase()}`}` : ''}`,
+        permit && permit.source.id !== c.id && `with ${label(permit.source)}${slot !== undefined && permit.p.slots!.length > 1 ? ` as ${slotLabel(slot)}` : ''}`,
         permit && permit.source.id === c.id && 'mayhem',
         fromExile === 'airbent' && 'airbent, for {2}',
         fromExile === 'plotted' && 'plotted',

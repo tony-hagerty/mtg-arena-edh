@@ -170,6 +170,11 @@ are from the Comprehensive Rules in `docs/rules/`.
   make a player win (104.2b) or lose (104.3e) the game.
 - **Additional phases (500.8):** Sphinx of the Second Sun's additional beginning phase
   after your postcombat main phase: untap, upkeep and draw steps, then the ending phase.
+- **Additional steps (500.9):** Obeka, Splitter of Seconds's "you get that many additional
+  upkeep steps after this phase": each comes directly after the phase the ability resolved in
+  (the combat phase), the most recently added first, and "at the beginning of your upkeep"
+  abilities trigger in each (503.1a). As Obeka's rulings put it, each is a beginning phase
+  holding only an upkeep step; the turn then goes on to the next phase.
 - **Choices partway through resolving (608.2d):** any player can be asked yes or no ("you
   may ...", or "... unless that player pays {1}", where that player chooses first,
   118.12a), to pick from a few cards (Thassa's Oracle), or to name a card (201.3).
@@ -492,6 +497,34 @@ are from the Comprehensive Rules in `docs/rules/`.
 - **Paradigm (702.192):** the spell is exiled; after the first one of that name you
   resolve, a copy of it is made in exile at each of your precombat main phases, and you
   may cast it free. A copy you don't cast ceases to exist.
+- **A permanent's permission to play cards from another zone (601.3, 305.1):** "You may
+  play lands and cast spells with mana value 4 or greater from the top of your library"
+  (Glarb, Calamity's Augur; Mystic Forge's artifact and colorless spells; Oracle of Mul
+  Daya's lands), "you may play a land and cast a permanent spell of each permanent type from
+  your graveyard" (Muldrotha, the Gravetide) and "once each turn, you may cast a spell ...
+  from among cards exiled with Maralen this turn without paying its mana cost" (Maralen, Fae
+  Ascendant). The card is played at its own timing and, unless the permission says
+  otherwise, for its own cost. A permission with limited uses (Muldrotha's one of each
+  permanent type, Maralen's once a turn) is spent as the card is played, and a card with
+  several permanent types is cast as the one you name (`CastChoices.slot`, chosen in the
+  cast panel; Muldrotha's rulings), each use recorded for that permanent as the same
+  object (400.7). "With mana value N or greater" counts the X you announce (Glarb's
+  rulings), and a free permission makes X 0 (107.3b). Only the top card of your own
+  library can be played from there, and only its owner sees it: "You may look at the top
+  card of your library any time" shows it to its controller (Glarb, Bolas's Citadel), and
+  "play with the top card of your library revealed" to everyone (Oracle of Mul Daya), on the
+  library pile and in each player's view (`viewFor`).
+- **Mayhem (702.187):** a nonland card discarded this turn may be cast from its owner's
+  graveyard for its mayhem cost rather than its mana cost, following the rules for
+  alternative costs (118.9a: no other alternative cost with it): printed ("Mayhem {1}{R}"),
+  or given by Green Goblin's "each nonland card in your graveyard has mayhem. The mayhem cost
+  is equal to its mana cost", whose "spells you cast from your graveyard cost {2} less"
+  takes {2} off it (601.2f).
+- **"You may cast any number of spells from among them without paying their mana costs"**
+  (Kotis, the Fangkeeper, whose exiled cards are the damage dealt): the spells are cast one
+  at a time while the ability resolves (608.2g), the rest offered again after each, until you
+  decline or none is left; a card with {X} counts X as 0 and is cast with X = 0 (Kotis's
+  rulings). Cards not cast stay in exile.
 
 ### Combat
 
@@ -592,6 +625,16 @@ are from the Comprehensive Rules in `docs/rules/`.
   Ghostform): it looks back in time, so it works when the Aura goes at the same time.
 - **"Do this only once each turn" (603.2h):** the ability doesn't trigger again that turn
   once its controller has done it (G'raha Tia, Emet-Selch).
+- **Extra land plays (305.2):** "You may play an additional land on each of your turns"
+  (Flubs, the Fool; Exploration; Azusa's two), and "you may play an additional land this turn"
+  (Explore). A land played from a graveyard, exile or the top of the library counts as one
+  of them (305.2a). **"Whenever you play a land"** (Flubs) triggers on a land played, not on
+  one an effect puts onto the battlefield (305.4).
+- **Dredge (702.52):** printed ("Dredge 3") or given ("Land cards in your graveyard have
+  dredge 2", The Necrobloom). A draw you would make may be replaced: you are asked, as with
+  any optional replacement effect (616.1), and mill N and return the card to your hand
+  instead; with fewer than N cards in your library it can't be used (702.52b). Bots never
+  dredge.
 - **Looking at the top of a library:** "the rest on the bottom in any order" lets you
   order them (401.4); "in a random order" shuffles them. A look can show cards you can't
   take (Silundi Vision's six, only an instant or sorcery can be taken).
@@ -639,8 +682,9 @@ are from the Comprehensive Rules in `docs/rules/`.
   flash, storm,
   cumulative upkeep, mobilize, ward, dash, bargain, gift, afterlife, delve, rebound,
   aftermath, paradigm, extort (702.101), job select (702.182), convoke, escape,
-  overload, evoke, warp, spree, persist, reconfigure, and protection from a colour or from
-  everything.
+  overload, evoke, warp, spree, persist, reconfigure, dredge (702.52), mayhem (702.187),
+  and protection from a colour or from everything. Trance and Goblin Formula are ability
+  words (207.2c), with no rules meaning.
 
 ### Bots
 
@@ -875,11 +919,20 @@ card, naming the clause: it never guesses. Hand scripts always win.
   tapped"; "you may cast spells as though they had flash"; "spells you control can't be
   countered"; "untap [this / all artifacts you control] during each other player's untap step";
   token and counter doubling and Hardened Scales (614.1a); Propaganda's attack tax (508.1g);
-  "during your turn, your opponents can't cast spells or activate abilities".
+  "during your turn, your opponents can't cast spells or activate abilities"; "you may look at
+  the top card of your library any time", "play with the top card of your library revealed",
+  "you may play lands and cast spells [with mana value N or greater] / play lands / cast
+  [kind] spells from the top of your library" (601.3); "you may play an additional land [two
+  additional lands] on each of your turns" (305.2); "[kind] cards in your graveyard have
+  dredge N" (702.52); "each nonland card in your graveyard has mayhem. The mayhem cost is equal
+  to its mana cost" and "spells you cast from your graveyard cost {N} less" (702.187b); the
+  condition "you control seven or more lands with different names"; "[effect]. If
+  [condition], [effect] instead" as two effects, one for each case (608.2c); the triggers
+  "whenever this land or another land you control enters" and "whenever you play a land"; and
+  the effect "you may play an additional land this turn".
 - **Refused:** anything else, including "instead" effects it has no template for, conditions it
-  can't read, X outside a cost, and cards whose rules the engine doesn't have (playing lands
-  from a graveyard, an extra land each turn, copies). A fetched card it refuses can't be
-  played: it is never played as a stand-in.
+  can't read, X outside a cost, and cards whose rules the engine doesn't have (copies). A
+  fetched card it refuses can't be played: it is never played as a stand-in.
 - `npm run parse-report` prints the cards it scripts on its own and every refusal: for the
   pool (324 of 519 cards with rules text, 62%) and for a corpus of the 600 most-played
   Commander cards (`tests/parser-corpus.generated.json`: 405 of 590, 69%), whose refusals it
