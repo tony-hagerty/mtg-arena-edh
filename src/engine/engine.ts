@@ -1081,28 +1081,60 @@ function hasTargetsFor(g: Game, pid: PlayerId, c: Card, activated: number, x: nu
 
 /** Everything about activating `c`'s activated ability `activated` with this X but its targets: who, when, and its costs. */
 function canPayActivation(g: Game, pid: PlayerId, c: Card, activated: number, x: number): boolean {
+  return activationBlock(g, pid, c, activated, x) === null;
+}
+
+/** What stops an activated ability being activated, as `activationBlock` finds it first. */
+export type ActivationBlock =
+  | 'none' // no such ability
+  | 'zone' // not where it's activated from, or not theirs
+  | 'timing' // only as a sorcery (or not now)
+  | 'forbidden' // an effect says it can't be (Grand Abolisher, Pithing Needle)
+  | 'condition' // its own "Activate only if ..."
+  | 'unblocked' // ninjutsu with no unblocked attacker
+  | 'tapped' // {T} in the cost and it is tapped
+  | 'sick' // {T} in the cost of a summoning-sick creature (302.6)
+  | 'crew'
+  | 'tapUntapped'
+  | 'counters'
+  | 'discard'
+  | 'sacrifice'
+  | 'exile'
+  | 'graveyard'
+  | 'modes'
+  | 'mana'; // the mana or life can't be paid
+
+/**
+ * Why `pid` can't activate `c`'s activated ability `activated` with this X, leaving targets
+ * aside: the first of who, when and its costs that fails, or null if none does.
+ */
+export function activationBlock(g: Game, pid: PlayerId, c: Card, activated: number, x = 0): ActivationBlock | null {
   const ab = activatedAt(g, c, activated);
-  if (!ab) return false;
+  if (!ab) return 'none';
   // Its controller activates it from the battlefield; its owner from their hand, like channel,
   // or from their command zone too, like commander ninjutsu (702.49d).
-  if (ab.fromHand ? !(c.zone === 'hand' || (ab.fromCommand && c.zone === 'command')) || c.owner !== pid : c.zone !== 'battlefield' || c.controller !== pid) return false;
-  if (!timingOk(g, pid, !ab.sorcery) || forbidden(g, pid, 'activate', c) || (ab.when && !ab.when(g, c))) return false;
+  if (ab.fromHand ? !(c.zone === 'hand' || (ab.fromCommand && c.zone === 'command')) || c.owner !== pid : c.zone !== 'battlefield' || c.controller !== pid) return 'zone';
+  if (!timingOk(g, pid, !ab.sorcery)) return 'timing';
+  if (forbidden(g, pid, 'activate', c)) return 'forbidden';
+  if (ab.when && !ab.when(g, c)) return 'condition';
   // Ninjutsu: an unblocked attacking creature to return (702.49a).
-  if (ab.cost.returnAttacker && !unblockedAttackers(g, pid).length) return false;
+  if (ab.cost.returnAttacker && !unblockedAttackers(g, pid).length) return 'unblocked';
+  if (ab.cost.tap && c.tapped) return 'tapped';
   // A summoning-sick creature can't pay a tap cost (302.6).
-  if (ab.cost.tap && (c.tapped || (isCreature(g, c) && c.sick && !has(g, c, 'haste')))) return false;
-  if (ab.cost.crew && crewPower(g, pid, c, crewOptions(g, pid, c)) < ab.cost.crew) return false;
+  if (ab.cost.tap && isCreature(g, c) && c.sick && !has(g, c, 'haste')) return 'sick';
+  if (ab.cost.crew && crewPower(g, pid, c, crewOptions(g, pid, c)) < ab.cost.crew) return 'crew';
   // "Tap three untapped Elves you control": with {T} too, the source can't be one of them (`tapCostOptions`).
-  if (ab.cost.tapUntapped && tapCostOptions(g, pid, c, activated).length < (ab.cost.tapUntapped.count ?? 1)) return false;
-  if (ab.cost.counters && counterCount(c, ab.cost.counters.kind) < ab.cost.counters.n) return false;
-  if (ab.cost.discard && discardOptions(g, pid, c, ab.cost.discardFilter).length < ab.cost.discard) return false;
-  if (ab.cost.sacrificeOne && activationSacrificeOptions(g, pid, c, activated).length < sacrificesFor(ab, x)) return false;
-  if (ab.cost.exileOne && !activationExileOptions(g, pid, c, activated).length) return false;
-  if (ab.cost.exileGraveyard && g.players[pid].graveyard.length < ab.cost.exileGraveyard) return false;
+  if (ab.cost.tapUntapped && tapCostOptions(g, pid, c, activated).length < (ab.cost.tapUntapped.count ?? 1)) return 'tapUntapped';
+  if (ab.cost.counters && counterCount(c, ab.cost.counters.kind) < ab.cost.counters.n) return 'counters';
+  if (ab.cost.discard && discardOptions(g, pid, c, ab.cost.discardFilter).length < ab.cost.discard) return 'discard';
+  if (ab.cost.sacrificeOne && activationSacrificeOptions(g, pid, c, activated).length < sacrificesFor(ab, x)) return 'sacrifice';
+  if (ab.cost.exileOne && !activationExileOptions(g, pid, c, activated).length) return 'exile';
+  if (ab.cost.exileGraveyard && g.players[pid].graveyard.length < ab.cost.exileGraveyard) return 'graveyard';
   // A modal ability needs enough modes that can be chosen (700.2a).
-  if (ab.modes && activatedModeOptions(g, pid, c, activated).length < ab.modes.min) return false;
+  if (ab.modes && activatedModeOptions(g, pid, c, activated).length < ab.modes.min) return 'modes';
   // The source can't also make the mana if tapping, sacrificing or exiling it is part of the cost.
-  return !(ab.cost.mana || ab.cost.life) || !!planPayment(g, pid, activationCost(g, pid, c, ab, x), undefined, ab.cost.tap || ab.cost.sacrifice || ab.cost.exileSelf ? [c.id] : []);
+  const paid = !(ab.cost.mana || ab.cost.life) || !!planPayment(g, pid, activationCost(g, pid, c, ab, x), undefined, ab.cost.tap || ab.cost.sacrifice || ab.cost.exileSelf ? [c.id] : []);
+  return paid ? null : 'mana';
 }
 
 /** How many permanents an activated ability's "Sacrifice ..." cost takes with this X: one, "two", or X ("Sacrifice X Squirrels", 107.3a). */
@@ -3304,7 +3336,7 @@ const drafted: Update = (g, change) => produce(g, change);
  * changes are the same, in the same order. `stable`: it ended giving a player priority with
  * the state-based actions checked and nothing to do.
  */
-function settle(g: Game, update: Update, autoPass: boolean, stops: ApplyOptions['stops'] = {}, fullControl: PlayerId[] = [], released: PlayerId | null = null, checked = false): { g: Game; stable: boolean } {
+function settle(g: Game, update: Update, autoPass: boolean, stops: ApplyOptions['stops'] = {}, fullControl: PlayerId[] = [], released: PlayerId | null = null, checked = false, passTurn: ApplyOptions['passTurn'] = {}): { g: Game; stable: boolean } {
   for (let guard = 0; guard < 5000; guard++) {
     // A spell or ability is waiting on a choice partway through resolving. Nothing else
     // happens until it has finished, not even state-based actions (608.2).
@@ -3342,7 +3374,9 @@ function settle(g: Game, update: Update, autoPass: boolean, stops: ApplyOptions[
       });
     }
     const full = fullControl.includes(g.priority) && released !== g.priority;
-    if (!autoPass || wantsPriority(g, g.priority, stops[g.priority], full)) return { g, stable: checked };
+    // Passing to the end of the turn (F6) passes every time, stops, the stack and full control or not.
+    const passing = passTurn[g.priority] === g.turn;
+    if (!autoPass || (!passing && wantsPriority(g, g.priority, stops[g.priority], full))) return { g, stable: checked };
     let moved = false;
     g = update(g, (d) => {
       moved = passPriority(d);
@@ -3373,11 +3407,18 @@ export interface ApplyOptions {
    * `hold`. People only: a UI setting, like the stops.
    */
   fullControl?: PlayerId[];
+  /**
+   * Players passing priority until the end of a turn (F6, as on MTGO), by player id: the turn
+   * (`Game.turn`) they pass through. The game passes for them every time they would get
+   * priority in it, whatever is on the stack; decisions (attackers, blockers, choices) are
+   * still theirs. People only, like the stops.
+   */
+  passTurn?: Partial<Record<PlayerId, number>>;
   /** A bot is only trying the move out: auto-pay skips its lookahead to stay fast (see `pay`). */
   simulate?: boolean;
 }
 
-export function applyAction(g: Game, a: Action, { autoPass = true, stops, fullControl, simulate }: ApplyOptions = {}): Game {
+export function applyAction(g: Game, a: Action, { autoPass = true, stops, fullControl, passTurn, simulate }: ApplyOptions = {}): Game {
   // A person choosing about replacement effects (616.1): the action they stopped is applied
   // again from where it began, with their answer.
   if (g.decision?.type === 'replacement') {
@@ -3388,14 +3429,14 @@ export function applyAction(g: Game, a: Action, { autoPass = true, stops, fullCo
       d.priority = r.priority;
       delete d.replay;
     });
-    return attempt(before, r.action, { autoPass: r.autoPass, stops: r.stops as ApplyOptions['stops'], fullControl: r.fullControl }, [...r.answers, a.option], simulate);
+    return attempt(before, r.action, { autoPass: r.autoPass, stops: r.stops as ApplyOptions['stops'], fullControl: r.fullControl, passTurn: r.passTurn }, [...r.answers, a.option], simulate);
   }
   if (a.type === 'replacement') return g;
   if (a.type === 'untapMana') {
-    const back = rewindMana(g, a.card, { autoPass, stops, fullControl, simulate });
+    const back = rewindMana(g, a.card, { autoPass, stops, fullControl, passTurn, simulate });
     if (back) return back;
   }
-  return rememberMana(g, a, attempt(g, a, { autoPass, stops, fullControl }, [], simulate));
+  return rememberMana(g, a, attempt(g, a, { autoPass, stops, fullControl, passTurn }, [], simulate));
 }
 
 /**
@@ -3441,8 +3482,8 @@ function rewindMana(g: Game, card: string, opts: ApplyOptions): Game | null {
 }
 
 /** Applies `a`, with these answers to the replacement questions it asks (`NeedsChoice`); stops to ask the next one. */
-function attempt(g: Game, a: Action, opts: Required<Pick<ApplyOptions, 'autoPass'>> & Pick<ApplyOptions, 'stops' | 'fullControl'>, answers: number[], simulate?: boolean): Game {
-  const { autoPass, stops, fullControl } = opts;
+function attempt(g: Game, a: Action, opts: Required<Pick<ApplyOptions, 'autoPass'>> & Pick<ApplyOptions, 'stops' | 'fullControl' | 'passTurn'>, answers: number[], simulate?: boolean): Game {
+  const { autoPass, stops, fullControl, passTurn } = opts;
   // Casting or activating without `hold` lets priority pass on, even in full control (117.3c).
   const released = (a.type === 'cast' || a.type === 'activate') && !a.hold ? g.priority : null;
   const run = () => {
@@ -3454,7 +3495,9 @@ function attempt(g: Game, a: Action, opts: Required<Pick<ApplyOptions, 'autoPass
       legal = act(draft, a);
     });
     if (!legal) return acted;
-    const { g: next, stable } = settle(acted, drafted, autoPass, stops, fullControl, released, checked && passedOn);
+    // Mana made by hand is part of paying for what they do next (605.3a): passing to the end of the turn waits for that.
+    const passing = (a.type === 'tapMana' || a.type === 'untapMana') && passTurn?.[g.priority] !== undefined ? { ...passTurn, [g.priority]: undefined } : passTurn;
+    const { g: next, stable } = settle(acted, drafted, autoPass, stops, fullControl, released, checked && passedOn, passing);
     if (stable && next !== g) sbaChecked.add(next);
     return next;
   };
@@ -3464,7 +3507,7 @@ function attempt(g: Game, a: Action, opts: Required<Pick<ApplyOptions, 'autoPass
   } catch (e) {
     if (!(e instanceof NeedsChoice)) throw e;
     return produce(g, (d) => {
-      d.replay = { action: a, autoPass, stops, ...(fullControl?.length ? { fullControl } : {}), answers, decision: g.decision, priority: g.priority };
+      d.replay = { action: a, autoPass, stops, ...(fullControl?.length ? { fullControl } : {}), ...(passTurn && Object.keys(passTurn).length ? { passTurn } : {}), answers, decision: g.decision, priority: g.priority };
       d.decision = { type: 'replacement', ask: e.choice };
       d.priority = e.choice.player;
     });

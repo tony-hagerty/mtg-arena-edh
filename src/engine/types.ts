@@ -1221,7 +1221,7 @@ export interface Game {
    * `answers`, plus the new one, once they answer. The decision and priority it stopped from
    * are restored first.
    */
-  replay?: { action: Action; autoPass: boolean; stops?: unknown; fullControl?: PlayerId[]; answers: number[]; decision: Decision | null; priority: PlayerId };
+  replay?: { action: Action; autoPass: boolean; stops?: unknown; fullControl?: PlayerId[]; passTurn?: Partial<Record<PlayerId, number>>; answers: number[]; decision: Decision | null; priority: PlayerId };
   /**
    * The mana abilities (605.1a) the player with priority has used by hand since they last did
    * anything else, oldest first, each with the game as it was just before: so one can be

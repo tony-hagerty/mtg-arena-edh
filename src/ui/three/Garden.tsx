@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useFrame } from '@react-three/fiber';
 import type { ThreeEvent } from '@react-three/fiber';
-import { AdditiveBlending, BoxGeometry, CanvasTexture, DataTexture, EquirectangularReflectionMapping, Group, LinearFilter, LinearMipmapLinearFilter, Mesh, MeshStandardMaterial, RGBAFormat, RepeatWrapping, SRGBColorSpace, UnsignedByteType, Vector2 } from 'three';
+import { AdditiveBlending, BoxGeometry, BufferGeometry, CanvasTexture, DataTexture, EquirectangularReflectionMapping, Group, LinearFilter, LinearMipmapLinearFilter, Mesh, MeshStandardMaterial, RGBAFormat, RepeatWrapping, SRGBColorSpace, UnsignedByteType, Vector2 } from 'three';
 import { Bursts, burst } from './effects';
-import { MATERIAL, bedDistance, bedMaps } from './board';
+import { MATERIAL, bedDistance, bedMaps, wellSwirl } from './board';
 import type { Bed, BedMaps, Garden as Plan } from './board';
 import { rng } from './floor';
 import { valueNoise } from './noise';
@@ -49,7 +49,7 @@ interface MatTextures {
 }
 const matTextures = (m: BedMaps): MatTextures => ({ map: dataTexture(m.albedo, m.width, m.height, true), normalMap: dataTexture(m.normal, m.width, m.height, false) });
 
-/** A card floating in the well: the top of a player's exile. `image` null is a card exiled face down. */
+/** A card floating in the well: one of the exiled cards. `image` null is a card exiled face down. */
 export interface Floating {
   id: string;
   image: string | null;
@@ -312,14 +312,18 @@ const STONE_LOOKS = ['#8a8274', '#978e7f', '#7b7468', '#a0968a'].map((color) => 
 
 /**
  * The well, which is the exile: a ring of cobblestones, two courses high and no higher than a
- * hand, round deep green-blue water turning slowly in a whirlpool, and the top card of each
- * player's exile circling in it. The water is layered: its depths with the light from the
+ * hand, round deep green-blue water turning slowly in a whirlpool, and every exiled card (the
+ * newest `SWIRL_MAX`) circling in it along a spiral (`wellSwirl`). The water is layered: its depths with the light from the
  * ripples drifting over them, then the surface, glossy, rippled two ways at once and mirroring
  * the hall's torches, then streaks of foam in the current and a rim of it at the wall. A click
  * on the water splashes; a right-click opens the exile.
  */
 function Well({ plan, exiled, at, onExile }: { plan: Plan; exiled: Floating[]; at: (e: ThreeEvent<MouseEvent>) => { x: number; y: number }; onExile: () => void }) {
   const { x, y, r } = plan.pond;
+  const swirl = useMemo(() => wellSwirl(exiled.length, r), [exiled.length, r]);
+  // One shape for all the floating cards, made again only when their size changes.
+  const floatShape = useMemo(() => cardGeometry(swirl.w, swirl.w * 1.4, 0.08), [swirl.w]);
+  useEffect(() => () => floatShape.dispose(), [floatShape]);
   const swell = useRef(rippleTexture(17));
   const chop = useMemo(() => {
     const t = rippleTexture(29).clone();
@@ -425,32 +429,43 @@ function Well({ plan, exiled, at, onExile }: { plan: Plan; exiled: Floating[]; a
         <meshBasicMaterial map={foamTexture()} color="#e9f3ef" transparent opacity={0.5} depthWrite={false} />
       </mesh>
       {exiled.map((f, i) => (
-        <FloatingCard key={f.id} f={f} index={i} count={exiled.length} r={r} />
+        <FloatingCard key={f.id} f={f} index={i} count={exiled.length} slot={swirl.slots[i]} shape={floatShape} />
       ))}
     </group>
   );
 }
 
-/** A floating card's size in the well, rem. */
-const FLOAT_W = 5.5;
+/** How quickly a floating card goes to a new place in the swirl (another card came in), per second. */
+const SWIRL_EASE = 2.5;
 
 /**
- * The top card of a player's exile, circling slowly in the whirlpool, drifting a little in and
- * out, washed pale blue as the exile pile's top card is (`.pile.exile`). It takes no clicks: a right-click on it is
- * the well's.
+ * An exiled card, circling slowly in the whirlpool at its place in the swirl (`wellSwirl`),
+ * drifting a little in and out, washed pale blue as the exile pile's top card is
+ * (`.pile.exile`). The newer ones float a little higher, over the older. When another card
+ * comes in, each glides to its new place. It takes no clicks: a right-click on it is the well's.
  */
-function FloatingCard({ f, index, count, r }: { f: Floating; index: number; count: number; r: number }) {
+function FloatingCard({ f, index, count, slot, shape }: { f: Floating; index: number; count: number; slot: { r: number; a: number }; shape: BufferGeometry }) {
   const face = useCardTexture(f.image);
-  const shape = useMemo(() => cardGeometry(FLOAT_W, FLOAT_W * 1.4, 0.08), []);
-  useEffect(() => () => shape.dispose(), [shape]);
   const ref = useRef<Group>(null);
-  useFrame((state) => {
+  // Its own bob, from its id, so a card coming in doesn't shift everyone's.
+  const phase = useMemo(() => [...f.id].reduce((h, ch) => (h * 31 + ch.charCodeAt(0)) % 997, 7) / 997 * Math.PI * 2, [f.id]);
+  // The newer ones float a little higher, over the older.
+  const height = 0.015 * (count - index);
+  // Where it is now, gliding toward its slot.
+  const at = useRef({ r: slot.r, a: slot.a, z: height });
+  useFrame((state, dt) => {
     const o = ref.current;
     if (!o) return;
     const t = state.clock.elapsedTime;
-    const a = (index / count) * Math.PI * 2 - t * 0.18;
-    const rr = r * (0.5 + 0.08 * Math.sin(t * 0.4 + index * 2));
-    o.position.set(Math.cos(a) * rr, Math.sin(a) * rr, WATER_Z + 0.08 + 0.02 * Math.sin(t * 1.3 + index));
+    const k = Math.min(1, dt * SWIRL_EASE);
+    // The shorter way round to the slot's angle.
+    const turn = ((((slot.a - at.current.a) % (2 * Math.PI)) + 3 * Math.PI) % (2 * Math.PI)) - Math.PI;
+    at.current.a += turn * k;
+    at.current.r += (slot.r - at.current.r) * k;
+    at.current.z += (height - at.current.z) * k;
+    const a = at.current.a - t * 0.18;
+    const rr = at.current.r * (1 + 0.06 * Math.sin(t * 0.4 + phase));
+    o.position.set(Math.cos(a) * rr, Math.sin(a) * rr, WATER_Z + 0.08 + at.current.z + 0.02 * Math.sin(t * 1.3 + phase));
     // Nose along the current, tipped a little toward the eye.
     o.rotation.set(0.05 * Math.cos(a), 0.05 * Math.sin(a), a - Math.PI / 2);
   });

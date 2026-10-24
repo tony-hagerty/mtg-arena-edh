@@ -15,6 +15,8 @@ export interface SeatPrefs {
   manualDamage?: boolean;
   /** Full control: the game stops for them every time they get priority (`ApplyOptions.fullControl`). */
   fullControl?: boolean;
+  /** Passing priority to the end of this turn (F6): its number (`ApplyOptions.passTurn`), or null for off. */
+  passTurn?: number | null;
 }
 
 /** POST `${API}/start`: a new game, in place of any game in progress. */

@@ -6,7 +6,7 @@ const combos = (mac: boolean) => hotkeys(mac).flatMap((g) => g.rows.flatMap((r) 
 
 describe('hotkeys', () => {
   it('lists each key the action bar and fullscreen handle', () => {
-    expect(combos(false)).toEqual(expect.arrayContaining(['Space', 'Enter', 'Esc', 'Ctrl+Z', 'Ctrl+Space', 'Ctrl+Shift', 'Alt+Enter']));
+    expect(combos(false)).toEqual(expect.arrayContaining(['Space', 'Enter', 'Esc', 'Ctrl+Z', 'Ctrl+Space', 'Ctrl+Shift', 'F6', 'Alt+Enter']));
   });
 
   it('names a Mac’s keys: Cmd for undo and pay-and-hold, Option for fullscreen', () => {

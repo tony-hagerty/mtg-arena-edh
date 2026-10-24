@@ -337,6 +337,8 @@ interface Store {
   /** Where the game stops for the human, by seat counted from theirs (see `loadStops`). A UI preference passed to the engine. */
   stops: Stops;
   setStop: (turn: PlayerId, step: Step, kind: StopKind | undefined) => void;
+  /** Puts the stops back to the defaults (`defaultStops`), from the gear menu. */
+  resetStops: () => void;
   /**
    * Full control (Ctrl+Shift): the game stops for the human every time they get priority and
    * they keep it after each spell or ability (`ApplyOptions.fullControl`). Off, the stops apply
@@ -344,6 +346,14 @@ interface Store {
    */
   fullControl: boolean;
   setFullControl: (on: boolean) => void;
+  /**
+   * Passing to the end of the turn (F6, as on MTGO), by the seat of each person at this screen
+   * who turned it on: the turn they pass through (`ApplyOptions.passTurn`). It is over once
+   * that turn is, and it isn't saved.
+   */
+  passTurn: Partial<Record<PlayerId, number>>;
+  /** F6 on or off for the person at the bottom of the screen; on passes priority at once if they have it. */
+  setPassTurn: (on: boolean) => void;
   settings: Settings;
   /** Changes a setting, saves it, and applies it to the game in progress. */
   setSetting: (change: Partial<Settings>) => void;
@@ -396,6 +406,7 @@ export const useStore = create<Store>()((set, get) => ({
   speed: 1,
   stops: loadStops(),
   fullControl: false,
+  passTurn: {},
   settings: loadSettings(),
   deck: null,
   savedDecks: loadDecks(),
@@ -407,6 +418,24 @@ export const useStore = create<Store>()((set, get) => ({
     saveStops(stops);
     set({ stops });
     sendPrefs();
+  },
+
+  resetStops: () => {
+    const stops = defaultStops(0);
+    saveStops(stops);
+    set({ stops });
+    sendPrefs();
+  },
+
+  setPassTurn: (on) => {
+    const { game: g, human } = get();
+    if (!g || human === null) return;
+    const passTurn = { ...get().passTurn };
+    if (on) passTurn[human] = g.turn;
+    else delete passTurn[human];
+    set({ passTurn });
+    if (on) startPassing();
+    else sendPrefs();
   },
 
   setFullControl: (on) => {
@@ -503,6 +532,7 @@ export const useStore = create<Store>()((set, get) => ({
       viewer: null,
       manaPick: null,
       confirmExit: false,
+      passTurn: {},
     });
   },
 
@@ -642,7 +672,7 @@ export function onView(m: ViewMessage) {
     remote.seq = {};
     remote.waiting = {};
     if (!m.game) return;
-    useStore.setState({ game: m.game, gameNo: s.gameNo + 1, human: m.seat, ...freshSeat, ...follow(m.game, m.seat, s.humans) });
+    useStore.setState({ game: m.game, gameNo: s.gameNo + 1, human: m.seat, passTurn: {}, ...freshSeat, ...follow(m.game, m.seat, s.humans) });
     // The host started a table's game without this person's stops and settings.
     if (s.tableGame) sendPrefs();
     return;
@@ -689,12 +719,34 @@ function fetchedCardsOf(decks: DeckDef[]) {
   return [...names].filter(isFetched).map((n) => cardData(n));
 }
 
-/** Tells the server each person's stops and settings, when there is a server. */
+/**
+ * Tells the server each person's stops and settings, when there is a server. Passing to the
+ * end of the turn (F6) waits while a spell or ability is being cast or activated here: the
+ * server would pass at once, and the cast would be left behind (`startPassing`).
+ */
 function sendPrefs() {
-  const { server, game, humans, stops, settings, fullControl } = useStore.getState();
+  const { server, game, humans, stops, settings, fullControl, passTurn, targeting } = useStore.getState();
   if (!server || !game) return;
-  for (const h of humans) server.prefs({ seat: h, prefs: { stops: absoluteStops(stops, h, game.players.length), manualDamage: settings.manualDamage, fullControl } });
+  for (const h of humans) server.prefs({ seat: h, prefs: { stops: absoluteStops(stops, h, game.players.length), manualDamage: settings.manualDamage, fullControl, passTurn: targeting ? null : (passTurn[h] ?? null) } });
 }
+
+/**
+ * Starts passing to the end of the turn (F6) for the person at the screen, unless a spell or
+ * ability is being cast or activated, which finishes or is cancelled first (then this runs
+ * again). The game server passes for them itself as it hears (`GameHost.setPrefs`); here,
+ * pass if the game is waiting on them.
+ */
+function startPassing() {
+  const { game: g, human, server, passTurn, targeting } = useStore.getState();
+  if (!g || human === null || passTurn[human] !== g.turn || targeting) return;
+  if (server) return sendPrefs();
+  if (g.priority === human && !g.decision && g.step !== 'gameOver') useStore.getState().act({ type: 'pass' });
+}
+
+// A cast or activation finished or cancelled: F6 turned on during it starts now.
+useStore.subscribe((s, prev) => {
+  if (prev.targeting && !s.targeting) startPassing();
+});
 
 /**
  * Runs a move on this seat's view of the game, to refuse an illegal one at once. Priority
@@ -714,9 +766,9 @@ function checkOnView(g: Game, a: Action): Game | null {
 
 /** The human's stops and full control go to the engine with every action, bots' included: those decide when the human is asked too. */
 function engineOptions(): ApplyOptions {
-  const { game, humans, stops, fullControl } = useStore.getState();
+  const { game, humans, stops, fullControl, passTurn } = useStore.getState();
   const n = game?.players.length ?? 4;
-  return { stops: Object.fromEntries(humans.map((h) => [h, absoluteStops(stops, h, n)])), fullControl: fullControl ? humans : [] };
+  return { stops: Object.fromEntries(humans.map((h) => [h, absoluteStops(stops, h, n)])), fullControl: fullControl ? humans : [], passTurn };
 }
 
 /**
