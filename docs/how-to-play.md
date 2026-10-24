@@ -159,7 +159,9 @@ The full guide to the game's screens and controls. For a quick start, see the
   itself while you are paying for a spell or can target something on it, and once the
   stack empties the next spell shows it again.
 - **What a spell or ability targets:** a dotted yellow arrow runs from the card on the
-  stack to each of its targets, leaving the card on the side that faces the target. It
+  stack to each of its targets, leaving the card on the side that faces the target. A
+  spell or ability aimed at another on the stack (a counterspell) loops out of the stack's
+  left side and back in to the top strip of the card it targets, the part that shows. It
   shows for the card your pointer is on, or else for the top of the stack, one card's
   arrows at a time, and it is drawn over the big card view that opens beside the stack, so
   hovering a card in the stack shows both what it says and what it aims at.

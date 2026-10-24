@@ -100,3 +100,19 @@ export function edgeToward(box: { left: number; top: number; width: number; heig
   const k = Math.min(dx ? box.width / 2 / Math.abs(dx) : Infinity, dy ? box.height / 2 / Math.abs(dy) : Infinity, 1);
   return { x: cx + dx * k, y: cy + dy * k };
 }
+
+/**
+ * An arrow from one card on the stack to another (a counterspell's target): the cards
+ * overlap, so a straight line between them has nowhere to go. It leaves `from` by its left
+ * side, loops out left of the stack, and comes back in to the left end of the part of `to`
+ * that shows (`strip` high, from its top), pointing right at it. An SVG path.
+ */
+export function stackLoop(from: { left: number; top: number; width: number; height: number }, to: { left: number; top: number; width: number }, strip: number): string {
+  const x1 = from.left;
+  const y1 = from.top + from.height / 2;
+  const x2 = to.left;
+  const y2 = to.top + strip / 2;
+  // How far out the loop swings: about half a card, more for cards further apart.
+  const out = from.width * 0.45 + Math.abs(y2 - y1) * 0.25;
+  return `M${x1} ${y1} C${x1 - out} ${y1} ${x2 - out} ${y2} ${x2} ${y2}`;
+}
