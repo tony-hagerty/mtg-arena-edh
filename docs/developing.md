@@ -700,6 +700,7 @@ ability already on the stack, which exists apart from its source (113.7a).
 | `temptWithRing(g, pid, then?)` | the Ring tempts the player (701.54); returns true if they must choose a Ring-bearer. `isRingBearer`, `ringBearerOf`, `timesTempted` read it |
 | `partnerWith(name)` | partner with's "enters" ability (702.124j), spread into the script |
 | `tokenCopy(g, pid, c, { nonlegendary: true })` | "except the token isn't legendary" (707.9b) |
+| `copySource(g)` | the card whose spell or ability is resolving, by the name it shows. `copyItem`, `createTokens` (a token copy), `copyToken` and `becomeCopy` record it as `copiedBy` on the copy by themselves (and a copied permanent spell keeps it as it enters, 608.3f), except when the copied card's own ability made it (storm, offspring), for the stack tag, the preview and the log, so a script never sets it |
 
 **Bot hints**
 

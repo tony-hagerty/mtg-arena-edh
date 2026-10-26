@@ -13,7 +13,7 @@ import { DEPTH, TILT, useStageSize, useTableSize } from '../camera';
 import { Counters, TextlessBadge } from '../Card';
 import { useStore } from '../store';
 import { frameOf } from '../TextCard';
-import { cx, faceUp, seatOf } from '../util';
+import { copyOrigin, cx, faceUp, seatOf } from '../util';
 import type { Seat } from '../util';
 import { ViewContext, clickGroup, clickPermanent, useView } from '../view';
 import type { View } from '../view';
@@ -834,7 +834,8 @@ function Card3D({ pose, seat, phased }: { pose: Pose<Card>; seat: Seat; phased: 
   const hover = (e: ThreeEvent<PointerEvent>) => {
     e.stopPropagation();
     const el = proxies.get(card.id);
-    if (el) useStore.setState({ hover: { name: d.name, d, el, ...(card.textless && { textless: true }) } });
+    const origin = copyOrigin(card);
+    if (el) useStore.setState({ hover: { name: d.name, d, el, ...(card.textless && { textless: true }), ...(origin && { origin }) } });
   };
   const unhover = () => {
     const h = useStore.getState().hover;
@@ -893,7 +894,8 @@ function Attached({ card, host, index, inward }: { card: Card; host: Pose<Card>;
         onPointerOver={(e) => {
           e.stopPropagation();
           const el = proxies.get(card.id);
-          if (el) useStore.setState({ hover: { name: d.name, d, el } });
+          const origin = copyOrigin(card);
+          if (el) useStore.setState({ hover: { name: d.name, d, el, ...(origin && { origin }) } });
         }}
         onPointerOut={() => {
           const h = useStore.getState().hover;
