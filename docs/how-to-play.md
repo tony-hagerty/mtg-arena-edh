@@ -165,6 +165,13 @@ The full guide to the game's screens and controls. For a quick start, see the
   shows for the card your pointer is on, or else for the top of the stack, one card's
   arrows at a time, and it is drawn over the big card view that opens beside the stack, so
   hovering a card in the stack shows both what it says and what it aims at.
+- **Copies:** a copy looks just like what it copies, so the game says where it came from.
+  On the stack its tag reads **Your copy · from Twincast**. Hover or right-click a copy, on
+  the stack or on the table, and a line under the big card view names the card and what
+  made it: "Copy of Lightning Bolt · made by Twincast", "Token copy of Serra Angel · made by
+  Saw in Half", or "Copy of Sakura-Tribe Elder · it's Spark Double" for a card copying
+  something by its own ability. The log says it too: "You copy Lightning Bolt with
+  Twincast."
 - Cards fly to where they go: from a hand to the stack, from the stack to the battlefield
   or the graveyard, from the battlefield to a graveyard or exile pile, back to a hand or
   the command zone. A spell or ability that resolves glows gold as it leaves the stack, an

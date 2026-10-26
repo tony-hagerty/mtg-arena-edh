@@ -2171,11 +2171,12 @@ function resolveTop(g: Game) {
     if (script.enchant) {
       // An Aura whose target has gone is put into its owner's graveyard (608.3b, 303.4g).
       const host = script.enchant.type === 'graveyard card' ? refGraveyard(g, targets[0]) : refCard(g, targets[0]);
-      if (host) enterBattlefield(g, card, { attachTo: host.id });
+      if (host) enterBattlefield(g, card, { attachTo: host.id, ...(item.copiedBy && { copiedBy: item.copiedBy }) });
       else moveCard(g, card, 'graveyard');
     } else if (isPermanentCard(g, card)) {
-      // It enters under the control of the spell's controller (608.3a, 110.2a).
-      enterBattlefield(g, card, { protector: card.cast?.protector, controller }); // 608.3
+      // It enters under the control of the spell's controller (608.3a, 110.2a). A copy enters as
+      // a token (608.3f) and still says what made it, after any choice as it enters (Clone).
+      enterBattlefield(g, card, { protector: card.cast?.protector, controller, ...(item.copiedBy && { copiedBy: item.copiedBy }) }); // 608.3
     } else if (!fizzled && script.modal) {
       // Each chosen mode in printed order, with its own share of the targets (700.2).
       let next = 0;

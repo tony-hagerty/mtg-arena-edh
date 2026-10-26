@@ -2577,6 +2577,11 @@ button {
   display: block;
 }
 
+/* A copy's "· from Twincast": what made it, quieter than whose it is. */
+.stack-origin {
+  color: #c9d1e0;
+}
+
 /* A spell or ability that can be targeted now, e.g. by a counterspell (701.6). */
 .stack-item.targetable {
   cursor: pointer;
@@ -4370,6 +4375,16 @@ button {
   background: rgba(40, 44, 52, 0.45);
   border-radius: 0.4rem;
   pointer-events: none;
+}
+
+/* Where a copy came from (Hover.origin): a copy looks just like what it copies. */
+.preview-origin {
+  margin-top: 0.8rem;
+  padding: 0.6rem 1.2rem;
+  font: 600 1.5rem/1.35 var(--sans);
+  color: #e6ebf4;
+  background: rgba(8, 10, 16, 0.92);
+  border-radius: 0.8rem;
 }
 
 .preview-textless {
