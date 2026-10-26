@@ -1,14 +1,6 @@
-## What's new in v0.6.0
+## What's new in v0.6.1
 
-Every one of EDHREC's top 100 cards and top 100 commanders from the past year is now playable: 105 new cards, including Atraxa, Kinnan, Korvold, Muldrotha, The Ur-Dragon, Yuriko and Edgar Markov. The rules they need came with them: ward costs, amass, the Ring, proliferate, discover, exalted, riot, eminence, ninjutsu, blitz, cascade, the monarch, goad, dredge, explore and more.
-
-- **Pass the turn (F6):** F6, or the gold ⏭ button by the seat arrows, passes priority for you until the turn ends, as on MTGO. Attackers, blockers and choices are still yours.
-- **Flip double-faced cards:** right-click one and use the Front / Back pill to see its other side.
-- **Clearer stack arrows:** only the hovered spell's arrows show (or the top spell's), and a counterspell's arrow loops round to the spell it targets.
-- **Exile whirlpool:** every exiled card now swirls in the well, newest on the outside.
-- **Searches put pickable cards first,** and so do the exile viewer and the "cast one of these" panel.
-- **Settings → Stops** has a Reset to default button.
-- **Fixes:** a mana permanent with another ability (Abandoned Air Temple) opens its ability menu and says why an ability can't be used; hybrid mana costs, Show Results and the "Back to:" pill sit where they should; the log sits over pop-up windows.
+- **See where a copy came from:** a copy looks just like what it copies, so the game now names what made it. On the stack a copy's tag reads "Your copy · from Twincast". Hover or right-click a copy, on the stack or the table, for a line like "Token copy of Serra Angel · made by Saw in Half". The log says it too.
 
 ## Download
 
