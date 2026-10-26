@@ -245,6 +245,8 @@ export interface Hover {
   pinOnly?: boolean;
   /** The card is played without its rules text (`Card.textless`): the preview says so. */
   textless?: boolean;
+  /** It is a copy: where it came from (`copyOrigin`, `stackOrigin`), which the preview says under it. */
+  origin?: string;
 }
 
 interface Store {

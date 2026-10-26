@@ -11,7 +11,7 @@ import { play } from './sound';
 import { MusicControl, SoundControl } from './SoundControl';
 import { useStore } from './store';
 import type { Hover } from './store';
-import { type Seat, arrowsFrom, cx, deckColor, edgeToward, faceUp, hoverProps, pickableFirst, seatOf, stackLoop } from './util';
+import { type Seat, arrowsFrom, copyOrigin, cx, deckColor, edgeToward, faceUp, hoverProps, pickableFirst, seatOf, stackLoop, stackOrigin } from './util';
 import { STEP_NAMES, activateFromHand, cancel, clickStackItem, stackTucked, pickAbility, pickAbilityMode, pickMana, pickTapCreature, pickTriggeredMana, useForMana, pickManaDiscard, pickManaSacrifice, pickFace, pickMode, playHandCard, setAbilityX, setChoices, setPayLife, shiftDivision, undo, exileForMana, plotCard, useView } from './view';
 import type { AbilityOption, Btn } from './view';
 import { leftStack, newGame } from './zone-moves';
@@ -1135,7 +1135,8 @@ function cardAt(game: Game | null, at: Element | null) {
   const el = at?.closest<HTMLElement>('[data-card]');
   const card = el && game && findCard(game, el.dataset.card!);
   // The viewer's cards are shown big already (see `ZoneViewer`).
-  return el && card ? { name: card.name, d: data(card), el, ...(el.closest('.viewer') && { pinOnly: true }), ...(card.textless && { textless: true }) } : null;
+  const origin = card && copyOrigin(card);
+  return el && card ? { name: card.name, d: data(card), el, ...(el.closest('.viewer') && { pinOnly: true }), ...(card.textless && { textless: true }), ...(origin && { origin }) } : null;
 }
 
 /** Two arrows chasing each other round: turn the card over. */
@@ -1159,6 +1160,8 @@ export function Preview() {
   const [pinned, setPinned] = useState<CardData | null>(null);
   /** The pinned card is played without its rules text. */
   const [pinnedTextless, setPinnedTextless] = useState(false);
+  /** Where the pinned card came from, if it is a copy (`Hover.origin`). */
+  const [pinnedOrigin, setPinnedOrigin] = useState<string | undefined>();
   /** A pinned double-faced card turned over to its other face (712.6). */
   const [flipped, setFlipped] = useState(false);
   const pointer = useRef({ x: -1, y: -1 });
@@ -1188,6 +1191,7 @@ export function Preview() {
       if (d) {
         setPinned(d);
         setPinnedTextless(!!hover?.textless);
+        setPinnedOrigin(hover?.origin);
         setFlipped(false);
       }
       if (hover || (e.target as Element).closest('.preview-backdrop, .preview')) e.preventDefault();
@@ -1209,6 +1213,7 @@ export function Preview() {
   const face = faces ? faces[flipped ? 1 - up : up] : null;
   // A hand card zooms itself, and the viewer's cards are big already: they only get the pinned preview.
   const d = face ?? pinned ?? (hover && !hover.pinOnly ? hoverData(hover) : null);
+  const origin = pinned ? pinnedOrigin : hover?.origin;
   const rem = parseFloat(getComputedStyle(document.documentElement).fontSize);
   const gap = 1.5 * rem;
   if (pinned) {
@@ -1236,6 +1241,7 @@ export function Preview() {
           <motion.div key={d.name} className="preview-face" initial={faces ? { rotateY: flipped ? -90 : 90 } : false} animate={{ rotateY: 0 }} transition={{ duration: 0.2, ease: 'easeOut' }}>
             <CardImage d={d} alt={d.name} />
           </motion.div>
+          {origin && <div className="preview-origin">{origin}</div>}
           {(pinned ? pinnedTextless : hover?.textless) && <div className="preview-textless">No rules text here: the game can't read this card yet, so it plays as a plain card.</div>}
           {faces && (
             <div className="flip-pill" role="radiogroup" aria-label="Face">
@@ -1287,11 +1293,12 @@ export function StackPanel() {
             className={cx('stack-item', i === g.stack.length - 1 && !paying && 'top', targetStack.has(item.id) && 'targetable')}
             onClick={() => clickStackItem(item.id)}
             title={triggerText(item)}
-            {...hoverProps(data(item.card), { textless: item.kind === 'spell' && item.card.textless })}
+            {...hoverProps(data(item.card), { textless: item.kind === 'spell' && item.card.textless, origin: stackOrigin(item) })}
           >
             <CardImage d={data(item.card)} alt={label(item.card)} draggable={false} />
             <span className="stack-tag">
               {who} {item.copy ? 'copy' : item.kind === 'spell' ? 'spell' : 'ability'}
+              {item.copiedBy && <span className="stack-origin"> · from {item.copiedBy}</span>}
               {item.x !== undefined && ` (X = ${item.x})`}
             </span>
           </div>

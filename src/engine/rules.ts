@@ -2719,10 +2719,15 @@ export function copySpell(g: Game, ref: TargetRef | null | undefined, controller
  * paid and how its damage is divided (707.10). Its controller may choose new targets (707.10c).
  */
 export function copyItem(g: Game, item: StackItem, controller: PlayerId) {
+  const by = copyMaker(g, item.card);
+  const how = by ? ` with ${by}` : '';
   if (item.kind !== 'spell') {
     // A copy of an ability has the same source (707.10, 113.7).
-    log(g, `${says(g.players[controller], 'copies')} ${label(item.card)}'s ability.`, controller, [item.card]);
-    g.triggers.push({ ...item, id: `s${g.nextId++}`, controller, targets: [...item.targets], copy: true, ordered: true });
+    log(g, `${says(g.players[controller], 'copies')} ${label(item.card)}'s ability${how}.`, controller, [item.card]);
+    const copy: StackItem = { ...item, id: `s${g.nextId++}`, controller, targets: [...item.targets], copy: true, ordered: true };
+    if (by) copy.copiedBy = by;
+    else delete copy.copiedBy;
+    g.triggers.push(copy);
     return;
   }
   // A copy is owned by the player who controls it (707.10). It wasn't cast (707.10), so
@@ -2730,8 +2735,8 @@ export function copyItem(g: Game, item: StackItem, controller: PlayerId) {
   // An effect that made the original uncounterable doesn't apply to the copy, a new object.
   const cast = item.card.cast && { ...item.card.cast, from: undefined, flashback: false, escaped: false, free: false, uncounterable: false };
   const card: Card = { ...snapshot(item.card), id: `c${g.nextId++}`, owner: controller, controller, isToken: true, isCommander: false, cast };
-  log(g, `${says(g.players[controller], 'copies')} ${label(item.card)}.`, controller, [item.card]);
-  g.triggers.push({ id: `s${g.nextId++}`, kind: 'spell', controller, card, targets: [...item.targets], copy: true, ordered: true });
+  log(g, `${says(g.players[controller], 'copies')} ${label(item.card)}${how}.`, controller, [item.card]);
+  g.triggers.push({ id: `s${g.nextId++}`, kind: 'spell', controller, card, targets: [...item.targets], copy: true, ordered: true, ...(by && { copiedBy: by }) });
   broadcast(g, 'onCopy', { card: snapshot(card), controller });
 }
 
@@ -2955,6 +2960,7 @@ function shiftCard(g: Game, c: Card, to: Zone) {
   c.gained = [];
   c.copy = null;
   delete c.copyTs;
+  delete c.copiedBy;
   c.faceDown = false;
   c.known = [];
   c.chosen = null;
@@ -3595,6 +3601,8 @@ export interface EnterOpts {
   controller?: PlayerId;
   /** What it enters as a copy of (707), chosen by a replacement effect. */
   copy?: CopyInfo;
+  /** A copy of a permanent spell entering as a token (608.3f): what made the copy (`Card.copiedBy`). */
+  copiedBy?: string;
   /** A choice made as it enters (614.12a), like a creature type. */
   chosen?: string;
   /** Its own replacement effect has been applied already. */
@@ -3663,6 +3671,7 @@ export function enterBattlefield(g: Game, c: Card, opts: EnterOpts = {}) {
   if (opts.face !== undefined) c.face = opts.face;
   if (opts.attachTo) c.attachedTo = opts.attachTo;
   if (opts.copy) c.copy = opts.copy;
+  if (opts.copiedBy) c.copiedBy = opts.copiedBy;
   if (opts.chosen) c.chosen = opts.chosen;
   logReturns(g, [{ c, from, opts }]);
   arrive(g, c, opts);
@@ -3793,6 +3802,7 @@ function putTogether(g: Game, ready: { id: string; moves: number; opts: EnterOpt
     if (opts.face !== undefined) c.face = opts.face;
     if (opts.attachTo) c.attachedTo = opts.attachTo;
     if (opts.copy) c.copy = opts.copy;
+    if (opts.copiedBy) c.copiedBy = opts.copiedBy;
     if (opts.chosen) c.chosen = opts.chosen;
     now.push({ c, from, opts });
   }
@@ -3860,7 +3870,8 @@ export function copyOf(
 export function tokenCopy(g: Game, pid: PlayerId, c: Card, extra: Parameters<typeof copyOf>[1] = {}): Card | undefined {
   if (g.players[pid].lost) return undefined;
   const [made] = createToken(g, pid, c.copy?.name ?? c.name, 1, { copy: copyOf(c, extra) });
-  if (made) log(g, `${says(g.players[pid], 'creates')} a token copy of ${label(c)}.`, pid, [made]);
+  const by = copyMaker(g, c);
+  if (made) log(g, `${says(g.players[pid], 'creates')} a token copy of ${label(c)}${by ? ` with ${by}` : ''}.`, pid, [made]);
   return made;
 }
 
@@ -3878,9 +3889,14 @@ export function becomeCopy(g: Game, c: Card, copy: CopyInfo) {
   const before = label(c);
   c.copy = copy;
   c.copyTs = g.nextId++;
+  // Another card's effect says what made it a copy; its own ability (Likeness Looter) needs nothing: its name says so.
+  const item = resolvingItem(g);
+  const by = item && item.card.id !== c.id ? copySource(g) : undefined;
+  if (by) c.copiedBy = by;
+  else delete c.copiedBy;
   c.linked = [];
   c.chosen = null;
-  log(g, `${before} becomes a copy of ${label(c)}.`, c.controller, [c]);
+  log(g, `${before} becomes a copy of ${label(c)}${by ? ` with ${by}` : ''}.`, c.controller, [c]);
 }
 
 /**
@@ -3906,9 +3922,10 @@ export function createTokens(g: Game, pid: PlayerId, specs: (Omit<TokenSpec, 'co
   const owner = happens.player;
   if (g.players[owner].lost) return [];
   const out: Card[] = [];
+  const by = copySource(g);
   for (const spec of happens.tokens) {
     for (let i = 0; i < spec.count; i++) {
-      const c = makeCard(g, spec.key, owner, 'battlefield', { isToken: true, copy: spec.copy ?? null });
+      const c = makeCard(g, spec.key, owner, 'battlefield', { isToken: true, copy: spec.copy ?? null, ...(spec.copy && by && by !== spec.copy.name && { copiedBy: by }) });
       // One to be created attached to a permanent it can't enchant isn't created (303.7, as Roles' rulings say).
       if (opts.attachTo && !canEnchant(g, c, permanent(g, opts.attachTo))) continue;
       g.players[owner].battlefield.push(c);
@@ -4804,6 +4821,24 @@ export const attachedBonus =
 export const resolvingItem = (g: Game) => g.stack.find((x) => x.id === g.resolving);
 
 /**
+ * The card whose spell or ability is making a copy now, by the name it shows: the one
+ * resolving (`StackItem.copiedBy`, `Card.copiedBy`). Undefined while nothing is resolving.
+ */
+export function copySource(g: Game): string | undefined {
+  const item = resolvingItem(g);
+  return item && label(item.card);
+}
+
+/**
+ * The card making a copy of `copied` now (`copySource`), or undefined when it is `copied`'s
+ * own ability (storm, offspring): "Grapeshot from Grapeshot" would say nothing.
+ */
+function copyMaker(g: Game, copied: Card): string | undefined {
+  const by = copySource(g);
+  return by !== label(copied) ? by : undefined;
+}
+
+/**
  * Which ability of which object a stack item is, for counting how many times "this ability has
  * resolved this turn": its source as the object it was (400.7: one that changed zones is a
  * new object, with new abilities) and the ability among that face's (an activated one by its
@@ -5310,7 +5345,11 @@ export function exploreEach(g: Game, cards: Card[]) {
 export function copyToken(g: Game, pid: PlayerId, token: Card | undefined) {
   if (!token) return;
   const [made] = createToken(g, pid, token.name, 1, { copy: token.copy ? copyOf(token) : null });
-  if (made) log(g, `${says(g.players[pid], 'creates')} a copy of ${label(token)}.`, pid, [made]);
+  if (!made) return;
+  const by = copyMaker(g, token);
+  // A copy of a plain token has no copy effect for `createTokens` to mark: it says what made it here.
+  if (by && !token.copy) made.copiedBy = by;
+  log(g, `${says(g.players[pid], 'creates')} a copy of ${label(token)}${by ? ` with ${by}` : ''}.`, pid, [made]);
 }
 
 /**

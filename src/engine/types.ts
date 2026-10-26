@@ -446,6 +446,13 @@ export interface Card {
    * (613.7a). Unset for a permanent that entered as a copy: that effect began as it entered.
    */
   copyTs?: number;
+  /**
+   * On a token copy, or a permanent another card's effect made a copy (707.4): the name of
+   * the card whose spell or ability did it (`copySource`), for the preview. Not a copiable
+   * value, so a copy of this doesn't copy it (707.2). Unset for one that is a copy by its own
+   * ability, like Clone: its own name says where the copy came from.
+   */
+  copiedBy?: string;
   /** Exiled face down (406.3): nobody may look at it but the players in `known`. */
   faceDown: boolean;
   /** Players who may look at it while it is face down in exile (406.3). */
@@ -827,6 +834,8 @@ export interface StackItem {
    * exist once it leaves the stack (707.10a), or becomes a token permanent.
    */
   copy?: boolean;
+  /** On a copy: the name of the card whose spell or ability made it (`copySource`), for the stack and the preview. */
+  copiedBy?: string;
   /** A triggered ability another card gave its source: entry `index` of card `from`'s `grants`. */
   granted?: { from: string; index: number };
   /** An activated ability its source has from another card (Agatha's Soul Cauldron): that card's name, whose script it runs. */
