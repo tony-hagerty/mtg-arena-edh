@@ -1,5 +1,5 @@
 import type { MouseEvent } from 'react';
-import type { Card, CardData, Game, PlayerId } from '../engine';
+import type { Card, CardData, Game, PlayerId, StackItem } from '../engine';
 import { label } from '../engine';
 import { useStore } from './store';
 
@@ -95,13 +95,31 @@ export function pickableFirst(g: Game, cards: Card[], can: (c: Card) => boolean)
  * card in the game by its data (`data(card)`), which a token or a copy needs. Right-click
  * pins it (`Preview`). With `pinOnly` only right-click shows it, for a card already shown big.
  */
-export const hoverProps = (card: string | CardData, { pinOnly = false, textless = false } = {}) => ({
+export const hoverProps = (card: string | CardData, { pinOnly = false, textless = false, origin = undefined as string | undefined } = {}) => ({
   onMouseEnter: (e: MouseEvent<HTMLElement>) =>
     useStore.setState({
-      hover: { ...(typeof card === 'string' ? { name: card } : { name: card.name, d: card }), el: e.currentTarget, ...(pinOnly && { pinOnly }), ...(textless && { textless }) },
+      hover: { ...(typeof card === 'string' ? { name: card } : { name: card.name, d: card }), el: e.currentTarget, ...(pinOnly && { pinOnly }), ...(textless && { textless }), ...(origin && { origin }) },
     }),
   onMouseLeave: () => useStore.setState({ hover: null }),
 });
+
+/**
+ * Where a copy on the battlefield came from (707), for the preview: "Token copy of Elder ·
+ * made by Helm of the Host", or "Copy of Elder · it's Spark Double" for a card that is a copy,
+ * which looks like what it copies. Undefined for a permanent that isn't a copy.
+ */
+export function copyOrigin(c: Card): string | undefined {
+  if (c.zone !== 'battlefield' || (!c.copy && !c.copiedBy)) return undefined;
+  const by = c.copiedBy ? ` · made by ${c.copiedBy}` : '';
+  return c.isToken ? `Token copy of ${label(c)}${by}` : `Copy of ${label(c)} · it's ${c.name}${by}`;
+}
+
+/** Where a copy of a spell or ability came from (707.10), for the preview: "Copy of Lightning Bolt · made by Twincast". */
+export function stackOrigin(item: StackItem): string | undefined {
+  if (!item.copy) return undefined;
+  const what = item.kind === 'spell' ? label(item.card) : `${label(item.card)}'s ability`;
+  return `Copy of ${what}${item.copiedBy ? ` · made by ${item.copiedBy}` : ''}`;
+}
 
 /**
  * A CSS colour for a deck's colours: the frame colour of a mono deck, an even blend of a

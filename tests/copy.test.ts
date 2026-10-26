@@ -10,11 +10,15 @@ import {
   addCounters,
   addLasting,
   applyAction,
+  becomeCopy,
   botAction,
   canActivate,
+  copyItem,
+  copyOf,
   hasType,
   isCreature,
   label,
+  makeCard,
   maxAbilityX,
   moveCard,
   pump,
@@ -22,10 +26,11 @@ import {
   tokenCopy,
   transform,
 } from '../src/engine';
-import type { Card, CardData, Game, TargetRef } from '../src/engine';
+import type { Card, CardData, Game, StackItem, TargetRef } from '../src/engine';
 import { registerScripts } from '../src/engine/registry';
 import './fixtures';
-import { byName, emptyGame, put, runWith } from './helpers';
+import { copyOrigin, stackOrigin } from '../src/ui/util';
+import { byName, emptyGame, put, run, runWith } from './helpers';
 
 const byHand = { autoPass: false };
 const pass = { type: 'pass' } as const;
@@ -124,6 +129,9 @@ describe('Likeness Looter becomes a copy (707.4)', () => {
     expect(token.name).toBe('Elite Vanguard');
     expect(stats(g, token).keywords.has('flying')).toBe(true);
     expect(activatedAbilities(g, token).map((a) => a.text)).toEqual(['Become a copy of a creature card in your graveyard with mana value X']);
+    // Made with nothing resolving: there is no card to name.
+    expect(token.copiedBy).toBeUndefined();
+    expect(copyOrigin(token)).toBe('Token copy of Elite Vanguard');
   });
 
   it('a copy of a double-faced card in a graveyard has its front face, and can\'t transform (712.8a, 712.9)', () => {
@@ -213,5 +221,113 @@ describe('the copy effect has its own timestamp (613.7a, 613.7b)', () => {
     g = becomeCopyOf(g, 'Test Copy Shrinker', 1);
     for (const c of [looter(g), byName(g, 0, 'Test Copy Grower')!]) expect([stats(g, c).power, stats(g, c).toughness]).toEqual([1, 1]);
     expect(looter(g).copyTs).toBeGreaterThan(byName(g, 0, 'Test Copy Grower')!.ts);
+  });
+});
+
+describe('a copy says where it came from', () => {
+  const cast = (g: Game, name: string, extra: object = {}) => ({ type: 'cast', card: byName(g, 0, name, 'hand')!.id, ...extra }) as const;
+
+  it('a copy of a spell names the spell that copied it (707.10)', () => {
+    let g = emptyGame((d) => {
+      put(d, 0, 'Mountain', 'battlefield', 3);
+      put(d, 0, 'Lightning Bolt', 'hand');
+      put(d, 0, 'Reverberate', 'hand');
+    });
+    g = run(g, cast(g, 'Lightning Bolt', { targets: [{ kind: 'player', id: 1 }], hold: true }));
+    g = run(g, cast(g, 'Reverberate', { targets: [{ kind: 'stack', id: g.stack[0].id }] }));
+    // The copy waits for new targets (707.10c).
+    const item = g.decision?.type === 'targets' ? g.decision.item : undefined;
+    expect(item?.copiedBy).toBe('Reverberate');
+    expect(stackOrigin(item!)).toBe('Copy of Lightning Bolt · made by Reverberate');
+    expect(g.log.some((l) => l.text === 'You copy Lightning Bolt with Reverberate.' || l.text.endsWith('copies Lightning Bolt with Reverberate.'))).toBe(true);
+    // The original isn't a copy.
+    expect(stackOrigin(g.stack[0])).toBeUndefined();
+  });
+
+  it('a token copy names the spell that made it', () => {
+    let g = emptyGame((d) => {
+      put(d, 0, 'Saw in Half', 'hand');
+      put(d, 0, 'Swamp', 'battlefield', 3);
+      put(d, 1, 'Serra Angel');
+    });
+    g = runWith({}, g, cast(g, 'Saw in Half', { targets: [ref(byName(g, 1, 'Serra Angel')!)] }));
+    const copies = g.players[1].battlefield.filter((c) => c.isToken);
+    expect(copies).toHaveLength(2);
+    for (const c of copies) {
+      expect(c.copiedBy).toBe('Saw in Half');
+      expect(copyOrigin(c)).toBe('Token copy of Serra Angel · made by Saw in Half');
+    }
+    expect(g.log.some((l) => l.text.endsWith('a token copy of Serra Angel with Saw in Half.'))).toBe(true);
+    // Leaving the battlefield, it is a new object (400.7): nothing to say.
+    g = produce(g, (d) => void moveCard(d, d.players[1].battlefield.find((c) => c.isToken)!, 'graveyard'));
+    expect(g.players[1].battlefield.filter((c) => c.isToken)).toHaveLength(1);
+  });
+
+  it('a card that is a copy by its own ability names itself, not what it copies', () => {
+    const g = becomeCopyOf(looterGame(['Shivan Dragon']), 'Shivan Dragon', 6);
+    expect(looter(g).copiedBy).toBeUndefined();
+    expect(copyOrigin(looter(g))).toBe("Copy of Shivan Dragon · it's Likeness Looter");
+    // Its own ability made the copy: the log doesn't say "with Likeness Looter".
+    expect(g.log.some((l) => l.text === 'Likeness Looter becomes a copy of Shivan Dragon.')).toBe(true);
+    // A permanent that isn't a copy has nothing to say.
+    expect(copyOrigin(byName(g, 0, 'Island')!)).toBeUndefined();
+  });
+});
+
+describe('what made a copy, as something resolves', () => {
+  /** A spell or ability of card `name`, resolving now. */
+  function resolving(d: Game, name: string, kind: StackItem['kind'] = 'spell'): StackItem {
+    const item = { id: `s${d.nextId++}`, kind, controller: 0, card: { ...makeCard(d, name, 0, 'hand'), zone: 'stack' }, targets: [] } as StackItem;
+    d.stack.push(item);
+    d.resolving = item.id;
+    return item;
+  }
+
+  it('a copy of an ability names the card copying it, not an earlier copier', () => {
+    const g = emptyGame((d) => {
+      const original = { ...resolving(d, 'Llanowar Elves', 'activated'), copy: true, copiedBy: 'Old Copier' };
+      d.resolving = null;
+      resolving(d, 'Reverberate');
+      copyItem(d, original, 0);
+    });
+    const copy = g.triggers[g.triggers.length - 1];
+    expect(copy.copiedBy).toBe('Reverberate');
+    expect(stackOrigin(copy)).toBe("Copy of Llanowar Elves's ability · made by Reverberate");
+    expect(g.log.some((l) => l.text.endsWith("Llanowar Elves's ability with Reverberate."))).toBe(true);
+  });
+
+  it("a copy made by the copied card's own ability (storm) doesn't name it again", () => {
+    const g = emptyGame((d) => {
+      const spell = resolving(d, 'Lightning Bolt');
+      copyItem(d, spell, 0);
+    });
+    const copy = g.triggers[g.triggers.length - 1];
+    expect(copy.copiedBy).toBeUndefined();
+    expect(stackOrigin(copy)).toBe('Copy of Lightning Bolt');
+    expect(g.log.some((l) => l.text.includes(' with '))).toBe(false);
+  });
+
+  it("a permanent another card's effect makes a copy names that card (707.4)", () => {
+    const g = emptyGame((d) => {
+      const c = put(d, 0, 'Elite Vanguard');
+      resolving(d, 'Reverberate');
+      becomeCopy(d, c, copyOf(makeCard(d, 'Shivan Dragon', 0, 'graveyard')));
+    });
+    const c = byName(g, 0, 'Elite Vanguard')!;
+    expect(c.copiedBy).toBe('Reverberate');
+    expect(copyOrigin(c)).toBe("Copy of Shivan Dragon · it's Elite Vanguard · made by Reverberate");
+    expect(g.log.some((l) => l.text === 'Elite Vanguard becomes a copy of Shivan Dragon with Reverberate.')).toBe(true);
+  });
+
+  it('a copy of a permanent spell becomes a token that names what copied it (608.3f)', () => {
+    let g = emptyGame((d) => {
+      const card: Card = { ...makeCard(d, 'Elite Vanguard', 0, 'hand', { isToken: true }), zone: 'stack' };
+      d.stack.push({ id: `s${d.nextId++}`, kind: 'spell', controller: 0, card, targets: [], copy: true, copiedBy: 'Twincast' } as StackItem);
+    });
+    g = runWith(byHand, g, pass, pass, pass, pass);
+    const token = g.players[0].battlefield.find((c) => c.name === 'Elite Vanguard')!;
+    expect(token.isToken).toBe(true);
+    expect(token.copiedBy).toBe('Twincast');
+    expect(copyOrigin(token)).toBe('Token copy of Elite Vanguard · made by Twincast');
   });
 });
