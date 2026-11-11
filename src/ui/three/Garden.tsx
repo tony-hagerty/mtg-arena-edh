@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useFrame } from '@react-three/fiber';
 import type { ThreeEvent } from '@react-three/fiber';
-import { AdditiveBlending, BoxGeometry, BufferGeometry, CanvasTexture, DataTexture, EquirectangularReflectionMapping, Group, LinearFilter, LinearMipmapLinearFilter, Mesh, MeshStandardMaterial, RGBAFormat, RepeatWrapping, SRGBColorSpace, UnsignedByteType, Vector2 } from 'three';
+import { AdditiveBlending, BoxGeometry, BufferGeometry, CanvasTexture, DataTexture, EquirectangularReflectionMapping, Group, LinearFilter, LinearMipmapLinearFilter, MathUtils, Mesh, MeshStandardMaterial, RGBAFormat, RepeatWrapping, SRGBColorSpace, UnsignedByteType, Vector2 } from 'three';
 import { Bursts, burst } from './effects';
-import { MATERIAL, bedDistance, bedMaps, wellSwirl } from './board';
+import { MATERIAL, RULE, bedDistance, bedMaps, wellSwirl } from './board';
 import type { Bed, BedMaps, Garden as Plan } from './board';
 import { rng } from './floor';
 import { valueNoise } from './noise';
@@ -12,8 +12,8 @@ import { backTexture, inWorkers, useCardTexture } from './textures';
 
 /*
   The board on the 3D table (board.ts plans it): the four mats lying flat on the flagstones,
-  the well where the paths cross (the exile), and the bursts a click on any of them makes
-  (effects.tsx). Drawn in the table's group, so its z is up off the table, between the floor
+  each lit in its seat's deck colour (`MatLight`), the well where the paths cross (the exile)
+  in its gold ring, and the bursts a click on any of them makes (effects.tsx). Drawn in the table's group, so its z is up off the table, between the floor
   (Table3D's FLOOR_Z) and the cards' soft shadows (SHADOW_Z): `SAND_Z` is the mats.
 */
 
@@ -46,8 +46,22 @@ function dataTexture(data: Uint8ClampedArray, w: number, h: number, srgb: boolea
 interface MatTextures {
   map: DataTexture;
   normalMap: DataTexture;
+  emissiveMap: DataTexture;
 }
-const matTextures = (m: BedMaps): MatTextures => ({ map: dataTexture(m.albedo, m.width, m.height, true), normalMap: dataTexture(m.normal, m.width, m.height, false) });
+const matTextures = (m: BedMaps): MatTextures => ({
+  map: dataTexture(m.albedo, m.width, m.height, true),
+  normalMap: dataTexture(m.normal, m.width, m.height, false),
+  emissiveMap: dataTexture(m.glow, m.width, m.height, false),
+});
+
+/** A mat's light: its seat's deck colour (`#rrggbb`), whether it is that player's turn, and whether they are out of the game. */
+export interface MatLight {
+  color: string;
+  active: boolean;
+  out: boolean;
+}
+/** How strongly a mat gives off its deck colour (`BedMaps.glow`): at rest, once its player is out, and on its player's turn, when it also breathes by `swell` either way. */
+const MAT_GLOW = { rest: 0.55, out: 0.12, active: 1.9, swell: 0.3 };
 
 /** A card floating in the well: one of the exiled cards. `image` null is a card exiled face down. */
 export interface Floating {
@@ -56,17 +70,18 @@ export interface Floating {
 }
 
 /**
- * The board for `plan`: the mats and the well. `exiled`: the cards circling in the well.
- * `onExile`: a right-click on the well, which opens the exile.
+ * The board for `plan`: the mats and the well. `lights`: each mat's light, in the order of
+ * `plan.beds`. `exiled`: the cards circling in the well. `onExile`: a right-click on the well,
+ * which opens the exile.
  */
-export function Garden({ plan, exiled, onExile }: { plan: Plan; exiled: Floating[]; onExile: () => void }) {
+export function Garden({ plan, lights, exiled, onExile }: { plan: Plan; lights: MatLight[]; exiled: Floating[]; onExile: () => void }) {
   const root = useRef<Group>(null);
   /** Where on the table an event landed: the board's group is the table's own coordinates. */
   const at = (e: ThreeEvent<MouseEvent>) => root.current!.worldToLocal(e.point.clone());
   return (
     <group ref={root}>
-      {plan.beds.map((b) => (
-        <Mat key={b.material} plan={plan} bed={b} at={at} />
+      {plan.beds.map((b, i) => (
+        <Mat key={b.material} plan={plan} bed={b} light={lights[i]} at={at} />
       ))}
       <Well plan={plan} exiled={exiled} at={at} onExile={onExile} />
       <Bursts />
@@ -74,8 +89,20 @@ export function Garden({ plan, exiled, onExile }: { plan: Plan; exiled: Floating
   );
 }
 
-/** A mat: one flat plane over its rectangle, clear outside its rounded, well-cut shape. A click on it makes its material's burst; one on its clear part goes through. */
-function Mat({ plan, bed, at }: { plan: Plan; bed: Bed; at: (e: ThreeEvent<MouseEvent>) => { x: number; y: number } }) {
+/**
+ * A mat: one flat plane over its rectangle, clear outside its rounded, well-cut shape. Its
+ * double rule and edges give off its seat's deck colour (`light`), faintly at rest and
+ * brightly, breathing, while it is that player's turn: whose turn it is shows on the table
+ * itself. A player who is out leaves their mat all but dark. A click on it makes its material's burst; one on its clear part goes through.
+ */
+function Mat({ plan, bed, light, at }: { plan: Plan; bed: Bed; light: MatLight; at: (e: ThreeEvent<MouseEvent>) => { x: number; y: number } }) {
+  const material = useRef<MeshStandardMaterial>(null);
+  useFrame((state, dt) => {
+    const m = material.current;
+    if (!m) return;
+    const to = light.out ? MAT_GLOW.out : light.active ? MAT_GLOW.active + MAT_GLOW.swell * Math.sin(state.clock.elapsedTime * 1.7) : MAT_GLOW.rest;
+    m.emissiveIntensity = MathUtils.damp(m.emissiveIntensity, to, 3, dt);
+  });
   const rough = useMemo(() => matTextures(bedMaps(plan, bed, MAT_FIRST)), [plan, bed]);
   const [sharp, setSharp] = useState<{ for: Bed; tex: MatTextures } | null>(null);
   useEffect(() => {
@@ -92,6 +119,7 @@ function Mat({ plan, bed, at }: { plan: Plan; bed: Bed; at: (e: ThreeEvent<Mouse
     () => () => {
       tex.map.dispose();
       tex.normalMap.dispose();
+      tex.emissiveMap.dispose();
     },
     [tex],
   );
@@ -106,7 +134,7 @@ function Mat({ plan, bed, at }: { plan: Plan; bed: Bed; at: (e: ThreeEvent<Mouse
   return (
     <mesh receiveShadow position={[(bed.x0 + bed.x1) / 2, (bed.y0 + bed.y1) / 2, SAND_Z]} onClick={click}>
       <planeGeometry args={[bed.x1 - bed.x0, bed.y1 - bed.y0]} />
-      <meshStandardMaterial map={tex.map} normalMap={tex.normalMap} normalScale={new Vector2(1, 1)} roughness={MATERIAL[bed.material].roughness} alphaTest={0.5} />
+      <meshStandardMaterial ref={material} map={tex.map} normalMap={tex.normalMap} normalScale={new Vector2(1, 1)} roughness={MATERIAL[bed.material].roughness} emissive={light.color} emissiveMap={tex.emissiveMap} emissiveIntensity={MAT_GLOW.rest} alphaTest={0.5} />
     </mesh>
   );
 }
@@ -306,13 +334,66 @@ function foamTexture() {
   return foam;
 }
 
+/** The five colours of mana, in order (W, U, B, R, G): the gems set in the well's ring. */
+const GEMS = ['#f1e6bd', '#4a90d2', '#8a6cc4', '#e0553a', '#4fae62'];
+const GOLD = new MeshStandardMaterial({ color: '#c79c3c', metalness: 0.85, roughness: 0.34, emissive: '#6b4c12', emissiveIntensity: 0.55 });
+
+/**
+ * The gold ring let into the flagstones round the well: the mats' double rule (`RULE`), drawn
+ * round, with a gem for each colour of mana set in it, white at the far side and on clockwise
+ * in the colour pie's order. The gems glow one after another, slowly, round the ring.
+ */
+function WellRing({ r }: { r: number }) {
+  const gems = useRef<(MeshStandardMaterial | null)[]>([]);
+  useFrame((state) => {
+    const t = state.clock.elapsedTime * 0.45;
+    gems.current.forEach((m, i) => {
+      // One gem at a time is at its brightest; the light goes round in the pie's order.
+      if (m) m.emissiveIntensity = 0.7 + 1.5 * Math.max(0, Math.cos(t - (i / GEMS.length) * Math.PI * 2)) ** 6;
+    });
+  });
+  const gem = 0.62;
+  return (
+    <group position-z={0.03}>
+      <mesh material={GOLD} receiveShadow raycast={() => null}>
+        <ringGeometry args={[r - RULE.main * 1.6, r + RULE.main * 1.6, 96]} />
+      </mesh>
+      <mesh material={GOLD} receiveShadow raycast={() => null}>
+        <ringGeometry args={[r + RULE.gap - RULE.fine * 1.6, r + RULE.gap + RULE.fine * 1.6, 96]} />
+      </mesh>
+      {GEMS.map((color, i) => {
+        const a = Math.PI / 2 - (i / GEMS.length) * Math.PI * 2;
+        return (
+          <group key={color} position={[Math.cos(a) * r, Math.sin(a) * r, 0.01]}>
+            <mesh material={GOLD} raycast={() => null}>
+              <circleGeometry args={[gem + 0.2, 28]} />
+            </mesh>
+            <mesh position-z={0.01} raycast={() => null}>
+              <circleGeometry args={[gem, 28]} />
+              <meshStandardMaterial
+                ref={(m) => {
+                  gems.current[i] = m;
+                }}
+                color={color}
+                roughness={0.2}
+                emissive={color}
+                emissiveIntensity={0.7}
+              />
+            </mesh>
+          </group>
+        );
+      })}
+    </group>
+  );
+}
+
 /** The wall's stones: one shape, scaled for each, and a few shades of worn stone. */
 const STONE = new BoxGeometry(1, 1, 1);
 const STONE_LOOKS = ['#8a8274', '#978e7f', '#7b7468', '#a0968a'].map((color) => new MeshStandardMaterial({ color, roughness: 0.95, flatShading: true }));
 
 /**
- * The well, which is the exile: a ring of cobblestones, two courses high and no higher than a
- * hand, round deep green-blue water turning slowly in a whirlpool, and every exiled card (the
+ * The well, which is the exile: inside a gold ring let into the floor (`WellRing`), a ring of
+ * cobblestones, two courses high and no higher than a hand, round deep green-blue water turning slowly in a whirlpool, and every exiled card (the
  * newest `SWIRL_MAX`) circling in it along a spiral (`wellSwirl`). The water is layered: its depths with the light from the
  * ripples drifting over them, then the surface, glossy, rippled two ways at once and mirroring
  * the hall's torches, then streaks of foam in the current and a rim of it at the wall. A click
@@ -371,6 +452,10 @@ function Well({ plan, exiled, at, onExile }: { plan: Plan; exiled: Floating[]; a
   });
   return (
     <group position={[x, y, 0]}>
+      {/* On the flagstones, between the wall and the mats' cut-out. */}
+      <group position-z={SAND_Z - 0.04}>
+        <WellRing r={r + WALL.t + 1.15} />
+      </group>
       {stones.map((s, i) => (
         <mesh key={i} castShadow receiveShadow geometry={STONE} material={STONE_LOOKS[s.look]} position={[s.x, s.y, s.z]} rotation-z={s.turn} scale={s.size} raycast={() => null} />
       ))}

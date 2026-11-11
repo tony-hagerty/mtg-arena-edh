@@ -1,15 +1,18 @@
-import { useMemo, useRef } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import { useFrame } from '@react-three/fiber';
-import { AdditiveBlending, CanvasTexture, DoubleSide, Group, PointLight, RepeatWrapping, SRGBColorSpace, Vector2 } from 'three';
+import { AdditiveBlending, CanvasTexture, Color, DoubleSide, Group, InstancedMesh, Object3D, PointLight, RepeatWrapping, SRGBColorSpace, Vector2 } from 'three';
 import type { Texture } from 'three';
+import { TILT } from '../camera';
 import { rng } from './floor';
+import { tiltRad } from './layout3d';
 import { hash, valueNoise } from './noise';
 
 /*
   The hall around the 3D table: dressed-stone walls down both sides and across the far end,
   with arched recesses, after a dungeon's (the board, Garden.tsx, lies on its flagstone floor).
   Torches burn in iron sconces on the side walls either side of the play area, and their
-  flickering light is most of the warm light on the table. Built in the table's coordinates
+  flickering light is most of the warm light on the table. Motes drift in the air over the
+  table: embers near the torches, pale dust further in (`Motes`). Built in the table's coordinates
   (layout3d.ts: rem, x across, y up the table, z up off it).
 */
 
@@ -238,6 +241,61 @@ function Torch({ seed }: { seed: number }) {
   );
 }
 
+/** How many motes drift over the table. */
+const MOTES = 110;
+const mote = new Object3D();
+
+/**
+ * Motes in the hall's air, over the whole table: embers, warm and bright, near the side walls
+ * where the torches burn, and pale dust in the cooler light further in. Each rises slowly,
+ * swaying, and twinkles, and starts again from the floor once it is above the walls. They are
+ * one instanced mesh of small glows facing you, moved every frame with the rest of the scene.
+ */
+function Motes({ w, tableH }: { w: number; tableH: number }) {
+  const mesh = useRef<InstancedMesh>(null);
+  const top = WALL.h * 0.9;
+  const motes = useMemo(() => {
+    const rand = rng(77);
+    return Array.from({ length: MOTES }, () => {
+      // More of them toward the sides, by the torches.
+      const side = rand() < 0.6;
+      const x = side ? (rand() < 0.5 ? -1 : 1) * (w / 2) * (0.72 + rand() * 0.3) : (rand() - 0.5) * w * 1.3;
+      return { x, y: rand() * tableH, z: rand() * top, rise: 0.5 + rand() * 1.1, sway: 0.6 + rand() * 1.6, phase: rand() * Math.PI * 2, size: side ? 0.3 + rand() * 0.5 : 0.22 + rand() * 0.32, ember: side };
+    });
+  }, [w, tableH, top]);
+  useEffect(() => {
+    const m = mesh.current;
+    if (!m) return;
+    const color = new Color();
+    motes.forEach((p, i) => m.setColorAt(i, color.set(p.ember ? '#ffb060' : '#aebbe0').multiplyScalar(p.ember ? 1 : 0.55)));
+    if (m.instanceColor) m.instanceColor.needsUpdate = true;
+  }, [motes]);
+  useFrame((state) => {
+    const m = mesh.current;
+    if (!m) return;
+    const t = state.clock.elapsedTime;
+    motes.forEach((p, i) => {
+      const z = (p.z + t * p.rise) % top;
+      // Fading in off the floor and out again at the top, and twinkling on the way.
+      const fade = Math.sin((z / top) * Math.PI);
+      const s = p.size * fade * (0.7 + 0.3 * Math.sin(t * 2.3 + p.phase));
+      mote.position.set(p.x + Math.sin(t * 0.35 + p.phase) * p.sway, p.y + Math.cos(t * 0.27 + p.phase) * p.sway, z);
+      // Facing the viewer: the table leans away by TILT, so they lean back by as much.
+      mote.rotation.set(tiltRad(TILT), 0, 0);
+      mote.scale.setScalar(Math.max(0.0001, s));
+      mote.updateMatrix();
+      m.setMatrixAt(i, mote.matrix);
+    });
+    m.instanceMatrix.needsUpdate = true;
+  });
+  return (
+    <instancedMesh ref={mesh} args={[undefined, undefined, MOTES]} frustumCulled={false} raycast={() => null}>
+      <planeGeometry args={[1, 1]} />
+      <meshBasicMaterial map={haloTexture()} transparent blending={AdditiveBlending} depthWrite={false} toneMapped={false} />
+    </instancedMesh>
+  );
+}
+
 /** How far apart the side walls' arches are, rem: twice the torches' spacing, so the torches hang between them. */
 const ARCH_STEP = 50;
 
@@ -270,6 +328,7 @@ export function Hall({ w, tableH, cross }: { w: number; tableH: number; cross: n
       <group position={[0, tableH + 6, 0]}>
         <Wall len={2 * side + 2 * WALL.t} arches={[-2, -1, 0, 1, 2].map((i) => i * ((2 * side) / 5))} />
       </group>
+      <Motes w={w} tableH={tableH} />
       {torches.map((y, i) => (
         <group key={i}>
           <group position={[-side, y, 14]} rotation-z={Math.PI / 2}>

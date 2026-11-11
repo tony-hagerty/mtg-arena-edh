@@ -2,6 +2,8 @@ import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { MotionGlobalConfig } from 'motion/react';
 import 'mana-font/css/mana.min.css';
+// Marcellus, the menu's display face (--display in styles.css).
+import '@fontsource/marcellus/400.css';
 import './ui/styles.css';
 import './ui/fullscreen';
 import './ui/sound';
