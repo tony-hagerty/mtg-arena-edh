@@ -63,7 +63,7 @@ src/ui/         App.tsx               menu or game screen; GameScreen.tsx lays t
                 view.ts               highlights, prompt, buttons, click handlers
                 Card/Board/Hud.tsx    components: your hand's cards, the portraits and piles, the HUD
                 TextCard.tsx          a card drawn as text when its image doesn't load
-                Menu.tsx              deck menu, opponent seats, the paste screen
+                Menu.tsx              the title screen (the picked deck, the hand of decks, the seats), the paste screen
                 card-requests.ts      sends refused cards to the dev server or a download
                 Picker.tsx            card picker: search, mulligan, bottom, trigger order,
                                       yes/no questions, naming, players, legend rule,
@@ -96,10 +96,11 @@ src/ui/         App.tsx               menu or game screen; GameScreen.tsx lays t
                                       that is the shared exile, with the mats' maps (pure
                                       maths, tested) and where the exiled cards float in
                                       it (wellSwirl); layout3d.ts also fans a held hand
-                                      (heldFan); Garden.tsx draws the mats and the well's
-                                      water and whirlpool, and the exile swirling in it;
-                                      Hall.tsx the stone walls and
-                                      the torches; effects.tsx the bursts a click on the
+                                      (heldFan); Garden.tsx draws the mats, each lit in
+                                      its seat's deck colour, and the well in its gold
+                                      ring: its water and whirlpool, and the exile
+                                      swirling in it; Hall.tsx the stone walls, the
+                                      torches and the motes in the air; effects.tsx the bursts a click on the
                                       board makes; floor.ts the flagstones; noise.ts the
                                       noise they share; textures.ts card faces (a
                                       permanent's art-and-name tile, tileTexture), back
@@ -226,7 +227,7 @@ pills from `handPills`). A hand card is drawn in a slot that takes no pointer ev
 so its zoom can cover its neighbours; a clear copy of its resting shape (`.hand-hit`)
 takes the hover, the click and the press that starts the drag, and while a card is
 dragged (`holding` in the store) no other card hovers. The HUD sits flat on the screen: the log bar at the top in the
-middle, the controls' plate with the seat arrows above it at the bottom in the middle,
+middle, the controls (the turn's beads, the turn and step, the big button; no plate round them) with the seat arrows above them at the bottom in the middle,
 the stack over the middle of the table (`stackHidden` in the store tucks it into a chip).
 
 That leaves two coordinate spaces. The cards, piles and held hands are laid out on the
@@ -244,13 +245,31 @@ itself; Flights.tsx flies everything else over the screen.
 `styles.css` opens with the design tokens on `:root`: surfaces (`--board`, `--panel`,
 `--raised`, `--sunken`), text shades, the gold accent, the action colours (`--play` cyan
 for what can be played, `--target` yellow for what can be chosen, `--attack`, `--block`),
-lines, shadows and radii. Use them rather than new literal colours; the comment above them
+lines, shadows and radii, the gold double rule (`--rule`, `--rule-fine`: the card back's
+two gold lines, as hairlines that fade out at their ends) and the dark enamel of every badge
+and count (`--enamel`, `--enamel-rim`). Use them rather than new literal colours; the comment above them
 says what each is for. The card frame colours (`--f-W` to `--f-land`) double as each
 deck's seat colour. All the app's text is one sans-serif typeface, `--sans`: use it rather
-than naming a font (the tile names in the scene read it too, `tileTexture`).
+than naming a font (the tile names in the scene read it too, `tileTexture`). The one
+exception is `--display` (Marcellus, bundled from `@fontsource/marcellus` in main.tsx): names
+and titles, on the menu screens and in the game (a player's name and life total, the turn
+and step, a window's title, the stack's name, the result), and a button's label, as the
+menu's Play has it. Never text that is read at length: the prompt, the log's lines, a
+window's hint and every badge stay in `--sans`.
 
-- **Seats** are the mats (three/Garden.tsx), one material each in turn order from yours.
-  Whose turn it is shows on their avatar (the rays and the gold life plate).
+**The game's look** follows the title screen's: the game's gold as the one accent, each
+deck's colours as coloured light, and the card back's gold double rule wherever something
+is framed (the mats, the well's ring, the portraits and life plates, the prompt band, the
+pop-up windows, the buttons). Controls stand straight on the table, with no panel round a
+group of them: where they need a ground to read on, it is a soft dark that fades out
+(`.action-bar::before`), not a box.
+
+- **Seats** are the mats (three/Garden.tsx), one material each in turn order from yours,
+  each with the gold double rule inlaid inside its border (`RULE` in three/board.ts). A
+  mat gives off its player's deck colour from that rule and its edges (`BedMaps.glow`, the
+  mat's emissive map; `MatLight`): faintly at rest, brightly and breathing on their turn,
+  all but dark once they are out. Whose turn it is shows there and on their avatar (the
+  halo behind it, and the life plate and name turning gold).
 - **A card's badges** (P/T, counters, the summoning-sick mark, a pile's count) are DOM, on
   the card's proxy, whose font-size is a tenth of the card's width, so they are sized in
   `em`, with `rem` floors on text that must stay readable. A pile shows `PILE_STEP`
@@ -260,8 +279,11 @@ than naming a font (the tile names in the scene read it too, `tileTexture`).
 - **The card back** is one SVG, `src/ui/card-back.svg` (the icon as a gold silhouette),
   in `--card-back` wherever a card is face down on the screen, and drawn onto the cards'
   undersides and the libraries in the scene (`backTexture`).
-- **A tapped card** lies turned 8° and carries the tap symbol on its proxy (`.tap-symbol`,
-  the mana font's {T}).
+- **A tapped card** lies turned 8° and carries the tap symbol in a dark round on its proxy
+  (`.tap-symbol`, the mana font's {T}).
+- **A card that glows** (playable, a target, attacking) has a ring round its face and a soft
+  halo of the same colour on the mat round it (`Halo` in three/Table3D.tsx), which is the
+  card's soft shadow drawn in light.
 
 ## Tests
 

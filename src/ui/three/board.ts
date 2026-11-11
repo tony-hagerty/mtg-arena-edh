@@ -11,9 +11,10 @@ import { fbm, hash, valueNoise } from './noise';
     (`seatOf`: bottom left, top left, top right, bottom right, clockwise in turn order). They
     are the same size on the table, so the far two look smaller, as the table leans away. The
     near two start just above the bottom of the screen, so their edge shows.
-  - Each mat is a material, dark and plain enough that the cards on it read, with a border
-    worked into it: worn leather with stitching (yours), oak planks in a darker frame, slate
-    slabs with a brass line, and a woven cloth with a gold trim.
+  - Each mat is a material, dark and plain enough that the cards on it read: worn leather with
+    stitching (yours), oak planks, slate slabs, and a woven cloth. All four carry the same
+    inlay just inside their darker border, the card back's gold double rule (`RULE`), which
+    lights in the seat's deck colour (`BedMaps.glow`, Garden.tsx).
   - A well where the paths between the mats cross, which is the exile (400.1: exile is shared,
     not any one player's). The mats' corners nearest it curve in around it.
   - Each mat is its seat's battlefield (`seatArea`): its library and graveyard lie along the
@@ -49,6 +50,13 @@ export const PATH = 3.2;
 export const BED_CORNER = 1.6;
 /** How wide the border worked into each mat is, rem. */
 export const BORDER = 1.3;
+/**
+ * The gold double rule inlaid in every mat, as on the card back (card-back.svg): a line on the
+ * border's inner edge and a finer one `gap` rem further in. Half-widths in rem.
+ */
+export const RULE = { main: 0.085, fine: 0.032, gap: 0.42 };
+/** How far in from a mat's edge its field darkens toward the border, rem: the mat is lit from over its middle. */
+const SHADE_IN = 11;
 /** The well's water radius, rem. */
 export const POND_R = 13;
 /** The most exiled cards the well's whirlpool carries: the newest, by timestamp. */
@@ -298,7 +306,18 @@ export interface BedMaps {
   albedo: Uint8ClampedArray;
   /** RGBA: the tangent-space normal, +y up the table. */
   normal: Uint8ClampedArray;
+  /**
+   * RGBA, grey: how much of the seat's deck colour each pixel gives off (the mat's emissive
+   * map, Garden.tsx). The double rule is brightest, with a soft light along the mat's edges
+   * and a wash from the corner its player sits at.
+   */
+  glow: Uint8ClampedArray;
 }
+
+const smooth = (t: number) => {
+  const k = Math.min(1, Math.max(0, t));
+  return k * k * (3 - 2 * k);
+};
 
 /**
  * Mat `b`'s maps over its rectangle, `px` pixels a rem. Row 0 is its near edge, as Three
@@ -307,18 +326,26 @@ export interface BedMaps {
  *
  * - leather: a pebbled grain, a slow mottle of wear, and a line of stitches round its border;
  * - wood: planks along the seat's edge, staggered, each its own shade, with grain and dark seams;
- * - slate: slabs with fine joints and a matte, finely cleft face, a brass line round the border;
- * - cloth: a fine weave, worn paler in patches, a gold trim with a line through it.
+ * - slate: slabs with fine joints and a matte, finely cleft face;
+ * - cloth: a fine weave, worn paler in patches.
  *
- * The border is its own darker band, `BORDER` wide, a little raised at its inner edge.
+ * The border is its own darker band, `BORDER` wide. On its inner edge lies the gold double
+ * rule (`RULE`), standing a little proud, and the field darkens toward it (`SHADE_IN`).
  */
 export function bedMaps(g: Garden, b: Bed, px: number): BedMaps {
   const W = Math.max(1, Math.round((b.x1 - b.x0) * px));
   const H = Math.max(1, Math.round((b.y1 - b.y0) * px));
   const albedo = new Uint8ClampedArray(W * H * 4);
   const normal = new Uint8ClampedArray(W * H * 4);
+  const glow = new Uint8ClampedArray(W * H * 4);
   const height = new Float32Array(W * H);
   const m = MATERIAL[b.material];
+  // Where the seat's player sits: the mat's outer corner, or the middle of its outer edge for a whole side.
+  const seatX = b.h === 'left' ? b.x0 : b.h === 'right' ? b.x1 : (b.x0 + b.x1) / 2;
+  const seatY = b.v === 'bottom' ? b.y0 : b.y1;
+  const reach = Math.hypot(b.h === 'full' ? (b.x1 - b.x0) / 2 : b.x1 - b.x0, b.y1 - b.y0);
+  /** How much of a line `half` rem either side of `at` covers a pixel `inside` rem in from the edge: soft over a pixel, so a fine line never breaks up. */
+  const cover = (inside: number, at: number, half: number) => Math.min(1, Math.max(0, (half - Math.abs(inside - at)) * px + 0.5));
   for (let j = 0; j < H; j++) {
     const y = b.y0 + (j + 0.5) / px;
     for (let i = 0; i < W; i++) {
@@ -379,12 +406,6 @@ export function bedMaps(g: Garden, b: Bed, px: number): BedMaps {
           const mottle = fbm(x, y, 3, 18);
           h = border ? 0.5 : Math.min(1, joint / 0.25) * (0.5 + (cleft - 0.5) * 0.07 + (grit - 0.5) * 0.04 + (swell - 0.5) * 0.05);
           shade = (0.86 + slab * 0.16 + (cleft - 0.5) * 0.06 + (grit - 0.5) * 0.07 + (mottle - 0.5) * 0.14 + (fbm(x, y, 7, 13) - 0.5) * 0.08) * (!border && joint < 0.08 ? 0.6 : 1);
-          // A brass line round the field, just inside the border.
-          if (Math.abs(inside - BORDER) < 0.12) {
-            color = [150, 116, 56];
-            shade = 0.9 + grit * 0.15;
-            h = 0.7;
-          }
           break;
         }
         case 'cloth': {
@@ -395,17 +416,22 @@ export function bedMaps(g: Garden, b: Bed, px: number): BedMaps {
           h = 0.5 + 0.25 * (Math.sign(a * c) * Math.min(Math.abs(a), Math.abs(c)));
           const wear = fbm(x, y, 9, 14);
           shade = 0.82 + wear * 0.26 + (h - 0.5) * 0.25;
-          if (border) {
-            color = [116, 88, 40];
-            shade = 0.75 + wear * 0.25 + (h - 0.5) * 0.2;
-            // A dark line through the middle of the trim.
-            if (Math.abs(inside - BORDER * 0.5) < 0.1) shade *= 0.45;
-          }
           break;
         }
       }
-      // The border's inner edge stands a little proud of the field.
-      if (Math.abs(inside - BORDER) < 0.15) h = Math.max(h, 0.8);
+      // Lit from over its middle: the field darkens toward the border.
+      if (!border) shade *= 0.74 + 0.26 * smooth((inside - BORDER) / SHADE_IN);
+      // The gold double rule: how much of each line covers this pixel.
+      const main = cover(inside, BORDER, RULE.main);
+      const fine = cover(inside, BORDER + RULE.gap, RULE.fine);
+      const rule = Math.max(main, fine * 0.55);
+      if (rule > 0) {
+        // Brushed gold: brighter and darker along its length.
+        const brushed = 0.82 + valueNoise((x + y) * 0.9, (x - y) * 0.9, 21) * 0.3;
+        color = [color[0] * shade * (1 - rule) + 214 * brushed * rule, color[1] * shade * (1 - rule) + 172 * brushed * rule, color[2] * shade * (1 - rule) + 78 * brushed * rule];
+        shade = 1;
+        h = Math.max(h, 0.5 + 0.4 * main);
+      }
       const k = j * W + i;
       height[k] = h;
       const o = k * 4;
@@ -414,6 +440,11 @@ export function bedMaps(g: Garden, b: Bed, px: number): BedMaps {
       albedo[o + 2] = color[2] * shade;
       // Soft at the edge, a pixel wide.
       albedo[o + 3] = 255 * Math.min(1, Math.max(0, 0.5 - d * px));
+      // The deck's light: the rule, a soft line of it along the edges, and a wash from the seat's corner.
+      const wash = Math.max(0, 1 - Math.hypot(x - seatX, y - seatY) / reach) ** 2.2 * 0.3;
+      const rim = Math.exp(-Math.max(0, inside - BORDER) / 2.6) * 0.16;
+      glow[o] = glow[o + 1] = glow[o + 2] = 255 * Math.min(1, wash + rim + main + fine * 0.5);
+      glow[o + 3] = 255;
     }
   }
   // The normal from the height's slope.
@@ -429,5 +460,5 @@ export function bedMaps(g: Garden, b: Bed, px: number): BedMaps {
       normal[o + 2] = (0.5 + 0.5 / l) * 255;
       normal[o + 3] = 255;
     }
-  return { width: W, height: H, albedo, normal };
+  return { width: W, height: H, albedo, normal, glow };
 }

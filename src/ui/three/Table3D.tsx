@@ -2,7 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef } fr
 import type { CSSProperties, ReactNode, RefObject } from 'react';
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import type { GLProps, ThreeEvent } from '@react-three/fiber';
-import { BufferAttribute, Color, Group, MathUtils, Matrix4, Mesh, MeshBasicMaterial, OrthographicCamera, Plane, PlaneGeometry, Raycaster, Vector2, Vector3 } from 'three';
+import { AdditiveBlending, BufferAttribute, Color, Group, MathUtils, Matrix4, Mesh, MeshBasicMaterial, OrthographicCamera, Plane, PlaneGeometry, Raycaster, Vector2, Vector3 } from 'three';
 import type { BufferGeometry, DirectionalLight, PerspectiveCamera, Texture, WebGLRenderer } from 'three';
 import { WebGPURenderer } from 'three/webgpu';
 import { attachmentsOf, canLookAtTop, data, defenseOf, isBattle, isCreature, isHidden, isPlaneswalker, isRingBearer, loyaltyOf, stats, timesTempted } from '../../engine';
@@ -413,6 +413,8 @@ function Scene({ v, speed, w, h, tableH, seats, plan, players }: { v: View; spee
     .sort((a, b) => b.ts - a.ts)
     .slice(0, SWIRL_MAX)
     .map((c) => ({ id: c.id, image: faceUp(c, v.me) ? data(c).image : null }));
+  // Each mat lit in its player's deck colour, brightest on their turn (the mats are in the players' order, `gardenPlan`).
+  const lights = players.map((p) => ({ color: deckHex(p.colors), active: v.g.active === p.id && v.g.step !== 'gameOver', out: !!p.lost }));
   return (
     <SceneCtx.Provider value={state}>
       {/* The view for anything inside that asks for it, as the DOM side has it. */}
@@ -425,7 +427,7 @@ function Scene({ v, speed, w, h, tableH, seats, plan, players }: { v: View; spee
         {/* The table leans away from you by TILT about its bottom edge, as camera.ts has it. Its own z is up off the table. */}
         <group ref={table} rotation-x={-tiltRad(TILT)}>
           <Floor w={w} tableH={tableH} />
-          <Garden plan={plan} exiled={exiled} onExile={openExile} />
+          <Garden plan={plan} lights={lights} exiled={exiled} onExile={openExile} />
           <ExileAnchor plan={plan} />
           <Hall w={w} tableH={tableH} cross={plan.pond.y} />
           {seats.map((s) => s.poses.map((p) => <Card3D key={p.item.id} pose={p} seat={s.seat} phased={s.phased.has(p.item.id)} />))}
@@ -736,6 +738,14 @@ const FACE_GLOW = 0.55;
 /** The frame colours (`--f-*` in styles.css). */
 const FRAME: Record<string, string> = { W: '#e3d9ae', U: '#4a90d2', B: '#8a6cc4', R: '#e0553a', G: '#4fae62', gold: '#d2aa42', artifact: '#93a0af', land: '#8a765c' };
 
+/** A deck's colour as `#rrggbb`: its colours' frame colours in equal shares, as `deckColor` (util.ts) mixes them in CSS. */
+function deckHex(colors: readonly string[]) {
+  const list = (colors.length ? colors : ['artifact']).map((c) => FRAME[c] ?? FRAME.artifact);
+  // Mixed as sRGB values, as CSS's `color-mix(in srgb, ...)` does.
+  const channel = (i: number) => Math.round(list.reduce((n, hex) => n + parseInt(hex.slice(1 + i * 2, 3 + i * 2), 16), 0) / list.length);
+  return `#${[0, 1, 2].map((i) => channel(i).toString(16).padStart(2, '0')).join('')}`;
+}
+
 /**
  * One permanent on the table: its box, its glow, and the Auras and Equipment attached to it
  * fanned out behind it. It eases to its place (`pose`) when the layout moves it, turns when
@@ -854,9 +864,12 @@ function Card3D({ pose, seat, phased }: { pose: Pose<Card>; seat: Seat; phased: 
           <CardMaterials face={face} back={back} d={d} tapped={card.tapped} phased={phased} />
         </mesh>
         {glow && (
-          <mesh ref={glowRef} geometry={shapes.glow} position={[0, 0, CARD_THICKNESS / 2 - GLOW_DROP]} raycast={() => null}>
-            <meshBasicMaterial color={GLOW[glow]} transparent opacity={0.9} toneMapped={false} />
-          </mesh>
+          <>
+            <mesh ref={glowRef} geometry={shapes.glow} position={[0, 0, CARD_THICKNESS / 2 - GLOW_DROP]} raycast={() => null}>
+              <meshBasicMaterial color={GLOW[glow]} transparent opacity={0.9} toneMapped={false} />
+            </mesh>
+            <Halo w={pose.w} h={pose.h} color={GLOW[glow]} />
+          </>
         )}
         {attached.map((a, i) => (
           <Attached key={a.id} card={a} host={pose} index={i} inward={inward} />
@@ -869,6 +882,22 @@ function Card3D({ pose, seat, phased }: { pose: Pose<Card>; seat: Seat; phased: 
         </mesh>
       )}
     </group>
+  );
+}
+
+/**
+ * The light a glowing card throws round itself: the highlight's colour, soft, reaching
+ * SHADOW_SPREAD of the card's width past its edge (the soft shadow's shape, lit instead of
+ * dark), so the glow reads as light on the mat and not only as a hard ring. It lies just
+ * over the card's underside, below every neighbour's face, so it lights the mat between
+ * cards and never the card beside it.
+ */
+function Halo({ w, h, color }: { w: number; h: number; color: string }) {
+  return (
+    <mesh position={[0, 0, -CARD_THICKNESS / 2 + GLOW_DROP]} raycast={() => null}>
+      <planeGeometry args={[w * (1 + 2 * SHADOW_SPREAD), h + 2 * SHADOW_SPREAD * w]} />
+      <meshBasicMaterial map={shadowTexture()} color={color} transparent opacity={0.6} blending={AdditiveBlending} depthWrite={false} toneMapped={false} />
+    </mesh>
   );
 }
 
@@ -909,9 +938,12 @@ function Attached({ card, host, index, inward }: { card: Card; host: Pose<Card>;
         <CardMaterials face={face} back={backTexture()} d={d} tapped={card.tapped} phased={false} />
       </mesh>
       {glow && (
-        <mesh geometry={shapes.glow} position={[0, 0, CARD_THICKNESS / 2 - GLOW_DROP]} raycast={() => null}>
-          <meshBasicMaterial color={GLOW[glow]} transparent opacity={0.9} toneMapped={false} />
-        </mesh>
+        <>
+          <mesh geometry={shapes.glow} position={[0, 0, CARD_THICKNESS / 2 - GLOW_DROP]} raycast={() => null}>
+            <meshBasicMaterial color={GLOW[glow]} transparent opacity={0.9} toneMapped={false} />
+          </mesh>
+          <Halo w={host.w} h={host.h} color={GLOW[glow]} />
+        </>
       )}
     </group>
   );
