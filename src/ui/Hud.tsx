@@ -108,27 +108,48 @@ function PhaseTracker() {
   const strongest = (steps: Step[]) =>
     steps.some((s) => turnStops[s] === 'always') ? 'always' : steps.some((s) => turnStops[s] === 'ifAble') ? 'ifAble' : undefined;
   const whose = (pid: PlayerId) => (pid === me ? 'your' : `${g.players[pid].name}'s`);
+  /** The players in the arrows' order (ARROW_ORDER), and where in it the player whose turn it is stands. */
+  const seats = me === null ? [] : [...g.players].sort((a, b) => ARROW_ORDER.indexOf(corner(seatOf(g, me, a.id))) - ARROW_ORDER.indexOf(corner(seatOf(g, me, b.id))));
+  const activeAt = seats.findIndex((p) => p.id === g.active);
 
   return (
     <div className={cx('phases', me !== null && 'editable')} ref={root} style={tone as CSSProperties}>
       {me !== null && (
         <div className="seat-arrows">
-          {[...g.players]
-            .sort((a, b) => ARROW_ORDER.indexOf(corner(seatOf(g, me, a.id))) - ARROW_ORDER.indexOf(corner(seatOf(g, me, b.id))))
-            .map((p) => (
+          {seats.map((p) => {
+            const turned = ARROW_TURN[corner(seatOf(g, me, p.id))];
+            return (
               <button
                 key={p.id}
                 className={cx('seat-arrow', editing === p.id && 'on', g.active === p.id && 'active')}
-                style={{ '--deck': deckVar(p.id), '--turn': `${ARROW_TURN[corner(seatOf(g, me, p.id))]}deg` } as CSSProperties}
+                style={{ '--deck': deckVar(p.id), '--turn': `${turned}deg` } as CSSProperties}
                 disabled={p.lost}
                 title={editing === p.id ? 'Back to the current turn' : `Set stops for ${whose(p.id)} turns`}
                 onClick={() => setSeat(editing === p.id ? null : p.id)}
               >
                 <svg viewBox="0 0 24 24">
-                  <polygon points="3,3 13,3 13,6.5 9,6.5 20.5,18 18,20.5 6.5,9 6.5,13 3,13" />
+                  {/* Lit from above whichever way the arrow points: the shading is turned back by as much as the arrow is turned. */}
+                  <linearGradient id={`seat-arrow-${p.id}`} gradientUnits="userSpaceOnUse" x1="12" y1="2" x2="12" y2="22" gradientTransform={`rotate(${-turned} 12 12)`}>
+                    <stop offset="0" className="arrow-hi" />
+                    <stop offset="1" className="arrow-lo" />
+                  </linearGradient>
+                  <polygon fill={`url(#seat-arrow-${p.id})`} points="3,3 13,3 13,6.5 9,6.5 20.5,18 18,20.5 6.5,9 6.5,13 3,13" />
                 </svg>
               </button>
-            ))}
+            );
+          })}
+          {/* The turn's flame, over the arrow of whoever's turn it is. It stays mounted, so it slides along the row when the turn passes; its ball is keyed on the player, so it leaps afresh each time. */}
+          {activeAt >= 0 && (
+            <span className="turn-fire" style={{ '--at': activeAt } as CSSProperties} aria-hidden="true">
+              <span key={g.active} className="turn-fire-ball">
+                <i />
+                <i />
+                <i />
+                <b />
+                <b />
+              </span>
+            </span>
+          )}
           {/* F6, as on MTGO: pass priority until the end of this turn. */}
           <button
             className={cx('seat-arrow pass-turn', passing && 'on')}
@@ -1578,6 +1599,14 @@ function Results() {
   return (
     <div className="modal">
       <motion.div className={cx('game-over', winner?.id === me && 'won')} initial={{ opacity: 0, scale: 0.8 }} animate={{ opacity: 1, scale: 1 }}>
+        {/* The winner's commander, as on their portrait, set like a seal on the window's top edge. */}
+        {winner && (
+          <div className="game-over-art">
+            {winner.commanders.map((name) => (
+              <div key={name} style={{ backgroundImage: `url(${cardData(name).art})` }} />
+            ))}
+          </div>
+        )}
         <h1>{title}</h1>
         {winner && (
           <p>

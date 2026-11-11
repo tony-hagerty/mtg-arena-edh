@@ -23,6 +23,7 @@
     "profile-game": "node scripts/profile-game.mjs"
   },
   "dependencies": {
+    "@fontsource/marcellus": "^5.3.0",
     "@react-three/fiber": "^9.8.2",
     "immer": "^11.1.21",
     "mana-font": "^1.18.0",

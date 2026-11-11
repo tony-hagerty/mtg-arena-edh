@@ -1,6 +1,6 @@
 // The 3D table's board (src/ui/three/board.ts): four mats, each a seat's battlefield, around the well that is the exile.
 import { describe, expect, it } from 'vitest';
-import { PILE, POND_CLEAR, POND_R, SWIRL_MAX, bedAt, bedDistance, bedMaps, gardenPlan, seatArea, wellSwirl } from '../src/ui/three/board';
+import { BORDER, PILE, POND_CLEAR, POND_R, RULE, SWIRL_MAX, bedAt, bedDistance, bedMaps, gardenPlan, seatArea, wellSwirl } from '../src/ui/three/board';
 import { camera, tableHeight, DEPTH } from '../src/ui/camera';
 import { floorMaps } from '../src/ui/three/floor';
 import type { Seat } from '../src/ui/util';
@@ -153,6 +153,24 @@ describe('bedMaps', () => {
       // The very corner is outside the rounding.
       expect(alpha(b.x0 + 0.1, b.y0 + 0.1)).toBe(0);
       expect(bedMaps(plan, b, px).albedo).toEqual(m.albedo);
+    }
+  });
+
+  it("inlays the gold double rule on the border's inner edge, where the mat's glow is brightest", () => {
+    for (const b of plan.beds) {
+      const px = 20;
+      const m = bedMaps(plan, b, px);
+      // Half way along the mat's outer side edge (clear of the well and the corners), `inside` rem in from it.
+      const at = (inside: number) => (Math.floor(((b.y1 - b.y0) / 2) * px) * m.width + Math.floor((b.h === 'right' ? b.x1 - b.x0 - inside : inside) * px)) * 4;
+      const [r, g, bl] = m.albedo.slice(at(BORDER), at(BORDER) + 3);
+      // Gold: red over green over blue, and bright.
+      expect(r).toBeGreaterThan(150);
+      expect(r).toBeGreaterThan(g);
+      expect(g).toBeGreaterThan(bl + 40);
+      expect(m.glow[at(BORDER)]).toBe(255);
+      // The field between the two lines and well inside them glows far less.
+      expect(m.glow[at(BORDER + RULE.gap / 2)]).toBeLessThan(140);
+      expect(m.glow[at(BORDER + 6)]).toBeLessThan(m.glow[at(BORDER + RULE.gap / 2)]);
     }
   });
 });

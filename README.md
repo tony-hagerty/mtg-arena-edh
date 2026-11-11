@@ -142,7 +142,9 @@ Cards that pasted decks needed but the game couldn't read are collected in
 
 Card data and images come from [Scryfall](https://scryfall.com) and are loaded from its
 image server at runtime. If an image doesn't load, the card is drawn as text instead. Mana
-and ability icons are from [mana-font](https://github.com/andrewgioia/mana). The mouse
+and ability icons are from [mana-font](https://github.com/andrewgioia/mana). The menu's
+titles are set in [Marcellus](https://fonts.google.com/specimen/Marcellus) by Astigmatic
+(SIL Open Font License), bundled through `@fontsource/marcellus`. The mouse
 cursor (`src/ui/cursor.png`) is
 ["MTGA cursor"](https://www.cursor.cc/?action=icon&file_id=114958) by Tales on cursor.cc,
 shared under Creative Commons with no attribution required; `cursor-down.png` is a shrunk,
