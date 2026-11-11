@@ -5,6 +5,7 @@
 // yes/no questions and naming a card that come up while a spell or ability resolves.
 // `CardPicker` is the reusable part; `Decisions` chooses which one the game is asking for.
 import { useState } from 'react';
+import type { CSSProperties } from 'react';
 import { CREATURE_TYPES, cardNames, isCardName } from '../cards/db';
 import {
   autoAssignments,
@@ -87,6 +88,9 @@ interface PickerProps {
   groupOf?: (c: Card) => string;
 }
 
+/** How many of a window's cards are dealt in one after another; the rest of a long list arrive with the last of them. */
+const DEALT = 12;
+
 /**
  * A window of cards to pick from. It can be folded away to look at the table, but not
  * closed: the game is waiting on the choice.
@@ -115,7 +119,8 @@ export function CardPicker({ title, hint, cards, selectable = () => false, max =
     else if (free && picked.length < max) setPicked([...picked, free]);
     else setPicked(picked.filter((id) => !ids.includes(id)));
   };
-  const drawTile = (tile: Card[]) => {
+  /** `i`: its place among the cards, for the order they are dealt in (`--i`, .picker-card). */
+  const drawTile = (tile: Card[], i: number) => {
     const c = tile[0];
     const can = selectable(c);
     const n = picked.indexOf(c.id);
@@ -126,6 +131,7 @@ export function CardPicker({ title, hint, cards, selectable = () => false, max =
         className={cx('picker-card', can && 'can', count > 0 && 'picked', !can && max > 0 && 'dim')}
         // Not `disabled`: a disabled button gets no mouse events, so hovering it would show no preview.
         aria-disabled={!can}
+        style={{ '--i': Math.min(i, DEALT) } as CSSProperties}
         onClick={() => toggle(tile)}
         {...hoverProps(c.name)}
       >

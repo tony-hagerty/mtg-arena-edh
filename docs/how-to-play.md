@@ -5,13 +5,18 @@ The full guide to the game's screens and controls. For a quick start, see the
 
 ## Starting a game
 
-- Pick a deck on the menu: the decks fill the middle, starter decks then your pasted
-  ones. Pointing at one shows its art behind the menu. **Watch the bots play** (right)
-  starts a game of four bots instead.
-- **The table:** right of the decks, for each of the three other seats pick who plays it
-  and its deck, built-in or pasted. **Bot** (the default) is played by the computer;
-  **Person here** by a friend at the same screen; **Empty seat** leaves it out, for a
-  table of two or three (at least one seat stays filled). **Automatic** (the default deck)
+- Pick a deck on the menu: every deck is a card in the hand along the bottom, starter
+  decks then your pasted ones. Click one to pick it (the arrow keys move along the hand).
+  The picked deck stands in the middle: its commander's card over the five mana symbols,
+  with the deck's colours lit, and its name and what it does on the left. Its art and
+  colours light the whole screen. The deck you played last is picked when the menu opens.
+- **Play** (left) starts a game with the picked deck; so does a double click on its card.
+  **Watch the bots play**, beside it, starts a game of four bots instead.
+- **The table:** on the right, the four seats as they sit in the game: yours at the bottom
+  left with the deck you picked, the others clockwise. For each other seat pick who plays
+  it and its deck, built-in or pasted. **Bot** (the default) is played by the computer;
+  **Person** by a friend at the same screen; **Empty** leaves the seat out, for a
+  table of two or three (at least one seat stays filled). **Automatic deck** (the default)
   takes the next built-in deck no one else has. Saved in the browser.
 - **With friends:** under the seats, **Host a table** and **Join a table** play with people
   on other computers, and **Saved games** resumes a table's game. They show only in the
@@ -20,7 +25,7 @@ The full guide to the game's screens and controls. For a quick start, see the
   another person must decide something, until they click **I'm Player N**. Then their
   seat is at the bottom with their hand. People are called Player 1 to 4 by seat, and the
   log is written in the third person; alone against bots, you're "You".
-- **Paste a deck list:** the last tile under "Your decks" opens a text box. Paste a plain list ("1 Sol Ring", "Sol
+- **Paste a deck list:** the last card in the hand, under "Your decks", opens a text box. Paste a plain list ("1 Sol Ring", "Sol
   Ring" or "Sol Ring x1") or an export from Arena, Moxfield, Archidekt, MTGO or
   TappedOut. Set codes, collector numbers, foil marks, tags and category headings
   ("Creatures (12)") are ignored, and sideboard and maybeboard cards ("SB:", Archidekt's
@@ -31,8 +36,9 @@ The full guide to the game's screens and controls. For a quick start, see the
   (or two partners) among the list's legendary creatures. Every problem is listed: names
   that aren't cards, cards not legal in Commander, and broken deck rules (100 cards, one
   of each, colour identity, commander). **Save Deck** works once there are none. The deck
-  joins the menu, saved in the browser; **×** deletes it. A saved deck the game can no
-  longer play is greyed out with the reason.
+  joins the hand, saved in the browser; pick it and **Delete this deck** (under Play)
+  deletes it. A saved deck the game can no longer play is grey and tagged **Can't play**:
+  pick it to read the reason. Play is off for it.
 - **Any card:** a card the game doesn't have is fetched from Scryfall as you paste, and
   scripted from its Oracle text. Fetched cards are kept in the browser, so the deck works
   offline afterwards (**Clear N fetched** forgets them). If Scryfall can't be reached,
@@ -45,7 +51,8 @@ The full guide to the game's screens and controls. For a quick start, see the
     "Played without their rules text", where **Undo** takes it back. In a game it has a
     small **no text** badge and a greyed name bar, on the table and in your hand;
     hovering it says so, and the log adds "(its rules text doesn't work here)" the first
-    time it is cast. On the menu the deck says "N cards play without their text". Once
+    time it is cast. On the menu the deck's card is tagged **No text**, and picked it says
+    "N cards play without their text". Once
     the game learns to read the card, it plays with its text again by itself.
   - **Swap it out** takes its line out of the list, so you can paste another card in.
 
@@ -53,15 +60,17 @@ The full guide to the game's screens and controls. For a quick start, see the
   can a card the game can't play as a plain card at all, like a double-faced card or one
   with a keyword such as ninjutsu: those can only be swapped.
 - **Saving for later:** a deck with cards still to choose for can be saved anyway
-  (**Save for Later**). It waits greyed out on the menu with "N cards the game can't play
-  yet", and **Swap them** (**Swap it** for one) opens it in the paste screen with those cards at the top of the
-  list, so you can fix it at your own pace. Saving there replaces it.
+  (**Save for Later**). It waits in the hand, grey and tagged **Needs cards**. Picked, it
+  says "N cards the game can't play yet", and **Swap them** (**Swap it** for one), under
+  Play, opens it in the paste screen with those cards at the top of the list, so you can
+  fix it at your own pace. Saving there replaces it.
 - Cards the game can't read are written down for Claude to script later (see
   [Adding a card](developing.md#adding-a-card)); outside `npm run dev`, **Download
   report** saves them as a file.
 - **Loading:** when a game starts, a splash covers the board while the 3D table loads: the
-  logo, the five mana symbols bouncing in turn, "Loading board state…" and a bar that fills
-  as it goes. It fades once the table is drawn, usually within a few seconds.
+  logo inside a slowly turning ring of the five mana symbols, the game's name, "Loading
+  board state…" and a gold line that fills as it goes. It fades once the table is drawn,
+  usually within a few seconds.
 - **Mulligan:** before the first turn you see your seven cards. Press **Keep**, or
   **Mulligan** to shuffle them away and draw seven new ones. Your first mulligan is free;
   after that you pick one card per extra mulligan to put on the bottom of your library.
@@ -84,8 +93,8 @@ The full guide to the game's screens and controls. For a quick start, see the
   along a spiral; the newest 40 when there are more) and the count at its edge. The portrait sits
   on the seat's side edge, and an opponent holds their hand up, fanned, face down, at the
   back of their mat beside their piles, with a count at its foot. Hover any card to see
-  it full size. A tapped card is dimmed, turned a little, and marked with a large,
-  see-through tap symbol. A face-down card shows the program's icon in gold.
+  it full size. A tapped card is dimmed, turned a little, and marked with the tap symbol in
+  a dark round over its middle. A face-down card shows the program's icon in gold.
 - **Your hand** curves out of the bottom-left corner, its first card's left edge on the
   screen's left edge, flat at first and then bending down
   into the bottom edge. Up to seven cards show; with more, two short pills arc over the
@@ -180,23 +189,25 @@ The full guide to the game's screens and controls. For a quick start, see the
   down onto the table from where it was and settles. At a higher
   **Speed** the flights are quicker,
   and with your system set to reduce motion cards just appear where they go.
-- With the stack empty, the game passes for you except at your **stops**. The tracker on
-  the controls' plate at the bottom of the screen, in the middle, shows them: a strip of the turn's parts, the
-  current one lit, with the turn and step written under it and the big button below:
+- With the stack empty, the game passes for you except at your **stops**. The tracker at
+  the bottom of the screen, in the middle, shows them: a row of beads on a gold thread, one
+  for each part of the turn, the current one lit, with the turn and step written under it
+  and the big button below:
 
-  | Mark under a step | Meaning              |
+  | Mark under a bead | Meaning              |
   | ----------------- | -------------------- |
   | nothing           | no stop              |
   | **ring**          | stop if I can act    |
   | **dot**           | always stop          |
 
-  Click a step to cycle it: no stop, ring, dot, no stop. A pip that covers several steps
+  Click a bead to cycle it: no stop, ring, dot, no stop. A bead that covers several steps
   (beginning, combat, end) opens one button per step. The untap and cleanup steps can't
   hold a stop: nobody gets priority there (502.4, 514.3).
-- The arrows above the plate are the seats, left to right: bottom left (you), top left,
+- The arrows above the tracker are the seats, left to right: bottom left (you), top left,
   top right, bottom right, each pointing at its corner in that player's deck colour (yours
-  points straight down when you have the whole bottom edge). The one whose turn it is is
-  ringed. Click one to see and edit the stops for that player's turns; the tracker takes
+  points straight down when you have the whole bottom edge). The one whose turn it is
+  has a small flame burning over it, which leaps to the next arrow when the turn passes.
+  Click one to see and edit the stops for that player's turns: it gets a ring, and the tracker takes
   their deck colour. Click it again to go back to the current turn. Your turns show
   orange, everyone else's blue.
 - **Pass the turn** (`F6`, or the gold ⏭ button right of the arrows, as on MTGO): the game
@@ -319,8 +330,8 @@ The full guide to the game's screens and controls. For a quick start, see the
 - A search through your library and graveyard together (Delivery Moogle) lists each place
   under its own heading, from the top, scrolling for the rest. In the library the cards you
   could find come first; the graveyard keeps its order, since some cards care about it.
-- When the game ends, a window says who won, with **Play Again**, **View Board** and
-  **Menu**. **View Board** hides it to look over the final board; **Show Results**, just
+- When the game ends, a window says who won, under the winner's commander, with **Play
+  Again**, **View Board** and **Menu**. **View Board** hides it to look over the final board; **Show Results**, just
   under the log bar (under the log while it is open), brings it back.
 
 ## Controls
@@ -370,12 +381,16 @@ for four: a mat in each seat's corner, all four the same size (so the far two
 look smaller), lying flat on the flagstone floor of a torch-lit stone hall, your two
 starting just above the bottom of the screen. A player alone on their side of the table
 (both players in a two-player game, you in a three-player one) has one mat across the
-whole side instead, curving round the well. Each mat is a dark material with a border
-worked into it, in turn order from yours: worn leather with stitching, oak planks, slate
-slabs with a brass line, and a woven cloth with a gold trim. Where the paths between them
-cross is a well with a low cobblestone wall, which is the exile: its green-blue water, rippling
+whole side instead, curving round the well. Each mat is a dark material, in turn order
+from yours: worn leather with stitching, oak planks, slate slabs, and a woven cloth. Every
+mat has the card back's gold double rule inlaid along its border, and the rule and the
+mat's edges glow in its player's deck colours: faintly at rest, brightly and slowly
+breathing while it is that player's turn, and all but dark once they are out of the game.
+Where the paths between them cross is a well with a low cobblestone wall, inside a gold
+ring set with a gem for each colour of mana, which is the exile: its green-blue water, rippling
 and catching the torchlight, turns in a slow whirlpool with streaks of foam, carrying the exiled cards round with it. Torches burn on the
-walls either side of the play area. Each opponent holds their hand up at the back of their mat,
+walls either side of the play area, and motes drift in the air: embers by the torches, pale
+dust further in. Each opponent holds their hand up at the back of their mat,
 fanned out, backs to you, with its count at its foot. Everything plays the
 same: hover a card to read it, click it, drag from your hand, right-click a graveyard or the
 well to open it. The portraits, your hand and the rest stay flat on the screen. It needs a browser with

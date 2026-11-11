@@ -64,6 +64,9 @@ const TILE_W = 320;
 const TILE_H = 256;
 const tiles = new Map<string, CanvasTexture>();
 
+/** How much larger than its tile a card's art is drawn, so the art crop's own edges never show. */
+const ART_OVER = 1.06;
+
 /** `a` mixed `k` of the way toward `b`, both `#rrggbb`. */
 function mix(a: string, b: string, k: number) {
   const p = (c: string, i: number) => parseInt(c.slice(1 + i * 2, 3 + i * 2), 16);
@@ -76,8 +79,8 @@ const typeface = () => getComputedStyle(document.documentElement).getPropertyVal
 /** The name bar and the frame round the art, drawn over whatever is under them. */
 function drawFrame(g: CanvasRenderingContext2D, name: string, frame: string) {
   // A thin band: the art is what you look at.
-  const bezel = TILE_W * 0.011;
-  const bar = TILE_H * 0.155;
+  const bezel = TILE_W * 0.014;
+  const bar = TILE_H * 0.16;
   // The card's corners are rounded (geometry.ts, CORNER of its width; its face is laid on the
   // whole rectangle, so that is CORNER of this picture's width too). The band follows them
   // round, the art inside it rounded to match, so a corner never cuts the band away.
@@ -87,11 +90,25 @@ function drawFrame(g: CanvasRenderingContext2D, name: string, frame: string) {
   const band = new Path2D();
   band.rect(0, 0, TILE_W, TILE_H);
   band.addPath(inner);
-  g.fillStyle = frame;
+  // Lit from above, like a card's bevelled edge: the band is lighter along the top than the bottom.
+  const bevel = g.createLinearGradient(0, 0, 0, TILE_H);
+  bevel.addColorStop(0, mix(frame, '#ffffff', 0.28));
+  bevel.addColorStop(0.5, frame);
+  bevel.addColorStop(1, mix(frame, '#0b0c10', 0.38));
+  g.fillStyle = bevel;
   g.fill(band, 'evenodd');
   // The rest is drawn inside the band.
   g.save();
   g.clip(inner);
+  // The art sinks into shade toward the bottom, where the power and toughness sit over it, and under the band all round.
+  const foot = g.createLinearGradient(0, TILE_H * 0.62, 0, TILE_H);
+  foot.addColorStop(0, 'rgba(0,0,0,0)');
+  foot.addColorStop(1, 'rgba(0,0,0,0.42)');
+  g.fillStyle = foot;
+  g.fillRect(0, TILE_H * 0.62, TILE_W, TILE_H * 0.38);
+  g.lineWidth = 5;
+  g.strokeStyle = 'rgba(0,0,0,0.38)';
+  g.stroke(inner);
   // The name bar: the frame's colour darkened, a light top edge, the name in the app's typeface.
   const grad = g.createLinearGradient(0, bezel, 0, bezel + bar);
   grad.addColorStop(0, mix(frame, '#262a33', 0.54));
@@ -100,8 +117,11 @@ function drawFrame(g: CanvasRenderingContext2D, name: string, frame: string) {
   g.fillRect(bezel, bezel, TILE_W - 2 * bezel, bar);
   g.fillStyle = 'rgba(255,255,255,0.2)';
   g.fillRect(bezel, bezel, TILE_W - 2 * bezel, 1.5);
-  g.fillStyle = 'rgba(0,0,0,0.6)';
-  g.fillRect(bezel, bezel + bar, TILE_W - 2 * bezel, 2);
+  // Under the bar: a line of the frame's colour, lightened, over a dark one.
+  g.fillStyle = 'rgba(0,0,0,0.7)';
+  g.fillRect(bezel, bezel + bar, TILE_W - 2 * bezel, 3);
+  g.fillStyle = mix(frame, '#ffffff', 0.35);
+  g.fillRect(bezel, bezel + bar, TILE_W - 2 * bezel, 1.25);
   // The name, shrunk to fit the bar.
   const room = TILE_W - 2 * bezel - 20;
   let size = bar * 0.62;
@@ -142,8 +162,10 @@ export function tileTexture(name: string, art: string, frame: string): CanvasTex
     const img = new Image();
     img.crossOrigin = 'anonymous';
     img.onload = () => {
-      // The art covers the tile, cropped to fit, centred a little high (faces are).
-      const k = Math.max(TILE_W / img.width, TILE_H / img.height);
+      // The art covers the tile, cropped to fit, centred a little high (faces are). It is drawn
+      // a little larger than the tile: a borderless card's art crop keeps the card's dark
+      // rounded corners, which would show in the tile's own corners.
+      const k = Math.max(TILE_W / img.width, TILE_H / img.height) * ART_OVER;
       const w = img.width * k;
       const h = img.height * k;
       g.drawImage(img, (TILE_W - w) / 2, (TILE_H - h) * 0.35, w, h);
@@ -188,10 +210,12 @@ export const SHADOW_SPREAD = 0.16;
 let shadow: CanvasTexture | null = null;
 
 /**
- * The soft dark under a card where it touches the floor (Table3D.tsx, `Card3D`): black, opaque
- * under the card and fading out over SHADOW_SPREAD past its edges, for a plane that size. The
+ * The soft dark under a card where it touches the floor (Table3D.tsx, `Card3D`): opaque under
+ * the card and fading out over SHADOW_SPREAD past its edges, for a plane that size. The
  * overhead light's shadow of a card this thin is a sliver; this is the occlusion a card lying flat makes
- * all around it, which is what shows it resting on the stone. Drawn once.
+ * all around it, which is what shows it resting on the stone. It is white, so the material's
+ * colour is what it draws: black for the shadow, a highlight's colour for the halo round a
+ * card that glows. Drawn once.
  */
 export function shadowTexture(): CanvasTexture {
   if (shadow) return shadow;
@@ -215,7 +239,9 @@ export function shadowTexture(): CanvasTexture {
       const d = Math.hypot(Math.max(qx, 0), Math.max(qy, 0)) + Math.min(Math.max(qx, qy), 0) - r;
       // Darkest at the edge, falling off quickly and then slowly, as occlusion does.
       const t = Math.min(1, Math.max(0, (d + 0.03) / (S + 0.03)));
-      img.data[(y * W + x) * 4 + 3] = Math.round((1 - t) ** 2.4 * 255);
+      const o = (y * W + x) * 4;
+      img.data[o] = img.data[o + 1] = img.data[o + 2] = 255;
+      img.data[o + 3] = Math.round((1 - t) ** 2.4 * 255);
     }
   g.putImageData(img, 0, 0);
   shadow = new CanvasTexture(c);

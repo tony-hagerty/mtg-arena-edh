@@ -46,7 +46,9 @@ function clickSound(el: Element): Sound | null {
   if (el.matches('.board, .board .row')) return 'board';
   const button = el.closest('button');
   if (!button) return null;
-  if (button.matches('.btn-go, .btn-attack')) return 'confirm';
+  if (button.matches('.btn-go, .btn-attack, .play-btn')) return 'confirm';
+  // A deck picked from the title screen's hand.
+  if (button.matches('.deck-card:not(.deck-paste)')) return 'select';
   if (button.matches('.btn-cancel')) return 'cancel';
   return 'click';
 }

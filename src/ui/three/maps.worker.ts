@@ -19,6 +19,6 @@ scope.onmessage = (e: MessageEvent<MapsRequest>) => {
     scope.postMessage(b, [b.albedo.buffer, b.height.buffer, b.rough.buffer]);
   } else {
     const m = bedMaps(r.plan, r.bed, r.px);
-    scope.postMessage(m, [m.albedo.buffer, m.normal.buffer]);
+    scope.postMessage(m, [m.albedo.buffer, m.normal.buffer, m.glow.buffer]);
   }
 };
