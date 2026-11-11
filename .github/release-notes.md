@@ -1,6 +1,13 @@
-## What's new in v0.6.1
+## What's new in v0.7.0
 
-- **See where a copy came from:** a copy looks just like what it copies, so the game now names what made it. On the stack a copy's tag reads "Your copy · from Twincast". Hover or right-click a copy, on the stack or the table, for a line like "Token copy of Serra Angel · made by Saw in Half". The log says it too.
+A new look, from the first screen to the last.
+
+- **A new home screen:** the deck you pick stands in the middle, its commander's card over a turning ring of the five mana symbols with the deck's colours lit. Its art and colours light the whole screen. Every deck is a card in a row along the bottom.
+- **Pick, then Play:** clicking a deck now picks it, and **Play** starts the game. A double click on a deck still starts it at once. The deck you played last is picked when the menu opens.
+- **The table at a glance:** the four seats are laid out as they sit in the game, with a Bot / Person / Empty switch for each of the other three.
+- **A new table:** each player's mat is inlaid with a gold double rule that glows in their deck's colours, brighter on their turn. Portraits are medallions, and every window shares one gold-ruled frame.
+- **Controls on the table:** the turn is a row of beads on a gold thread, with no plate behind the controls. A small flame burns over the arrow of the player whose turn it is, and moves when the turn passes.
+- **Pasted decks:** delete a deck, or swap the cards the game can't play yet, from the links under Play once the deck is picked.
 
 ## Download
 
