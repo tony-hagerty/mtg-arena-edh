@@ -295,7 +295,7 @@ export class Table {
     return this.people().filter((p) => p.gone);
   }
 
-  /** Votes need more than half the people still at the table (Tony's rule for a bot taking a seat). */
+  /** Votes need more than half the people still at the table for a bot to take an away seat. */
   private needed() {
     return Math.floor(this.people().filter((p) => !p.gone).length / 2) + 1;
   }

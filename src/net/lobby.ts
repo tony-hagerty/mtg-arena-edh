@@ -40,7 +40,7 @@ export interface LobbySeat {
 }
 
 /**
- * The table's vote on letting a bot play an away person's seat (Tony's rule: only when a
+ * The table's vote on letting a bot play an away person's seat (only when a
  * majority of the people still at the table agree). It opens when they go and stays open,
  * with no time limit, until it passes or they come back. A vote can be changed.
  */

@@ -2,7 +2,7 @@
 // Saved games: every player's program keeps a copy of their table's game, so if the host
 // goes, any of them can carry on with it as the new host. A file is a short header in
 // plain JSON (who played, which turn, this computer's seat) and the game itself,
-// scrambled. Tony asked only for easy measures against cheating, so the key is the same
+// scrambled. Only lightweight obfuscation against casual peeking is needed, so the key is the same
 // in every copy of the program: it stops someone glancing at a file for hidden cards,
 // not someone who reads this code.
 import { createCipheriv, createDecipheriv, createHash, randomBytes } from 'node:crypto';
