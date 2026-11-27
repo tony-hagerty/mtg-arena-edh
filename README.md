@@ -50,8 +50,8 @@ has it). On a slow machine, add `?quality=low` to the address to drop the shadow
 ## Quick start
 
 1. Pick a deck on the menu, or **Paste a deck list** to use your own.
-2. Under the decks, choose who fills each other seat: **Bot**, **Person here** (a friend
-   at your screen), or **Empty seat**.
+2. On the right, choose who fills each other seat: **Bot**, **Person** (a friend at your
+   screen), or **Empty**.
 3. Keep your opening hand or mulligan.
 4. **Glowing** cards can be played. Drag one from your hand onto the table, pick targets
    (shown in yellow), and press **Pay**. Mana is tapped for you.
@@ -70,7 +70,7 @@ The full guide, covering combat, the stack, stops, special cards and every contr
 
 ## Playing with friends
 
-- **Same screen:** set a seat to **Person here**. The table is covered when it's someone
+- **Same screen:** set a seat to **Person**. The table is covered when it's someone
   else's turn to decide, until they click **I'm Player N**.
 - **Different computers (Windows app):** one person uses **Host a table** and shares the
   code; everyone else uses **Join a table** and pastes it. Everyone needs the same version of the game.
@@ -117,8 +117,8 @@ Behind an HTTPS proxy, run `fetch-cards`, `fetch-corpus` and `recheck-requests` 
 `NODE_USE_ENV_PROXY=1` in front, as in `NODE_USE_ENV_PROXY=1 npm run fetch-cards` (Node's
 `fetch` ignores the proxy otherwise).
 
-**Releasing:** set `version` in `package.json`, merge to `main`, then push a matching tag
-(`git tag v0.1.0 && git push origin v0.1.0`). The
+**Releasing:** set `version` in `package.json`, update `.github/release-notes.md`, merge
+to `main`, then push a matching tag (`git tag v0.7.0 && git push origin v0.7.0`). The
 [Release workflow](.github/workflows/release.yml) runs the tests (the quick ones, and the
 games split over four jobs) while it builds `ArenaEDH.exe` on Windows and checks that it
 starts. Once all of that passes, it publishes the release with the `.exe` attached.
