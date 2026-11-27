@@ -52,6 +52,6 @@ is the rules, clause by clause, and rule numbers from `docs/rules/` go in commen
 2. Take the handled cards out of `docs/card-requests.json` (by name; keep the rest as
    they are). The `removeRequests` helper in `src/cards/requests.ts` does it the same
    way the app writes the file.
-3. Update `docs/rules-coverage.md`: the parser's reach under "Known simplifications" → "Scripts from
-   Oracle text" if it grew, and any approved simplification.
+3. Update `docs/rules-coverage.md`: the parser's reach under "Scripts from Oracle text" if
+   it grew, and any approved simplification under "Known simplifications".
 4. Tell the user what was scripted, what was left and why, then ask before committing.

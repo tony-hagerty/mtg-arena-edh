@@ -5,7 +5,7 @@ shows what is happening, stops and priority that behave, and a few rules bugs. T
 eleven requests are grouped into seven sessions, each on its own branch, that can run at
 the same time.
 
-**Status: planned.**
+**Status: done (all seven sessions merged).**
 
 ## Rules every session follows
 

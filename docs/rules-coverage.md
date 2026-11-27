@@ -461,7 +461,8 @@ are from the Comprehensive Rules in `docs/rules/`.
   highest that has a target.
 - **Replacement effects as a permanent enters** (614.1c, 614.12a), with a choice: Mox
   Diamond's discard, Cavern of Souls's and Roaming Throne's creature type (all of 205.3m),
-  Mockingbird's copy. "Artifacts and creatures your opponents control enter tapped"
+  Mockingbird's copy, "enters with counters", and actions from an opening hand (103.6,
+  Gemstone Caverns). "Artifacts and creatures your opponents control enter tapped"
   (Blind Obedience).
 - **Abilities one permanent gives another (613.1f):** Equipment and Auras that give a
   triggered ability ("has 'Whenever this creature deals damage to an opponent, ...'"),
@@ -541,7 +542,6 @@ are from the Comprehensive Rules in `docs/rules/`.
 - **Abilities from other cards:** creatures with +1/+1 counters have the activated
   abilities of the creature cards exiled with Agatha's Soul Cauldron (607.2a), and you
   may spend mana as though it were any colour on them.
-  "Enters with counters". Actions from an opening hand (103.6, Gemstone Caverns).
 - **The legend rule (704.5j):** you choose which to keep; bots keep the untapped, ready
   one.
 
@@ -701,7 +701,8 @@ are from the Comprehensive Rules in `docs/rules/`.
   into a graveyard from the battlefield, 700.4, the creature as it last was, so a land made
   a creature counts; "whenever you sacrifice a permanent" triggers on the sacrifice, not
   the dying, so it doesn't double, as Teysa's rulings say). A creature dying together with
-  Teysa still counts, and each further Teysa adds one more. Delayed and reflexive triggered
+  Teysa still counts, and each further Teysa adds one more. Harmonic Prodigy doubles a
+  Shaman's or another Wizard's triggered abilities. Delayed and reflexive triggered
   abilities are never doubled (603.2d).
 - **Protection for a player (702.16):** Serra's Emissary's "You ... have protection from
   the chosen card type": damage from such sources is prevented and spells and abilities
@@ -749,7 +750,6 @@ are from the Comprehensive Rules in `docs/rules/`.
   without paying its mana cost, and a creature spell cast this way has haste.
 - **Maximum hand size (402.2):** effects that change it, like Jin-Gitaxias, Progress
   Tyrant's "Each opponent's maximum hand size is reduced by seven", down to 0.
-  Harmonic Prodigy does it for a Shaman's or another Wizard's triggered abilities.
 - **Damage that is doubled or increased (614.1a):** Furnace of Rath, Trance Kuja (a
   Wizard you control), Collective Inferno (sources you control of the chosen type), and
   Tomik's "plus 1" for noncombat damage to an opponent or their permanent.
@@ -1018,7 +1018,7 @@ are from the Comprehensive Rules in `docs/rules/`.
   The portrait shows a player's emblems; hovering one shows its ability.
 - **"As this creature transforms into [this face], ..." (712.20):** applied while it transforms,
   not afterward (Sephiroth's Super Nova emblem).
-- **More triggers (tokens group):** "whenever one or more [tokens] you control enter", once for
+- **Token and tapping triggers:** "whenever one or more [tokens] you control enter", once for
   each event that puts permanents onto the battlefield (603.2c; Marneus Calgar), and "whenever a
   [Dwarf] you control becomes tapped", only when it was untapped (Magda). Tokens of several kinds
   that one effect creates ("create a Treasure token and a Food token") are created in one event
@@ -1118,8 +1118,8 @@ These are deliberate cuts for a prototype. The biggest ones come first.
   enchant, or a triggered, activated or mana ability (such as a static ability); losing a keyword ability the card's script carries, other than ward
   and enchant (the layer system refuses it); and abilities of cards that aren't on the
   battlefield (Yixlid Jailer).
-- **Counters:** proliferate, shield, stun and other counters with their own rules
-  (122.1c-j) do nothing special yet.
+- **Counters:** shield (122.1c), stun (122.1d) and hone (122.1j) counters do nothing
+  special yet.
 - **Auras** can only enchant permanents and cards in graveyards, not players (702.5d). An
   Aura put onto the battlefield without being cast isn't given something to enchant
   (303.4f), so it goes to the graveyard; no card in the pool does this yet.
@@ -1128,8 +1128,8 @@ These are deliberate cuts for a prototype. The biggest ones come first.
   the spell rather than chosen as it enters. Only Siege battles exist in print; others
   are protected by their controller.
 - **"You may" effects:** in the older scripts, optional effects always happen when they
-  are free upside (a defeated Siege's back face, the starter decks' land searches). The
-  session 7a cards ask.
+  are free upside (a defeated Siege's back face, the starter decks' land searches). Newer
+  scripts and parsed cards ask.
 - **Cultivate** asks for its two lands one at a time (battlefield, then hand), not as one
   pick of two. It is still one search with one shuffle (701.23h).
 - **Copies entering:** a copy that enters with the copied creature's own "as this enters"
@@ -1150,10 +1150,10 @@ These are deliberate cuts for a prototype. The biggest ones come first.
 - Partner variants other than plain partner and "partner with" (Background, Doctor's
   companion, "partner—[text]") aren't recognised. A
   planeswalker that says it "can be your commander" is accepted as one (903.3a).
-- **Pasted decks use only the card pool:** the cards in `decklists.json`. Anything else
-  is listed as missing. Companions, sideboards and maybeboards in a list are ignored. A
-  saved deck can't be edited: delete it and paste it again. Saved decks stay in the
-  browser they were pasted in.
+- **Pasted decks:** companions, sideboards and maybeboards in a list are ignored. A
+  saved deck can't be edited in place: delete it and paste it again (or use **Swap them**
+  to reopen one saved with refused cards). Saved decks stay in the browser they were
+  pasted in.
 
 ### Mana and paying
 
@@ -1182,7 +1182,40 @@ These are deliberate cuts for a prototype. The biggest ones come first.
   ask with no opponent dealt combat damage: paying would change nothing. Both still
   trigger.
 
-### Scripts from Oracle text
+### Bots
+
+- They win with Thassa's Oracle plus Demonic Consultation or Tainted Pact when they can
+  pay for both (Oracle first, holding priority).
+- They cast a ritual, exile Simian Spirit Guide or crack Lion's Eye Diamond (only with an
+  empty hand) when the mana lets them cast something they couldn't, and Final Fortune
+  only with one opponent left whose life their creatures could take.
+- They cast tutors in their second main phase, Pact of Negation only if they could pay
+  next upkeep, and use Necropotence in their second main phase above 16 life.
+- They never cast Rain of Filth, decline Chain of Vapor's copy, and give Wishclaw
+  Talisman to the opponent whose turn comes last, using their own only to find a missing
+  combo piece.
+- They don't try Underworld Breach loops.
+- A bot never announces X = 0 for an ability with X in its cost: it pays nothing and, for
+  the current cards, does nothing.
+- A bot always says yes to a parsed "you may" effect, keeps every card on top when a parsed
+  card has it scry or surveil, and untaps its own lands for a parsed "untap up to N lands".
+
+### Features tested with extra cards
+
+Some features have no card on the menu yet (battles, among others), or have extra test
+coverage with cards outside the pool. Those cards are scripted in `tests/fixtures.ts`.
+
+| Feature | Extra test cards |
+| --- | --- |
+| Planeswalkers and battles (battles: none on the menu yet) | Jace Beleren, Garruk Wildspeaker, Chandra Nalaar, Invasion of Dominaria |
+| Several activated abilities | Deathrite Shaman, Cranial Plating |
+| X in an ability's cost | Crypt Rats, Chandra Nalaar |
+| Special costs (X, kicker, hybrid, Phyrexian, sacrifice, reductions) | Blaze, Gut Shot, Burst Lightning, Bone Splinters, Flawless Maneuver, Thalia, Ruby Medallion, Boros Recruit |
+| Card frames | Delver of Secrets, Kazandu Mammoth, Needleverge Pathway, Dead // Gone, Murderous Rider, History of Benalia, Wizard Class, Think Twice, Strike It Rich, Thraben Inspector, Bake into a Pie |
+| Auras, Equipment, Vehicles, counters | Pacifism, Holy Strength, Bonesplitter, Loxodon Warhammer, Cranial Plating, Untethered Express, Black Sun's Zenith |
+| Counterspells, modes, copies | Counterspell, Negate, Essence Scatter, Stifle, Cryptic Command, Boros Charm, Fiery Confluence, Reverberate |
+
+## Scripts from Oracle text
 
 `src/cards/oracle.ts` reads common, regular Oracle wording into a script, for cards with
 no hand script. It matches each ability, clause by clause, against a list of templates and
@@ -1335,7 +1368,7 @@ card, naming the clause: it never guesses. Hand scripts always win.
   conditions joined by "and"; and flavor words (207.2d); trigger
   doublers, "if an artifact or creature entering / a creature dying / a creature attacking
   causes a triggered ability of a permanent you control to trigger, that ability triggers an
-  additional time" (603.2d: Panharmonicon, Teysa Karlov, Isshin);
+  additional time" (603.2d: Panharmonicon, Teysa Karlov, Isshin); "you may look at
   the top card of your library any time", "play with the top card of your library revealed",
   "you may play lands and cast spells [with mana value N or greater] / play lands / cast
   [kind] spells from the top of your library" (601.3); "you may play an additional land [two
@@ -1351,11 +1384,14 @@ card, naming the clause: it never guesses. Hand scripts always win.
   the effect "you may play an additional land this turn".
 - **Refused:** anything else, including "instead" effects it has no template for, conditions it
   can't read, X outside a cost, and cards whose rules the engine doesn't have (copies). A
-  fetched card it refuses can't be played: it is never played as a stand-in.
-- `npm run parse-report` prints the cards it scripts on its own and every refusal: for the
-  pool (327 of 519 cards with rules text, 63%) and for a corpus of the 600 most-played
-  Commander cards (`tests/parser-corpus.generated.json`: 420 of 590, 71%), whose refusals it
-  groups by opening words and by shape, biggest first. A test plays about 190 pool cards with
+  fetched card it refuses gets no script (it is never approximated); non-commanders that can
+  be framed as plain cards may still be played without their rules text by the player's
+  choice (see [Biggest gaps](#biggest-gaps)).
+- `npm run parse-report` prints the cards it scripts on its own and every refusal for the
+  pool and for a corpus of the 600 most-played Commander cards
+  (`tests/parser-corpus.generated.json`; as of v0.7.0, 327 of 519 pool cards with rules
+  text, 63%, and 426 of 590 corpus cards, 72%), grouping refusals by opening words and by
+  shape, biggest first. A test plays about 190 pool cards with
   the parsed script and with the hand script and checks the table ends the same; others play
   each template on a made-up card and check a near miss is refused.
   `npm run recheck-requests` takes the requested cards the parser now reads out of
@@ -1365,36 +1401,3 @@ card, naming the clause: it never guesses. Hand scripts always win.
   they have hand scripts in `src/cards/scripts.ts` for pasted decks (tested in
   `tests/staples.test.ts` with the corpus's data). Path of Ancestry stays refused: the engine
   has no ability that triggers when mana is spent.
-
-### Bots
-
-- They win with Thassa's Oracle plus Demonic Consultation or Tainted Pact when they can
-  pay for both (Oracle first, holding priority).
-- They cast a ritual, exile Simian Spirit Guide or crack Lion's Eye Diamond (only with an
-  empty hand) when the mana lets them cast something they couldn't, and Final Fortune
-  only with one opponent left whose life their creatures could take.
-- They cast tutors in their second main phase, Pact of Negation only if they could pay
-  next upkeep, and use Necropotence in their second main phase above 16 life.
-- They never cast Rain of Filth, decline Chain of Vapor's copy, and give Wishclaw
-  Talisman to the opponent whose turn comes last, using their own only to find a missing
-  combo piece.
-- They don't try Underworld Breach loops.
-- A bot never announces X = 0 for an ability with X in its cost: it pays nothing and, for
-  the current cards, does nothing.
-- A bot always says yes to a parsed "you may" effect, keeps every card on top when a parsed
-  card has it scry or surveil, and untaps its own lands for a parsed "untap up to N lands".
-
-### Features tested only with extra cards
-
-Some features have no card on the menu yet, or are tested with cards outside the pool.
-Those cards are scripted in `tests/fixtures.ts`.
-
-| Feature | Test-only cards |
-| --- | --- |
-| Planeswalkers and battles (none on the menu yet) | Jace Beleren, Garruk Wildspeaker, Chandra Nalaar, Invasion of Dominaria |
-| Several activated abilities (none on the menu yet) | Deathrite Shaman, Cranial Plating |
-| X in an ability's cost (none on the menu yet) | Crypt Rats, Chandra Nalaar |
-| The new costs (none on the menu yet) | Blaze, Gut Shot, Burst Lightning, Bone Splinters, Flawless Maneuver, Thalia, Ruby Medallion, Boros Recruit |
-| Card frames | Delver of Secrets, Kazandu Mammoth, Needleverge Pathway, Dead // Gone, Murderous Rider, History of Benalia, Wizard Class, Think Twice, Strike It Rich, Thraben Inspector, Bake into a Pie |
-| Auras, Equipment, Vehicles, counters | Pacifism, Holy Strength, Bonesplitter, Loxodon Warhammer, Cranial Plating, Untethered Express, Black Sun's Zenith |
-| Counterspells, modes, copies | Counterspell, Negate, Essence Scatter, Stifle, Cryptic Command, Boros Charm, Fiery Confluence, Reverberate |

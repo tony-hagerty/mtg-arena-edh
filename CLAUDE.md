@@ -17,8 +17,9 @@ Read first:
 ## Working here
 
 - `npm test` runs everything, bot-vs-bot games included, and takes minutes. While working,
-  run one file: `npx vitest run tests/engine.test.ts`. Finish with `npm test` and
-  `npm run build` (type-check and build) passing.
+  run `npm run test:quick` (everything except whole games) or one file
+  (`npx vitest run tests/engine.test.ts`); `npm run test:games` runs only the whole games.
+  Finish with `npm test` and `npm run build` (type-check and build) passing.
 - Where tests go: rules in `tests/engine.test.ts` or a deck's own file
   (`tests/ketramose.test.ts`); the UI flow in `tests/view.test.ts`, which drives the store
   and `buildView()` without rendering; bot games in `tests/simulation/`.

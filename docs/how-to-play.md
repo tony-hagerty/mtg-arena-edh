@@ -64,9 +64,9 @@ The full guide to the game's screens and controls. For a quick start, see the
   says "N cards the game can't play yet", and **Swap them** (**Swap it** for one), under
   Play, opens it in the paste screen with those cards at the top of the list, so you can
   fix it at your own pace. Saving there replaces it.
-- Cards the game can't read are written down for Claude to script later (see
-  [Adding a card](developing.md#adding-a-card)); outside `npm run dev`, **Download
-  report** saves them as a file.
+- Cards the game can't read are noted so they can be added later; **Download report**
+  saves them as a file to share with the developer (when running from source with
+  `npm run dev`, they are recorded automatically; see [Adding a card](developing.md#adding-a-card)).
 - **Loading:** when a game starts, a splash covers the board while the 3D table loads: the
   logo inside a slowly turning ring of the five mana symbols, the game's name, "Loading
   board state…" and a gold line that fills as it goes. It fades once the table is drawn,
@@ -274,11 +274,12 @@ The full guide to the game's screens and controls. For a quick start, see the
   `Ctrl+Z` takes back the last attackers you sent (one click's worth, so **All Attack**
   at once; an attacker you switched to a planeswalker goes back to its old target), the
   last block, or the last blocker you picked.
-- **Dividing damage:** with **Damage: By hand** on (in the log bar), a window opens in
+- **Dividing damage:** with **Combat damage: By hand** on (in **Settings**, the gear in
+  the log bar), a window opens in
   the damage step when one of your attackers has a choice: two or more blockers, or
   trample. Use − and + to move damage between the blockers and, with trample, the player
   or permanent attacked. It starts on the automatic split; **Deal Damage** is enabled once
-  the split is legal. With **Damage: Auto** (the default) it is never asked.
+  the split is legal. With **Combat damage: Auto** (the default) it is never asked.
 
 ## Special cards
 
