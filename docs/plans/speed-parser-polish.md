@@ -9,7 +9,7 @@ parallel in the cloud and reviewed as pull requests.
 3. The table lacks visual polish: the board, the permanents, the library, graveyard and
    exile piles, the bottom-right controls, and the opponents' seats.
 
-**Status: planned, sessions started 2026-10-19.**
+**Status: done (all four sessions merged; the table's look has since moved on to the 3D table and v0.7.0 redesign).**
 
 ## What was measured (2026-10-19, 16 cores)
 

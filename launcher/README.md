@@ -66,7 +66,7 @@ move to another folder or a USB stick together.
 | `launcher.log`   | What the launcher did, and any error, the game window's too. Cleared once it passes 1 MB |
 | `saves/`         | A copy of each table game this player is in, to carry on if the host goes |
 
-`launcher/paths.ts` also names `cards/` for the game server to come.
+`launcher/paths.ts` also reserves `cards/` for future server-side card caching (not created yet).
 
 ### When the game crashes
 

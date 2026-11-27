@@ -53,6 +53,7 @@ server/net/                           reaching the host: TLS identity, join code
                                       forwarding (NAT-PMP, UPnP), addresses, CGNAT checks
 launcher/                             the Windows program: serves the game, opens Edge, logs
                                       to ArenaEDH-data/launcher.log (see launcher/README.md)
+src/main.tsx                          entry point: fonts, pressed cursor, mounts App
 src/ui/         App.tsx               menu or game screen; GameScreen.tsx lays the game out
                 ErrorScreen.tsx       what shows instead of a blank page when drawing throws
                 crash.ts              sends the window's errors to the program's log
@@ -102,12 +103,17 @@ src/ui/         App.tsx               menu or game screen; GameScreen.tsx lays t
                                       swirling in it; Hall.tsx the stone walls, the
                                       torches and the motes in the air; effects.tsx the bursts a click on the
                                       board makes; floor.ts the flagstones; noise.ts the
-                                      noise they share; textures.ts card faces (a
-                                      permanent's art-and-name tile, tileTexture), back
+                                      noise they share; maps.worker.ts generates the mats'
+                                      bump/roughness maps off the main thread; textures.ts card
+                                      faces (a permanent's art-and-name tile, tileTexture), back
                                       and floor
                 card-back.svg         the back of every card, on the screen and in the scene
+                icon.svg              the app and .exe icon
                 cursor.png            the mouse cursor, and cursor-down.png while a
                                       button is held (see Credits)
+scripts/                              CLI scripts for npm commands: fetch-cards, fetch-corpus,
+                                      fetch-rules (+ rules-lists), parse-report, card-requests,
+                                      recheck-requests, build-exe, profile-game
 tests/                                Vitest: card coverage, rules, the UI casting flow,
                                       bot-vs-bot games
                 simulation/           bot-vs-bot games, one file each so they run on
@@ -659,6 +665,7 @@ casting (`playPermissions`, `permitFor`), lets the player name one and its slot
 (`usePermit`; a script checks `permitUsed(g, self, slot)`). A land played this way counts as
 the turn's land (305.2a); `landsAllowed` says how many a player may play. Printed mayhem
 (702.187) and dredge (702.52) need no script: `mayhemCost` and `dredgeOf` read the card.
+
 **Costs from other permanents, and abilities from the command zone**
 
 | Card | Script |
