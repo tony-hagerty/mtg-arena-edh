@@ -5,7 +5,7 @@ table. Two to four players: you play one deck, and bots or friends play the othe
 
 This is an unofficial fan prototype. Expect rough edges.
 
-![A four-player game on turn 21: each seat's battlefield on its own mat, life totals on the portraits, two exiled cards swirling in the well in the middle, and the Next button with the seat arrows and the pass-the-turn button above it](docs/images/table.webp)
+![A four-player game on turn 22: each seat's battlefield on its own mat, life totals on the portraits, two exiled cards swirling in the well in the middle, and the Next button with the seat arrows and the pass-the-turn button above it](docs/images/table.webp)
 
 ## Highlights
 
@@ -28,11 +28,11 @@ This is an unofficial fan prototype. Expect rough edges.
 
 | | |
 | --- | --- |
-| ![The menu: eight built-in decks with their art, and the table settings on the right](docs/images/menu.webp) | ![Pasting a deck list: 100 cards read, the commander picked, ready to save](docs/images/paste-deck.webp) |
+| ![The menu: Karlov of the Ghost Council standing over the mana ring, the eight built-in decks along the bottom, and the table seat chart on the right](docs/images/menu.webp) | ![Pasting a deck list: 100 cards read, the commander picked, ready to save](docs/images/paste-deck.webp) |
 | **The menu.** Pick a deck and who sits in the other seats. | **Paste a deck list** from Arena, Moxfield, Archidekt, MTGO or TappedOut. |
 | ![The opening hand of seven cards, with Mulligan and Keep buttons](docs/images/mulligan.webp) | ![Casting Manalith: the card in the middle, "Pay 3 to cast Manalith", the lands that will be tapped glowing, and Cancel and Pay buttons](docs/images/cast.webp) |
 | **Keep or mulligan** your opening hand. Your first mulligan is free. | **Cast a spell** by dragging it onto the table. The lands auto-pay will tap glow: press **Pay**. |
-| ![Two abilities on the stack; hovering the lower one, Acidic Slime's trigger, draws a dotted arrow to the Sol Ring it targets](docs/images/stack.webp) | ![The Hotkeys window listing every keyboard and mouse control](docs/images/hotkeys.webp) |
+| ![Two abilities on the stack; hovering Judith, the Scourge Diva's trigger draws a dotted arrow to the Zulaport Cutthroat it targets](docs/images/stack.webp) | ![The Hotkeys window listing every keyboard and mouse control](docs/images/hotkeys.webp) |
 | **The stack** sits in the middle. Hover a spell or ability to see what it targets. | **Hotkeys**, on the gear menu, lists every control. |
 
 ## Getting the game
